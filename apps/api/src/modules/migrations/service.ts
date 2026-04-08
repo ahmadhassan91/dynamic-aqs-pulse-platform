@@ -12,9 +12,11 @@ import {
 import type {
   CaptureSourceSnapshotsRequest,
   CreateMigrationRunRequest,
+  NormalizeMigrationSnapshotsRequest,
   SourceSnapshotInput,
   StageMigrationRecordsRequest,
 } from './types.js';
+import { normalizeSnapshot } from './normalization.js';
 
 export async function createMigrationRun(input: CreateMigrationRunRequest) {
   const sourceSystem = parseEnumValue(DataSourceSystem, input.sourceSystem, 'sourceSystem');
@@ -167,6 +169,124 @@ export async function stageMigrationRecords(runId: string, input: StageMigration
   };
 }
 
+export async function normalizeMigrationSnapshots(runId: string, input: NormalizeMigrationSnapshotsRequest = {}) {
+  await requireMigrationRun(runId);
+  if (input.entityTypes !== undefined && !Array.isArray(input.entityTypes)) {
+    throw new Error('entityTypes must be an array');
+  }
+  if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit <= 0)) {
+    throw new Error('limit must be a positive integer');
+  }
+
+  const entityTypes = input.entityTypes?.map((value) =>
+    parseEnumValue(DataRecordEntityType, value, 'entityTypes'),
+  );
+
+  const eligibleStatuses = input.reprocessNormalized
+    ? [SnapshotStatus.CAPTURED, SnapshotStatus.NORMALIZED]
+    : [SnapshotStatus.CAPTURED];
+
+  const findManyArgs: Prisma.SourceRecordSnapshotFindManyArgs = {
+    where: {
+      migrationRunId: runId,
+      status: {
+        in: eligibleStatuses,
+      },
+      ...(entityTypes && entityTypes.length > 0 ? { entityType: { in: entityTypes } } : {}),
+    },
+    orderBy: [
+      { capturedAt: 'asc' },
+      { createdAt: 'asc' },
+    ],
+  };
+
+  if (input.limit !== undefined) {
+    findManyArgs.take = input.limit;
+  }
+
+  const snapshots = await prisma.sourceRecordSnapshot.findMany(findManyArgs);
+  if (snapshots.length === 0) {
+    return {
+      migrationRunId: runId,
+      normalized: 0,
+      errors: 0,
+      items: [],
+    };
+  }
+
+  const items: Array<Record<string, unknown>> = [];
+  let normalizedCount = 0;
+  let errorCount = 0;
+
+  for (const snapshot of snapshots) {
+    try {
+      const normalized = normalizeSnapshot(snapshot);
+      const updated = await prisma.sourceRecordSnapshot.update({
+        where: {
+          id: snapshot.id,
+        },
+        data: {
+          targetEntityType: normalized.targetEntityType,
+          normalizedPayload: toJsonValue(normalized.normalizedPayload, 'normalizedPayload'),
+          normalizedAt: new Date(),
+          status: SnapshotStatus.NORMALIZED,
+          metadata: mergeSnapshotMetadata(snapshot.metadata, {
+            normalization: {
+              lastNormalizedAt: new Date().toISOString(),
+              status: 'ok',
+            },
+          }),
+        },
+      });
+
+      normalizedCount += 1;
+      items.push({
+        id: updated.id,
+        externalId: updated.externalId,
+        entityType: updated.entityType,
+        targetEntityType: updated.targetEntityType,
+        status: updated.status,
+        validation: normalized.normalizedPayload.validation,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await prisma.sourceRecordSnapshot.update({
+        where: {
+          id: snapshot.id,
+        },
+        data: {
+          status: SnapshotStatus.ERROR,
+          metadata: mergeSnapshotMetadata(snapshot.metadata, {
+            normalization: {
+              lastNormalizedAt: new Date().toISOString(),
+              status: 'error',
+              message,
+            },
+          }),
+        },
+      });
+
+      errorCount += 1;
+      items.push({
+        id: snapshot.id,
+        externalId: snapshot.externalId,
+        entityType: snapshot.entityType,
+        status: SnapshotStatus.ERROR,
+        error: message,
+      });
+    }
+  }
+
+  await markRunActiveIfNeeded(runId);
+
+  return {
+    migrationRunId: runId,
+    normalized: normalizedCount,
+    errors: errorCount,
+    items,
+  };
+}
+
 export async function getMigrationRunSummary(runId: string) {
   const run = await prisma.migrationRun.findUnique({
     where: { id: runId },
@@ -224,9 +344,6 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
   const targetEntityType = snapshot.targetEntityType
     ? parseEnumValue(DataRecordEntityType, snapshot.targetEntityType, 'snapshots[].targetEntityType')
     : undefined;
-  const normalizedPayload = snapshot.normalizedPayload === undefined
-    ? undefined
-    : toJsonValue(snapshot.normalizedPayload, 'snapshots[].normalizedPayload');
   const sourceModifiedAt = parseDate(snapshot.sourceModifiedAt, 'snapshots[].sourceModifiedAt');
   const targetEntityId = optionalTrimmed(snapshot.targetEntityId);
   const payloadChecksum = optionalTrimmed(snapshot.payloadChecksum);
@@ -252,11 +369,6 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
   if (payloadChecksum !== undefined) {
     updateData.payloadChecksum = payloadChecksum;
   }
-  if (normalizedPayload !== undefined) {
-    updateData.normalizedPayload = normalizedPayload;
-    updateData.normalizedAt = new Date();
-    updateData.status = SnapshotStatus.NORMALIZED;
-  }
   if (metadata !== undefined) {
     updateData.metadata = metadata;
   }
@@ -267,7 +379,7 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
     entityType,
     externalId: snapshot.externalId,
     rawPayload: toJsonValue(snapshot.rawPayload, 'snapshots[].rawPayload'),
-    status: normalizedPayload === undefined ? SnapshotStatus.CAPTURED : SnapshotStatus.NORMALIZED,
+    status: SnapshotStatus.CAPTURED,
   };
 
   if (targetEntityType !== undefined) {
@@ -281,10 +393,6 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
   }
   if (payloadChecksum !== undefined) {
     createData.payloadChecksum = payloadChecksum;
-  }
-  if (normalizedPayload !== undefined) {
-    createData.normalizedPayload = normalizedPayload;
-    createData.normalizedAt = new Date();
   }
   if (metadata !== undefined) {
     createData.metadata = metadata;
@@ -382,4 +490,18 @@ function toJsonValue(value: unknown, field: string): Prisma.InputJsonValue {
         : `Invalid ${field}`,
     );
   }
+}
+
+function mergeSnapshotMetadata(currentMetadata: Prisma.JsonValue | null, patch: Record<string, unknown>) {
+  const current = currentMetadata && typeof currentMetadata === 'object' && !Array.isArray(currentMetadata)
+    ? currentMetadata as Record<string, unknown>
+    : {};
+
+  return toJsonValue(
+    {
+      ...current,
+      ...patch,
+    },
+    'metadata',
+  );
 }

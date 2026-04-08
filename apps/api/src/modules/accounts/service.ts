@@ -6,14 +6,16 @@ import type {
   AccountSummary,
   ContactSummary,
   CreateAccountRequest,
+  CreateAccountLocationRequest,
   CreateContactRequest,
   ListAccountsRequest,
   ListAccountsResponse,
-} from '@pulse/contracts';
+} from '@pulse/contracts/accounts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 
 const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
+const LOCATION_ENTITY_TYPE = 'ACCOUNT_LOCATION';
 const CONTACT_ENTITY_TYPE = 'CONTACT';
 
 export async function listAccounts(actor: AuthenticatedActor, query: ListAccountsRequest = {}): Promise<ListAccountsResponse> {
@@ -179,6 +181,129 @@ export async function listAccountContacts(actor: AuthenticatedActor, accountId: 
   });
 
   return contacts.map(toContactSummary);
+}
+
+export async function listAccountLocations(actor: AuthenticatedActor, accountId: string): Promise<AccountLocationSummary[] | null> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'location.view');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { id: true },
+  });
+
+  if (!account) {
+    return null;
+  }
+
+  const locations = await prisma.accountLocation.findMany({
+    where: {
+      accountId,
+    },
+    orderBy: [
+      { isPrimary: 'desc' },
+      { createdAt: 'asc' },
+    ],
+  });
+
+  return locations.map(toAccountLocationSummary);
+}
+
+export async function createAccountLocation(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: CreateAccountLocationRequest,
+): Promise<AccountLocationSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'location.create');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: {
+      id: true,
+      _count: {
+        select: {
+          locations: true,
+        },
+      },
+    },
+  });
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+
+  const locationCode = optionalTrimmed(input.locationCode);
+  const name = optionalTrimmed(input.name);
+  const line1 = optionalTrimmed(input.line1);
+  const line2 = optionalTrimmed(input.line2);
+  const city = optionalTrimmed(input.city);
+  const state = optionalTrimmed(input.state);
+  const postalCode = optionalTrimmed(input.postalCode);
+  const countryCode = optionalTrimmed(input.countryCode)?.toUpperCase();
+  const hasIdentity = Boolean(locationCode || name || line1);
+  if (!hasIdentity) {
+    throw new Error('locationCode, name, or line1 is required');
+  }
+
+  const isPrimary = input.isPrimary ?? account._count.locations === 0;
+  const isActive = input.isActive ?? true;
+
+  const location = await prisma.$transaction(async (tx) => {
+    if (isPrimary) {
+      await tx.accountLocation.updateMany({
+        where: {
+          accountId,
+          isPrimary: true,
+        },
+        data: {
+          isPrimary: false,
+        },
+      });
+    }
+
+    const created = await tx.accountLocation.create({
+      data: {
+        accountId,
+        ...(locationCode !== undefined ? { locationCode } : {}),
+        ...(name !== undefined ? { name } : {}),
+        ...(line1 !== undefined ? { line1 } : {}),
+        ...(line2 !== undefined ? { line2 } : {}),
+        ...(city !== undefined ? { city } : {}),
+        ...(state !== undefined ? { state } : {}),
+        ...(postalCode !== undefined ? { postalCode } : {}),
+        ...(countryCode !== undefined ? { countryCode } : {}),
+        isPrimary,
+        isActive,
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: LOCATION_ENTITY_TYPE,
+        entityId: created.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+        },
+        afterData: {
+          accountId: created.accountId,
+          locationCode: created.locationCode,
+          name: created.name,
+          city: created.city,
+          state: created.state,
+          isPrimary: created.isPrimary,
+          isActive: created.isActive,
+        },
+      }),
+    });
+
+    return created;
+  });
+
+  return toAccountLocationSummary(location);
 }
 
 export async function createAccountContact(
@@ -372,6 +497,7 @@ function toAccountLocationSummary(location: {
   locationCode: string | null;
   name: string | null;
   line1: string | null;
+  line2: string | null;
   city: string | null;
   state: string | null;
   postalCode: string | null;
@@ -390,6 +516,7 @@ function toAccountLocationSummary(location: {
     ...(location.locationCode ? { locationCode: location.locationCode } : {}),
     ...(location.name ? { name: location.name } : {}),
     ...(location.line1 ? { line1: location.line1 } : {}),
+    ...(location.line2 ? { line2: location.line2 } : {}),
     ...(location.city ? { city: location.city } : {}),
     ...(location.state ? { state: location.state } : {}),
     ...(location.postalCode ? { postalCode: location.postalCode } : {}),

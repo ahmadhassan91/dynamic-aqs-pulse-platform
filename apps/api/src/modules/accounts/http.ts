@@ -3,9 +3,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   CreateAccountRequest,
+  CreateAccountLocationRequest,
   CreateContactRequest,
   ListAccountsRequest,
-} from '@pulse/contracts';
+} from '@pulse/contracts/accounts';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -18,8 +19,10 @@ import {
 import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
 import {
   createAccount,
+  createAccountLocation,
   createAccountContact,
   getAccountDetail,
+  listAccountLocations,
   listAccountContacts,
   listAccounts,
 } from './service.js';
@@ -30,6 +33,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
   const isAccountRoute =
     pathname === '/api/v1/accounts'
     || /^\/api\/v1\/accounts\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/locations$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/contacts$/.test(pathname);
 
   if (!isAccountRoute) {
@@ -41,7 +45,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
       if (method === 'GET') {
         const actor = await requireAuthenticatedActor(req, {
           module: 'customers',
-          action: 'customer.view',
+          action: 'location.view',
         });
         const query: ListAccountsRequest = {};
         const search = url.searchParams.get('search')?.trim();
@@ -125,6 +129,39 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         });
         const body = (await readJsonBody(req)) as CreateContactRequest;
         const response = await createAccountContact(actor, accountId, body);
+        return jsonResponse(res, 201, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const locationsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/locations$/);
+    if (locationsMatch) {
+      const accountId = locationsMatch[1];
+      if (!accountId) {
+        return false;
+      }
+
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.view',
+        });
+        const response = await listAccountLocations(actor, accountId);
+        if (!response) {
+          return notFoundResponse(res, { entity: 'Account', id: accountId });
+        }
+
+        return jsonResponse(res, 200, { items: response });
+      }
+
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'location.create',
+        });
+        const body = (await readJsonBody(req)) as CreateAccountLocationRequest;
+        const response = await createAccountLocation(actor, accountId, body);
         return jsonResponse(res, 201, response);
       }
 

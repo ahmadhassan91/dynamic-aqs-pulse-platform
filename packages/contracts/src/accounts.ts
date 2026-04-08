@@ -16,6 +16,7 @@ export interface AccountLocationSummary {
   locationCode?: string;
   name?: string;
   line1?: string;
+  line2?: string;
   city?: string;
   state?: string;
   postalCode?: string;
@@ -73,6 +74,19 @@ export interface CreateContactRequest {
   mobilePhone?: string;
   roleCode?: string;
   locationId?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
+}
+
+export interface CreateAccountLocationRequest {
+  locationCode?: string;
+  name?: string;
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  countryCode?: string;
   isPrimary?: boolean;
   isActive?: boolean;
 }

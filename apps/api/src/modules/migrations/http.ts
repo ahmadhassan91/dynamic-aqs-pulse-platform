@@ -14,11 +14,13 @@ import {
   captureSourceSnapshots,
   createMigrationRun,
   getMigrationRunSummary,
+  normalizeMigrationSnapshots,
   stageMigrationRecords,
 } from './service.js';
 import type {
   CaptureSourceSnapshotsRequest,
   CreateMigrationRunRequest,
+  NormalizeMigrationSnapshotsRequest,
   StageMigrationRecordsRequest,
 } from './types.js';
 
@@ -36,6 +38,7 @@ export async function handleMigrationRoutes(
     pathname === '/api/v1/migrations/runs'
     || /^\/api\/v1\/migrations\/runs\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/migrations\/runs\/[^/]+\/snapshots$/.test(pathname)
+    || /^\/api\/v1\/migrations\/runs\/[^/]+\/normalize$/.test(pathname)
     || /^\/api\/v1\/migrations\/runs\/[^/]+\/stage$/.test(pathname);
 
   if (!isMigrationRoute) {
@@ -128,6 +131,32 @@ export async function handleMigrationRoutes(
     try {
       const body = (await readJsonBody(req)) as StageMigrationRecordsRequest;
       const result = await stageMigrationRecords(runId, body);
+      return jsonResponse(res, 202, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode = message.includes('not found') ? 404 : 400;
+      if (statusCode === 404) {
+        return notFoundResponse(res, { detail: message });
+      }
+
+      return badRequestResponse(res, message);
+    }
+  }
+
+  const normalizeMatch = pathname.match(/^\/api\/v1\/migrations\/runs\/([^/]+)\/normalize$/);
+  if (normalizeMatch) {
+    const runId = normalizeMatch[1];
+    if (!runId) {
+      return false;
+    }
+
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    try {
+      const body = (await readJsonBody(req)) as NormalizeMigrationSnapshotsRequest;
+      const result = await normalizeMigrationSnapshots(runId, body);
       return jsonResponse(res, 202, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

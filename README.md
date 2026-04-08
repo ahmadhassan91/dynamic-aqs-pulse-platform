@@ -47,7 +47,8 @@ This repo now has the first production foundation in place:
 - persistent `pg-boss` queue/worker foundation
 - Acumatica client/error normalization scaffold
 - migration run, raw snapshot, and staging foundation for legacy import rehearsal
-- authenticated account/contact core API slice
+- raw-to-canonical migration normalization path
+- authenticated account/contact/location core API slice
 - delivery progress tracker for execution visibility
 
 ## Quick Start
@@ -78,6 +79,8 @@ Useful endpoints once the API is running:
 - `GET /api/v1/accounts`
 - `POST /api/v1/accounts`
 - `GET /api/v1/accounts/:id`
+- `GET /api/v1/accounts/:id/locations`
+- `POST /api/v1/accounts/:id/locations`
 - `GET /api/v1/accounts/:id/contacts`
 - `POST /api/v1/accounts/:id/contacts`
 
@@ -88,10 +91,11 @@ Migration endpoints are available for rehearsal and import foundation work, but 
 Current migration flow:
 - create a migration run with `POST /api/v1/migrations/runs`
 - capture immutable per-run source evidence with `POST /api/v1/migrations/runs/:id/snapshots`
+- normalize captured source evidence into canonical payloads with `POST /api/v1/migrations/runs/:id/normalize`
 - stage captured records with `POST /api/v1/migrations/runs/:id/stage`
 - inspect pipeline state with `GET /api/v1/migrations/runs/:id`
 
-This keeps raw source payloads and staging evidence separate from the governed CRM core so later field clarification and legacy mapping changes can be absorbed without corrupting operational tables.
+Capture is intentionally raw-only. Normalization is the step that writes canonical `normalizedPayload` for account, contact, and location records, which keeps source evidence separate from governed CRM tables and lets us absorb field clarification without corrupting operational data.
 
 The existing `dynamic-aqs-crm` repo remains the:
 - discovery repo

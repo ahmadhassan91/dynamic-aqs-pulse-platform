@@ -22,7 +22,6 @@ export type SourceSnapshotInput = {
   sourceModifiedAt?: string | undefined;
   payloadChecksum?: string | undefined;
   rawPayload: unknown;
-  normalizedPayload?: unknown;
   metadata?: unknown;
 };
 
@@ -33,4 +32,10 @@ export type CaptureSourceSnapshotsRequest = {
 export type StageMigrationRecordsRequest = {
   entityTypes?: `${DataRecordEntityType}`[] | undefined;
   limit?: number | undefined;
+};
+
+export type NormalizeMigrationSnapshotsRequest = {
+  entityTypes?: `${DataRecordEntityType}`[] | undefined;
+  limit?: number | undefined;
+  reprocessNormalized?: boolean | undefined;
 };

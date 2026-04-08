@@ -1,0 +1,318 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountSegment {
+  RESIDENTIAL
+  COMMERCIAL
+  DISTRIBUTOR
+  MIXED
+  UNKNOWN
+}
+
+enum SegmentAssignmentSource {
+  ACUMATICA
+  CRM
+  ADMIN
+  SYSTEM
+}
+
+enum ClassificationExceptionStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  SYNC
+  IMPORT
+  EXPORT
+  APPROVE
+  REJECT
+}
+
+enum FeatureFlagState {
+  OFF
+  ON
+  ROLLOUT
+}
+
+enum ExternalReferenceSource {
+  ACUMATICA
+  HUBSPOT
+  SHOPIFY
+  DROPBOX
+  WIDEN
+  LEGACY
+  MANUAL
+}
+
+enum ExternalReferenceEntityType {
+  ACCOUNT
+  CONTACT
+  LOCATION
+  ORDER
+  PRODUCT
+  USER
+  SEGMENT
+  OTHER
+}
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  displayName     String
+  roleCode        String
+  isActive        Boolean  @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sessions                    Session[]
+  auditEntries                AuditEntry[] @relation("AuditActor")
+  assignedSegmentAssignments   AccountSegmentAssignment[]
+  classificationExceptionsOpened   ClassificationException[] @relation("ClassificationExceptionOpenedBy")
+  classificationExceptionsResolved ClassificationException[] @relation("ClassificationExceptionResolvedBy")
+
+  @@index([roleCode])
+  @@index([isActive])
+}
+
+model Session {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  refreshTokenHash String   @unique
+  accessTokenJti   String?  @unique
+  ipAddress       String?
+  userAgent       String?
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model AuditEntry {
+  id               String    @id @default(uuid()) @db.Uuid
+  actorUserId      String?   @db.Uuid
+  action           AuditAction
+  entityType       String
+  entityId         String?
+  beforeData       Json?
+  afterData        Json?
+  metadata         Json?
+  requestId        String?
+  correlationId    String?
+  sourceSystem     String?
+  createdAt        DateTime  @default(now())
+
+  actor            User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([requestId])
+  @@index([correlationId])
+  @@index([createdAt])
+}
+
+model FeatureFlag {
+  id               String           @id @default(uuid()) @db.Uuid
+  key              String           @unique
+  name             String
+  description      String?
+  state            FeatureFlagState  @default(OFF)
+  rolloutPercent   Int              @default(0)
+  enabledForJson   Json?
+  disabledForJson  Json?
+  metadata         Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([state])
+  @@index([rolloutPercent])
+}
+
+model ExternalReference {
+  id               String                     @id @default(uuid()) @db.Uuid
+  source           ExternalReferenceSource
+  entityType       ExternalReferenceEntityType
+  entityId         String
+  externalId       String
+  externalParentId String?
+  externalKey      String?
+  payload          Json?
+  isPrimary        Boolean                    @default(false)
+  isActive         Boolean                    @default(true)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@unique([source, entityType, externalId])
+  @@index([entityType, entityId])
+  @@index([source, entityType])
+  @@index([externalId])
+}
+
+model BusinessSegmentRef {
+  id               String             @id @default(uuid()) @db.Uuid
+  code             String             @unique
+  name             String
+  description      String?
+  isActive         Boolean            @default(true)
+  sortOrder        Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  assignments      AccountSegmentAssignment[]
+  accounts         Account[]
+  exceptions       ClassificationException[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model Account {
+  id                         String                  @id @default(uuid()) @db.Uuid
+  accountNumber              String?                 @unique
+  displayName                String
+  legalName                  String?
+  accountType                String?
+  businessSegmentId          String?                 @db.Uuid
+  businessSegmentSource      SegmentAssignmentSource?
+  isMixedBusinessAccount     Boolean                 @default(false)
+  classificationDriftFlag     Boolean                 @default(false)
+  financeAuthorityMode       String?
+  isActive                   Boolean                 @default(true)
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  locations                  AccountLocation[]
+  contacts                   Contact[]
+  segmentAssignments         AccountSegmentAssignment[]
+  classificationExceptions    ClassificationException[]
+
+  @@index([businessSegmentId])
+  @@index([isActive])
+  @@index([accountType])
+  @@index([displayName])
+}
+
+model AccountLocation {
+  id               String    @id @default(uuid()) @db.Uuid
+  accountId        String    @db.Uuid
+  locationCode     String?
+  name             String?
+  line1            String?
+  line2            String?
+  city             String?
+  state            String?
+  postalCode       String?
+  countryCode      String?   @default("US")
+  isPrimary        Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contacts         Contact[]
+
+  @@index([accountId])
+  @@index([isPrimary])
+  @@index([isActive])
+}
+
+model Contact {
+  id               String    @id @default(uuid()) @db.Uuid
+  accountId        String    @db.Uuid
+  locationId       String?   @db.Uuid
+  firstName        String
+  lastName         String
+  title            String?
+  email            String?
+  phone            String?
+  mobilePhone      String?
+  roleCode         String?
+  isPrimary        Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location         AccountLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([locationId])
+  @@index([email])
+  @@index([isPrimary])
+}
+
+model AccountSegmentAssignment {
+  id                      String               @id @default(uuid()) @db.Uuid
+  accountId               String               @db.Uuid
+  businessSegmentId       String               @db.Uuid
+  source                  SegmentAssignmentSource
+  confidence              Int                  @default(100)
+  isPrimary               Boolean              @default(true)
+  assignedByUserId        String?              @db.Uuid
+  assignedAt              DateTime             @default(now())
+  effectiveFrom           DateTime             @default(now())
+  effectiveTo             DateTime?
+  notes                   String?
+  metadata                Json?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  account                 Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  businessSegment         BusinessSegmentRef   @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
+  assignedBy              User?                @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([businessSegmentId])
+  @@index([source])
+  @@index([isPrimary])
+  @@index([effectiveFrom])
+}
+
+model ClassificationException {
+  id                      String                      @id @default(uuid()) @db.Uuid
+  accountId               String                      @db.Uuid
+  businessSegmentId       String?                     @db.Uuid
+  status                  ClassificationExceptionStatus @default(OPEN)
+  reasonCode              String
+  summary                 String
+  details                 Json?
+  openedByUserId          String?                     @db.Uuid
+  resolvedByUserId        String?                     @db.Uuid
+  openedAt                DateTime                    @default(now())
+  resolvedAt              DateTime?
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  account                 Account                     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  businessSegment         BusinessSegmentRef?         @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  openedBy                User?                       @relation("ClassificationExceptionOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  resolvedBy              User?                       @relation("ClassificationExceptionResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([businessSegmentId])
+  @@index([status])
+  @@index([reasonCode])
+  @@index([openedAt])
+}

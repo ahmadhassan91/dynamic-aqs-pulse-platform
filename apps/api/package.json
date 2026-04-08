@@ -3,12 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "echo \"API scaffold pending\"",
-    "build": "echo \"API build scaffold pending\"",
-    "lint": "echo \"API lint scaffold pending\"",
-    "test": "echo \"API test scaffold pending\"",
-    "typecheck": "echo \"API typecheck scaffold pending\"",
+    "dev": "node --watch dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('API tests scaffold pending')\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.13"
   }
 }
-

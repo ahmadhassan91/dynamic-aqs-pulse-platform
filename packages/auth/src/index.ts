@@ -1,4 +1,3 @@
-export * from './guards';
-export * from './session';
+export * from './guards.js';
+export * from './session.js';
 export * from '@pulse/contracts';
-

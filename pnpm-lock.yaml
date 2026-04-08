@@ -16,6 +16,13 @@ importers:
         version: 5.9.3
 
   apps/api:
+    dependencies:
+      '@pulse/acumatica':
+        specifier: workspace:*
+        version: link:../../packages/acumatica
+      '@pulse/config':
+        specifier: workspace:*
+        version: link:../../packages/config
     devDependencies:
       '@types/node':
         specifier: ^24.0.13
@@ -51,6 +58,9 @@ importers:
         specifier: ^6.18.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
     devDependencies:
+      '@types/node':
+        specifier: ^24.0.13
+        version: 24.12.2
       prisma:
         specifier: ^6.18.0
         version: 6.19.3(typescript@5.9.3)

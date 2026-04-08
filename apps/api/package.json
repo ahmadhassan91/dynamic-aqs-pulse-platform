@@ -2,8 +2,14 @@
   "name": "@pulse/api",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@pulse/acumatica": "workspace:*",
+    "@pulse/config": "workspace:*"
+  },
   "scripts": {
     "dev": "node --watch dist/index.js",
+    "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"console.log('API tests scaffold pending')\"",

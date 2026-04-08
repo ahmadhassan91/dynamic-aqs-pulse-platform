@@ -39,11 +39,29 @@ infra/
 
 ## Current Status
 
-This repo is scaffolded as the clean production workspace.
+This repo now has the first production foundation in place:
+- monorepo workspace and package boundaries
+- shared auth/contracts foundation
+- Prisma/PostgreSQL core schema package
+- Node API skeleton with health endpoints
+- queue/worker scaffold
+- Acumatica client/error normalization scaffold
+
+## Quick Start
+
+```bash
+pnpm install
+pnpm build
+PORT=4000 \
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pulse \
+ACUMATICA_BASE_URL=https://example.acumatica.local \
+pnpm --filter @pulse/api start
+```
+
+For local bootstrapping, copy `.env.example` into your preferred env file and replace placeholder values as real infrastructure becomes available.
 
 The existing `dynamic-aqs-crm` repo remains the:
 - discovery repo
 - roadmap repo
 - prototype repo
 - stakeholder reference baseline
-

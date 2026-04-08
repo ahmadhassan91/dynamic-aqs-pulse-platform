@@ -6,6 +6,7 @@
 - add PostgreSQL + Prisma foundation
 - add backend module skeleton
 - add CI, env validation, and health checks
+- fix package/runtime wiring so built services boot cleanly
 
 ## Phase 2
 
@@ -18,4 +19,3 @@
 - remove mock providers from the production apps
 - enable real API integration
 - add worker/runtime and staging readiness
-

@@ -3,9 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "prisma",
+    "prisma.config.ts"
+  ],
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
+    "build": "pnpm run generate && tsc -p tsconfig.json",
     "generate": "prisma generate --schema prisma/schema.prisma",
     "migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
     "migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
@@ -13,14 +22,16 @@
     "db:seed": "node prisma/seed.mjs",
     "db:studio": "prisma studio --schema prisma/schema.prisma",
     "lint": "echo \"DB lint scaffold pending\"",
+    "postinstall": "pnpm run generate",
     "test": "echo \"DB test scaffold pending\"",
-    "typecheck": "echo \"DB typecheck scaffold pending\"",
-    "clean": "rm -rf dist .prisma"
+    "typecheck": "pnpm run generate && tsc -p tsconfig.json --noEmit && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pulse prisma validate --schema prisma/schema.prisma",
+    "clean": "rm -rf dist .prisma tsconfig.tsbuildinfo"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.13",
     "prisma": "^6.18.0"
   }
 }

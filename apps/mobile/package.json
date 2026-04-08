@@ -1,0 +1,14 @@
+{
+  "name": "@pulse/mobile",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo \"Mobile scaffold pending\"",
+    "build": "echo \"Mobile build scaffold pending\"",
+    "lint": "echo \"Mobile lint scaffold pending\"",
+    "test": "echo \"Mobile test scaffold pending\"",
+    "typecheck": "echo \"Mobile typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

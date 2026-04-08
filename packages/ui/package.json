@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"UI build scaffold pending\"",
+    "lint": "echo \"UI lint scaffold pending\"",
+    "test": "echo \"UI test scaffold pending\"",
+    "typecheck": "echo \"UI typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

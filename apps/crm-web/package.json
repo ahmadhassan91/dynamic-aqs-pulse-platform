@@ -1,0 +1,14 @@
+{
+  "name": "@pulse/crm-web",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo \"CRM web scaffold pending\"",
+    "build": "echo \"CRM web build scaffold pending\"",
+    "lint": "echo \"CRM web lint scaffold pending\"",
+    "test": "echo \"CRM web test scaffold pending\"",
+    "typecheck": "echo \"CRM web typecheck scaffold pending\"",
+    "clean": "rm -rf .next out"
+  }
+}
+

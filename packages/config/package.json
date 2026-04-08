@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/config",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"Config build scaffold pending\"",
+    "lint": "echo \"Config lint scaffold pending\"",
+    "test": "echo \"Config test scaffold pending\"",
+    "typecheck": "echo \"Config typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

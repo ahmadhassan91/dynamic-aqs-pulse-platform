@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"Contracts build scaffold pending\"",
+    "lint": "echo \"Contracts lint scaffold pending\"",
+    "test": "echo \"Contracts test scaffold pending\"",
+    "typecheck": "echo \"Contracts typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

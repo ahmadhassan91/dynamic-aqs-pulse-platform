@@ -1,0 +1,14 @@
+{
+  "name": "@pulse/api",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo \"API scaffold pending\"",
+    "build": "echo \"API build scaffold pending\"",
+    "lint": "echo \"API lint scaffold pending\"",
+    "test": "echo \"API test scaffold pending\"",
+    "typecheck": "echo \"API typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

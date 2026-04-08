@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/acumatica",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"Acumatica build scaffold pending\"",
+    "lint": "echo \"Acumatica lint scaffold pending\"",
+    "test": "echo \"Acumatica test scaffold pending\"",
+    "typecheck": "echo \"Acumatica typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

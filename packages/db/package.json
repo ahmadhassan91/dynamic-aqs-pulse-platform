@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/db",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"DB build scaffold pending\"",
+    "lint": "echo \"DB lint scaffold pending\"",
+    "test": "echo \"DB test scaffold pending\"",
+    "typecheck": "echo \"DB typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

@@ -1,0 +1,16 @@
+{
+  "name": "@pulse/auth",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"Auth build scaffold pending\"",
+    "lint": "echo \"Auth lint scaffold pending\"",
+    "test": "echo \"Auth test scaffold pending\"",
+    "typecheck": "echo \"Auth typecheck scaffold pending\"",
+    "clean": "rm -rf dist"
+  }
+}
+

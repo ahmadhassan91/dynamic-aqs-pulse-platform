@@ -143,16 +143,36 @@ enum MigrationRecordStatus {
   FAILED
 }
 
+enum UserKind {
+  INTERNAL
+  DEALER
+  SERVICE
+}
+
+enum IdentityProvider {
+  LOCAL
+  MICROSOFT_ENTRA
+  SERVICE
+}
+
+enum SessionAuthMethod {
+  PASSWORD
+  OIDC
+  SERVICE
+}
+
 model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique
   displayName     String
   roleCode        String
+  userType        UserKind @default(INTERNAL)
   isActive        Boolean  @default(true)
   lastLoginAt     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  identities                  UserIdentity[]
   sessions                    Session[]
   auditEntries                AuditEntry[] @relation("AuditActor")
   assignedSegmentAssignments   AccountSegmentAssignment[]
@@ -161,25 +181,55 @@ model User {
   migrationRunsStarted        MigrationRun[] @relation("MigrationRunStartedBy")
 
   @@index([roleCode])
+  @@index([userType])
   @@index([isActive])
+}
+
+model UserIdentity {
+  id                  String           @id @default(uuid()) @db.Uuid
+  userId              String           @db.Uuid
+  provider            IdentityProvider
+  providerSubject     String
+  loginEmail          String?
+  passwordHash        String?
+  isPrimary           Boolean          @default(false)
+  lastAuthenticatedAt DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions            Session[]
+
+  @@unique([provider, providerSubject])
+  @@unique([provider, loginEmail])
+  @@index([userId])
+  @@index([provider])
 }
 
 model Session {
   id               String   @id @default(uuid()) @db.Uuid
   userId           String   @db.Uuid
+  identityId       String   @db.Uuid
+  accessTokenHash  String   @unique
   refreshTokenHash String   @unique
-  accessTokenJti   String?  @unique
+  authMethod       SessionAuthMethod
   ipAddress       String?
   userAgent       String?
   expiresAt       DateTime
+  refreshExpiresAt DateTime
+  lastSeenAt      DateTime?
   revokedAt       DateTime?
+  revokedReason   String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identity         UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([identityId])
   @@index([expiresAt])
+  @@index([refreshExpiresAt])
   @@index([revokedAt])
 }
 

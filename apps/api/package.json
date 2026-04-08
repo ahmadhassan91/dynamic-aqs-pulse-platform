@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@pulse/acumatica": "workspace:*",
+    "@pulse/auth": "workspace:*",
     "@pulse/config": "workspace:*",
     "@pulse/db": "workspace:*",
     "pg-boss": "^12.15.0"

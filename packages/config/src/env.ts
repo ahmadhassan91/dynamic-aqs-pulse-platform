@@ -35,6 +35,20 @@ export type AppMigrationConfig = {
   adminToken?: string | undefined;
 };
 
+export type AppAuthBootstrapConfig = {
+  email?: string | undefined;
+  password?: string | undefined;
+  displayName: string;
+  role: string;
+};
+
+export type AppAuthConfig = {
+  issuer: string;
+  accessTokenTtlMinutes: number;
+  refreshTokenTtlDays: number;
+  bootstrapAdmin: AppAuthBootstrapConfig;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -49,6 +63,7 @@ export type AppConfig = {
   acumatica: AppAcumaticaConfig;
   queue: AppQueueConfig;
   migration: AppMigrationConfig;
+  auth: AppAuthConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -93,6 +108,17 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     migration: {
       adminToken: optionalString(env.MIGRATION_ADMIN_TOKEN),
+    },
+    auth: {
+      issuer: env.AUTH_ISSUER?.trim() || 'pulse.local',
+      accessTokenTtlMinutes: parseNumber(env.AUTH_ACCESS_TOKEN_TTL_MINUTES, 15),
+      refreshTokenTtlDays: parseNumber(env.AUTH_REFRESH_TOKEN_TTL_DAYS, 14),
+      bootstrapAdmin: {
+        email: optionalString(env.AUTH_BOOTSTRAP_ADMIN_EMAIL),
+        password: optionalString(env.AUTH_BOOTSTRAP_ADMIN_PASSWORD),
+        displayName: env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME?.trim() || 'Pulse Bootstrap Admin',
+        role: env.AUTH_BOOTSTRAP_ADMIN_ROLE?.trim() || 'SUPER_ADMIN',
+      },
     },
   };
 }

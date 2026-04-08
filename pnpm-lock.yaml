@@ -20,6 +20,9 @@ importers:
       '@pulse/acumatica':
         specifier: workspace:*
         version: link:../../packages/acumatica
+      '@pulse/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@pulse/config':
         specifier: workspace:*
         version: link:../../packages/config

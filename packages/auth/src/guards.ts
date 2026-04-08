@@ -1,4 +1,5 @@
 import {
+  AUTH_ROLES,
   ROLE_DEFAULT_ACTION_ACCESS,
   ROLE_DEFAULT_MODULE_ACCESS,
   type AuthRole,
@@ -32,12 +33,22 @@ function normalizeAlias(input: string) {
 }
 
 export function normalizeRole(role: string | null | undefined): AuthRole {
-  if (!role) {
-    return 'EXECUTIVE';
+  const rawRole = role?.trim();
+  if (!rawRole) {
+    throw new AuthorizationError('Role is required');
   }
 
-  const normalized = normalizeAlias(role);
-  return ROLE_ALIASES[normalized] ?? (role as AuthRole);
+  const normalized = normalizeAlias(rawRole);
+  const aliasedRole = ROLE_ALIASES[normalized];
+  if (aliasedRole) {
+    return aliasedRole;
+  }
+
+  if (AUTH_ROLES.includes(rawRole as AuthRole)) {
+    return rawRole as AuthRole;
+  }
+
+  throw new AuthorizationError(`Unknown role: ${rawRole}`);
 }
 
 export function hasRole(userRole: AuthRole, requiredRole: AuthRole): boolean {
@@ -88,4 +99,3 @@ export function evaluatePermission(check: PermissionCheck): boolean {
 
   return canPerformAction(check.role, check.action);
 }
-

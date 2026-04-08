@@ -47,6 +47,7 @@ This repo now has the first production foundation in place:
 - persistent `pg-boss` queue/worker foundation
 - Acumatica client/error normalization scaffold
 - migration run, raw snapshot, and staging foundation for legacy import rehearsal
+- delivery progress tracker for execution visibility
 
 ## Quick Start
 
@@ -69,6 +70,10 @@ Useful endpoints once the API is running:
 - `GET /api/v1/health/db`
 - `GET /api/v1/health/queue`
 - `POST /api/v1/jobs/health-check`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `GET /api/v1/auth/me`
+- `POST /api/v1/auth/logout`
 
 Migration endpoints are available for rehearsal and import foundation work, but they are intentionally gated behind `MIGRATION_ADMIN_TOKEN` until the real auth/RBAC layer is in place.
 
@@ -85,3 +90,5 @@ The existing `dynamic-aqs-crm` repo remains the:
 - roadmap repo
 - prototype repo
 - stakeholder reference baseline
+
+Execution tracking lives in [docs/DELIVERY_PROGRESS_TRACKER.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/DELIVERY_PROGRESS_TRACKER.md).

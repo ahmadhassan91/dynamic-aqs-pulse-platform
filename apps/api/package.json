@@ -5,7 +5,9 @@
   "type": "module",
   "dependencies": {
     "@pulse/acumatica": "workspace:*",
-    "@pulse/config": "workspace:*"
+    "@pulse/config": "workspace:*",
+    "@pulse/db": "workspace:*",
+    "pg-boss": "^12.15.0"
   },
   "scripts": {
     "dev": "node --watch dist/index.js",

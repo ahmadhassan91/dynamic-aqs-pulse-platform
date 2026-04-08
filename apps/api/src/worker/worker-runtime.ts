@@ -1,54 +1,34 @@
 import type { AppLogger } from '../utils/logger.js';
-import type { QueueJob, QueueHandler } from '../queue/queue-manager.js';
+import type { QueueDefinition, QueueHandler, QueueManager } from '../queue/contracts.js';
 
-export function createWorkerRuntime(queue: {
-  handlers: Map<string, QueueHandler>;
-  jobs: QueueJob[];
-}, logger: AppLogger) {
+export function createWorkerRuntime(queue: QueueManager, logger: AppLogger) {
   let running = false;
-  const workerHandlers = new Map<string, QueueHandler>();
+  const registrations = new Map<string, QueueDefinition>();
 
-  function register<TPayload, TResult>(type: string, handler: QueueHandler<TPayload, TResult>) {
-    workerHandlers.set(type, handler as QueueHandler);
+  function register<TPayload, TResult>(definition: QueueDefinition, handler: QueueHandler<TPayload, TResult>) {
+    registrations.set(definition.name, definition);
+    queue.register(definition, handler);
   }
 
-  async function drainOnce() {
-    const batch = queue.jobs.splice(0, queue.jobs.length);
-    for (const job of batch) {
-      const handler = workerHandlers.get(job.type) ?? queue.handlers.get(job.type);
-      if (!handler) {
-        logger.warn('worker.unhandled_job', { type: job.type, jobId: job.id });
-        continue;
-      }
-
-      try {
-        await handler(job);
-        logger.info('worker.job_complete', { type: job.type, jobId: job.id });
-      } catch (error) {
-        logger.error('worker.job_failed', {
-          type: job.type,
-          jobId: job.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  }
-
-  function start() {
+  async function start() {
+    await queue.start();
     running = true;
-    logger.info('worker.started', {});
+    logger.info('worker.started', {
+      registeredWorkers: registrations.size,
+    });
   }
 
-  function stop() {
+  async function stop() {
+    await queue.stop();
     running = false;
     logger.info('worker.stopped', {});
   }
 
-  function status() {
+  async function status() {
     return {
       running,
-      pendingJobs: queue.jobs.length,
-      registeredWorkers: queue.handlers.size,
+      registeredWorkers: registrations.size,
+      queue: await queue.status(),
     };
   }
 
@@ -56,7 +36,6 @@ export function createWorkerRuntime(queue: {
     register,
     start,
     stop,
-    drainOnce,
     status,
   };
 }

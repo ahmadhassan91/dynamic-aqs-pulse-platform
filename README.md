@@ -43,8 +43,8 @@ This repo now has the first production foundation in place:
 - monorepo workspace and package boundaries
 - shared auth/contracts foundation
 - Prisma/PostgreSQL core schema package
-- Node API skeleton with health endpoints
-- queue/worker scaffold
+- Node API skeleton with database-aware health endpoints
+- persistent `pg-boss` queue/worker foundation
 - Acumatica client/error normalization scaffold
 
 ## Quick Start
@@ -52,13 +52,22 @@ This repo now has the first production foundation in place:
 ```bash
 pnpm install
 pnpm build
+createdb pulse_platform_dev
 PORT=4000 \
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pulse \
+DATABASE_URL=postgresql://$USER@localhost:5432/pulse_platform_dev \
+PG_BOSS_CONNECTION_STRING=postgresql://$USER@localhost:5432/pulse_platform_dev \
 ACUMATICA_BASE_URL=https://example.acumatica.local \
 pnpm --filter @pulse/api start
 ```
 
 For local bootstrapping, copy `.env.example` into your preferred env file and replace placeholder values as real infrastructure becomes available.
+
+Useful endpoints once the API is running:
+- `GET /api/v1/health/live`
+- `GET /api/v1/health/ready`
+- `GET /api/v1/health/db`
+- `GET /api/v1/health/queue`
+- `POST /api/v1/jobs/health-check`
 
 The existing `dynamic-aqs-crm` repo remains the:
 - discovery repo

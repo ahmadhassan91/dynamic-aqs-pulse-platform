@@ -17,6 +17,20 @@ export type AppAcumaticaConfig = {
   accessToken?: string | undefined;
 };
 
+export type AppDatabaseConfig = {
+  url: string;
+};
+
+export type AppQueueConfig = {
+  connectionString: string;
+  schema: string;
+  archiveSeconds: number;
+  deleteAfterSeconds: number;
+  monitorIntervalSeconds: number;
+  pollingIntervalSeconds: number;
+  deadLetterQueue: string;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -27,16 +41,16 @@ export type AppConfig = {
   };
   server: AppServerConfig;
   logging: AppLoggingConfig;
+  database: AppDatabaseConfig;
   acumatica: AppAcumaticaConfig;
-  queue: {
-    connectionString: string;
-  };
+  queue: AppQueueConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const environment = parseEnvironmentName(env.NODE_ENV);
   const appName = env.APP_NAME?.trim() || 'pulse-api';
   const appVersion = env.APP_VERSION?.trim() || '0.1.0';
+  const databaseUrl = requireString(env.DATABASE_URL, 'DATABASE_URL');
 
   return {
     app: {
@@ -52,6 +66,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logging: {
       level: parseLogLevel(env.LOG_LEVEL),
     },
+    database: {
+      url: databaseUrl,
+    },
     acumatica: {
       baseUrl: requireString(env.ACUMATICA_BASE_URL, 'ACUMATICA_BASE_URL'),
       apiVersion: env.ACUMATICA_API_VERSION?.trim() || '24.100.001',
@@ -61,7 +78,13 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       accessToken: optionalString(env.ACUMATICA_ACCESS_TOKEN),
     },
     queue: {
-      connectionString: requireString(env.DATABASE_URL ?? env.PG_BOSS_CONNECTION_STRING, 'DATABASE_URL or PG_BOSS_CONNECTION_STRING'),
+      connectionString: optionalString(env.PG_BOSS_CONNECTION_STRING) ?? databaseUrl,
+      schema: env.PGBOSS_SCHEMA?.trim() || 'pgboss',
+      archiveSeconds: parseNumber(env.PGBOSS_ARCHIVE_SECONDS, 60 * 60 * 24 * 7),
+      deleteAfterSeconds: parseNumber(env.PGBOSS_DELETE_AFTER_SECONDS, 60 * 60 * 24 * 30),
+      monitorIntervalSeconds: parseNumber(env.PGBOSS_MONITOR_INTERVAL_SECONDS, 5),
+      pollingIntervalSeconds: parseNumber(env.PGBOSS_POLLING_INTERVAL_SECONDS, 2),
+      deadLetterQueue: env.PGBOSS_DEAD_LETTER_QUEUE?.trim() || 'pulse.dead-letter',
     },
   };
 }

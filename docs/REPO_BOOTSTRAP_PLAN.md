@@ -7,6 +7,7 @@
 - add backend module skeleton
 - add CI, env validation, and health checks
 - fix package/runtime wiring so built services boot cleanly
+- replace in-memory queue stub with pg-boss-backed queue bootstrap
 
 ## Phase 2
 

@@ -21,6 +21,8 @@
       "@pulse/contracts/*": ["packages/contracts/src/*"],
       "@pulse/config": ["packages/config/src/index.ts"],
       "@pulse/config/*": ["packages/config/src/*"],
+      "@pulse/db": ["packages/db/src/index.ts"],
+      "@pulse/db/*": ["packages/db/src/*"],
       "@pulse/acumatica": ["packages/acumatica/src/index.ts"],
       "@pulse/acumatica/*": ["packages/acumatica/src/*"],
       "@pulse/testing": ["packages/testing/src/index.ts"],

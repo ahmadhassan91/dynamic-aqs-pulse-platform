@@ -47,6 +47,7 @@ This repo now has the first production foundation in place:
 - persistent `pg-boss` queue/worker foundation
 - Acumatica client/error normalization scaffold
 - migration run, raw snapshot, and staging foundation for legacy import rehearsal
+- authenticated account/contact core API slice
 - delivery progress tracker for execution visibility
 
 ## Quick Start
@@ -74,6 +75,13 @@ Useful endpoints once the API is running:
 - `POST /api/v1/auth/refresh`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/logout`
+- `GET /api/v1/accounts`
+- `POST /api/v1/accounts`
+- `GET /api/v1/accounts/:id`
+- `GET /api/v1/accounts/:id/contacts`
+- `POST /api/v1/accounts/:id/contacts`
+
+Business endpoints use bearer-token auth and shared request authorization helpers so new modules can reuse the same session/RBAC path instead of re-implementing token parsing per route.
 
 Migration endpoints are available for rehearsal and import foundation work, but they are intentionally gated behind `MIGRATION_ADMIN_TOKEN` until the real auth/RBAC layer is in place.
 

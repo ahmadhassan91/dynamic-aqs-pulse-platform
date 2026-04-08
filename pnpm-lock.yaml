@@ -26,6 +26,9 @@ importers:
       '@pulse/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@pulse/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pulse/db':
         specifier: workspace:*
         version: link:../../packages/db

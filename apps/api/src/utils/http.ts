@@ -33,6 +33,14 @@ export function unauthorizedResponse(res: ServerResponse, detail: unknown, extra
   });
 }
 
+export function forbiddenResponse(res: ServerResponse, detail: unknown, extras?: Record<string, unknown>) {
+  return jsonResponse(res, 403, {
+    error: 'FORBIDDEN',
+    detail,
+    ...(extras ?? {}),
+  });
+}
+
 export function methodNotAllowedResponse(res: ServerResponse, method: string, allowed: string[]) {
   res.setHeader('allow', allowed.join(', '));
   return jsonResponse(res, 405, {

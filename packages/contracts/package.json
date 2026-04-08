@@ -10,7 +10,8 @@
   ],
   "exports": {
     ".": "./dist/index.js",
-    "./auth": "./dist/auth.js"
+    "./auth": "./dist/auth.js",
+    "./accounts": "./dist/accounts.js"
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",

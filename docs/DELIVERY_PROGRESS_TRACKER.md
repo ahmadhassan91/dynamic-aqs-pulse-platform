@@ -18,6 +18,7 @@ Use it to:
 | `Planned` | Sequenced and approved, but not yet started |
 | `Blocked` | Waiting on access, sign-off, or dependency closure |
 | `Deferred` | Explicitly outside the current active delivery window |
+| `Parked` | Intentionally held for a later slice after the current foundation settles |
 
 ## Release Tracker
 
@@ -37,9 +38,10 @@ Use it to:
 | PostgreSQL + Prisma core schema | `Done` | Core CRM schema and migration pipeline foundation are in place | Extend schema for auth/session and domain modules | `packages/db/prisma/schema.prisma` |
 | Queue and worker runtime | `Done` | `pg-boss` queue and worker bootstrap are live | Add domain jobs after auth/audit foundation | `apps/api/src/queue/` |
 | Migration raw snapshot staging | `Done` | Guarded rehearsal/cutover evidence pipeline is implemented | Build normalization/import workers on top | `apps/api/src/modules/migrations/` |
-| Auth, session, audit persistence | `In Progress` | Provider-aware foundation is being wired | Finish bootstrap auth API and persistence validation | `apps/api/src/modules/auth/`, `packages/db/prisma/schema.prisma` |
+| Auth, session, audit persistence | `Done` | Provider-aware auth/session foundation is merged, runtime-verified, and now shared through a reusable request-auth/authz helper | Add Entra and dealer-specific identity flows later without rewriting the session core | `apps/api/src/modules/auth/`, `apps/api/src/utils/audit.ts`, `packages/db/prisma/schema.prisma` |
 | Acumatica integration boundary | `In Progress` | Safe client/error scaffold exists | Add certified endpoint adapters after sandbox confirmation | `packages/acumatica/src/` |
-| Shared API contract baseline | `In Progress` | Core auth contracts exist and module contracts are starting | Add account/contact/import contracts | `packages/contracts/src/` |
+| Shared API contract baseline | `In Progress` | Core auth plus explicit customer/contact contract surfaces now exist | Add import normalization and account-location contracts | `packages/contracts/src/` |
+| Account and contact core API | `In Progress` | Authenticated list/create/detail/contact endpoints are implemented and locally verified against Postgres | Expand into location hierarchy, lifecycle state, and import normalization | `apps/api/src/modules/accounts/` |
 | Web rewire from prototype data layer | `Planned` | Prototype remains reference baseline | Port and rewire approved screens behind real APIs | `apps/crm-web/` |
 | Mobile rewire from prototype data layer | `Planned` | Prototype remains reference baseline | Introduce real auth/session and sync transport | `apps/mobile/` |
 | CI/CD and environment controls | `Planned` | Basic build/typecheck flow exists | Add release pipelines, checks, secrets, deployment notes | `infra/` |
@@ -55,7 +57,7 @@ Use it to:
 | Wave 0 | Acumatica Integration & Data Migration | `Ready` | `In Progress` | Safe boundary and migration staging are underway; sandbox-certified adapters still pending. |
 | Wave 1 | Lead Capture & Lead Management | `Ready` | `Planned` | Can start once auth/session and account core are stable. |
 | Wave 1 | CIS, Credit & Onboarding Workflow | `Mostly Ready` | `Planned` | Depends on lead and account identity foundation. |
-| Wave 1 | Customer, Account, Contact & Multi-Location Management | `Partial` | `Planned` | Will be the first major domain module after auth/audit. |
+| Wave 1 | Customer, Account, Contact & Multi-Location Management | `Partial` | `In Progress` | Minimal authenticated account/contact API is verified; location hierarchy, classification writes, and lifecycle state are still to come. |
 | Wave 1 | Dealer identity at company-account level | `Partial` | `Planned` | Will use shared auth foundation plus account context, not a separate auth stack. |
 | Wave 2 | Product Management & Dealer Catalog Governance | `Mostly Ready` | `Planned` | Awaits account/dealer identity and Acumatica product sync groundwork. |
 | Wave 2 | Digital Assets & Document Handling | `Mostly Ready` | `Planned` | Keep Widen scope bounded to validated product/dealer workflow. |
@@ -77,9 +79,28 @@ Use it to:
 | Core Postgres/Prisma foundation | `Done` | Core CRM schema and migrations are live |
 | Queue/worker foundation | `Done` | `pg-boss` runtime verified |
 | Raw-source-first migration foundation | `Done` | Rehearsal/cutover staging verified locally |
-| Provider-aware auth/session foundation | `In Progress` | Local bootstrap auth now, Entra seam preserved for later |
-| Account/contact core module start | `Planned` | Next recommended build slice after auth persistence |
+| Provider-aware auth/session foundation | `Done` | Bootstrap auth, refresh, session lookup, logout, and audit events verified locally |
+| Account/contact core module start | `Done` | Authenticated list/create/detail/contact endpoints are locally verified |
+| Shared request authz helper for business modules | `Done` | Customer routes now reuse one request-auth/authz path instead of duplicating bearer/session checks |
 | Progress tracker established in repo | `Done` | This document is the tracker baseline |
+
+## Parked Items
+
+These are intentionally not being built yet, but they should stay visible so they can be picked up later without rediscovery.
+
+| Item | Status | Why Parked Now | Revisit Trigger |
+| --- | --- | --- | --- |
+| Microsoft Entra login for internal staff | `Parked` | Session core exists; real OIDC wiring should wait until tenant, group mapping, and IT sign-off are ready | Release 0 identity sign-off and tenant access |
+| Dealer invite, password reset, and company-user provisioning | `Parked` | Dealer identity depends on account/contact context and portal model, not just auth plumbing | Dealer identity module start |
+| MFA, lockout, and password-recovery hardening | `Parked` | Important, but not needed before the core auth/session model is proven | Before non-prod internal pilot |
+| Service-to-service/API key identities | `Parked` | Integration boundary exists, but service auth should follow concrete integration needs | When external automation or webhook flows are introduced |
+| Fine-grained permission persistence beyond role defaults | `Parked` | Current role/module/action model is enough for early foundation | When admin-managed entitlements are in scope |
+| Account classification and business-segment write APIs | `Parked` | Classification ownership and drift-handling rules should not be hardcoded before business sign-off is final | When customer/account modeling moves beyond the minimal core |
+| Account-location hierarchy write APIs | `Parked` | Account/contact core comes first; location hierarchy needs migration and mapping clarity | Customer workspace expansion |
+| Primary contact/location DB-level uniqueness hardening | `Parked` | Service-level guard exists for primary contacts, but stronger relational constraints should follow once hierarchy rules are locked | When account-location and contact write paths expand |
+| Account lifecycle state machine and ERP sync status badges | `Parked` | Needs field mapping and first-order activation rules finalized | Customer workspace phase |
+| Account/contact migration normalization workers | `Parked` | Raw snapshot staging exists; normalization/import should land after the core account APIs are stable | After account/contact API baseline settles |
+| Prototype web/mobile rewiring to real account APIs | `Parked` | Backend contracts should stabilize before client rewiring starts | After first account/contact API review |
 
 ## How To Update This Tracker
 

@@ -5,13 +5,13 @@ import {
   IdentityProvider,
   SessionAuthMethod,
   UserKind,
-  Prisma,
   prisma,
   type Session,
   type User,
   type UserIdentity,
 } from '@pulse/db';
 import type { AppConfig } from '../../config.js';
+import { buildAuditEntryData as buildDomainAuditEntryData } from '../../utils/audit.js';
 import type {
   AuthIdentity,
   AuthSession,
@@ -19,7 +19,7 @@ import type {
   RefreshSessionRequest,
   TokenPair,
 } from '@pulse/contracts';
-import type { AuthRequestContext, AuthResponse } from './types.js';
+import type { AuthRequestContext, AuthResponse, AuthenticatedActor } from './types.js';
 
 const SESSION_ENTITY_TYPE = 'SESSION';
 
@@ -179,6 +179,22 @@ export async function getCurrentSession(accessToken: string) {
   }
 
   return buildSessionState(session.user, session);
+}
+
+export async function authenticateAccessToken(accessToken: string): Promise<AuthenticatedActor | null> {
+  const session = await resolveSessionByAccessToken(accessToken);
+  if (!session) {
+    return null;
+  }
+
+  return {
+    userId: session.user.id,
+    sessionId: session.id,
+    role: normalizeRole(session.user.roleCode),
+    actorType: mapUserKind(session.user.userType),
+    email: session.user.email,
+    displayName: session.user.displayName,
+  };
 }
 
 export async function logoutCurrentSession(accessToken: string, ctx: AuthRequestContext = {}) {
@@ -450,27 +466,13 @@ function buildAuditEntryData(input: {
   correlationId?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
 }) {
-  const data: Parameters<typeof prisma.auditEntry.create>[0]['data'] = {
+  return buildDomainAuditEntryData({
     actorUserId: input.actorUserId,
     action: input.action,
     entityType: SESSION_ENTITY_TYPE,
     entityId: input.entityId,
-    sourceSystem: 'pulse-api',
-  };
-
-  if (input.requestId !== undefined) {
-    data.requestId = input.requestId;
-  }
-  if (input.correlationId !== undefined) {
-    data.correlationId = input.correlationId;
-  }
-  if (input.metadata !== undefined) {
-    data.metadata = toJsonValue(input.metadata);
-  }
-
-  return data;
-}
-
-function toJsonValue(value: Record<string, unknown>): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+    requestId: input.requestId,
+    correlationId: input.correlationId,
+    metadata: input.metadata,
+  });
 }

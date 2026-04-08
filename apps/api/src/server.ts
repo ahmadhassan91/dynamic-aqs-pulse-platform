@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import { prisma } from '@pulse/db';
 import { createAcumaticaClient, type AcumaticaClient, type AcumaticaHealthStatus } from '@pulse/acumatica';
 import type { AppConfig } from './config.js';
+import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
 import { SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
@@ -169,6 +170,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const authRouteHandled = await handleAuthRoutes(req, res, url, ctx.config);
   if (authRouteHandled !== false) {
+    return;
+  }
+
+  const accountRouteHandled = await handleAccountRoutes(req, res, url);
+  if (accountRouteHandled !== false) {
     return;
   }
 

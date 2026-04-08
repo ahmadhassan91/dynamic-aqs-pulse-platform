@@ -65,6 +65,9 @@ enum ExternalReferenceEntityType {
   ORDER
   PRODUCT
   USER
+  DEALER
+  TRAINING_RECORD
+  ASSET
   SEGMENT
   OTHER
 }
@@ -269,7 +272,7 @@ model MigrationRun {
 
 model SourceRecordSnapshot {
   id               String             @id @default(uuid()) @db.Uuid
-  migrationRunId   String?            @db.Uuid
+  migrationRunId   String             @db.Uuid
   sourceSystem     DataSourceSystem
   entityType       DataRecordEntityType
   externalId       String
@@ -287,14 +290,15 @@ model SourceRecordSnapshot {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  migrationRun     MigrationRun?      @relation(fields: [migrationRunId], references: [id], onDelete: SetNull)
+  migrationRun     MigrationRun       @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
   records          MigrationRunRecord[]
 
-  @@unique([sourceSystem, entityType, externalId])
+  @@unique([migrationRunId, sourceSystem, entityType, externalId])
   @@index([migrationRunId])
   @@index([status])
   @@index([targetEntityType, targetEntityId])
   @@index([sourceSystem, entityType])
+  @@index([sourceSystem, entityType, externalId])
 }
 
 model MigrationRunRecord {
@@ -322,6 +326,7 @@ model MigrationRunRecord {
   @@index([snapshotId])
   @@index([sourceSystem, entityType])
   @@index([targetEntityType, targetEntityId])
+  @@unique([migrationRunId, snapshotId])
 }
 
 model BusinessSegmentRef {

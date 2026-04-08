@@ -31,6 +31,10 @@ export type AppQueueConfig = {
   deadLetterQueue: string;
 };
 
+export type AppMigrationConfig = {
+  adminToken?: string | undefined;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -44,6 +48,7 @@ export type AppConfig = {
   database: AppDatabaseConfig;
   acumatica: AppAcumaticaConfig;
   queue: AppQueueConfig;
+  migration: AppMigrationConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -85,6 +90,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       monitorIntervalSeconds: parseNumber(env.PGBOSS_MONITOR_INTERVAL_SECONDS, 5),
       pollingIntervalSeconds: parseNumber(env.PGBOSS_POLLING_INTERVAL_SECONDS, 2),
       deadLetterQueue: env.PGBOSS_DEAD_LETTER_QUEUE?.trim() || 'pulse.dead-letter',
+    },
+    migration: {
+      adminToken: optionalString(env.MIGRATION_ADMIN_TOKEN),
     },
   };
 }

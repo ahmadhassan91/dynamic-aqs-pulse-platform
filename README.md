@@ -46,6 +46,7 @@ This repo now has the first production foundation in place:
 - Node API skeleton with database-aware health endpoints
 - persistent `pg-boss` queue/worker foundation
 - Acumatica client/error normalization scaffold
+- migration run, raw snapshot, and staging foundation for legacy import rehearsal
 
 ## Quick Start
 
@@ -68,6 +69,16 @@ Useful endpoints once the API is running:
 - `GET /api/v1/health/db`
 - `GET /api/v1/health/queue`
 - `POST /api/v1/jobs/health-check`
+
+Migration endpoints are available for rehearsal and import foundation work, but they are intentionally gated behind `MIGRATION_ADMIN_TOKEN` until the real auth/RBAC layer is in place.
+
+Current migration flow:
+- create a migration run with `POST /api/v1/migrations/runs`
+- capture immutable per-run source evidence with `POST /api/v1/migrations/runs/:id/snapshots`
+- stage captured records with `POST /api/v1/migrations/runs/:id/stage`
+- inspect pipeline state with `GET /api/v1/migrations/runs/:id`
+
+This keeps raw source payloads and staging evidence separate from the governed CRM core so later field clarification and legacy mapping changes can be absorbed without corrupting operational tables.
 
 The existing `dynamic-aqs-crm` repo remains the:
 - discovery repo

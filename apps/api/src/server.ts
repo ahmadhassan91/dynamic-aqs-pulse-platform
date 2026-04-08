@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import { prisma } from '@pulse/db';
 import { createAcumaticaClient, type AcumaticaClient, type AcumaticaHealthStatus } from '@pulse/acumatica';
 import type { AppConfig } from './config.js';
+import { handleMigrationRoutes } from './modules/migrations/http.js';
 import { SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
 import type { QueueJobEnvelope, QueueManager } from './queue/contracts.js';
@@ -163,6 +164,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
     const job = await ctx.queue.enqueue(SYSTEM_HEALTH_CHECK_QUEUE, payload);
     return jsonResponse(res, 202, job);
+  }
+
+  const migrationRouteHandled = await handleMigrationRoutes(req, res, url, ctx.config.migration.adminToken);
+  if (migrationRouteHandled !== false) {
+    return;
   }
 
   return notFoundResponse(res, {

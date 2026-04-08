@@ -9,6 +9,7 @@ build/
 .next/
 out/
 coverage/
+*.tsbuildinfo
 
 # env
 .env
@@ -38,4 +39,3 @@ ios/
 # prisma / db
 prisma/dev.db
 prisma/dev.db-journal
-

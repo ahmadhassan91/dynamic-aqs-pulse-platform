@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -12,7 +13,20 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
-    "declaration": true
+    "declaration": true,
+    "paths": {
+      "@pulse/auth": ["packages/auth/src/index.ts"],
+      "@pulse/auth/*": ["packages/auth/src/*"],
+      "@pulse/contracts": ["packages/contracts/src/index.ts"],
+      "@pulse/contracts/*": ["packages/contracts/src/*"],
+      "@pulse/config": ["packages/config/src/index.ts"],
+      "@pulse/config/*": ["packages/config/src/*"],
+      "@pulse/acumatica": ["packages/acumatica/src/index.ts"],
+      "@pulse/acumatica/*": ["packages/acumatica/src/*"],
+      "@pulse/testing": ["packages/testing/src/index.ts"],
+      "@pulse/testing/*": ["packages/testing/src/*"],
+      "@pulse/ui": ["packages/ui/src/index.ts"],
+      "@pulse/ui/*": ["packages/ui/src/*"]
+    }
   }
 }
-

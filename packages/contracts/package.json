@@ -5,12 +5,15 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth": "./src/auth.ts"
+  },
   "scripts": {
-    "build": "echo \"Contracts build scaffold pending\"",
-    "lint": "echo \"Contracts lint scaffold pending\"",
-    "test": "echo \"Contracts test scaffold pending\"",
-    "typecheck": "echo \"Contracts typecheck scaffold pending\"",
-    "clean": "rm -rf dist"
+    "build": "tsc -b tsconfig.json",
+    "lint": "echo \"Contracts lint pending\"",
+    "test": "echo \"Contracts test pending\"",
+    "typecheck": "tsc -b tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
   }
 }
-

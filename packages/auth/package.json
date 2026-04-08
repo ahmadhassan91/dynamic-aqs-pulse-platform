@@ -5,12 +5,17 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "dependencies": {
+    "@pulse/contracts": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "echo \"Auth build scaffold pending\"",
-    "lint": "echo \"Auth lint scaffold pending\"",
-    "test": "echo \"Auth test scaffold pending\"",
-    "typecheck": "echo \"Auth typecheck scaffold pending\"",
-    "clean": "rm -rf dist"
+    "build": "tsc -b tsconfig.json",
+    "lint": "echo \"Auth lint pending\"",
+    "test": "echo \"Auth test pending\"",
+    "typecheck": "tsc -b tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
   }
 }
-

@@ -69,6 +69,77 @@ enum ExternalReferenceEntityType {
   OTHER
 }
 
+enum DataSourceSystem {
+  ACUMATICA
+  DYNAMICS_CRM
+  HUBSPOT
+  SHOPIFY
+  QUICKBOOKS
+  AZURE_SQL
+  MAP_MY_CUSTOMER
+  OUTLOOK
+  DROPBOX
+  WIDEN
+  FILE_IMPORT
+  LEGACY
+  MANUAL
+}
+
+enum DataRecordEntityType {
+  ACCOUNT
+  CONTACT
+  LOCATION
+  ORDER
+  PRODUCT
+  USER
+  DEALER
+  TRAINING_RECORD
+  ASSET
+  OTHER
+}
+
+enum MigrationWave {
+  WAVE_0
+  WAVE_1
+  WAVE_2
+  WAVE_3
+}
+
+enum MigrationRunMode {
+  DRY_RUN
+  REHEARSAL
+  BOOTSTRAP
+  DELTA
+  CUTOVER
+  ROLLBACK
+}
+
+enum MigrationRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+enum SnapshotStatus {
+  CAPTURED
+  NORMALIZED
+  STAGED
+  RECONCILED
+  ARCHIVED
+  ERROR
+}
+
+enum MigrationRecordStatus {
+  STAGED
+  SKIPPED
+  IMPORTED
+  RECONCILED
+  FAILED
+}
+
 model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique
@@ -84,6 +155,7 @@ model User {
   assignedSegmentAssignments   AccountSegmentAssignment[]
   classificationExceptionsOpened   ClassificationException[] @relation("ClassificationExceptionOpenedBy")
   classificationExceptionsResolved ClassificationException[] @relation("ClassificationExceptionResolvedBy")
+  migrationRunsStarted        MigrationRun[] @relation("MigrationRunStartedBy")
 
   @@index([roleCode])
   @@index([isActive])
@@ -169,6 +241,89 @@ model ExternalReference {
   @@index([externalId])
 }
 
+model MigrationRun {
+  id               String             @id @default(uuid()) @db.Uuid
+  sourceSystem     DataSourceSystem
+  wave             MigrationWave?
+  mode             MigrationRunMode
+  status           MigrationRunStatus @default(PENDING)
+  startedByUserId  String?            @db.Uuid
+  entityScope      Json?
+  summary          Json?
+  reconciliation   Json?
+  notes            String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  startedBy        User?              @relation("MigrationRunStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+  sourceSnapshots  SourceRecordSnapshot[]
+  records          MigrationRunRecord[]
+
+  @@index([sourceSystem, mode])
+  @@index([status])
+  @@index([wave])
+  @@index([startedAt])
+}
+
+model SourceRecordSnapshot {
+  id               String             @id @default(uuid()) @db.Uuid
+  migrationRunId   String?            @db.Uuid
+  sourceSystem     DataSourceSystem
+  entityType       DataRecordEntityType
+  externalId       String
+  targetEntityType DataRecordEntityType?
+  targetEntityId   String?
+  sourceModifiedAt DateTime?
+  capturedAt       DateTime           @default(now())
+  normalizedAt     DateTime?
+  reconciledAt     DateTime?
+  status           SnapshotStatus     @default(CAPTURED)
+  payloadChecksum  String?
+  rawPayload       Json
+  normalizedPayload Json?
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  migrationRun     MigrationRun?      @relation(fields: [migrationRunId], references: [id], onDelete: SetNull)
+  records          MigrationRunRecord[]
+
+  @@unique([sourceSystem, entityType, externalId])
+  @@index([migrationRunId])
+  @@index([status])
+  @@index([targetEntityType, targetEntityId])
+  @@index([sourceSystem, entityType])
+}
+
+model MigrationRunRecord {
+  id               String               @id @default(uuid()) @db.Uuid
+  migrationRunId   String               @db.Uuid
+  snapshotId       String?              @db.Uuid
+  sourceSystem     DataSourceSystem
+  entityType       DataRecordEntityType
+  externalId       String?
+  targetEntityType DataRecordEntityType?
+  targetEntityId   String?
+  status           MigrationRecordStatus @default(STAGED)
+  message          String?
+  fieldDiff        Json?
+  reconciliation   Json?
+  attemptCount     Int                  @default(0)
+  processedAt      DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  migrationRun     MigrationRun         @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+  snapshot         SourceRecordSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([migrationRunId, status])
+  @@index([snapshotId])
+  @@index([sourceSystem, entityType])
+  @@index([targetEntityType, targetEntityId])
+}
+
 model BusinessSegmentRef {
   id               String             @id @default(uuid()) @db.Uuid
   code             String             @unique
@@ -205,6 +360,7 @@ model Account {
   businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
   locations                  AccountLocation[]
   contacts                   Contact[]
+  extension                  AccountExtension?
   segmentAssignments         AccountSegmentAssignment[]
   classificationExceptions    ClassificationException[]
 
@@ -232,6 +388,7 @@ model AccountLocation {
 
   account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   contacts         Contact[]
+  extension        AccountLocationExtension?
 
   @@index([accountId])
   @@index([isPrimary])
@@ -256,11 +413,42 @@ model Contact {
 
   account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   location         AccountLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  extension        ContactExtension?
 
   @@index([accountId])
   @@index([locationId])
   @@index([email])
   @@index([isPrimary])
+}
+
+model AccountExtension {
+  accountId            String    @id @db.Uuid
+  legacyAttributes     Json?
+  sourceMetadata       Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model AccountLocationExtension {
+  locationId           String          @id @db.Uuid
+  legacyAttributes     Json?
+  sourceMetadata       Json?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  location             AccountLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+}
+
+model ContactExtension {
+  contactId            String    @id @db.Uuid
+  legacyAttributes     Json?
+  sourceMetadata       Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  contact              Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
 }
 
 model AccountSegmentAssignment {

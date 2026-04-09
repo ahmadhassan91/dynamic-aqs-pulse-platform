@@ -49,6 +49,7 @@ This repo now has the first production foundation in place:
 - migration run, raw snapshot, and staging foundation for legacy import rehearsal
 - raw-to-canonical migration normalization path
 - authenticated account/contact/location core API slice
+- reference data seed and admin API foundation
 - delivery progress tracker for execution visibility
 
 ## Quick Start
@@ -83,6 +84,11 @@ Useful endpoints once the API is running:
 - `POST /api/v1/accounts/:id/locations`
 - `GET /api/v1/accounts/:id/contacts`
 - `POST /api/v1/accounts/:id/contacts`
+- `GET /api/v1/reference/business-segments`
+- `PATCH /api/v1/reference/business-segments/:id`
+- `GET /api/v1/reference/lead-sources`
+- `POST /api/v1/reference/lead-sources`
+- `PATCH /api/v1/reference/lead-sources/:id`
 
 Business endpoints use bearer-token auth and shared request authorization helpers so new modules can reuse the same session/RBAC path instead of re-implementing token parsing per route.
 
@@ -96,6 +102,8 @@ Current migration flow:
 - inspect pipeline state with `GET /api/v1/migrations/runs/:id`
 
 Capture is intentionally raw-only. Normalization is the step that writes canonical `normalizedPayload` for account, contact, and location records, which keeps source evidence separate from governed CRM tables and lets us absorb field clarification without corrupting operational data.
+
+Reference data bootstrapping seeds the baseline business segments and lead sources on startup if they do not already exist. The lead stage/status model is intentionally not hardcoded yet, because that should come from the approved 7-stage seed assets rather than from guessed lifecycle logic.
 
 The existing `dynamic-aqs-crm` repo remains the:
 - discovery repo

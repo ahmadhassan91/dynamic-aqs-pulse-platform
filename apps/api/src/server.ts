@@ -6,6 +6,8 @@ import type { AppConfig } from './config.js';
 import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
+import { handleReferenceRoutes } from './modules/reference/http.js';
+import { ensureReferenceDataSeeded } from './modules/reference/service.js';
 import { SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
 import type { QueueJobEnvelope, QueueManager } from './queue/contracts.js';
@@ -56,6 +58,7 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   }));
 
   await prisma.$connect();
+  await ensureReferenceDataSeeded();
 
   try {
     await workers.start();
@@ -175,6 +178,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const accountRouteHandled = await handleAccountRoutes(req, res, url);
   if (accountRouteHandled !== false) {
+    return;
+  }
+
+  const referenceRouteHandled = await handleReferenceRoutes(req, res, url);
+  if (referenceRouteHandled !== false) {
     return;
   }
 

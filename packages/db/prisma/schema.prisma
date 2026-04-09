@@ -397,6 +397,20 @@ model BusinessSegmentRef {
   @@index([sortOrder])
 }
 
+model LeadSourceRef {
+  id               String    @id @default(uuid()) @db.Uuid
+  code             String    @unique
+  name             String
+  description      String?
+  isActive         Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
 model Account {
   id                         String                  @id @default(uuid()) @db.Uuid
   accountNumber              String?                 @unique

@@ -40,6 +40,7 @@ Use it to:
 | Migration raw snapshot staging | `Done` | Guarded rehearsal/cutover evidence pipeline is implemented | Build normalization/import workers on top | `apps/api/src/modules/migrations/` |
 | Migration normalization path | `Done` | Admin-triggered raw-to-canonical normalization is implemented and locally verified | Build governed import workers on top of normalized payloads | `apps/api/src/modules/migrations/` |
 | Auth, session, audit persistence | `Done` | Provider-aware auth/session foundation is merged, runtime-verified, and now shared through a reusable request-auth/authz helper | Add Entra and dealer-specific identity flows later without rewriting the session core | `apps/api/src/modules/auth/`, `apps/api/src/utils/audit.ts`, `packages/db/prisma/schema.prisma` |
+| Reference data seed + admin APIs | `Done` | Business-segment and lead-source reference foundations are seeded and locally verified through governed APIs | Add approved lead-stage config import and broader admin CRUD entities | `apps/api/src/modules/reference/`, `packages/db/prisma/schema.prisma` |
 | Acumatica integration boundary | `In Progress` | Safe client/error scaffold exists | Add certified endpoint adapters after sandbox confirmation | `packages/acumatica/src/` |
 | Shared API contract baseline | `In Progress` | Core auth plus explicit customer/contact/location contract surfaces now exist | Add governed import contracts and account hierarchy contracts | `packages/contracts/src/` |
 | Account and contact core API | `In Progress` | Authenticated account, contact, and nested location endpoints are implemented and locally verified against Postgres | Expand into hierarchy, lifecycle state, and governed import paths | `apps/api/src/modules/accounts/` |
@@ -54,7 +55,7 @@ Use it to:
 | Wave 0 | Program Foundation & Solution Architecture | `Partial` | `In Progress` | Execution baseline exists; build controls are being established in code. |
 | Wave 0 | Security, Identity, Environments & DevOps | `Partial` | `In Progress` | Minimal provider-aware auth foundation underway; Entra not implemented yet. |
 | Wave 0 | QA, UAT, Rollout & Adoption | `Coverage Only` | `Planned` | Will be tracked once CI/test/release controls are added. |
-| Wave 0 | Master Data, Admin Settings & Configuration | `Partial` | `Planned` | Depends on reference data sign-off and admin CRUD foundation. |
+| Wave 0 | Master Data, Admin Settings & Configuration | `Partial` | `In Progress` | Business-segment and lead-source reference APIs are live; broader admin CRUD and approval flows still remain. |
 | Wave 0 | Acumatica Integration & Data Migration | `Ready` | `In Progress` | Safe boundary, raw capture, and canonical normalization are underway; sandbox-certified adapters still pending. |
 | Wave 1 | Lead Capture & Lead Management | `Ready` | `Planned` | Can start once auth/session and account core are stable. |
 | Wave 1 | CIS, Credit & Onboarding Workflow | `Mostly Ready` | `Planned` | Depends on lead and account identity foundation. |
@@ -84,6 +85,7 @@ Use it to:
 | Provider-aware auth/session foundation | `Done` | Bootstrap auth, refresh, session lookup, logout, and audit events verified locally |
 | Account/contact core module start | `Done` | Authenticated list/create/detail/contact endpoints are locally verified |
 | Account-location nested API start | `Done` | Nested location list/create endpoints are locally verified |
+| Reference data admin foundation | `Done` | Business segments and lead sources are seeded and locally verified through API |
 | Shared request authz helper for business modules | `Done` | Customer routes now reuse one request-auth/authz path instead of duplicating bearer/session checks |
 | Progress tracker established in repo | `Done` | This document is the tracker baseline |
 
@@ -102,8 +104,11 @@ These are intentionally not being built yet, but they should stay visible so the
 | Account-location hierarchy write APIs | `Parked` | Nested location endpoints exist, but full hierarchy modeling needs migration and mapping clarity | Customer workspace expansion |
 | Primary contact/location DB-level uniqueness hardening | `Parked` | Service-level guard exists for primary contacts, but stronger relational constraints should follow once hierarchy rules are locked | When account-location and contact write paths expand |
 | Account lifecycle state machine and ERP sync status badges | `Parked` | Needs field mapping and first-order activation rules finalized | Customer workspace phase |
+| Lead stage/status reference configuration | `Parked` | Approved 7-stage seed docs should drive this, not hardcoded lifecycle guesses in code | After reference data source workbooks are loaded and signed off |
+| Full lead intake/workflow module | `Parked` | Lead-source reference groundwork exists, but stage/routing/assignment workflow should follow approved lead config and routing rules | After lead reference seeds and assignment governance are confirmed |
 | Governed import workers from normalized payloads | `Parked` | Canonical normalization now exists; direct writes into governed CRM tables should wait until field mappings and ownership rules are tighter | After normalized payload review and field mapping sign-off |
 | Queue-driven normalization orchestration | `Parked` | Admin-triggered normalization is enough for early foundation; queued batch fanout should follow real data volume and retry needs | When migration rehearsal scale justifies it |
+| Feature flag vendor integration and admin experience | `Parked` | Local feature-flag table exists, but vendor selection and final operational model are still open architecture decisions | After feature-flag vendor decision is closed |
 | Prototype web/mobile rewiring to real account APIs | `Parked` | Backend contracts should stabilize before client rewiring starts | After first account/contact API review |
 
 ## How To Update This Tracker

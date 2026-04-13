@@ -64,6 +64,7 @@ import type {
   SavePublicCisDraftRequest,
   SkipLeadDiscoveryRequest,
   UpdateLeadContactRequest,
+  UpdateLeadLifecycleRequest,
   UpdateLeadConversionPreparationRequest,
   UpdateLeadReadinessItemRequest,
   UpdateWebsiteLeadNotificationRecipientRequest,
@@ -526,6 +527,19 @@ export async function transitionLeadStage(
 ) {
   return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${leadId}/stage-transition`, {
     method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateLeadLifecycle(
+  apiBaseUrl: string,
+  accessToken: string,
+  leadId: string,
+  input: UpdateLeadLifecycleRequest,
+) {
+  return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${leadId}/lifecycle`, {
+    method: 'PATCH',
     accessToken,
     body: input,
   });

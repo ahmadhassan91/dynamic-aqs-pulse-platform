@@ -5,6 +5,7 @@ import {
   LeadCaptureMethod,
   LeadConsignmentEntryTiming,
   LeadConsignmentInterestStatus,
+  LeadLifecycleStatus,
   LeadRoutingBasis,
   LeadRoutingTeam,
   LeadStage,
@@ -28,6 +29,8 @@ import type {
   LeadImportFilePreviewResponse,
   ImportLeadsRequest,
   ImportLeadsResponse,
+  LeadLifecycleReasonCodeKey,
+  LeadLifecycleStatusKey,
   LogLeadInitialContactRequest,
   LeadDetail,
   LeadConsignmentEntryTimingKey,
@@ -56,6 +59,7 @@ import type {
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
+  UpdateLeadLifecycleRequest,
   UpdateLeadRoutingPolicyRequest,
   UpdateWebsiteLeadNotificationRecipientRequest,
   UpdateWebsiteLeadSiteRequest,
@@ -75,6 +79,14 @@ import {
 
 const LEAD_ENTITY_TYPE = 'LEAD';
 const LEAD_ROUTING_POLICY_ENTITY_TYPE = 'LEAD_ROUTING_POLICY';
+const LEAD_LIFECYCLE_REASON_CODES = new Set<LeadLifecycleReasonCodeKey>([
+  'not_interested',
+  'no_response',
+  'duplicate',
+  'disqualified',
+  'follow_up_later',
+  'other',
+]);
 
 const DEFAULT_BUSINESS_SEGMENT_CODE = 'residential';
 const DEFAULT_MANUAL_LEAD_SOURCE_CODE = 'manual_entry';
@@ -323,7 +335,11 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
-  const where: Prisma.LeadWhereInput = {};
+  const where: Prisma.LeadWhereInput = {
+    lifecycleStatus: query.lifecycleStatus
+      ? toLeadLifecycleStatusEnum(query.lifecycleStatus)
+      : LeadLifecycleStatus.ACTIVE,
+  };
 
   if (query.stage) {
     where.stage = toLeadStageEnum(query.stage);
@@ -381,6 +397,9 @@ export async function listWebsiteFormLeads(
   const sourceSiteId = optionalTrimmed(query.sourceSiteId);
   const where: Prisma.LeadWhereInput = {
     leadCaptureMethod: LeadCaptureMethod.DIRECT_WEB_FORM,
+    lifecycleStatus: query.lifecycleStatus
+      ? toLeadLifecycleStatusEnum(query.lifecycleStatus)
+      : LeadLifecycleStatus.ACTIVE,
   };
 
   if (query.stage) {
@@ -400,6 +419,9 @@ export async function listWebsiteFormLeads(
         stage: {
           not: LeadStage.CUSTOMER_ACTIVE,
         },
+      },
+      {
+        lifecycleStatus: LeadLifecycleStatus.ACTIVE,
       },
     ],
   };
@@ -473,7 +495,7 @@ export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<L
       },
     }),
     prisma.lead.groupBy({
-      by: ['sourceSiteId', 'stage'],
+      by: ['sourceSiteId', 'stage', 'lifecycleStatus'],
       _count: {
         _all: true,
       },
@@ -531,7 +553,7 @@ export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<L
     current.total += group._count._all;
     if (group.stage === LeadStage.CUSTOMER_ACTIVE) {
       current.converted += group._count._all;
-    } else {
+    } else if (group.lifecycleStatus === LeadLifecycleStatus.ACTIVE) {
       current.active += group._count._all;
     }
     leadMetrics.set(group.sourceSiteId, current);
@@ -855,6 +877,7 @@ export async function listLeadWorkflowQueue(
     stage: {
       not: LeadStage.CUSTOMER_ACTIVE,
     },
+    lifecycleStatus: LeadLifecycleStatus.ACTIVE,
   };
 
   if (query.routingTeam) {
@@ -1644,6 +1667,83 @@ export async function transitionLeadStage(
   return (await getLeadDetail(actor, lead.id)) as LeadDetail;
 }
 
+export async function updateLeadLifecycle(
+  actor: AuthenticatedActor,
+  leadId: string,
+  input: UpdateLeadLifecycleRequest,
+): Promise<LeadDetail> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const nextStatus = toLeadLifecycleStatusEnum(input.status);
+  const reasonCode = normalizeLeadLifecycleReasonCode(input.reasonCode);
+  const reasonNote = optionalTrimmed(input.reasonNote) ?? null;
+
+  if (nextStatus !== LeadLifecycleStatus.ACTIVE && !reasonCode) {
+    throw new Error('A lifecycle reason is required when a lead is parked or closed');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.lead.findUnique({
+      where: { id: leadId },
+    });
+    if (!current) {
+      throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    if (current.stage === LeadStage.CUSTOMER_ACTIVE && nextStatus !== LeadLifecycleStatus.ACTIVE) {
+      throw new Error('Customer Active records cannot be parked or closed from the lead lifecycle');
+    }
+
+    if (
+      current.lifecycleStatus === nextStatus
+      && (current.lifecycleReasonCode ?? null) === (reasonCode ?? null)
+      && (current.lifecycleReasonNote ?? null) === reasonNote
+    ) {
+      throw new Error('Lead lifecycle is already set to the requested status');
+    }
+
+    const now = new Date();
+    await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        lifecycleStatus: nextStatus,
+        lifecycleChangedAt: now,
+        lifecycleReasonCode: nextStatus === LeadLifecycleStatus.ACTIVE ? null : reasonCode ?? null,
+        lifecycleReasonNote: nextStatus === LeadLifecycleStatus.ACTIVE ? null : reasonNote,
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: LEAD_ENTITY_TYPE,
+        entityId: leadId,
+        beforeData: {
+          lifecycleStatus: toLeadLifecycleStatusKey(current.lifecycleStatus),
+          lifecycleReasonCode: current.lifecycleReasonCode,
+          lifecycleReasonNote: current.lifecycleReasonNote,
+        },
+        afterData: {
+          lifecycleStatus: toLeadLifecycleStatusKey(nextStatus),
+          lifecycleReasonCode: nextStatus === LeadLifecycleStatus.ACTIVE ? null : reasonCode ?? null,
+          lifecycleReasonNote: nextStatus === LeadLifecycleStatus.ACTIVE ? null : reasonNote,
+          lifecycleChangedAt: now.toISOString(),
+        },
+        metadata: {
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          sessionId: actor.sessionId,
+          workflowAction: nextStatus === LeadLifecycleStatus.ACTIVE ? 'reopen_lead' : 'update_lead_lifecycle',
+        },
+      }),
+    });
+  });
+
+  return (await getLeadDetail(actor, leadId)) as LeadDetail;
+}
+
 export async function getLeadRoutingPolicy(actor: AuthenticatedActor): Promise<LeadRoutingPolicySummary> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
@@ -2215,7 +2315,7 @@ function toWebsiteFormLeadSummary(lead: LeadWithRefs): WebsiteFormLeadSummary {
   return {
     ...toLeadSummary(lead),
     intakeAgeHours,
-    activePipeline: lead.stage !== LeadStage.CUSTOMER_ACTIVE,
+    activePipeline: lead.stage !== LeadStage.CUSTOMER_ACTIVE && lead.lifecycleStatus === LeadLifecycleStatus.ACTIVE,
     ...(lead.sourceCampaign ? { sourceCampaign: lead.sourceCampaign } : {}),
   };
 }
@@ -2233,6 +2333,7 @@ function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): Work
       contactDisplayName: lead.contactDisplayName,
       leadSourceCode: lead.leadSource.code,
       leadSourceName: lead.leadSource.name,
+      lifecycleStatus: toLeadLifecycleStatusKey(lead.lifecycleStatus),
       stage: toLeadStageKey(lead.stage),
       stageLabel: toLeadStageLabel(lead.stage),
       routingTeam: toLeadRoutingTeamKey(lead.routingTeam),
@@ -2249,6 +2350,9 @@ function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): Work
       ...(lead.sourceSiteId ? { sourceSiteId: lead.sourceSiteId } : {}),
       ...(lead.sourceSiteName ? { sourceSiteName: lead.sourceSiteName } : {}),
       ...(lead.sourceBrandTag ? { sourceBrandTag: lead.sourceBrandTag } : {}),
+      ...(lead.lifecycleChangedAt ? { lifecycleChangedAt: lead.lifecycleChangedAt.toISOString() } : {}),
+      ...(lead.lifecycleReasonCode ? { lifecycleReasonCode: toLeadLifecycleReasonCodeKey(lead.lifecycleReasonCode) } : {}),
+      ...(lead.lifecycleReasonNote ? { lifecycleReasonNote: lead.lifecycleReasonNote } : {}),
       ...(lead.leadOwnerName ? { leadOwnerName: lead.leadOwnerName } : {}),
       ...(lead.assignedTmName ? { assignedTmName: lead.assignedTmName } : {}),
       ...(lead.initialContactDueAt ? { initialContactDueAt: lead.initialContactDueAt.toISOString() } : {}),
@@ -2282,6 +2386,10 @@ function summarizeWorkflowQueue(items: LeadWorkflowQueueItem[]): LeadWorkflowQue
 }
 
 function getWorkflowStageAnchorAt(lead: LeadWithWorkflowRefs) {
+  if (lead.lifecycleStatus !== LeadLifecycleStatus.ACTIVE) {
+    return lead.lifecycleChangedAt ?? lead.updatedAt;
+  }
+
   switch (lead.stage) {
     case LeadStage.DISCOVERY_SCHEDULED:
       return lead.discoveryScheduledAt ?? lead.updatedAt;
@@ -2315,6 +2423,26 @@ function getInitialContactSlaState(lead: LeadWithWorkflowRefs, now: Date): Initi
 }
 
 function buildWorkflowTask(lead: LeadWithWorkflowRefs, sla: InitialContactSlaState): WorkflowTask {
+  if (lead.lifecycleStatus === LeadLifecycleStatus.PARKED) {
+    return {
+      nextAction: 'Resume Lead',
+      actionType: 'task',
+      urgency: 'low',
+      colorToken: 'gray',
+      reason: buildLifecycleReasonLabel(lead, 'Lead is parked outside the active pipeline. Resume it when follow-up should restart.'),
+    };
+  }
+
+  if (lead.lifecycleStatus === LeadLifecycleStatus.CLOSED) {
+    return {
+      nextAction: 'Reopen Lead',
+      actionType: 'task',
+      urgency: 'low',
+      colorToken: 'dark',
+      reason: buildLifecycleReasonLabel(lead, 'Lead is closed and retained for history. Reopen it if the opportunity becomes active again.'),
+    };
+  }
+
   if (!sla.hasInitialContact && sla.overdue) {
     return {
       nextAction: 'Make Initial Contact',
@@ -2508,6 +2636,7 @@ function toWorkflowFinanceDecisionStatus(
 
 function toLeadSummary(lead: LeadWithRefs): LeadSummary {
   const initialContactDueAt = lead.initialContactDueAt?.toISOString();
+  const lifecycleChangedAt = lead.lifecycleChangedAt?.toISOString();
 
   return {
     id: lead.id,
@@ -2534,6 +2663,10 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(lead.installTechCount !== null && lead.installTechCount !== undefined ? { installTechCount: lead.installTechCount } : {}),
     ...(lead.truckCount !== null && lead.truckCount !== undefined ? { truckCount: lead.truckCount } : {}),
     ...(lead.salesPersonCount !== null && lead.salesPersonCount !== undefined ? { salesPersonCount: lead.salesPersonCount } : {}),
+    lifecycleStatus: toLeadLifecycleStatusKey(lead.lifecycleStatus),
+    ...(lifecycleChangedAt ? { lifecycleChangedAt } : {}),
+    ...(lead.lifecycleReasonCode ? { lifecycleReasonCode: toLeadLifecycleReasonCodeKey(lead.lifecycleReasonCode) } : {}),
+    ...(lead.lifecycleReasonNote ? { lifecycleReasonNote: lead.lifecycleReasonNote } : {}),
     ...(lead.affinityGroupName ? { affinityGroupName: lead.affinityGroupName } : {}),
     ...(lead.ownershipGroupName ? { ownershipGroupName: lead.ownershipGroupName } : {}),
     ...(lead.privateLabelName ? { privateLabelName: lead.privateLabelName } : {}),
@@ -2642,6 +2775,72 @@ function toLeadStageEnum(stage: LeadStageKey): LeadStage {
     case 'customer_active':
       return LeadStage.CUSTOMER_ACTIVE;
   }
+}
+
+function toLeadLifecycleStatusKey(status: LeadLifecycleStatus): LeadLifecycleStatusKey {
+  switch (status) {
+    case LeadLifecycleStatus.ACTIVE:
+      return 'active';
+    case LeadLifecycleStatus.PARKED:
+      return 'parked';
+    case LeadLifecycleStatus.CLOSED:
+      return 'closed';
+    default:
+      throw new Error(`Unsupported lead lifecycle status: ${String(status)}`);
+  }
+}
+
+function toLeadLifecycleStatusEnum(status: LeadLifecycleStatusKey): LeadLifecycleStatus {
+  switch (status) {
+    case 'active':
+      return LeadLifecycleStatus.ACTIVE;
+    case 'parked':
+      return LeadLifecycleStatus.PARKED;
+    case 'closed':
+      return LeadLifecycleStatus.CLOSED;
+    default:
+      throw new Error(`Unsupported lead lifecycle status: ${status}`);
+  }
+}
+
+function toLeadLifecycleReasonCodeKey(value: string): LeadLifecycleReasonCodeKey {
+  if (!LEAD_LIFECYCLE_REASON_CODES.has(value as LeadLifecycleReasonCodeKey)) {
+    throw new Error(`Unknown lead lifecycle reason code: ${value}`);
+  }
+
+  return value as LeadLifecycleReasonCodeKey;
+}
+
+function normalizeLeadLifecycleReasonCode(value: LeadLifecycleReasonCodeKey | undefined): LeadLifecycleReasonCodeKey | undefined {
+  const normalized = optionalTrimmed(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const code = normalizeCode(normalized);
+  if (!LEAD_LIFECYCLE_REASON_CODES.has(code as LeadLifecycleReasonCodeKey)) {
+    throw new Error(`Unsupported lead lifecycle reason code: ${normalized}`);
+  }
+
+  return code as LeadLifecycleReasonCodeKey;
+}
+
+function buildLifecycleReasonLabel(
+  lead: { lifecycleReasonCode?: string | null; lifecycleReasonNote?: string | null },
+  fallback: string,
+) {
+  if (!lead.lifecycleReasonCode) {
+    return fallback;
+  }
+
+  const label = lead.lifecycleReasonCode
+    .split('_')
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');
+
+  return lead.lifecycleReasonNote
+    ? `${label}: ${lead.lifecycleReasonNote}`
+    : label;
 }
 
 function toLeadRoutingBasisKey(basis: LeadRoutingBasis): LeadRoutingBasisKey {

@@ -15,6 +15,7 @@ import {
   Loader,
   MultiSelect,
   Paper,
+  Select,
   Stack,
   Stepper,
   Tabs,
@@ -41,6 +42,7 @@ import type {
   CompleteLeadDiscoveryRequest,
   LeadConsignmentEntryTimingKey,
   LeadConsignmentInterestStatusKey,
+  LeadLifecycleReasonCodeKey,
   LeadDetail,
 } from '@pulse/contracts';
 import { canPerformAction } from '@/lib/access';
@@ -50,6 +52,7 @@ import {
   logLeadInitialContact,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
+  updateLeadLifecycle,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { LeadCisPanel } from './LeadCisPanel';
@@ -70,6 +73,19 @@ const DISCOVERY_PAIN_POINT_OPTIONS = [
   'High Maintenance Cost',
 ] as const;
 
+const LEAD_PARK_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; label: string }> = [
+  { value: 'follow_up_later', label: 'Follow Up Later' },
+  { value: 'no_response', label: 'No Response' },
+  { value: 'other', label: 'Other' },
+];
+
+const LEAD_CLOSE_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; label: string }> = [
+  { value: 'not_interested', label: 'Not Interested' },
+  { value: 'disqualified', label: 'Disqualified' },
+  { value: 'duplicate', label: 'Duplicate' },
+  { value: 'other', label: 'Other' },
+];
+
 export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -81,6 +97,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const [isSchedulingDiscovery, setIsSchedulingDiscovery] = useState(false);
   const [isCompletingDiscovery, setIsCompletingDiscovery] = useState(false);
   const [isSkippingDiscovery, setIsSkippingDiscovery] = useState(false);
+  const [isUpdatingLifecycle, setIsUpdatingLifecycle] = useState(false);
   const [discoveryPainPoints, setDiscoveryPainPoints] = useState<string[]>([]);
   const [discoveryCurrentIaqSetup, setDiscoveryCurrentIaqSetup] = useState('');
   const [discoveryDecisionMaker, setDiscoveryDecisionMaker] = useState('');
@@ -89,6 +106,9 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const [consignmentEntryTiming, setConsignmentEntryTiming] = useState<LeadConsignmentEntryTimingKey>('at_onboarding');
   const [discoveryFastTrackReason, setDiscoveryFastTrackReason] = useState('');
   const [discoverySummary, setDiscoverySummary] = useState('');
+  const [lifecycleDraftStatus, setLifecycleDraftStatus] = useState<'parked' | 'closed'>('parked');
+  const [lifecycleReasonCode, setLifecycleReasonCode] = useState<LeadLifecycleReasonCodeKey>('follow_up_later');
+  const [lifecycleReasonNote, setLifecycleReasonNote] = useState('');
 
   const canManageLead = auth ? canPerformAction(auth.identity.role, 'lead.intake_manage') : false;
   const canViewFinanceQueue = auth ? canPerformAction(auth.identity.role, 'lead.finance_queue_view') : false;
@@ -143,9 +163,19 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     setConsignmentEntryTiming(lead.consignmentEntryTiming ?? 'at_onboarding');
     setDiscoveryFastTrackReason(lead.discoveryFastTrackReason ?? '');
     setDiscoverySummary(lead.discoverySummary ?? lead.notes ?? '');
+    setLifecycleDraftStatus(lead.lifecycleStatus === 'closed' ? 'closed' : 'parked');
+    setLifecycleReasonCode(
+      lead.lifecycleReasonCode
+      ?? (lead.lifecycleStatus === 'closed' ? 'not_interested' : 'follow_up_later'),
+    );
+    setLifecycleReasonNote(lead.lifecycleReasonNote ?? '');
   }, [lead]);
 
   const hasInitialContact = Boolean(lead?.initialContactedAt) || lead?.stage !== 'new';
+  const leadIsActive = lead?.lifecycleStatus === 'active';
+  const lifecycleReasonOptions = lifecycleDraftStatus === 'closed'
+    ? LEAD_CLOSE_REASON_OPTIONS
+    : LEAD_PARK_REASON_OPTIONS;
   const discoverySummaryValid = discoverySummary.trim().length >= 10;
   const daysInStage = useMemo(() => {
     if (!lead) {
@@ -280,6 +310,13 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         occurredAt: lead.cisSignedAt,
         color: 'green',
       }] : []),
+      ...(lead.lifecycleStatus !== 'active' && lead.lifecycleChangedAt ? [{
+        key: `lifecycle-${lead.lifecycleStatus}-${lead.lifecycleChangedAt}`,
+        title: lead.lifecycleStatus === 'closed' ? 'Lead Closed' : 'Lead Parked',
+        description: formatLifecycleReason(lead.lifecycleReasonCode, lead.lifecycleReasonNote) ?? 'Lead moved out of the active pipeline with a recorded reason.',
+        occurredAt: lead.lifecycleChangedAt,
+        color: 'dark',
+      }] : []),
       ...(lead.onboardingCompletedAt ? [{
         key: `onboarding-${lead.onboardingCompletedAt}`,
         title: 'Onboarding Ready',
@@ -413,8 +450,38 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     }
   }
 
+  async function handleUpdateLifecycle(status: 'active' | 'parked' | 'closed') {
+    setIsUpdatingLifecycle(true);
+    setActionError(null);
+    try {
+      const updated = await updateLeadLifecycle(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id, status === 'active'
+        ? { status: 'active' }
+        : {
+            status,
+            reasonCode: lifecycleReasonCode,
+            ...(lifecycleReasonNote.trim() ? { reasonNote: lifecycleReasonNote.trim() } : {}),
+          });
+      setLead(updated);
+      if (status === 'active') {
+        setLifecycleDraftStatus('parked');
+        setLifecycleReasonCode('follow_up_later');
+        setLifecycleReasonNote('');
+      }
+    } catch (action) {
+      setActionError(action instanceof Error ? action.message : String(action));
+    } finally {
+      setIsUpdatingLifecycle(false);
+    }
+  }
+
   function handleNextBestAction() {
     switch (currentLead.workflowTask.nextAction) {
+      case 'Resume Lead':
+      case 'Reopen Lead':
+        if (canManageLead) {
+          void handleUpdateLifecycle('active');
+        }
+        break;
       case 'Make Initial Contact':
         if (canManageLead) {
           void handleLogInitialContact();
@@ -461,6 +528,11 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 <Badge color={stageColor(lead.stage)} variant="light">
                   {formatStageLabel(lead.stage)}
                 </Badge>
+                {lead.lifecycleStatus !== 'active' ? (
+                  <Badge color={lead.lifecycleStatus === 'closed' ? 'dark' : 'gray'} variant="filled">
+                    {lead.lifecycleStatus === 'closed' ? 'Closed' : 'Parked'}
+                  </Badge>
+                ) : null}
                 <Badge color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'} variant="light">
                   {formatRoutingTeam(lead.routingTeam)}
                 </Badge>
@@ -483,7 +555,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 leftSection={<IconPhone size={16} />}
                 onClick={() => void handleLogInitialContact()}
                 loading={isLoggingCall}
-                disabled={!canManageLead || hasInitialContact}
+                disabled={!canManageLead || hasInitialContact || !leadIsActive}
               >
                 {hasInitialContact ? 'Contacted' : 'Log Call'}
               </Button>
@@ -560,6 +632,15 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 <Text size="sm" c="dimmed">
                   {lead.discoverySummary ?? lead.notes ?? 'No notes recorded yet.'}
                 </Text>
+                {lead.lifecycleStatus !== 'active' ? (
+                  <>
+                    <Divider my="md" />
+                    <Title order={5} mb="sm">Pipeline Disposition</Title>
+                    <Text size="sm" c="dimmed">
+                      {formatLifecycleReason(lead.lifecycleReasonCode, lead.lifecycleReasonNote) ?? 'Lead is currently outside the active pipeline.'}
+                    </Text>
+                  </>
+                ) : null}
               </Card>
             </Grid.Col>
 
@@ -617,12 +698,78 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
 	                    <Button variant="light" fullWidth onClick={() => setActiveTab('onboarding')}>
 	                      Open Onboarding Readiness
 	                    </Button>
-	                    {canViewFinanceQueue ? (
+                    {canViewFinanceQueue ? (
                       <Button component={Link} href="/leads/finance" variant="light" fullWidth>
                         Open Finance Queue
                       </Button>
                     ) : null}
                   </Stack>
+                </Card>
+
+                <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+                  <Title order={5} mb="md">Pipeline Lifecycle</Title>
+                  {lead.lifecycleStatus === 'active' ? (
+                    <Stack gap="sm">
+                      <Text size="sm" c="dimmed">
+                        Remove this lead from the active pipeline only with a documented reason. The stage stays intact so the lead can be reopened cleanly later.
+                      </Text>
+                      <Select
+                        label="Lifecycle Action"
+                        data={[
+                          { value: 'parked', label: 'Park Lead' },
+                          { value: 'closed', label: 'Close Lead' },
+                        ]}
+                        value={lifecycleDraftStatus}
+                        onChange={(value) => {
+                          const next = value === 'closed' ? 'closed' : 'parked';
+                          setLifecycleDraftStatus(next);
+                          setLifecycleReasonCode(next === 'closed' ? 'not_interested' : 'follow_up_later');
+                        }}
+                        disabled={!canManageLead || isUpdatingLifecycle}
+                      />
+                      <Select
+                        label="Reason"
+                        data={lifecycleReasonOptions}
+                        value={lifecycleReasonCode}
+                        onChange={(value) => setLifecycleReasonCode((value as LeadLifecycleReasonCodeKey) || (lifecycleDraftStatus === 'closed' ? 'not_interested' : 'follow_up_later'))}
+                        disabled={!canManageLead || isUpdatingLifecycle}
+                      />
+                      <Textarea
+                        label="Notes"
+                        placeholder="Document the context for future follow-up or audit."
+                        value={lifecycleReasonNote}
+                        onChange={(event) => setLifecycleReasonNote(event.currentTarget.value)}
+                        disabled={!canManageLead || isUpdatingLifecycle}
+                        minRows={3}
+                      />
+                      <Button
+                        color={lifecycleDraftStatus === 'closed' ? 'dark' : 'gray'}
+                        onClick={() => void handleUpdateLifecycle(lifecycleDraftStatus)}
+                        loading={isUpdatingLifecycle}
+                        disabled={!canManageLead}
+                      >
+                        {lifecycleDraftStatus === 'closed' ? 'Close Lead' : 'Park Lead'}
+                      </Button>
+                    </Stack>
+                  ) : (
+                    <Stack gap="sm">
+                      <Text size="sm" c="dimmed">
+                        {formatLifecycleReason(lead.lifecycleReasonCode, lead.lifecycleReasonNote) ?? 'Lead is currently outside the active pipeline.'}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {lead.lifecycleChangedAt ? `Updated ${formatDateLabel(lead.lifecycleChangedAt)}.` : 'No lifecycle timestamp recorded yet.'}
+                      </Text>
+                      <Button
+                        color="blue"
+                        variant="light"
+                        onClick={() => void handleUpdateLifecycle('active')}
+                        loading={isUpdatingLifecycle}
+                        disabled={!canManageLead}
+                      >
+                        Reopen Lead
+                      </Button>
+                    </Stack>
+                  )}
                 </Card>
               </Stack>
             </Grid.Col>
@@ -659,6 +806,11 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <Text size="sm">CIS opens once discovery is completed or the fast-track reason is documented.</Text>
                   </Grid.Col>
                 </Grid>
+                {!leadIsActive ? (
+                  <Alert color="gray" icon={<IconLock size={16} />}>
+                    This lead is currently outside the active pipeline. Reopen it before recording discovery or CIS/onboarding actions.
+                  </Alert>
+                ) : null}
               </Stack>
             </Card>
 
@@ -684,7 +836,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             variant="light"
                             onClick={() => void handleLogInitialContact()}
                             loading={isLoggingCall}
-                            disabled={!canManageLead || hasInitialContact}
+                            disabled={!canManageLead || hasInitialContact || !leadIsActive}
                           >
                             {hasInitialContact ? 'Initial Contact Logged' : 'Log Initial Contact'}
                           </Button>
@@ -693,7 +845,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             color="blue"
                             onClick={() => void handleScheduleDiscovery()}
                             loading={isSchedulingDiscovery}
-                            disabled={!canManageLead || Boolean(lead.discoveryScheduledAt) || lead.stage !== 'new'}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryScheduledAt) || lead.stage !== 'new'}
                           >
                             {lead.discoveryScheduledAt ? 'Discovery Scheduled' : 'Schedule Discovery'}
                           </Button>
@@ -709,33 +861,33 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                           data={[...DISCOVERY_PAIN_POINT_OPTIONS]}
                           value={discoveryPainPoints}
                           onChange={setDiscoveryPainPoints}
-                          disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                          disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                         />
                         <TextInput
                           label="Current IAQ Setup"
                           value={discoveryCurrentIaqSetup}
                           onChange={(event) => setDiscoveryCurrentIaqSetup(event.currentTarget.value)}
-                          disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                          disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                         />
                         <Group grow>
                           <TextInput
                             label="Decision Maker"
                             value={discoveryDecisionMaker}
                             onChange={(event) => setDiscoveryDecisionMaker(event.currentTarget.value)}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                           />
                           <TextInput
                             label="Buying Intent"
                             value={discoveryBuyingIntent}
                             onChange={(event) => setDiscoveryBuyingIntent(event.currentTarget.value)}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                           />
                         </Group>
                         <Group grow>
                           <Button
                             variant={consignmentInterestStatus === 'interested' ? 'filled' : 'light'}
                             onClick={() => setConsignmentInterestStatus('interested')}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                           >
                             Mark Interested
                           </Button>
@@ -743,7 +895,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             variant={consignmentInterestStatus === 'approved' ? 'filled' : 'light'}
                             color="teal"
                             onClick={() => setConsignmentInterestStatus('approved')}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                           >
                             Approve For Consignment
                           </Button>
@@ -751,7 +903,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             variant={consignmentInterestStatus === 'declined' ? 'filled' : 'light'}
                             color="gray"
                             onClick={() => setConsignmentInterestStatus('declined')}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                           >
                             Not Interested
                           </Button>
@@ -762,7 +914,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                               variant={consignmentEntryTiming === 'at_onboarding' ? 'filled' : 'light'}
                               color="orange"
                               onClick={() => setConsignmentEntryTiming('at_onboarding')}
-                              disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                              disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                             >
                               Start At Onboarding
                             </Button>
@@ -770,7 +922,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                               variant={consignmentEntryTiming === 'later' ? 'filled' : 'light'}
                               color="blue"
                               onClick={() => setConsignmentEntryTiming('later')}
-                              disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                              disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                             >
                               Start Later
                             </Button>
@@ -781,7 +933,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                           placeholder="Required only if discovery is skipped"
                           value={discoveryFastTrackReason}
                           onChange={(event) => setDiscoveryFastTrackReason(event.currentTarget.value)}
-                          disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                          disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                         />
                         <Textarea
                           label="Discovery Summary"
@@ -789,7 +941,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                           minRows={4}
                           value={discoverySummary}
                           onChange={(event) => setDiscoverySummary(event.currentTarget.value)}
-                          disabled={!canManageLead || Boolean(lead.discoveryCompletedAt)}
+                          disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt)}
                         />
                         <Group>
                           <Button
@@ -797,7 +949,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             color="teal"
                             onClick={() => void handleCompleteDiscovery()}
                             loading={isCompletingDiscovery}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt) || !discoverySummaryValid}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt) || !discoverySummaryValid}
                           >
                             Complete Discovery
                           </Button>
@@ -806,7 +958,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                             color="yellow"
                             onClick={() => void handleSkipDiscovery()}
                             loading={isSkippingDiscovery}
-                            disabled={!canManageLead || Boolean(lead.discoveryCompletedAt) || discoveryFastTrackReason.trim().length === 0}
+                            disabled={!canManageLead || !leadIsActive || Boolean(lead.discoveryCompletedAt) || discoveryFastTrackReason.trim().length === 0}
                           >
                             Skip Discovery (Fast-Track)
                           </Button>
@@ -1042,6 +1194,8 @@ function stageColor(stage: LeadDetail['stage']) {
 
 function workflowActionColor(colorToken: string) {
   switch (colorToken) {
+    case 'dark':
+      return 'dark';
     case 'red':
       return 'red';
     case 'orange':
@@ -1063,6 +1217,9 @@ function workflowActionColor(colorToken: string) {
 }
 
 function timelineIcon(title: string) {
+  if (title.includes('Closed') || title.includes('Parked')) {
+    return <IconLock size={12} />;
+  }
   if (title.includes('Contact')) {
     return <IconPhone size={12} />;
   }
@@ -1080,6 +1237,19 @@ function timelineIcon(title: string) {
   }
 
   return <IconClock size={12} />;
+}
+
+function formatLifecycleReason(reasonCode?: LeadLifecycleReasonCodeKey, reasonNote?: string) {
+  if (!reasonCode) {
+    return reasonNote ?? null;
+  }
+
+  const label = reasonCode
+    .split('_')
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');
+
+  return reasonNote ? `${label}: ${reasonNote}` : label;
 }
 
 function formatDateLabel(value: string) {

@@ -12,6 +12,25 @@ export const LEAD_STAGES = [
 
 export type LeadStageKey = (typeof LEAD_STAGES)[number];
 
+export const LEAD_LIFECYCLE_STATUSES = [
+  'active',
+  'parked',
+  'closed',
+] as const;
+
+export type LeadLifecycleStatusKey = (typeof LEAD_LIFECYCLE_STATUSES)[number];
+
+export const LEAD_LIFECYCLE_REASON_CODES = [
+  'not_interested',
+  'no_response',
+  'duplicate',
+  'disqualified',
+  'follow_up_later',
+  'other',
+] as const;
+
+export type LeadLifecycleReasonCodeKey = (typeof LEAD_LIFECYCLE_REASON_CODES)[number];
+
 export const LEAD_ROUTING_BASES = [
   'service_tech_count',
   'truck_count',
@@ -217,6 +236,10 @@ export interface LeadSummary {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  lifecycleStatus: LeadLifecycleStatusKey;
+  lifecycleChangedAt?: string;
+  lifecycleReasonCode?: LeadLifecycleReasonCodeKey;
+  lifecycleReasonNote?: string;
   affinityGroupName?: string;
   ownershipGroupName?: string;
   privateLabelName?: string;
@@ -319,6 +342,7 @@ export interface LeadDetail extends LeadSummary {
 export interface ListLeadsRequest {
   search?: string;
   stage?: LeadStageKey;
+  lifecycleStatus?: LeadLifecycleStatusKey;
   routingTeam?: LeadRoutingTeamKey;
   leadSourceCode?: string;
   limit?: number;
@@ -332,6 +356,7 @@ export interface ListLeadsResponse {
 export interface ListWebsiteFormLeadsRequest {
   search?: string;
   stage?: LeadStageKey;
+  lifecycleStatus?: LeadLifecycleStatusKey;
   sourceSiteId?: string;
   limit?: number;
 }
@@ -456,6 +481,10 @@ export interface LeadWorkflowQueueItem {
   sourceSiteId?: string;
   sourceSiteName?: string;
   sourceBrandTag?: string;
+  lifecycleStatus: LeadLifecycleStatusKey;
+  lifecycleChangedAt?: string;
+  lifecycleReasonCode?: LeadLifecycleReasonCodeKey;
+  lifecycleReasonNote?: string;
   stage: LeadStageKey;
   stageLabel: string;
   routingTeam: LeadRoutingTeamKey;
@@ -500,6 +529,12 @@ export interface UpdateLeadRoutingPolicyRequest {
   routingBasis?: LeadRoutingBasisKey;
   strategicGrowthMax?: number;
   notes?: string;
+}
+
+export interface UpdateLeadLifecycleRequest {
+  status: LeadLifecycleStatusKey;
+  reasonCode?: LeadLifecycleReasonCodeKey;
+  reasonNote?: string;
 }
 
 export interface CreateLeadRequest {

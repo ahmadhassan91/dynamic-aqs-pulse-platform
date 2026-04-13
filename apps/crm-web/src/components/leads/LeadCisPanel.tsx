@@ -121,6 +121,7 @@ export function LeadCisPanel({
   const canManageCis = CIS_MANAGE_ROLES.has(actorRole);
   const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
   const canIssueCis = SENDABLE_LEAD_STAGES.has(lead.stage);
+  const leadLifecycleLocked = lead.lifecycleStatus !== 'active';
 
   useEffect(() => {
     setRecipientEmail(lead.email ?? '');
@@ -204,7 +205,7 @@ export function LeadCisPanel({
   }
 
   async function handleIssueLink(action: 'send-link' | 'resend-link') {
-    if (!canManageCis || !canIssueCis) {
+    if (!canManageCis || !canIssueCis || leadLifecycleLocked) {
       return;
     }
 
@@ -236,7 +237,7 @@ export function LeadCisPanel({
   }
 
   async function handleReviewSignoff() {
-    if (!cisPackage || !canManageCis) {
+    if (!cisPackage || !canManageCis || leadLifecycleLocked) {
       return;
     }
 
@@ -261,7 +262,7 @@ export function LeadCisPanel({
   }
 
   async function handleSubmitToFinance() {
-    if (!cisPackage || !canManageCis) {
+    if (!cisPackage || !canManageCis || leadLifecycleLocked) {
       return;
     }
 
@@ -285,7 +286,7 @@ export function LeadCisPanel({
   }
 
   async function handleFinanceDecision() {
-    if (!cisPackage || !canDecideFinance) {
+    if (!cisPackage || !canDecideFinance || leadLifecycleLocked) {
       return;
     }
 
@@ -347,6 +348,12 @@ export function LeadCisPanel({
           </Alert>
         ) : null}
 
+        {leadLifecycleLocked ? (
+          <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+            This lead is parked or closed. Reopen it before sending CIS, submitting to finance, or recording finance decisions.
+          </Alert>
+        ) : null}
+
         {isLoading ? <Text size="sm" c="dimmed">Loading CIS package...</Text> : null}
 
         {!isLoading && !loadError && !cisPackage ? (
@@ -379,7 +386,7 @@ export function LeadCisPanel({
                   value={recipientEmail}
                   onChange={(event) => setRecipientEmail(event.currentTarget.value)}
                   placeholder="prospect@example.com"
-                  disabled={!canManageCis || isSendingLink}
+                  disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
                 />
                 <TextInput
                   label="Current lead stage"
@@ -394,7 +401,7 @@ export function LeadCisPanel({
                 onChange={(event) => setLinkNote(event.currentTarget.value)}
                 placeholder="Capture any context that should travel with the CIS send event."
                 minRows={3}
-                disabled={!canManageCis || isSendingLink}
+                disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
               />
 
               <Group justify="space-between">
@@ -407,7 +414,7 @@ export function LeadCisPanel({
                     void handleIssueLink('send-link');
                   }}
                   loading={isSendingLink}
-                  disabled={!canManageCis || !canIssueCis}
+                  disabled={!canManageCis || leadLifecycleLocked || !canIssueCis}
                 >
                   Send CIS link
                 </Button>
@@ -474,7 +481,7 @@ export function LeadCisPanel({
                     value={recipientEmail}
                     onChange={(event) => setRecipientEmail(event.currentTarget.value)}
                     placeholder="prospect@example.com"
-                    disabled={!canManageCis || isSendingLink}
+                    disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
                   />
                   <TextInput
                     label="Entry method"
@@ -489,7 +496,7 @@ export function LeadCisPanel({
                   onChange={(event) => setLinkNote(event.currentTarget.value)}
                   placeholder="Capture resend context or handoff notes."
                   minRows={3}
-                  disabled={!canManageCis || isSendingLink}
+                  disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
                 />
 
                 <Group gap="sm" wrap="wrap">
@@ -500,7 +507,7 @@ export function LeadCisPanel({
                       void handleIssueLink('resend-link');
                     }}
                     loading={isSendingLink}
-                    disabled={!canManageCis}
+                    disabled={!canManageCis || leadLifecycleLocked}
                   >
                     Resend link
                   </Button>
@@ -652,7 +659,7 @@ export function LeadCisPanel({
                         onChange={(event) => setSalesReviewNotes(event.currentTarget.value)}
                         placeholder="Capture completeness, corrections, and prospect follow-up context."
                         minRows={4}
-                        disabled={!canManageCis || isSigningOff}
+                        disabled={!canManageCis || leadLifecycleLocked || isSigningOff}
                       />
                       <Textarea
                         label="Finance cover notes"
@@ -660,14 +667,14 @@ export function LeadCisPanel({
                         onChange={(event) => setFinanceCoverNotes(event.currentTarget.value)}
                         placeholder="Summarize the ask for finance review."
                         minRows={4}
-                        disabled={!canManageCis || isSigningOff}
+                        disabled={!canManageCis || leadLifecycleLocked || isSigningOff}
                       />
                       <Button
                         onClick={() => {
                           void handleReviewSignoff();
                         }}
                         loading={isSigningOff}
-                        disabled={!canManageCis || !['submitted', 'review_in_progress', 'sales_signed_off'].includes(cisPackage.status)}
+                        disabled={!canManageCis || leadLifecycleLocked || !['submitted', 'review_in_progress', 'sales_signed_off'].includes(cisPackage.status)}
                       >
                         Record sales sign-off
                       </Button>
@@ -683,7 +690,7 @@ export function LeadCisPanel({
                         onChange={(event) => setFinanceSubmissionNotes(event.currentTarget.value)}
                         placeholder="Explain the requested terms or any review caveats."
                         minRows={4}
-                        disabled={!canManageCis || isSubmittingFinance}
+                        disabled={!canManageCis || leadLifecycleLocked || isSubmittingFinance}
                       />
                       <ReadOnlyField label="Sales sign-off" value={formatOptionalDate(cisPackage.salesSignedOffAt)} />
                       <ReadOnlyField label="Submitted to finance" value={formatOptionalDate(cisPackage.financeSubmittedAt)} />
@@ -692,7 +699,7 @@ export function LeadCisPanel({
                           void handleSubmitToFinance();
                         }}
                         loading={isSubmittingFinance}
-                        disabled={!canManageCis || !['sales_signed_off', 'finance_pending'].includes(cisPackage.status)}
+                        disabled={!canManageCis || leadLifecycleLocked || !['sales_signed_off', 'finance_pending'].includes(cisPackage.status)}
                       >
                         Submit to finance
                       </Button>
@@ -712,7 +719,7 @@ export function LeadCisPanel({
                             }
                           }}
                           data={FINANCE_DECISION_OPTIONS}
-                          disabled={isRecordingDecision}
+                          disabled={leadLifecycleLocked || isRecordingDecision}
                         />
                         {requiresCreditTerms ? (
                           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
@@ -721,7 +728,7 @@ export function LeadCisPanel({
                               value={creditLineAmount}
                               onChange={(event) => setCreditLineAmount(event.currentTarget.value)}
                               placeholder="50000"
-                              disabled={isRecordingDecision}
+                              disabled={leadLifecycleLocked || isRecordingDecision}
                             />
                             <Select
                               label="Payment terms"
@@ -735,7 +742,7 @@ export function LeadCisPanel({
                                 value: option,
                                 label: formatPaymentTerms(option),
                               }))}
-                              disabled={isRecordingDecision}
+                              disabled={leadLifecycleLocked || isRecordingDecision}
                             />
                           </SimpleGrid>
                         ) : null}
@@ -745,7 +752,7 @@ export function LeadCisPanel({
                           onChange={(event) => setFinanceDecisionNotes(event.currentTarget.value)}
                           placeholder="Capture approval terms, conditions, or decline reasons."
                           minRows={3}
-                          disabled={isRecordingDecision}
+                          disabled={leadLifecycleLocked || isRecordingDecision}
                         />
                         {(financeDecision === 'conditional' || financeDecision === 'info_requested') ? (
                           <Textarea
@@ -754,7 +761,7 @@ export function LeadCisPanel({
                             onChange={(event) => setRequestedInfoNotes(event.currentTarget.value)}
                             placeholder="List the information or corrections finance still needs."
                             minRows={3}
-                            disabled={isRecordingDecision}
+                            disabled={leadLifecycleLocked || isRecordingDecision}
                           />
                         ) : null}
                         <Button
@@ -762,7 +769,7 @@ export function LeadCisPanel({
                             void handleFinanceDecision();
                           }}
                           loading={isRecordingDecision}
-                          disabled={!['finance_pending', 'finance_approved', 'finance_declined'].includes(cisPackage.status)}
+                          disabled={leadLifecycleLocked || !['finance_pending', 'finance_approved', 'finance_declined'].includes(cisPackage.status)}
                         >
                           Record finance decision
                         </Button>

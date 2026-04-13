@@ -15,10 +15,12 @@ let loginWithPassword;
 let authenticateAccessToken;
 let createLead;
 let getLeadDetail;
+let listLeadWorkflowQueue;
 let scheduleLeadDiscovery;
 let completeLeadDiscovery;
 let skipLeadDiscovery;
 let transitionLeadStage;
+let updateLeadLifecycle;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -26,7 +28,7 @@ test.before(async () => {
 
   const configModule = await import('../dist/config.js');
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
-  ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead, getLeadDetail, scheduleLeadDiscovery, completeLeadDiscovery, skipLeadDiscovery, transitionLeadStage } = await import('../dist/modules/leads/service.js'));
+  ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead, getLeadDetail, listLeadWorkflowQueue, scheduleLeadDiscovery, completeLeadDiscovery, skipLeadDiscovery, transitionLeadStage, updateLeadLifecycle } = await import('../dist/modules/leads/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -196,4 +198,89 @@ test('cis signing transition stamps submission and signature timestamps', SERIAL
   assert.ok(signed.cisSentAt);
   assert.ok(signed.cisSubmittedAt);
   assert.ok(signed.cisSignedAt);
+});
+
+test('closing a lead as not interested removes it from the active workflow queue and preserves history fields', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Dormant Follow-Up Heating',
+    serviceTechCount: 2,
+    state: 'TX',
+  });
+
+  const queueBefore = await listLeadWorkflowQueue(actor, {});
+  assert.ok(queueBefore.items.some((item) => item.leadId === lead.id), 'expected active lead in workflow queue');
+
+  const closed = await updateLeadLifecycle(actor, lead.id, {
+    status: 'closed',
+    reasonCode: 'not_interested',
+    reasonNote: 'Prospect declined the program this quarter.',
+  });
+
+  assert.equal(closed.lifecycleStatus, 'closed');
+  assert.equal(closed.lifecycleReasonCode, 'not_interested');
+  assert.equal(closed.lifecycleReasonNote, 'Prospect declined the program this quarter.');
+  assert.ok(closed.lifecycleChangedAt);
+
+  const queueAfter = await listLeadWorkflowQueue(actor, {});
+  assert.ok(!queueAfter.items.some((item) => item.leadId === lead.id), 'closed lead should be removed from the active queue');
+});
+
+test('reopening a parked lead keeps its stage intact and restores workflow queue visibility', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Seasonal Follow-Up Cooling',
+    serviceTechCount: 4,
+    state: 'Florida',
+  });
+
+  const discovered = await skipLeadDiscovery(actor, lead.id, {
+    fastTrackReason: 'Existing trusted relationship.',
+    summary: 'Fast-tracked directly into CIS readiness.',
+  });
+
+  assert.equal(discovered.stage, 'discovery_completed');
+
+  const parked = await updateLeadLifecycle(actor, lead.id, {
+    status: 'parked',
+    reasonCode: 'follow_up_later',
+    reasonNote: 'Prospect asked to reconnect after peak season.',
+  });
+
+  assert.equal(parked.lifecycleStatus, 'parked');
+  assert.equal(parked.stage, 'discovery_completed');
+
+  const reopened = await updateLeadLifecycle(actor, lead.id, {
+    status: 'active',
+  });
+
+  assert.equal(reopened.lifecycleStatus, 'active');
+  assert.equal(reopened.stage, 'discovery_completed');
+  assert.equal(reopened.lifecycleReasonCode, undefined);
+
+  const queueAfter = await listLeadWorkflowQueue(actor, {});
+  assert.ok(queueAfter.items.some((item) => item.leadId === lead.id), 'reopened lead should return to the active queue');
+});
+
+test('customer active records cannot be parked or closed through lead lifecycle controls', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Already Activated IAQ',
+    serviceTechCount: 6,
+    state: 'CA',
+  });
+
+  await transitionLeadStage(actor, lead.id, {
+    toStage: 'customer_active',
+    note: 'Regression-only direct activation.',
+  });
+
+  await assert.rejects(
+    () =>
+      updateLeadLifecycle(actor, lead.id, {
+        status: 'closed',
+        reasonCode: 'duplicate',
+      }),
+    /Customer Active records cannot be parked or closed/i,
+  );
 });

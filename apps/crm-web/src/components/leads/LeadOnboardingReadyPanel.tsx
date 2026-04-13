@@ -121,6 +121,7 @@ export function LeadOnboardingReadyPanel({
   const canManageLead = canPerformAction(actorRole, 'lead.intake_manage');
   const canCreateCustomer = canPerformAction(actorRole, 'customer.create');
   const canManagePortal = canPerformAction(actorRole, 'lead.portal_setup');
+  const leadLifecycleLocked = lead.lifecycleStatus !== 'active';
 
   useEffect(() => {
     let cancelled = false;
@@ -407,6 +408,12 @@ export function LeadOnboardingReadyPanel({
           </Alert>
         ) : null}
 
+        {leadLifecycleLocked ? (
+          <Alert color="gray" variant="light" icon={<IconAlertCircle size={16} />}>
+            This lead is parked or closed. Reopen it before editing readiness, conversion prep, or first-order conversion details.
+          </Alert>
+        ) : null}
+
         {actionMessage ? (
           <Alert color="teal" variant="light" icon={<IconCheck size={16} />}>
             {actionMessage}
@@ -461,7 +468,7 @@ export function LeadOnboardingReadyPanel({
                     leftSection={<IconChecklist size={16} />}
                     onClick={() => void handleGenerateChecklist()}
                     loading={isGeneratingChecklist}
-                    disabled={!canManageLead}
+                    disabled={!canManageLead || leadLifecycleLocked}
                   >
                     Generate Checklist
                   </Button>
@@ -470,7 +477,7 @@ export function LeadOnboardingReadyPanel({
                     leftSection={<IconRefresh size={16} />}
                     onClick={() => void handleValidatePreparation()}
                     loading={isValidating}
-                    disabled={!canManageLead}
+                    disabled={!canManageLead || leadLifecycleLocked}
                   >
                     Re-evaluate
                   </Button>
@@ -506,6 +513,7 @@ export function LeadOnboardingReadyPanel({
                             color="teal"
                             onClick={() => void handleChecklistStatusChange(item, 'completed')}
                             loading={activeItemId === item.id}
+                            disabled={leadLifecycleLocked}
                           >
                             Complete
                           </Button>
@@ -515,6 +523,7 @@ export function LeadOnboardingReadyPanel({
                             color="gray"
                             onClick={() => void handleChecklistStatusChange(item, 'pending')}
                             loading={activeItemId === item.id}
+                            disabled={leadLifecycleLocked}
                           >
                             Reset
                           </Button>
@@ -540,7 +549,7 @@ export function LeadOnboardingReadyPanel({
                     leftSection={<IconUsers size={16} />}
                     onClick={() => void handleImportContacts()}
                     loading={isImportingContacts}
-                    disabled={!canManageLead}
+                    disabled={!canManageLead || leadLifecycleLocked}
                   >
                     Import from Lead + CIS
                   </Button>
@@ -580,32 +589,37 @@ export function LeadOnboardingReadyPanel({
                       data={[...CONTACT_ROLE_OPTIONS]}
                       value={newContactRole}
                       onChange={(value) => setNewContactRole((value as LeadContactRoleKey) ?? 'primary')}
+                      disabled={leadLifecycleLocked}
                     />
                     <TextInput
                       label="Display Name"
                       value={newContactName}
                       onChange={(event) => setNewContactName(event.currentTarget.value)}
+                      disabled={leadLifecycleLocked}
                     />
                     <TextInput
                       label="Title"
                       value={newContactTitle}
                       onChange={(event) => setNewContactTitle(event.currentTarget.value)}
+                      disabled={leadLifecycleLocked}
                     />
                     <TextInput
                       label="Email"
                       value={newContactEmail}
                       onChange={(event) => setNewContactEmail(event.currentTarget.value)}
+                      disabled={leadLifecycleLocked}
                     />
                     <TextInput
                       label="Phone"
                       value={newContactPhone}
                       onChange={(event) => setNewContactPhone(event.currentTarget.value)}
+                      disabled={leadLifecycleLocked}
                     />
                     <Button
                       leftSection={<IconUserPlus size={16} />}
                       onClick={() => void handleCreateContact()}
                       loading={isCreatingContact}
-                      disabled={newContactName.trim().length === 0}
+                      disabled={leadLifecycleLocked || newContactName.trim().length === 0}
                     >
                       Add Contact
                     </Button>
@@ -634,7 +648,7 @@ export function LeadOnboardingReadyPanel({
                   leftSection={<IconArrowRight size={16} />}
                   onClick={() => void handleConvert()}
                   loading={isConverting}
-                  disabled={!canCreateCustomer || readiness?.summary.status !== 'ready'}
+                  disabled={!canCreateCustomer || leadLifecycleLocked || readiness?.summary.status !== 'ready'}
                 >
                   Convert On First Order
                 </Button>
@@ -652,7 +666,7 @@ export function LeadOnboardingReadyPanel({
                 leftSection={<IconRefresh size={16} />}
                 onClick={() => void handleValidatePreparation()}
                 loading={isValidating}
-                disabled={!canManageLead}
+                disabled={!canManageLead || leadLifecycleLocked}
               >
                 Validate
               </Button>
@@ -660,7 +674,7 @@ export function LeadOnboardingReadyPanel({
                 leftSection={<IconCheck size={16} />}
                 onClick={() => void handleSavePreparation()}
                 loading={isSavingPreparation}
-                disabled={!canManageLead && !canManagePortal}
+                disabled={leadLifecycleLocked || (!canManageLead && !canManagePortal)}
               >
                 Save Preparation
               </Button>

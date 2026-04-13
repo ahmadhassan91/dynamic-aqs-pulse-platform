@@ -16,12 +16,14 @@ import type {
   LogLeadInitialContactRequest,
   LeadRoutingTeamKey,
   LeadStageKey,
+  LeadLifecycleStatusKey,
   LeadWorkflowQueueViewKey,
   ListLeadsRequest,
   ListWebsiteFormLeadsRequest,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
+  UpdateLeadLifecycleRequest,
   UpdateLeadContactRequest,
   UpdateLeadConversionPreparationRequest,
   UpdateLeadRoutingPolicyRequest,
@@ -60,6 +62,7 @@ import {
   scheduleLeadDiscovery,
   skipLeadDiscovery,
   transitionLeadStage,
+  updateLeadLifecycle,
   updateLeadRoutingPolicy,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
@@ -101,6 +104,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || pathname === '/api/v1/leads/routing-policy'
     || /^\/api\/v1\/leads\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/leads\/[^/]+\/stage-transition$/.test(pathname)
+    || /^\/api\/v1\/leads\/[^/]+\/lifecycle$/.test(pathname)
     || /^\/api\/v1\/leads\/[^/]+\/log-initial-contact$/.test(pathname)
     || /^\/api\/v1\/leads\/[^/]+\/discovery\/schedule$/.test(pathname)
     || /^\/api\/v1\/leads\/[^/]+\/discovery\/complete$/.test(pathname)
@@ -163,12 +167,14 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         });
         const search = url.searchParams.get('search')?.trim();
         const stage = url.searchParams.get('stage');
+        const lifecycleStatus = url.searchParams.get('lifecycleStatus');
         const routingTeam = url.searchParams.get('routingTeam');
         const leadSourceCode = url.searchParams.get('leadSourceCode')?.trim();
         const limit = parseInteger(url.searchParams.get('limit'));
         const query: ListLeadsRequest = {
           ...(search ? { search } : {}),
           ...(stage ? { stage: stage as LeadStageKey } : {}),
+          ...(lifecycleStatus ? { lifecycleStatus: lifecycleStatus as LeadLifecycleStatusKey } : {}),
           ...(routingTeam ? { routingTeam: routingTeam as LeadRoutingTeamKey } : {}),
           ...(leadSourceCode ? { leadSourceCode } : {}),
           ...(limit !== undefined ? { limit } : {}),
@@ -202,11 +208,13 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       });
       const search = url.searchParams.get('search')?.trim();
       const stage = url.searchParams.get('stage');
+      const lifecycleStatus = url.searchParams.get('lifecycleStatus');
       const sourceSiteId = url.searchParams.get('sourceSiteId')?.trim();
       const limit = parseInteger(url.searchParams.get('limit'));
       const query: ListWebsiteFormLeadsRequest = {
         ...(search ? { search } : {}),
         ...(stage ? { stage: stage as LeadStageKey } : {}),
+        ...(lifecycleStatus ? { lifecycleStatus: lifecycleStatus as LeadLifecycleStatusKey } : {}),
         ...(sourceSiteId ? { sourceSiteId } : {}),
         ...(limit !== undefined ? { limit } : {}),
       };
@@ -403,6 +411,26 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       });
       const body = (await readJsonBody(req)) as TransitionLeadStageRequest;
       const response = await transitionLeadStage(actor, leadId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const lifecycleMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/lifecycle$/);
+    if (lifecycleMatch) {
+      const leadId = lifecycleMatch[1];
+      if (!leadId) {
+        return false;
+      }
+
+      if (method !== 'PATCH') {
+        return methodNotAllowedResponse(res, method, ['PATCH']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req)) as UpdateLeadLifecycleRequest;
+      const response = await updateLeadLifecycle(actor, leadId, body);
       return jsonResponse(res, 200, response);
     }
 

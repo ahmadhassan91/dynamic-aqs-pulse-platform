@@ -173,6 +173,12 @@ enum LeadStage {
   CUSTOMER_ACTIVE
 }
 
+enum LeadLifecycleStatus {
+  ACTIVE
+  PARKED
+  CLOSED
+}
+
 enum LeadRoutingBasis {
   SERVICE_TECH_COUNT
   TRUCK_COUNT
@@ -703,6 +709,10 @@ model Lead {
   leadOwnerName            String?
   assignedTmName           String?
   stage                    LeadStage         @default(NEW)
+  lifecycleStatus          LeadLifecycleStatus @default(ACTIVE)
+  lifecycleChangedAt       DateTime?
+  lifecycleReasonCode      String?
+  lifecycleReasonNote      String?
   initialContactDueAt      DateTime?
   initialContactedAt       DateTime?
   discoveryCallSkipped     Boolean           @default(false)
@@ -740,6 +750,7 @@ model Lead {
   @@index([businessSegmentId])
   @@index([leadSourceId])
   @@index([stage])
+  @@index([lifecycleStatus])
   @@index([routingTeam])
   @@index([leadType])
   @@index([state])

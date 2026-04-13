@@ -50,6 +50,7 @@ import type {
   LeadTerritoryAssignmentSummary,
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
+  ResolveWebsiteLeadSubmissionRequest,
   UpdateLeadRoutingPolicyRequest,
   ListLeadWorkflowQueueRequest,
   ListLeadWorkflowQueueResponse,
@@ -80,11 +81,13 @@ import type {
   TerritoryPolicySummary,
   ListRegionsResponse,
   ListShippingCentersResponse,
+  ListTerritoryAssignableUsersResponse,
   ListTerritoriesResponse,
   ListTerritoryAssignmentHistoryResponse,
   TokenPair,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
+  WebsiteLeadSubmissionSummary,
 } from '@pulse/contracts';
 
 type AuthBundle = {
@@ -290,6 +293,13 @@ export async function fetchTerritories(apiBaseUrl: string, accessToken: string) 
   });
 }
 
+export async function fetchTerritoryAssignableUsers(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListTerritoryAssignableUsersResponse>(apiBaseUrl, '/api/v1/territories/assignable-users', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function fetchTerritoryAssignmentHistory(
   apiBaseUrl: string,
   accessToken: string,
@@ -432,6 +442,23 @@ export async function fetchWebsiteLeadSubmissions(
     method: 'GET',
     accessToken,
   });
+}
+
+export async function resolveWebsiteLeadSubmission(
+  apiBaseUrl: string,
+  accessToken: string,
+  submissionId: string,
+  input: ResolveWebsiteLeadSubmissionRequest,
+) {
+  return requestJson<WebsiteLeadSubmissionSummary>(
+    apiBaseUrl,
+    `/api/v1/leads/website-submissions/${submissionId}/resolve`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
 }
 
 export async function fetchWebsiteLeadSites(apiBaseUrl: string, accessToken: string) {

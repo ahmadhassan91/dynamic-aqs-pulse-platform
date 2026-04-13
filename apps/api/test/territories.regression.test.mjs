@@ -24,6 +24,7 @@ let createTerritory;
 let getTerritoryPolicy;
 let listShippingCenters;
 let listTerritoryAssignmentHistory;
+let listTerritoryAssignableUsers;
 let reassignLeadTerritory;
 let replaceTerritoryCoverage;
 let updateTerritoryPolicy;
@@ -48,6 +49,7 @@ test.before(async () => {
     getTerritoryPolicy,
     listShippingCenters,
     listTerritoryAssignmentHistory,
+    listTerritoryAssignableUsers,
     reassignLeadTerritory,
     replaceTerritoryCoverage,
     updateTerritoryPolicy,
@@ -387,6 +389,125 @@ test('manual override works without lead state, writes history, and does not chu
 
   history = await listTerritoryAssignmentHistory(actor, 'lead', lead.id);
   assert.equal(history.items.length, 2, 'same-territory manual override should not create duplicate history');
+});
+
+test('assignable territory users only include active internal TMs and RDs', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const tm = await createUser('TERRITORY_MANAGER', 'tm-assignable@pulse.local', 'Assignable TM');
+  const rd = await createUser('REGIONAL_DIRECTOR', 'rd-assignable@pulse.local', 'Assignable RD');
+  await createUser('SALES_BD_REP', 'sales-ignore@pulse.local', 'Ignore Sales');
+
+  await prisma.user.create({
+    data: {
+      email: 'dealer-ignore@pulse.local',
+      displayName: 'Ignore Dealer',
+      roleCode: 'TERRITORY_MANAGER',
+      userType: 'DEALER',
+    },
+  });
+
+  await prisma.user.update({
+    where: { id: tm.id },
+    data: { isActive: false },
+  });
+
+  const response = await listTerritoryAssignableUsers(actor);
+
+  assert.deepEqual(
+    response.territoryManagers.map((user) => user.email),
+    [],
+  );
+  assert.deepEqual(
+    response.regionalDirectors.map((user) => user.email),
+    ['rd-assignable@pulse.local'],
+  );
+});
+
+test('manual lead override can pin explicit TM and RD owners, then fall back to territory defaults when cleared', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await seedTerritoryFixture(actor, {
+    suffix: 'named_override',
+    stateCode: 'WA',
+  });
+  const alternateTm = await createUser('TERRITORY_MANAGER', 'tm-alt@pulse.local', 'Alternate TM');
+  const alternateRd = await createUser('REGIONAL_DIRECTOR', 'rd-alt@pulse.local', 'Alternate RD');
+
+  const lead = await createLead(actor, {
+    companyName: 'Named Owner Override HVAC',
+    serviceTechCount: 8,
+    state: 'WA',
+  });
+
+  const overridden = await reassignLeadTerritory(actor, lead.id, {
+    territoryId: fixture.territory.id,
+    assignedTmUserId: alternateTm.id,
+    assignedRdUserId: alternateRd.id,
+    reasonCode: 'manual_override',
+    reasonNote: 'Leadership requested a named owner override.',
+  });
+  assert.equal(overridden?.assignedTmUserId, alternateTm.id);
+  assert.equal(overridden?.assignedRdUserId, alternateRd.id);
+
+  const detailAfterOverride = await getLeadDetail(actor, lead.id);
+  assert.equal(detailAfterOverride?.assignedTmUserId, alternateTm.id);
+  assert.equal(detailAfterOverride?.assignedRdUserId, alternateRd.id);
+
+  const fallback = await reassignLeadTerritory(actor, lead.id, {
+    territoryId: fixture.territory.id,
+    assignedTmUserId: null,
+    assignedRdUserId: null,
+    reasonCode: 'manual_override',
+    reasonNote: 'Return to the territory default ownership.',
+  });
+  assert.equal(fallback?.assignedTmUserId, fixture.manager.id);
+  assert.equal(fallback?.assignedRdUserId, fixture.director.id);
+
+  const history = await listTerritoryAssignmentHistory(actor, 'lead', lead.id);
+  assert.equal(history.items.length, 3);
+  assert.equal(history.items[0].nextAssignedTmUserId, fixture.manager.id);
+  assert.equal(history.items[1].nextAssignedTmUserId, alternateTm.id);
+});
+
+test('named owner overrides reject inactive users and wrong roles', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await seedTerritoryFixture(actor, {
+    suffix: 'named_override_validation',
+    stateCode: 'OR',
+  });
+  const inactiveTm = await createUser('TERRITORY_MANAGER', 'tm-inactive@pulse.local', 'Inactive TM');
+  const wrongRole = await createUser('FINANCE', 'finance@pulse.local', 'Finance User');
+
+  await prisma.user.update({
+    where: { id: inactiveTm.id },
+    data: { isActive: false },
+  });
+
+  const lead = await createLead(actor, {
+    companyName: 'Owner Validation HVAC',
+    serviceTechCount: 7,
+    state: 'OR',
+  });
+
+  await assert.rejects(
+    () =>
+      reassignLeadTerritory(actor, lead.id, {
+        territoryId: fixture.territory.id,
+        assignedTmUserId: inactiveTm.id,
+        reasonCode: 'manual_override',
+      }),
+    /Unknown or inactive assignable user/i,
+  );
+
+  await assert.rejects(
+    () =>
+      reassignLeadTerritory(actor, lead.id, {
+        territoryId: fixture.territory.id,
+        assignedRdUserId: wrongRole.id,
+        reasonCode: 'manual_override',
+      }),
+    /Selected user must have role REGIONAL_DIRECTOR/i,
+  );
 });
 
 test('territory permissions allow RD admin actions, TM reassign actions, and deny unrelated roles', SERIAL, async () => {

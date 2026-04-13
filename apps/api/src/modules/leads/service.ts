@@ -14,6 +14,7 @@ import {
   prisma,
   WebsiteLeadFormType,
   WebsiteLeadSubmissionOutcome,
+  WebsiteLeadSubmissionReviewStatus,
   WebsiteLeadType,
 } from '@pulse/db';
 import type {
@@ -63,6 +64,7 @@ import type {
   ListWebsiteLeadSubmissionsRequest,
   ListWebsiteLeadSubmissionsResponse,
   PublicWebsiteLeadSite,
+  ResolveWebsiteLeadSubmissionRequest,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
@@ -172,6 +174,12 @@ const WEBSITE_LEAD_SUBMISSION_INCLUDE = {
   websiteLeadSite: true,
   linkedLead: {
     include: LEAD_SUMMARY_INCLUDE,
+  },
+  reviewedBy: {
+    select: {
+      id: true,
+      displayName: true,
+    },
   },
 } satisfies Prisma.WebsiteLeadSubmissionInclude;
 
@@ -562,7 +570,7 @@ export async function listWebsiteLeadSubmissions(
     where.OR = buildWebsiteLeadSubmissionSearchClauses(search);
   }
 
-  const [items, total, duplicateCount, createdLeadCount, siteGroups, linkedLeadGroups, aggregate] = await Promise.all([
+  const [items, total, duplicateCount, createdLeadCount, pendingReviewCount, resolvedCount, siteGroups, linkedLeadGroups, aggregate] = await Promise.all([
     prisma.websiteLeadSubmission.findMany({
       where,
       orderBy: [
@@ -583,6 +591,24 @@ export async function listWebsiteLeadSubmissions(
       where: {
         ...where,
         outcome: WebsiteLeadSubmissionOutcome.CREATED_NEW_LEAD,
+      },
+    }),
+    prisma.websiteLeadSubmission.count({
+      where: {
+        ...where,
+        reviewStatus: WebsiteLeadSubmissionReviewStatus.PENDING_REVIEW,
+      },
+    }),
+    prisma.websiteLeadSubmission.count({
+      where: {
+        ...where,
+        reviewStatus: {
+          in: [
+            WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING,
+            WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD,
+            WebsiteLeadSubmissionReviewStatus.RELINKED_EXISTING,
+          ],
+        },
       },
     }),
     prisma.websiteLeadSubmission.groupBy({
@@ -607,11 +633,163 @@ export async function listWebsiteLeadSubmissions(
     summary: {
       duplicateCount,
       createdLeadCount,
+      pendingReviewCount,
+      resolvedCount,
       siteCount: siteGroups.filter((group) => group.websiteLeadSiteId).length,
       uniqueLinkedLeadCount: linkedLeadGroups.filter((group) => group.linkedLeadId).length,
       ...(aggregate._max.createdAt ? { latestSubmissionAt: aggregate._max.createdAt.toISOString() } : {}),
     },
   };
+}
+
+export async function resolveWebsiteLeadSubmission(
+  actor: AuthenticatedActor,
+  submissionId: string,
+  input: ResolveWebsiteLeadSubmissionRequest,
+): Promise<WebsiteLeadSubmissionSummary> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const decision = requiredTrimmed(input.decision, 'decision');
+  const reviewNote = optionalTrimmed(input.reviewNote) ?? null;
+
+  const updatedSubmission = await prisma.$transaction(async (tx) => {
+    const submission = await tx.websiteLeadSubmission.findUnique({
+      where: { id: submissionId },
+      include: WEBSITE_LEAD_SUBMISSION_INCLUDE,
+    });
+
+    if (!submission) {
+      throw new Error('Website lead submission not found');
+    }
+
+    if (submission.outcome !== WebsiteLeadSubmissionOutcome.ATTACHED_TO_EXISTING_LEAD) {
+      throw new Error('Only repeat website submissions require duplicate-resolution actions');
+    }
+
+    if (submission.reviewStatus !== WebsiteLeadSubmissionReviewStatus.PENDING_REVIEW) {
+      if (
+        (decision === 'confirm_existing' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING)
+        || (decision === 'create_new_lead' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD)
+      ) {
+        return submission;
+      }
+
+      throw new Error('This duplicate submission has already been resolved');
+    }
+
+    let nextLinkedLeadId = submission.linkedLeadId ?? null;
+    let nextReviewStatus: WebsiteLeadSubmissionReviewStatus;
+    let createdLead: LeadWithRefs | null = null;
+
+    switch (decision) {
+      case 'confirm_existing':
+        if (!submission.linkedLeadId) {
+          throw new Error('Duplicate submission is missing its linked lead');
+        }
+        nextReviewStatus = WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING;
+        break;
+      case 'create_new_lead': {
+        const normalized = normalizeLeadInput(
+          buildLeadInputFromWebsiteSubmission(submission),
+          {
+            defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+            defaultLeadSourceCode: DEFAULT_WEBSITE_LEAD_SOURCE_CODE,
+            leadCaptureMethod: LeadCaptureMethod.DIRECT_WEB_FORM,
+          },
+        );
+
+        createdLead = await createLeadRecord(
+          tx,
+          normalized,
+          {
+            actorUserId: actor.userId,
+            sessionId: actor.sessionId,
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            trigger: 'manual',
+          },
+          {
+            sourceMetadata: buildWebsiteLeadSubmissionSourceMetadata(submission),
+          },
+        );
+        nextLinkedLeadId = createdLead.id;
+        nextReviewStatus = WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD;
+        break;
+      }
+      default:
+        throw new Error(`Unsupported duplicate-resolution decision: ${decision}`);
+    }
+
+    const updated = await tx.websiteLeadSubmission.update({
+      where: { id: submissionId },
+      data: {
+        ...(nextLinkedLeadId ? { linkedLeadId: nextLinkedLeadId } : { linkedLeadId: null }),
+        reviewStatus: nextReviewStatus,
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+        reviewNote,
+      },
+      include: WEBSITE_LEAD_SUBMISSION_INCLUDE,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'WEBSITE_LEAD_SUBMISSION',
+        entityId: updated.id,
+        beforeData: {
+          linkedLeadId: submission.linkedLeadId,
+          reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(submission.reviewStatus),
+          reviewNote: submission.reviewNote,
+        },
+        afterData: {
+          linkedLeadId: updated.linkedLeadId,
+          reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(updated.reviewStatus),
+          reviewNote: updated.reviewNote,
+          ...(createdLead ? { createdLeadId: createdLead.id } : {}),
+        },
+        metadata: {
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          sessionId: actor.sessionId,
+          operation: 'lead.website_submission.resolve',
+          decision,
+        },
+      }),
+    });
+
+    if (updated.linkedLeadId) {
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.UPDATE,
+          entityType: LEAD_ENTITY_TYPE,
+          entityId: updated.linkedLeadId,
+          afterData: {
+            duplicateSubmissionReview: {
+              submissionId: updated.id,
+              reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(updated.reviewStatus),
+              decision,
+              ...(updated.reviewNote ? { reviewNote: updated.reviewNote } : {}),
+            },
+          },
+          metadata: {
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            sessionId: actor.sessionId,
+            operation: 'lead.website_submission.resolve',
+            decision,
+          },
+        }),
+      });
+    }
+
+    return updated;
+  });
+
+  return toWebsiteLeadSubmissionSummary(updatedSubmission);
 }
 
 export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<ListWebsiteLeadSitesResponse> {
@@ -1664,6 +1842,10 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
         linkedLeadId: linkedLead.id,
         leadType,
         outcome,
+        reviewStatus:
+          outcome === WebsiteLeadSubmissionOutcome.ATTACHED_TO_EXISTING_LEAD
+            ? WebsiteLeadSubmissionReviewStatus.PENDING_REVIEW
+            : WebsiteLeadSubmissionReviewStatus.NOT_REQUIRED,
         contactDisplayName: resolvedName.contactDisplayName,
         ...(resolvedName.contactFirstName ? { contactFirstName: resolvedName.contactFirstName } : {}),
         ...(resolvedName.contactLastName ? { contactLastName: resolvedName.contactLastName } : {}),
@@ -2707,6 +2889,11 @@ function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): We
       : {}),
     leadType: toWebsiteLeadTypeKey(item.leadType),
     outcome: toWebsiteLeadSubmissionOutcomeKey(item.outcome),
+    reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(item.reviewStatus),
+    ...(item.reviewedByUserId ? { reviewedByUserId: item.reviewedByUserId } : {}),
+    ...(item.reviewedBy?.displayName ? { reviewedByDisplayName: item.reviewedBy.displayName } : {}),
+    ...(item.reviewedAt ? { reviewedAt: item.reviewedAt.toISOString() } : {}),
+    ...(item.reviewNote ? { reviewNote: item.reviewNote } : {}),
     contactDisplayName: item.contactDisplayName,
     ...(item.companyName ? { companyName: item.companyName } : {}),
     ...(item.email ? { email: item.email } : {}),
@@ -2721,6 +2908,66 @@ function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): We
     ...(item.referralSource ? { referralSource: item.referralSource } : {}),
     ...(item.referralDetail ? { referralDetail: item.referralDetail } : {}),
     createdAt: item.createdAt.toISOString(),
+  };
+}
+
+function buildLeadInputFromWebsiteSubmission(submission: WebsiteLeadSubmissionWithRefs): LeadInputSource {
+  return {
+    ...(submission.companyName ? { companyName: submission.companyName } : {}),
+    ...(submission.contactFirstName ? { contactFirstName: submission.contactFirstName } : {}),
+    ...(submission.contactLastName ? { contactLastName: submission.contactLastName } : {}),
+    contactDisplayName: submission.contactDisplayName,
+    ...(submission.email ? { email: submission.email } : {}),
+    ...(submission.phone ? { phone: submission.phone } : {}),
+    ...(submission.state ? { state: submission.state } : {}),
+    ...(submission.countryCode ? { countryCode: submission.countryCode } : {}),
+    businessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+    leadSourceCode: DEFAULT_WEBSITE_LEAD_SOURCE_CODE,
+    leadType: toWebsiteLeadTypeKey(submission.leadType),
+    ...(submission.websiteLeadSite?.siteName ? { sourceDetail: submission.websiteLeadSite.siteName } : {}),
+    ...(submission.websiteLeadSite?.siteId ? { sourceSiteId: submission.websiteLeadSite.siteId } : {}),
+    ...(submission.websiteLeadSite?.siteName ? { sourceSiteName: submission.websiteLeadSite.siteName } : {}),
+    ...(submission.websiteLeadSite?.brandTag ? { sourceBrandTag: submission.websiteLeadSite.brandTag } : {}),
+    serviceTechCount: submission.serviceTechCount ?? 0,
+    ...(submission.installTechCount !== null && submission.installTechCount !== undefined ? { installTechCount: submission.installTechCount } : {}),
+    ...(submission.truckCount !== null && submission.truckCount !== undefined ? { truckCount: submission.truckCount } : {}),
+    ...(submission.salesPersonCount !== null && submission.salesPersonCount !== undefined ? { salesPersonCount: submission.salesPersonCount } : {}),
+    ...(getJsonRecordString(submission.payload, 'campaign') ? { sourceCampaign: getJsonRecordString(submission.payload, 'campaign') } : {}),
+  };
+}
+
+function buildWebsiteLeadSubmissionSourceMetadata(submission: WebsiteLeadSubmissionWithRefs) {
+  const streetAddress = getJsonRecordString(submission.payload, 'streetAddress');
+  const city = getJsonRecordString(submission.payload, 'city');
+  const state = submission.state ?? getJsonRecordString(submission.payload, 'state');
+  const postalCode = getJsonRecordString(submission.payload, 'postalCode');
+  const countryCode = submission.countryCode ?? getJsonRecordString(submission.payload, 'countryCode');
+  const customerStatus = getJsonRecordString(submission.payload, 'customerStatus');
+  const payloadRecord = isRecord(submission.payload)
+    ? (submission.payload as Record<string, unknown>)
+    : null;
+  const marketingConsent = payloadRecord && typeof payloadRecord.marketingConsent === 'boolean'
+    ? payloadRecord.marketingConsent
+    : undefined;
+
+  return {
+    captureChannel: 'branded_website',
+    ...(submission.inquiryTopic ? { inquiryTopic: submission.inquiryTopic } : {}),
+    ...(submission.referralSource ? { referralSource: submission.referralSource } : {}),
+    ...(submission.referralDetail ? { referralDetail: submission.referralDetail } : {}),
+    ...(customerStatus ? { customerStatus } : {}),
+    ...(marketingConsent !== undefined ? { marketingConsent } : {}),
+    ...(streetAddress || city || state || postalCode || countryCode
+      ? {
+          submittedAddress: {
+            ...(streetAddress ? { line1: streetAddress } : {}),
+            ...(city ? { city } : {}),
+            ...(state ? { state } : {}),
+            ...(postalCode ? { postalCode } : {}),
+            ...(countryCode ? { countryCode } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -3730,6 +3977,21 @@ function toWebsiteLeadSubmissionOutcomeKey(value: WebsiteLeadSubmissionOutcome) 
       return 'created_new_lead';
     case WebsiteLeadSubmissionOutcome.ATTACHED_TO_EXISTING_LEAD:
       return 'attached_to_existing_lead';
+  }
+}
+
+function toWebsiteLeadSubmissionReviewStatusKey(value: WebsiteLeadSubmissionReviewStatus) {
+  switch (value) {
+    case WebsiteLeadSubmissionReviewStatus.NOT_REQUIRED:
+      return 'not_required';
+    case WebsiteLeadSubmissionReviewStatus.PENDING_REVIEW:
+      return 'pending_review';
+    case WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING:
+      return 'confirmed_existing';
+    case WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD:
+      return 'created_new_lead';
+    case WebsiteLeadSubmissionReviewStatus.RELINKED_EXISTING:
+      return 'relinked_existing';
   }
 }
 

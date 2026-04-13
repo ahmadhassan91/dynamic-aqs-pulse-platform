@@ -22,6 +22,7 @@ import type {
   ListLeadsRequest,
   ListWebsiteLeadSubmissionsRequest,
   ListWebsiteFormLeadsRequest,
+  ResolveWebsiteLeadSubmissionRequest,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
@@ -63,6 +64,7 @@ import {
   listWebsiteLeadSubmissions,
   listWebsiteFormLeads,
   previewLeadImport,
+  resolveWebsiteLeadSubmission,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
   transitionLeadStage,
@@ -100,6 +102,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     pathname === '/api/v1/leads'
     || pathname === '/api/v1/leads/website-forms'
     || pathname === '/api/v1/leads/website-submissions'
+    || /^\/api\/v1\/leads\/website-submissions\/[^/]+\/resolve$/.test(pathname)
     || pathname === '/api/v1/leads/website-sites'
     || pathname === '/api/v1/leads/website-notification-recipients'
     || pathname === '/api/v1/leads/workflow-queue'
@@ -258,6 +261,25 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       }
 
       const response = await listWebsiteLeadSubmissions(actor, query);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (/^\/api\/v1\/leads\/website-submissions\/[^/]+\/resolve$/.test(pathname)) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const submissionId = pathname.split('/').filter(Boolean).at(-2);
+      if (!submissionId) {
+        return badRequestResponse(res, 'Submission id is required');
+      }
+
+      const body = (await readJsonBody(req)) as ResolveWebsiteLeadSubmissionRequest;
+      const response = await resolveWebsiteLeadSubmission(actor, submissionId, body);
       return jsonResponse(res, 200, response);
     }
 

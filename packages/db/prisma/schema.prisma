@@ -224,6 +224,14 @@ enum WebsiteLeadSubmissionOutcome {
   ATTACHED_TO_EXISTING_LEAD
 }
 
+enum WebsiteLeadSubmissionReviewStatus {
+  NOT_REQUIRED
+  PENDING_REVIEW
+  CONFIRMED_EXISTING
+  CREATED_NEW_LEAD
+  RELINKED_EXISTING
+}
+
 enum LeadConsignmentInterestStatus {
   NOT_DISCUSSED
   INTERESTED
@@ -394,7 +402,10 @@ model User {
   assignedTmLeads            Lead[] @relation("LeadAssignedTm")
   assignedRdLeads            Lead[] @relation("LeadAssignedRd")
   territoryOverridesCreated  TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideCreatedBy")
+  territoryOverridesAssignedTm TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedTm")
+  territoryOverridesAssignedRd TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
   territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
+  websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -491,6 +502,8 @@ model TerritoryAssignmentOverride {
   entityType       TerritoryAssignmentEntityType
   entityId         String
   territoryId      String                       @db.Uuid
+  assignedTmUserId String?                      @db.Uuid
+  assignedRdUserId String?                      @db.Uuid
   reasonCode       String
   reasonNote       String?
   createdByUserId  String?                      @db.Uuid
@@ -498,10 +511,14 @@ model TerritoryAssignmentOverride {
   updatedAt        DateTime                     @updatedAt
 
   territory        Territory                    @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  assignedTmUser   User?                        @relation("TerritoryAssignmentOverrideAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser   User?                        @relation("TerritoryAssignmentOverrideAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
   createdByUser    User?                        @relation("TerritoryAssignmentOverrideCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@unique([entityType, entityId])
   @@index([territoryId])
+  @@index([assignedTmUserId])
+  @@index([assignedRdUserId])
   @@index([createdByUserId])
 }
 
@@ -937,6 +954,10 @@ model WebsiteLeadSubmission {
   linkedLeadId      String?                        @db.Uuid
   leadType          WebsiteLeadType
   outcome           WebsiteLeadSubmissionOutcome   @default(CREATED_NEW_LEAD)
+  reviewStatus      WebsiteLeadSubmissionReviewStatus @default(NOT_REQUIRED)
+  reviewedByUserId  String?                        @db.Uuid
+  reviewedAt        DateTime?
+  reviewNote        String?
   contactDisplayName String
   contactFirstName  String?
   contactLastName   String?
@@ -958,11 +979,14 @@ model WebsiteLeadSubmission {
 
   websiteLeadSite   WebsiteLeadSite?               @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
   linkedLead        Lead?                          @relation("LeadToWebsiteSubmission", fields: [linkedLeadId], references: [id], onDelete: SetNull)
+  reviewedBy        User?                          @relation("WebsiteLeadSubmissionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([websiteLeadSiteId, createdAt])
   @@index([linkedLeadId])
   @@index([leadType])
   @@index([outcome])
+  @@index([reviewStatus])
+  @@index([reviewedByUserId])
   @@index([email])
 }
 

@@ -24,6 +24,7 @@ let getPublicWebsiteLeadSite;
 let captureWebsiteLead;
 let listWebsiteFormLeads;
 let listWebsiteLeadSubmissions;
+let resolveWebsiteLeadSubmission;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -44,6 +45,7 @@ test.before(async () => {
     captureWebsiteLead,
     listWebsiteFormLeads,
     listWebsiteLeadSubmissions,
+    resolveWebsiteLeadSubmission,
   } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
@@ -160,7 +162,9 @@ test('duplicate website submissions attach to the existing lead instead of creat
 
   assert.equal(submissions.length, 2);
   assert.equal(submissions[0].outcome, 'CREATED_NEW_LEAD');
+  assert.equal(submissions[0].reviewStatus, 'NOT_REQUIRED');
   assert.equal(submissions[1].outcome, 'ATTACHED_TO_EXISTING_LEAD');
+  assert.equal(submissions[1].reviewStatus, 'PENDING_REVIEW');
   assert.equal(submissions[1].serviceTechCount, 5);
 });
 
@@ -212,10 +216,148 @@ test('repeat-submission review lists duplicate website submissions newest first'
   assert.equal(duplicates.total, 2);
   assert.equal(duplicates.summary.duplicateCount, 2);
   assert.equal(duplicates.summary.createdLeadCount, 1);
+  assert.equal(duplicates.summary.pendingReviewCount, 2);
+  assert.equal(duplicates.summary.resolvedCount, 0);
   assert.equal(duplicates.summary.uniqueLinkedLeadCount, 1);
   assert.equal(duplicates.items[0].linkedLeadId, firstLead.id);
+  assert.equal(duplicates.items[0].reviewStatus, 'pending_review');
   assert.equal(duplicates.items[0].inquiryTopic, 'Second follow-up');
+  assert.equal(duplicates.items[1].reviewStatus, 'pending_review');
   assert.equal(duplicates.items[1].inquiryTopic, 'Training help');
+});
+
+test('duplicate review can confirm an existing lead and safely handle repeated confirmation', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Morgan Confirm',
+    companyName: 'Confirm Comfort',
+    email: 'confirm@comfort.test',
+    phone: '555-901-0000',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Morgan Confirm',
+    companyName: 'Confirm Comfort',
+    email: 'confirm@comfort.test',
+    phone: '555-901-0000',
+    state: 'TX',
+    serviceTechCount: 5,
+    inquiryTopic: 'Second request',
+  });
+
+  const before = await listWebsiteLeadSubmissions(actor, {
+    search: 'Confirm Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(before.items.length, 1);
+  assert.equal(before.items[0].reviewStatus, 'pending_review');
+
+  const resolved = await resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+    decision: 'confirm_existing',
+    reviewNote: 'Confirmed the existing lead is still in flight.',
+  });
+  assert.equal(resolved.linkedLeadId, lead.id);
+  assert.equal(resolved.reviewStatus, 'confirmed_existing');
+  assert.equal(resolved.reviewedByUserId, actor.userId);
+  assert.match(resolved.reviewNote ?? '', /existing lead/i);
+
+  const repeated = await resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+    decision: 'confirm_existing',
+  });
+  assert.equal(repeated.reviewStatus, 'confirmed_existing');
+  assert.equal(repeated.linkedLeadId, lead.id);
+
+  const after = await listWebsiteLeadSubmissions(actor, {
+    search: 'Confirm Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(after.summary.pendingReviewCount, 0);
+  assert.equal(after.summary.resolvedCount, 1);
+  assert.equal(after.items[0].reviewStatus, 'confirmed_existing');
+});
+
+test('duplicate review can create a fresh lead from an immutable website submission snapshot', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const originalLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Taylor Snapshot',
+    companyName: 'Snapshot Comfort',
+    email: 'snapshot@comfort.test',
+    phone: '555-902-0000',
+    state: 'Ontario',
+    streetAddress: '44 King Street',
+    city: 'Toronto',
+    postalCode: 'M5H 2N2',
+    customerStatus: 'existing_customer',
+    serviceTechCount: 4,
+    inquiryTopic: 'Initial request',
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Taylor Snapshot',
+    companyName: 'Snapshot Comfort',
+    email: 'snapshot@comfort.test',
+    phone: '555-902-0000',
+    state: 'Ontario',
+    streetAddress: '44 King Street',
+    city: 'Toronto',
+    postalCode: 'M5H 2N2',
+    customerStatus: 'existing_customer',
+    serviceTechCount: 7,
+    inquiryTopic: 'Create a second tracked lead',
+  });
+
+  const before = await listWebsiteLeadSubmissions(actor, {
+    search: 'Snapshot Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(before.items.length, 1);
+
+  const resolved = await resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+    decision: 'create_new_lead',
+    reviewNote: 'Keep the repeat website request as its own lead.',
+  });
+  assert.equal(resolved.reviewStatus, 'created_new_lead');
+  assert.notEqual(resolved.linkedLeadId, originalLead.id);
+
+  const leads = await prisma.lead.findMany({
+    where: { email: 'snapshot@comfort.test' },
+    orderBy: { createdAt: 'asc' },
+  });
+  assert.equal(leads.length, 2);
+
+  const createdLeadExtension = await prisma.leadExtension.findUniqueOrThrow({
+    where: { leadId: resolved.linkedLeadId },
+  });
+  assert.deepEqual(createdLeadExtension.sourceMetadata, {
+    captureChannel: 'branded_website',
+    inquiryTopic: 'Create a second tracked lead',
+    customerStatus: 'existing_customer',
+    submittedAddress: {
+      line1: '44 King Street',
+      city: 'Toronto',
+      state: 'ON',
+      postalCode: 'M5H 2N2',
+      countryCode: 'CA',
+    },
+  });
+
+  const after = await listWebsiteLeadSubmissions(actor, {
+    search: 'Snapshot Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(after.summary.pendingReviewCount, 0);
+  assert.equal(after.summary.resolvedCount, 1);
+  assert.equal(after.items[0].linkedLeadId, resolved.linkedLeadId);
 });
 
 test('website duplicate matching ignores customer-active and closed leads', SERIAL, async () => {

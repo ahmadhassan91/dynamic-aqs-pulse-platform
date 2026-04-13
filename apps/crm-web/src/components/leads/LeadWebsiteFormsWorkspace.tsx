@@ -50,6 +50,7 @@ import type {
   LeadRoutingPolicySummary,
   LeadRoutingBasisKey,
   LeadStageKey,
+  ResolveWebsiteLeadSubmissionRequest,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
@@ -63,6 +64,7 @@ import {
   fetchWebsiteLeadNotificationRecipients,
   fetchWebsiteLeadSites,
   fetchWebsiteLeadSubmissions,
+  resolveWebsiteLeadSubmission,
   updateLeadRoutingPolicy,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
@@ -171,6 +173,7 @@ export function LeadWebsiteFormsWorkspace() {
   const [isSavingSite, setIsSavingSite] = useState(false);
   const [isSavingRecipient, setIsSavingRecipient] = useState(false);
   const [isSavingPolicy, setIsSavingPolicy] = useState(false);
+  const [resolvingSubmissionKey, setResolvingSubmissionKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) {
@@ -271,6 +274,64 @@ export function LeadWebsiteFormsWorkspace() {
   const openPreview = (site: WebsiteLeadSiteSummary) => {
     setPreviewSite(site);
   };
+
+  function applyResolvedSubmission(updatedSubmission: WebsiteLeadSubmissionSummary) {
+    setDuplicateSubmissions((current) => current.map((submission) => (
+      submission.id === updatedSubmission.id ? updatedSubmission : submission
+    )));
+    setSelectedSubmission(updatedSubmission);
+    setDuplicateSummary((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const wasPending = selectedSubmission?.id === updatedSubmission.id
+        ? selectedSubmission.reviewStatus === 'pending_review'
+        : current.pendingReviewCount > 0;
+
+      if (!wasPending) {
+        return current;
+      }
+
+      return {
+        ...current,
+        pendingReviewCount: Math.max(0, current.pendingReviewCount - 1),
+        resolvedCount: current.resolvedCount + 1,
+      };
+    });
+  }
+
+  async function handleResolveSubmission(decision: ResolveWebsiteLeadSubmissionRequest['decision']) {
+    if (!selectedSubmission) {
+      return;
+    }
+
+    const actionKey = `${selectedSubmission.id}:${decision}`;
+    setResolvingSubmissionKey(actionKey);
+
+    try {
+      const updated = await resolveWebsiteLeadSubmission(apiBaseUrl, accessToken, selectedSubmission.id, {
+        decision,
+      });
+      applyResolvedSubmission(updated);
+      notifications.show({
+        title: 'Duplicate review saved',
+        message:
+          decision === 'confirm_existing'
+            ? 'Pulse will keep this website submission attached to the existing lead.'
+            : 'Pulse created a new lead from this website submission.',
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Duplicate review failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setResolvingSubmissionKey(null);
+    }
+  }
 
   async function handleToggleSite(site: WebsiteLeadSiteSummary) {
     try {
@@ -881,6 +942,12 @@ export function LeadWebsiteFormsWorkspace() {
                 <Group gap="xs">
                   <Badge color="orange" variant="light">{duplicateCount} repeat submissions</Badge>
                   <Badge color="blue" variant="light">{duplicateLinkedLeadCount} linked leads reused</Badge>
+                  <Badge color={duplicateSummary?.pendingReviewCount ? 'grape' : 'gray'} variant="light">
+                    {duplicateSummary?.pendingReviewCount ?? 0} pending review
+                  </Badge>
+                  <Badge color="teal" variant="light">
+                    {duplicateSummary?.resolvedCount ?? 0} resolved
+                  </Badge>
                 </Group>
               </Group>
 
@@ -897,15 +964,16 @@ export function LeadWebsiteFormsWorkspace() {
               {duplicateSubmissions.length > 0 ? (
                 <Table striped highlightOnHover>
                   <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Received</Table.Th>
-                      <Table.Th>Website</Table.Th>
-                      <Table.Th>Prospect</Table.Th>
-                      <Table.Th>Attached Lead</Table.Th>
-                      <Table.Th>Workflow State</Table.Th>
-                      <Table.Th>Signal</Table.Th>
-                      <Table.Th>Actions</Table.Th>
-                    </Table.Tr>
+                      <Table.Tr>
+                        <Table.Th>Received</Table.Th>
+                        <Table.Th>Website</Table.Th>
+                        <Table.Th>Prospect</Table.Th>
+                        <Table.Th>Attached Lead</Table.Th>
+                        <Table.Th>Review</Table.Th>
+                        <Table.Th>Workflow State</Table.Th>
+                        <Table.Th>Signal</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {duplicateSubmissions.map((submission) => (
@@ -927,6 +995,16 @@ export function LeadWebsiteFormsWorkspace() {
                         <Table.Td>
                           <Text size="sm" fw={500}>{submission.linkedLeadCompanyName ?? 'Lead linked'}</Text>
                           <Text size="xs" c="dimmed">{submission.linkedLeadId ?? 'Lead id unavailable'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={formatSubmissionReviewColor(submission.reviewStatus)} variant="light">
+                            {formatSubmissionReviewLabel(submission.reviewStatus)}
+                          </Badge>
+                          {submission.reviewedByDisplayName ? (
+                            <Text size="xs" c="dimmed" mt={4}>
+                              {submission.reviewedByDisplayName}
+                            </Text>
+                          ) : null}
                         </Table.Td>
                         <Table.Td>
                           <Group gap="xs">
@@ -1046,14 +1124,17 @@ export function LeadWebsiteFormsWorkspace() {
       >
         {selectedSubmission ? (
           <Stack gap="md">
-            <Alert color="orange" variant="light">
-              This website submission was attached to an existing active lead instead of creating a duplicate record.
+            <Alert color={selectedSubmission.reviewStatus === 'pending_review' ? 'orange' : 'teal'} variant="light">
+              {selectedSubmission.reviewStatus === 'pending_review'
+                ? 'This website submission was attached to an existing active lead instead of creating a duplicate record. Review it here before ops moves on.'
+                : 'This repeat submission has already been reviewed and the saved decision is shown below.'}
             </Alert>
             <SimpleGrid cols={{ base: 1, md: 2 }}>
               <SubmissionDetail label="Submitted" value={formatDateTime(selectedSubmission.createdAt)} />
               <SubmissionDetail label="Website" value={selectedSubmission.siteName ?? 'Unknown site'} />
               <SubmissionDetail label="Brand Tag" value={selectedSubmission.brandTag ?? 'Not tagged'} />
               <SubmissionDetail label="Lead Type" value={formatLeadTypeLabel(selectedSubmission.leadType)} />
+              <SubmissionDetail label="Review Status" value={formatSubmissionReviewLabel(selectedSubmission.reviewStatus)} />
               <SubmissionDetail label="Prospect" value={selectedSubmission.contactDisplayName} />
               <SubmissionDetail label="Company" value={selectedSubmission.companyName ?? 'Not provided'} />
               <SubmissionDetail label="Email" value={selectedSubmission.email ?? 'Not provided'} />
@@ -1063,6 +1144,22 @@ export function LeadWebsiteFormsWorkspace() {
               <SubmissionDetail label="Inquiry Topic" value={selectedSubmission.inquiryTopic ?? 'Not provided'} />
               <SubmissionDetail label="Referral Source" value={selectedSubmission.referralSource ?? 'Not provided'} />
             </SimpleGrid>
+            {selectedSubmission.reviewedByDisplayName ? (
+              <Paper withBorder radius="md" p="md">
+                <Stack gap={4}>
+                  <Text size="sm" fw={600}>Review decision</Text>
+                  <Text size="sm">
+                    {selectedSubmission.reviewedByDisplayName}
+                    {selectedSubmission.reviewedAt ? ` · ${formatDateTime(selectedSubmission.reviewedAt)}` : ''}
+                  </Text>
+                  {selectedSubmission.reviewNote ? (
+                    <Text size="sm" c="dimmed">
+                      {selectedSubmission.reviewNote}
+                    </Text>
+                  ) : null}
+                </Stack>
+              </Paper>
+            ) : null}
             <Paper withBorder radius="md" p="md">
               <Stack gap={4}>
                 <Text size="sm" fw={600}>Attached lead</Text>
@@ -1086,6 +1183,28 @@ export function LeadWebsiteFormsWorkspace() {
                 ) : null}
               </Stack>
             </Paper>
+            {selectedSubmission.reviewStatus === 'pending_review' ? (
+              <Group justify="flex-end">
+                <Button
+                  variant="default"
+                  loading={resolvingSubmissionKey === `${selectedSubmission.id}:confirm_existing`}
+                  onClick={() => {
+                    void handleResolveSubmission('confirm_existing');
+                  }}
+                >
+                  Confirm Existing Lead
+                </Button>
+                <Button
+                  leftSection={<IconPlus size={16} />}
+                  loading={resolvingSubmissionKey === `${selectedSubmission.id}:create_new_lead`}
+                  onClick={() => {
+                    void handleResolveSubmission('create_new_lead');
+                  }}
+                >
+                  Create New Lead From Submission
+                </Button>
+              </Group>
+            ) : null}
           </Stack>
         ) : null}
       </Modal>
@@ -1258,6 +1377,36 @@ function formatDateTime(value: string) {
 
 function formatLeadTypeLabel(value: WebsiteLeadTypeKey) {
   return value === 'contractor' ? 'Contractor' : 'Homeowner';
+}
+
+function formatSubmissionReviewLabel(value: WebsiteLeadSubmissionSummary['reviewStatus']) {
+  switch (value) {
+    case 'pending_review':
+      return 'Pending Review';
+    case 'confirmed_existing':
+      return 'Confirmed Existing';
+    case 'created_new_lead':
+      return 'Created New Lead';
+    case 'relinked_existing':
+      return 'Relinked Existing';
+    default:
+      return 'Not Required';
+  }
+}
+
+function formatSubmissionReviewColor(value: WebsiteLeadSubmissionSummary['reviewStatus']) {
+  switch (value) {
+    case 'pending_review':
+      return 'orange';
+    case 'confirmed_existing':
+      return 'blue';
+    case 'created_new_lead':
+      return 'teal';
+    case 'relinked_existing':
+      return 'grape';
+    default:
+      return 'gray';
+  }
 }
 
 function formatLifecycleStatusLabel(value: 'active' | 'parked' | 'closed') {

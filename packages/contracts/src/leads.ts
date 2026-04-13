@@ -84,6 +84,16 @@ export const WEBSITE_LEAD_SUBMISSION_OUTCOMES = [
 
 export type WebsiteLeadSubmissionOutcomeKey = (typeof WEBSITE_LEAD_SUBMISSION_OUTCOMES)[number];
 
+export const WEBSITE_LEAD_SUBMISSION_REVIEW_STATUSES = [
+  'not_required',
+  'pending_review',
+  'confirmed_existing',
+  'created_new_lead',
+  'relinked_existing',
+] as const;
+
+export type WebsiteLeadSubmissionReviewStatusKey = (typeof WEBSITE_LEAD_SUBMISSION_REVIEW_STATUSES)[number];
+
 export const LEAD_CONSIGNMENT_INTEREST_STATUSES = [
   'not_discussed',
   'interested',
@@ -408,6 +418,11 @@ export interface WebsiteLeadSubmissionSummary {
   linkedLeadLifecycleStatus?: LeadLifecycleStatusKey;
   leadType: WebsiteLeadTypeKey;
   outcome: WebsiteLeadSubmissionOutcomeKey;
+  reviewStatus: WebsiteLeadSubmissionReviewStatusKey;
+  reviewedByUserId?: string;
+  reviewedByDisplayName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
   contactDisplayName: string;
   companyName?: string;
   email?: string;
@@ -427,6 +442,8 @@ export interface WebsiteLeadSubmissionSummary {
 export interface WebsiteLeadSubmissionSummaryRollup {
   duplicateCount: number;
   createdLeadCount: number;
+  pendingReviewCount: number;
+  resolvedCount: number;
   siteCount: number;
   uniqueLinkedLeadCount: number;
   latestSubmissionAt?: string;
@@ -436,6 +453,18 @@ export interface ListWebsiteLeadSubmissionsResponse {
   items: WebsiteLeadSubmissionSummary[];
   total: number;
   summary: WebsiteLeadSubmissionSummaryRollup;
+}
+
+export const WEBSITE_LEAD_SUBMISSION_RESOLUTION_DECISIONS = [
+  'confirm_existing',
+  'create_new_lead',
+] as const;
+
+export type WebsiteLeadSubmissionResolutionDecisionKey = (typeof WEBSITE_LEAD_SUBMISSION_RESOLUTION_DECISIONS)[number];
+
+export interface ResolveWebsiteLeadSubmissionRequest {
+  decision: WebsiteLeadSubmissionResolutionDecisionKey;
+  reviewNote?: string;
 }
 
 export interface WebsiteLeadSiteSummary {

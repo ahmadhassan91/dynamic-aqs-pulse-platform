@@ -37,6 +37,7 @@ import {
 } from '@tabler/icons-react';
 import type {
   LeadSummary,
+  ListTerritoryAssignableUsersResponse,
   RegionSummary,
   ShippingCenterSummary,
   TerritoryAssignmentHistoryEntry,
@@ -45,6 +46,7 @@ import type {
 } from '@pulse/contracts';
 import {
   fetchLeads,
+  fetchTerritoryAssignableUsers,
   fetchTerritoryAssignmentHistory,
   fetchTerritoryPolicy,
   fetchTerritoryRegions,
@@ -83,6 +85,10 @@ export function TerritoryManagement({
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
   const [territories, setTerritories] = useState<TerritorySummary[]>([]);
   const [leads, setLeads] = useState<LeadSummary[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<ListTerritoryAssignableUsersResponse>({
+    territoryManagers: [],
+    regionalDirectors: [],
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -93,6 +99,8 @@ export function TerritoryManagement({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isSavingReassignment, setIsSavingReassignment] = useState(false);
   const [selectedTerritoryId, setSelectedTerritoryId] = useState('');
+  const [selectedAssignedTmUserId, setSelectedAssignedTmUserId] = useState('');
+  const [selectedAssignedRdUserId, setSelectedAssignedRdUserId] = useState('');
   const [reassignReasonCode, setReassignReasonCode] = useState<string>('manual_override');
   const [reassignReasonNote, setReassignReasonNote] = useState('');
 
@@ -107,6 +115,10 @@ export function TerritoryManagement({
       setShippingCenters([]);
       setTerritories([]);
       setLeads([]);
+      setAssignableUsers({
+        territoryManagers: [],
+        regionalDirectors: [],
+      });
       return;
     }
 
@@ -124,12 +136,14 @@ export function TerritoryManagement({
           shippingCentersResponse,
           territoriesResponse,
           leadsResponse,
+          assignableUsersResponse,
         ] = await Promise.all([
           fetchTerritoryPolicy(apiBaseUrl, accessToken),
           fetchTerritoryRegions(apiBaseUrl, accessToken),
           fetchTerritoryShippingCenters(apiBaseUrl, accessToken),
           fetchTerritories(apiBaseUrl, accessToken),
           fetchLeads(apiBaseUrl, accessToken, { limit: 500 }),
+          fetchTerritoryAssignableUsers(apiBaseUrl, accessToken),
         ]);
 
         if (cancelled) {
@@ -141,6 +155,7 @@ export function TerritoryManagement({
         setShippingCenters(shippingCentersResponse.items);
         setTerritories(territoriesResponse.items);
         setLeads(leadsResponse.items);
+        setAssignableUsers(assignableUsersResponse);
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -287,6 +302,24 @@ export function TerritoryManagement({
     [territories],
   );
 
+  const territoryManagerSelectData = useMemo(
+    () =>
+      assignableUsers.territoryManagers.map((user) => ({
+        value: user.userId,
+        label: `${user.displayName} · ${user.email}`,
+      })),
+    [assignableUsers.territoryManagers],
+  );
+
+  const regionalDirectorSelectData = useMemo(
+    () =>
+      assignableUsers.regionalDirectors.map((user) => ({
+        value: user.userId,
+        label: `${user.displayName} · ${user.email}`,
+      })),
+    [assignableUsers.regionalDirectors],
+  );
+
   useEffect(() => {
     if (!historyLead || !auth) {
       setAssignmentHistory([]);
@@ -335,6 +368,8 @@ export function TerritoryManagement({
   function openReassignmentModal(lead: LeadSummary) {
     setReassignLead(lead);
     setSelectedTerritoryId(lead.territoryId ?? '');
+    setSelectedAssignedTmUserId(lead.assignedTmUserId ?? '');
+    setSelectedAssignedRdUserId(lead.assignedRdUserId ?? '');
     setReassignReasonCode('manual_override');
     setReassignReasonNote('');
   }
@@ -349,13 +384,15 @@ export function TerritoryManagement({
     try {
       const response = await reassignLeadTerritory(apiBaseUrl, auth.tokens.accessToken, reassignLead.id, {
         territoryId: selectedTerritoryId,
+        assignedTmUserId: selectedAssignedTmUserId || null,
+        assignedRdUserId: selectedAssignedRdUserId || null,
         reasonCode: reassignReasonCode,
         ...(reassignReasonNote.trim() ? { reasonNote: reassignReasonNote.trim() } : {}),
       });
 
       notifications.show({
         title: 'Lead territory updated',
-        message: `${reassignLead.companyName} is now assigned to ${response.territoryName ?? response.territoryCode ?? 'the selected territory'}.`,
+        message: `${reassignLead.companyName} now routes through ${response.territoryName ?? response.territoryCode ?? 'the selected territory'}${response.assignedTmName ? ` with TM ${response.assignedTmName}` : ''}${response.assignedRdName ? ` and RD ${response.assignedRdName}` : ''}.`,
         color: 'green',
       });
 
@@ -1015,6 +1052,26 @@ export function TerritoryManagement({
             data={TERRITORY_OVERRIDE_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
             value={reassignReasonCode}
             onChange={(value) => setReassignReasonCode(value ?? 'manual_override')}
+          />
+          <Select
+            label="Named Territory Manager Override"
+            description="Leave blank to inherit the territory default manager."
+            placeholder="Use territory default manager"
+            data={territoryManagerSelectData}
+            value={selectedAssignedTmUserId}
+            onChange={(value) => setSelectedAssignedTmUserId(value ?? '')}
+            searchable
+            clearable
+          />
+          <Select
+            label="Named Regional Director Override"
+            description="Leave blank to inherit the region default director."
+            placeholder="Use region default director"
+            data={regionalDirectorSelectData}
+            value={selectedAssignedRdUserId}
+            onChange={(value) => setSelectedAssignedRdUserId(value ?? '')}
+            searchable
+            clearable
           />
           <Textarea
             label="Note"

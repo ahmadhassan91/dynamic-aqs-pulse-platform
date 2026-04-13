@@ -1,3 +1,5 @@
+import type { AuthRole } from './auth.js';
+
 export const TERRITORY_ASSIGNMENT_METHODS = [
   'default_state',
   'manual_override',
@@ -180,8 +182,22 @@ export interface ListTerritoryAssignmentHistoryResponse {
   items: TerritoryAssignmentHistoryEntry[];
 }
 
+export interface TerritoryAssignableUserSummary {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: AuthRole;
+}
+
+export interface ListTerritoryAssignableUsersResponse {
+  territoryManagers: TerritoryAssignableUserSummary[];
+  regionalDirectors: TerritoryAssignableUserSummary[];
+}
+
 export interface ReassignLeadTerritoryRequest {
   territoryId: string;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
   reasonCode: string;
   reasonNote?: string;
 }

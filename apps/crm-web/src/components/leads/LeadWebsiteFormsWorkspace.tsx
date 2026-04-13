@@ -38,18 +38,22 @@ import {
   IconCode,
   IconCopy,
   IconEye,
+  IconHistory,
   IconMail,
   IconPlus,
+  IconRepeat,
   IconUsers,
   IconWorld,
 } from '@tabler/icons-react';
 import type {
+  ListWebsiteLeadSubmissionsResponse,
   LeadRoutingPolicySummary,
   LeadRoutingBasisKey,
   LeadStageKey,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
+  WebsiteLeadSubmissionSummary,
   WebsiteLeadTypeKey,
 } from '@pulse/contracts';
 import {
@@ -58,6 +62,7 @@ import {
   fetchLeadRoutingPolicy,
   fetchWebsiteLeadNotificationRecipients,
   fetchWebsiteLeadSites,
+  fetchWebsiteLeadSubmissions,
   updateLeadRoutingPolicy,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
@@ -78,7 +83,7 @@ const STAGE_META: Record<LeadStageKey, { label: string; color: string }> = {
   customer_active: { label: 'Customer Active', color: 'green' },
 };
 
-type WebsiteFormsTab = 'sites' | 'notifications' | 'flow';
+type WebsiteFormsTab = 'sites' | 'notifications' | 'flow' | 'duplicates';
 
 type SiteDraft = {
   siteId: string;
@@ -150,10 +155,14 @@ export function LeadWebsiteFormsWorkspace() {
   const [sites, setSites] = useState<WebsiteLeadSiteSummary[]>([]);
   const [recipients, setRecipients] = useState<WebsiteLeadNotificationRecipientSummary[]>([]);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
+  const [duplicateSubmissions, setDuplicateSubmissions] = useState<WebsiteLeadSubmissionSummary[]>([]);
+  const [duplicateSubmissionTotal, setDuplicateSubmissionTotal] = useState(0);
+  const [duplicateSummary, setDuplicateSummary] = useState<ListWebsiteLeadSubmissionsResponse['summary'] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewSite, setPreviewSite] = useState<WebsiteLeadSiteSummary | null>(null);
   const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
+  const [selectedSubmission, setSelectedSubmission] = useState<WebsiteLeadSubmissionSummary | null>(null);
   const [siteDraft, setSiteDraft] = useState<SiteDraft>(initialSiteDraft);
   const [recipientDraft, setRecipientDraft] = useState<RecipientDraft>(initialRecipientDraft);
   const [flowPolicyDraft, setFlowPolicyDraft] = useState<FlowPolicyDraft>(initialFlowPolicyDraft);
@@ -168,6 +177,9 @@ export function LeadWebsiteFormsWorkspace() {
       setSites([]);
       setRecipients([]);
       setRoutingPolicy(null);
+      setDuplicateSubmissions([]);
+      setDuplicateSubmissionTotal(0);
+      setDuplicateSummary(null);
       setFlowPolicyDraft(initialFlowPolicyDraft);
       return;
     }
@@ -180,10 +192,14 @@ export function LeadWebsiteFormsWorkspace() {
       setErrorMessage(null);
 
       try {
-        const [siteResponse, recipientResponse, routingPolicyResponse] = await Promise.all([
+        const [siteResponse, recipientResponse, routingPolicyResponse, duplicateResponse] = await Promise.all([
           fetchWebsiteLeadSites(apiBaseUrl, accessToken),
           fetchWebsiteLeadNotificationRecipients(apiBaseUrl, accessToken),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
+          fetchWebsiteLeadSubmissions(apiBaseUrl, accessToken, {
+            outcome: 'attached_to_existing_lead',
+            limit: 50,
+          }),
         ]);
 
         if (cancelled) {
@@ -193,6 +209,9 @@ export function LeadWebsiteFormsWorkspace() {
         setSites(siteResponse.items);
         setRecipients(recipientResponse.items);
         setRoutingPolicy(routingPolicyResponse);
+        setDuplicateSubmissions(duplicateResponse.items);
+        setDuplicateSubmissionTotal(duplicateResponse.total);
+        setDuplicateSummary(duplicateResponse.summary);
         setFlowPolicyDraft({
           routingBasis: routingPolicyResponse.routingBasis,
           strategicGrowthMax: routingPolicyResponse.strategicGrowthMax,
@@ -229,6 +248,8 @@ export function LeadWebsiteFormsWorkspace() {
   const activeSites = sites.filter((site) => site.isActive).length;
   const totalLeadsThisMonth = sites.reduce((sum, site) => sum + site.submissionsLast30Days, 0);
   const totalLinkedLeads = sites.reduce((sum, site) => sum + site.linkedLeadsTotal, 0);
+  const duplicateCount = duplicateSummary?.duplicateCount ?? 0;
+  const duplicateLinkedLeadCount = duplicateSummary?.uniqueLinkedLeadCount ?? 0;
   const publicWebBaseUrl = DEFAULT_WEB_BASE_URL;
 
   const activeRecipientCount = useMemo(
@@ -476,11 +497,11 @@ export function LeadWebsiteFormsWorkspace() {
           icon={<IconUsers size={20} />}
         />
         <MetricCard
-          label="Website Coverage"
-          value={String(sites.length)}
-          helper="Homeowner, contractor, or dual-mode templates"
-          icon={<IconWorld size={20} />}
-          accent="green"
+          label="Repeat Submissions"
+          value={String(duplicateCount)}
+          helper={`${duplicateLinkedLeadCount} active leads reused`}
+          icon={<IconRepeat size={20} />}
+          accent={duplicateCount > 0 ? 'orange' : 'green'}
         />
       </SimpleGrid>
 
@@ -489,6 +510,7 @@ export function LeadWebsiteFormsWorkspace() {
           <Tabs.Tab value="sites" leftSection={<IconWorld size={16} />}>Websites ({sites.length})</Tabs.Tab>
           <Tabs.Tab value="notifications" leftSection={<IconBell size={16} />}>Notifications</Tabs.Tab>
           <Tabs.Tab value="flow" leftSection={<IconArrowRight size={16} />}>Submission Flow</Tabs.Tab>
+          <Tabs.Tab value="duplicates" leftSection={<IconHistory size={16} />}>Repeat Submissions ({duplicateSubmissionTotal})</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="sites" pt="md">
@@ -844,6 +866,107 @@ export function LeadWebsiteFormsWorkspace() {
             </Paper>
           </Paper>
         </Tabs.Panel>
+
+        <Tabs.Panel value="duplicates" pt="md">
+          <Paper withBorder radius="md" p="lg">
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Title order={4}>Repeat submission review</Title>
+                  <Text size="sm" c="dimmed">
+                    Pulse auto-attaches repeat website submissions to an active in-flight lead instead of creating a duplicate.
+                    Ops can review those events here and jump straight into the linked lead record.
+                  </Text>
+                </Stack>
+                <Group gap="xs">
+                  <Badge color="orange" variant="light">{duplicateCount} repeat submissions</Badge>
+                  <Badge color="blue" variant="light">{duplicateLinkedLeadCount} linked leads reused</Badge>
+                </Group>
+              </Group>
+
+              {isLoading ? (
+                <Alert color="blue" variant="light">Loading repeat-submission activity from the live Pulse backend.</Alert>
+              ) : null}
+
+              {!isLoading && duplicateSubmissions.length === 0 ? (
+                <Alert color="green" variant="light">
+                  No repeat submissions need review right now. New website form submissions are still landing directly in Pulse CRM.
+                </Alert>
+              ) : null}
+
+              {duplicateSubmissions.length > 0 ? (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Received</Table.Th>
+                      <Table.Th>Website</Table.Th>
+                      <Table.Th>Prospect</Table.Th>
+                      <Table.Th>Attached Lead</Table.Th>
+                      <Table.Th>Workflow State</Table.Th>
+                      <Table.Th>Signal</Table.Th>
+                      <Table.Th>Actions</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {duplicateSubmissions.map((submission) => (
+                      <Table.Tr key={submission.id}>
+                        <Table.Td>
+                          <Text size="sm" fw={500}>{formatDateTime(submission.createdAt)}</Text>
+                          <Text size="xs" c="dimmed">{formatLeadTypeLabel(submission.leadType)}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" fw={500}>{submission.siteName ?? 'Unknown site'}</Text>
+                          <Text size="xs" c="dimmed">{submission.brandTag ?? 'No brand tag'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" fw={500}>{submission.contactDisplayName}</Text>
+                          <Text size="xs" c="dimmed">
+                            {[submission.companyName, submission.email, submission.phone].filter(Boolean).join(' • ') || 'No contact detail'}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" fw={500}>{submission.linkedLeadCompanyName ?? 'Lead linked'}</Text>
+                          <Text size="xs" c="dimmed">{submission.linkedLeadId ?? 'Lead id unavailable'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs">
+                            {submission.linkedLeadStage ? (
+                              <Badge color={STAGE_META[submission.linkedLeadStage].color} variant="light">
+                                {STAGE_META[submission.linkedLeadStage].label}
+                              </Badge>
+                            ) : null}
+                            {submission.linkedLeadLifecycleStatus ? (
+                              <Badge color={formatLifecycleStatusColor(submission.linkedLeadLifecycleStatus)} variant="outline">
+                                {formatLifecycleStatusLabel(submission.linkedLeadLifecycleStatus)}
+                              </Badge>
+                            ) : null}
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{buildSubmissionSignal(submission)}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs">
+                            <Tooltip label="Review submission details">
+                              <ActionIcon variant="subtle" color="blue" onClick={() => setSelectedSubmission(submission)}>
+                                <IconEye size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            {submission.linkedLeadId ? (
+                              <Button component={Link} href={`/leads/${submission.linkedLeadId}`} variant="subtle" size="compact-sm">
+                                Open Lead
+                              </Button>
+                            ) : null}
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              ) : null}
+            </Stack>
+          </Paper>
+        </Tabs.Panel>
       </Tabs>
 
       <Modal
@@ -912,6 +1035,58 @@ export function LeadWebsiteFormsWorkspace() {
               </Paper>
             </Grid.Col>
           </Grid>
+        ) : null}
+      </Modal>
+
+      <Modal
+        opened={selectedSubmission !== null}
+        onClose={() => setSelectedSubmission(null)}
+        title={selectedSubmission ? `Repeat Submission - ${selectedSubmission.contactDisplayName}` : ''}
+        size="lg"
+      >
+        {selectedSubmission ? (
+          <Stack gap="md">
+            <Alert color="orange" variant="light">
+              This website submission was attached to an existing active lead instead of creating a duplicate record.
+            </Alert>
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <SubmissionDetail label="Submitted" value={formatDateTime(selectedSubmission.createdAt)} />
+              <SubmissionDetail label="Website" value={selectedSubmission.siteName ?? 'Unknown site'} />
+              <SubmissionDetail label="Brand Tag" value={selectedSubmission.brandTag ?? 'Not tagged'} />
+              <SubmissionDetail label="Lead Type" value={formatLeadTypeLabel(selectedSubmission.leadType)} />
+              <SubmissionDetail label="Prospect" value={selectedSubmission.contactDisplayName} />
+              <SubmissionDetail label="Company" value={selectedSubmission.companyName ?? 'Not provided'} />
+              <SubmissionDetail label="Email" value={selectedSubmission.email ?? 'Not provided'} />
+              <SubmissionDetail label="Phone" value={selectedSubmission.phone ?? 'Not provided'} />
+              <SubmissionDetail label="State" value={selectedSubmission.state ?? 'Not provided'} />
+              <SubmissionDetail label="Service Tech Count" value={formatOptionalNumber(selectedSubmission.serviceTechCount)} />
+              <SubmissionDetail label="Inquiry Topic" value={selectedSubmission.inquiryTopic ?? 'Not provided'} />
+              <SubmissionDetail label="Referral Source" value={selectedSubmission.referralSource ?? 'Not provided'} />
+            </SimpleGrid>
+            <Paper withBorder radius="md" p="md">
+              <Stack gap={4}>
+                <Text size="sm" fw={600}>Attached lead</Text>
+                <Text size="sm">{selectedSubmission.linkedLeadCompanyName ?? 'Linked lead'}</Text>
+                <Group gap="xs">
+                  {selectedSubmission.linkedLeadStage ? (
+                    <Badge color={STAGE_META[selectedSubmission.linkedLeadStage].color} variant="light">
+                      {STAGE_META[selectedSubmission.linkedLeadStage].label}
+                    </Badge>
+                  ) : null}
+                  {selectedSubmission.linkedLeadLifecycleStatus ? (
+                    <Badge color={formatLifecycleStatusColor(selectedSubmission.linkedLeadLifecycleStatus)} variant="outline">
+                      {formatLifecycleStatusLabel(selectedSubmission.linkedLeadLifecycleStatus)}
+                    </Badge>
+                  ) : null}
+                </Group>
+                {selectedSubmission.linkedLeadId ? (
+                  <Button component={Link} href={`/leads/${selectedSubmission.linkedLeadId}`} variant="light" mt="xs">
+                    Open Linked Lead
+                  </Button>
+                ) : null}
+              </Stack>
+            </Paper>
+          </Stack>
         ) : null}
       </Modal>
 
@@ -1070,4 +1245,48 @@ function formatRoutingBasis(value: string) {
 
 function formatRoutingTeam(value: string) {
   return value === 'strategic_growth' ? 'Strategic Growth' : 'National TM';
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatLeadTypeLabel(value: WebsiteLeadTypeKey) {
+  return value === 'contractor' ? 'Contractor' : 'Homeowner';
+}
+
+function formatLifecycleStatusLabel(value: 'active' | 'parked' | 'closed') {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatLifecycleStatusColor(value: 'active' | 'parked' | 'closed') {
+  if (value === 'active') return 'green';
+  if (value === 'parked') return 'yellow';
+  return 'gray';
+}
+
+function formatOptionalNumber(value?: number) {
+  return value === undefined ? 'Not provided' : String(value);
+}
+
+function buildSubmissionSignal(submission: WebsiteLeadSubmissionSummary) {
+  return [
+    submission.inquiryTopic,
+    submission.referralSource,
+    submission.serviceTechCount !== undefined ? `${submission.serviceTechCount} service techs` : undefined,
+  ].filter(Boolean).join(' • ') || 'Repeat website submission';
+}
+
+function SubmissionDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <Paper withBorder radius="md" p="sm">
+      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{label}</Text>
+      <Text size="sm">{value}</Text>
+    </Paper>
+  );
 }

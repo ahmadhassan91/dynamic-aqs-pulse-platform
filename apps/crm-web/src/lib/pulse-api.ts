@@ -56,6 +56,8 @@ import type {
   ListLeadsResponse,
   ListWebsiteLeadNotificationRecipientsResponse,
   ListWebsiteLeadSitesResponse,
+  ListWebsiteLeadSubmissionsRequest,
+  ListWebsiteLeadSubmissionsResponse,
   ListWebsiteFormLeadsRequest,
   ListWebsiteFormLeadsResponse,
   LoginRequest,
@@ -395,6 +397,36 @@ export async function fetchWebsiteFormLeads(
     : '/api/v1/leads/website-forms';
 
   return requestJson<ListWebsiteFormLeadsResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchWebsiteLeadSubmissions(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListWebsiteLeadSubmissionsRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.search) {
+    searchParams.set('search', query.search);
+  }
+  if (query.sourceSiteId) {
+    searchParams.set('sourceSiteId', query.sourceSiteId);
+  }
+  if (query.outcome) {
+    searchParams.set('outcome', query.outcome);
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/leads/website-submissions?${searchParams.toString()}`
+    : '/api/v1/leads/website-submissions';
+
+  return requestJson<ListWebsiteLeadSubmissionsResponse>(apiBaseUrl, pathname, {
     method: 'GET',
     accessToken,
   });

@@ -56,6 +56,8 @@ import type {
   ListWebsiteLeadSitesResponse,
   ListWebsiteFormLeadsRequest,
   ListWebsiteFormLeadsResponse,
+  ListWebsiteLeadSubmissionsRequest,
+  ListWebsiteLeadSubmissionsResponse,
   PublicWebsiteLeadSite,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
@@ -67,6 +69,7 @@ import type {
   WebsiteFormLeadSummary,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
+  WebsiteLeadSubmissionSummary,
   WebsiteLeadTypeKey,
   TerritoryAssignmentMethodKey,
 } from '@pulse/contracts';
@@ -161,8 +164,19 @@ const LEAD_WORKFLOW_INCLUDE = {
   },
 } satisfies Prisma.LeadInclude;
 
+const WEBSITE_LEAD_SUBMISSION_INCLUDE = {
+  websiteLeadSite: true,
+  linkedLead: {
+    include: LEAD_SUMMARY_INCLUDE,
+  },
+} satisfies Prisma.WebsiteLeadSubmissionInclude;
+
 type LeadWithRefs = Prisma.LeadGetPayload<{
   include: typeof LEAD_SUMMARY_INCLUDE;
+}>;
+
+type WebsiteLeadSubmissionWithRefs = Prisma.WebsiteLeadSubmissionGetPayload<{
+  include: typeof WEBSITE_LEAD_SUBMISSION_INCLUDE;
 }>;
 
 type WebsiteLeadSiteWithRecipients = Prisma.WebsiteLeadSiteGetPayload<{
@@ -510,6 +524,88 @@ export async function listWebsiteFormLeads(
       convertedCount: Math.max(total - activePipelineCount, 0),
       siteCount: siteGroups.filter((group) => group.sourceSiteId || group.sourceSiteName).length,
       ...(aggregate._max.createdAt ? { latestLeadAt: aggregate._max.createdAt.toISOString() } : {}),
+    },
+  };
+}
+
+export async function listWebsiteLeadSubmissions(
+  actor: AuthenticatedActor,
+  query: ListWebsiteLeadSubmissionsRequest = {},
+): Promise<ListWebsiteLeadSubmissionsResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.view');
+
+  const limit = normalizeLimit(query.limit);
+  const search = optionalTrimmed(query.search);
+  const sourceSiteId = optionalTrimmed(query.sourceSiteId);
+  const where: Prisma.WebsiteLeadSubmissionWhereInput = {};
+
+  if (query.outcome) {
+    where.outcome = query.outcome === 'attached_to_existing_lead'
+      ? WebsiteLeadSubmissionOutcome.ATTACHED_TO_EXISTING_LEAD
+      : WebsiteLeadSubmissionOutcome.CREATED_NEW_LEAD;
+  }
+
+  if (sourceSiteId) {
+    where.websiteLeadSite = {
+      is: {
+        siteId: sourceSiteId,
+      },
+    };
+  }
+
+  if (search) {
+    where.OR = buildWebsiteLeadSubmissionSearchClauses(search);
+  }
+
+  const [items, total, duplicateCount, createdLeadCount, siteGroups, linkedLeadGroups, aggregate] = await Promise.all([
+    prisma.websiteLeadSubmission.findMany({
+      where,
+      orderBy: [
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: limit,
+      include: WEBSITE_LEAD_SUBMISSION_INCLUDE,
+    }),
+    prisma.websiteLeadSubmission.count({ where }),
+    prisma.websiteLeadSubmission.count({
+      where: {
+        ...where,
+        outcome: WebsiteLeadSubmissionOutcome.ATTACHED_TO_EXISTING_LEAD,
+      },
+    }),
+    prisma.websiteLeadSubmission.count({
+      where: {
+        ...where,
+        outcome: WebsiteLeadSubmissionOutcome.CREATED_NEW_LEAD,
+      },
+    }),
+    prisma.websiteLeadSubmission.groupBy({
+      by: ['websiteLeadSiteId'],
+      where,
+    }),
+    prisma.websiteLeadSubmission.groupBy({
+      by: ['linkedLeadId'],
+      where,
+    }),
+    prisma.websiteLeadSubmission.aggregate({
+      where,
+      _max: {
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  return {
+    items: items.map((item) => toWebsiteLeadSubmissionSummary(item)),
+    total,
+    summary: {
+      duplicateCount,
+      createdLeadCount,
+      siteCount: siteGroups.filter((group) => group.websiteLeadSiteId).length,
+      uniqueLinkedLeadCount: linkedLeadGroups.filter((group) => group.linkedLeadId).length,
+      ...(aggregate._max.createdAt ? { latestSubmissionAt: aggregate._max.createdAt.toISOString() } : {}),
     },
   };
 }
@@ -2194,6 +2290,9 @@ async function findWebsiteLeadDuplicate(
     where: {
       AND: [
         {
+          lifecycleStatus: LeadLifecycleStatus.ACTIVE,
+        },
+        {
           stage: {
             not: LeadStage.CUSTOMER_ACTIVE,
           },
@@ -2452,6 +2551,38 @@ function buildWebsiteLeadSearchClauses(search: string): Prisma.LeadWhereInput[] 
   ];
 }
 
+function buildWebsiteLeadSubmissionSearchClauses(search: string): Prisma.WebsiteLeadSubmissionWhereInput[] {
+  return [
+    { contactDisplayName: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    { companyName: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    { email: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    { phone: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    { inquiryTopic: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    { referralSource: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    {
+      websiteLeadSite: {
+        is: {
+          siteName: { contains: search, mode: Prisma.QueryMode.insensitive },
+        },
+      },
+    },
+    {
+      websiteLeadSite: {
+        is: {
+          brandTag: { contains: search, mode: Prisma.QueryMode.insensitive },
+        },
+      },
+    },
+    {
+      linkedLead: {
+        is: {
+          companyName: { contains: search, mode: Prisma.QueryMode.insensitive },
+        },
+      },
+    },
+  ];
+}
+
 function buildWorkflowLeadSearchClauses(search: string): Prisma.LeadWhereInput[] {
   return [
     { companyName: { contains: search, mode: Prisma.QueryMode.insensitive } },
@@ -2474,6 +2605,38 @@ function toWebsiteFormLeadSummary(lead: LeadWithRefs): WebsiteFormLeadSummary {
     intakeAgeHours,
     activePipeline: lead.stage !== LeadStage.CUSTOMER_ACTIVE && lead.lifecycleStatus === LeadLifecycleStatus.ACTIVE,
     ...(lead.sourceCampaign ? { sourceCampaign: lead.sourceCampaign } : {}),
+  };
+}
+
+function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): WebsiteLeadSubmissionSummary {
+  return {
+    id: item.id,
+    ...(item.websiteLeadSiteId ? { websiteLeadSiteId: item.websiteLeadSiteId } : {}),
+    ...(item.websiteLeadSite?.siteId ? { siteId: item.websiteLeadSite.siteId } : {}),
+    ...(item.websiteLeadSite?.siteName ? { siteName: item.websiteLeadSite.siteName } : {}),
+    ...(item.websiteLeadSite?.brandTag ? { brandTag: item.websiteLeadSite.brandTag } : {}),
+    ...(item.linkedLeadId ? { linkedLeadId: item.linkedLeadId } : {}),
+    ...(item.linkedLead?.companyName ? { linkedLeadCompanyName: item.linkedLead.companyName } : {}),
+    ...(item.linkedLead?.stage ? { linkedLeadStage: toLeadStageKey(item.linkedLead.stage) } : {}),
+    ...(item.linkedLead?.lifecycleStatus
+      ? { linkedLeadLifecycleStatus: toLeadLifecycleStatusKey(item.linkedLead.lifecycleStatus) }
+      : {}),
+    leadType: toWebsiteLeadTypeKey(item.leadType),
+    outcome: toWebsiteLeadSubmissionOutcomeKey(item.outcome),
+    contactDisplayName: item.contactDisplayName,
+    ...(item.companyName ? { companyName: item.companyName } : {}),
+    ...(item.email ? { email: item.email } : {}),
+    ...(item.phone ? { phone: item.phone } : {}),
+    ...(item.state ? { state: item.state } : {}),
+    ...(item.countryCode ? { countryCode: item.countryCode } : {}),
+    ...(item.serviceTechCount !== null && item.serviceTechCount !== undefined ? { serviceTechCount: item.serviceTechCount } : {}),
+    ...(item.installTechCount !== null && item.installTechCount !== undefined ? { installTechCount: item.installTechCount } : {}),
+    ...(item.truckCount !== null && item.truckCount !== undefined ? { truckCount: item.truckCount } : {}),
+    ...(item.salesPersonCount !== null && item.salesPersonCount !== undefined ? { salesPersonCount: item.salesPersonCount } : {}),
+    ...(item.inquiryTopic ? { inquiryTopic: item.inquiryTopic } : {}),
+    ...(item.referralSource ? { referralSource: item.referralSource } : {}),
+    ...(item.referralDetail ? { referralDetail: item.referralDetail } : {}),
+    createdAt: item.createdAt.toISOString(),
   };
 }
 

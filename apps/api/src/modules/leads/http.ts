@@ -19,6 +19,7 @@ import type {
   LeadLifecycleStatusKey,
   LeadWorkflowQueueViewKey,
   ListLeadsRequest,
+  ListWebsiteLeadSubmissionsRequest,
   ListWebsiteFormLeadsRequest,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
@@ -57,6 +58,7 @@ import {
   listLeads,
   listWebsiteLeadNotificationRecipients,
   listWebsiteLeadSites,
+  listWebsiteLeadSubmissions,
   listWebsiteFormLeads,
   previewLeadImport,
   scheduleLeadDiscovery,
@@ -95,6 +97,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
   const internalLeadRoute =
     pathname === '/api/v1/leads'
     || pathname === '/api/v1/leads/website-forms'
+    || pathname === '/api/v1/leads/website-submissions'
     || pathname === '/api/v1/leads/website-sites'
     || pathname === '/api/v1/leads/website-notification-recipients'
     || pathname === '/api/v1/leads/workflow-queue'
@@ -220,6 +223,38 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       };
 
       const response = await listWebsiteFormLeads(actor, query);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/leads/website-submissions') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.view',
+      });
+      const search = url.searchParams.get('search')?.trim();
+      const sourceSiteId = url.searchParams.get('sourceSiteId')?.trim();
+      const outcome = url.searchParams.get('outcome');
+      const limit = parseInteger(url.searchParams.get('limit'));
+      const query: ListWebsiteLeadSubmissionsRequest = {};
+
+      if (search) {
+        query.search = search;
+      }
+      if (sourceSiteId) {
+        query.sourceSiteId = sourceSiteId;
+      }
+      if (outcome) {
+        query.outcome = outcome as NonNullable<ListWebsiteLeadSubmissionsRequest['outcome']>;
+      }
+      if (limit !== undefined) {
+        query.limit = limit;
+      }
+
+      const response = await listWebsiteLeadSubmissions(actor, query);
       return jsonResponse(res, 200, response);
     }
 

@@ -10,6 +10,7 @@ let config;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
+let ensureTerritoryPolicySeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
@@ -46,6 +47,7 @@ test.before(async () => {
     updateLeadLifecycle,
     updateLeadRoutingPolicy,
   } = await import('../dist/modules/leads/service.js'));
+  ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -63,6 +65,7 @@ test.beforeEach(async () => {
   await ensureReferenceDataSeeded();
   await ensureLeadRoutingPolicySeeded();
   await ensureWebsiteLeadConfigSeeded();
+  await ensureTerritoryPolicySeeded();
   await ensureBootstrapAdminSeeded(config);
 });
 

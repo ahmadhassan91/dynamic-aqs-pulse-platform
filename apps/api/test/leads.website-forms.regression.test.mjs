@@ -10,6 +10,7 @@ let config;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
+let ensureTerritoryPolicySeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
@@ -21,6 +22,7 @@ let createWebsiteLeadNotificationRecipient;
 let updateWebsiteLeadNotificationRecipient;
 let getPublicWebsiteLeadSite;
 let captureWebsiteLead;
+let listWebsiteLeadSubmissions;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -39,7 +41,9 @@ test.before(async () => {
     updateWebsiteLeadNotificationRecipient,
     getPublicWebsiteLeadSite,
     captureWebsiteLead,
+    listWebsiteLeadSubmissions,
   } = await import('../dist/modules/leads/service.js'));
+  ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -57,6 +61,7 @@ test.beforeEach(async () => {
   await ensureReferenceDataSeeded();
   await ensureLeadRoutingPolicySeeded();
   await ensureWebsiteLeadConfigSeeded();
+  await ensureTerritoryPolicySeeded();
   await ensureBootstrapAdminSeeded(config);
 });
 
@@ -155,6 +160,141 @@ test('duplicate website submissions attach to the existing lead instead of creat
   assert.equal(submissions[0].outcome, 'CREATED_NEW_LEAD');
   assert.equal(submissions[1].outcome, 'ATTACHED_TO_EXISTING_LEAD');
   assert.equal(submissions[1].serviceTechCount, 5);
+});
+
+test('repeat-submission review lists duplicate website submissions newest first', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const firstLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Chris Vale',
+    companyName: 'Air Current',
+    email: 'ops@aircurrent.com',
+    phone: '555-100-2000',
+    state: 'TX',
+    serviceTechCount: 4,
+    inquiryTopic: 'Filter program',
+    referralSource: 'Website',
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Chris Vale',
+    companyName: 'Air Current',
+    email: 'ops@aircurrent.com',
+    phone: '555-100-2000',
+    state: 'TX',
+    serviceTechCount: 5,
+    inquiryTopic: 'Training help',
+    referralSource: 'Website',
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Chris Vale',
+    companyName: 'Air Current',
+    email: 'ops@aircurrent.com',
+    phone: '555-100-2000',
+    state: 'TX',
+    serviceTechCount: 6,
+    inquiryTopic: 'Second follow-up',
+    referralSource: 'Trade show',
+  });
+
+  const duplicates = await listWebsiteLeadSubmissions(actor, {
+    outcome: 'attached_to_existing_lead',
+  });
+
+  assert.equal(duplicates.total, 2);
+  assert.equal(duplicates.summary.duplicateCount, 2);
+  assert.equal(duplicates.summary.createdLeadCount, 1);
+  assert.equal(duplicates.summary.uniqueLinkedLeadCount, 1);
+  assert.equal(duplicates.items[0].linkedLeadId, firstLead.id);
+  assert.equal(duplicates.items[0].inquiryTopic, 'Second follow-up');
+  assert.equal(duplicates.items[1].inquiryTopic, 'Training help');
+});
+
+test('website duplicate matching ignores customer-active and closed leads', SERIAL, async () => {
+  const activeLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Jordan Park',
+    companyName: 'North Valley Air',
+    email: 'team@northvalleyair.com',
+    phone: '555-222-3333',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+
+  await prisma.lead.update({
+    where: { id: activeLead.id },
+    data: {
+      stage: 'CUSTOMER_ACTIVE',
+      lifecycleStatus: 'ACTIVE',
+    },
+  });
+
+  const newLeadAfterCustomerActive = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Jordan Park',
+    companyName: 'North Valley Air',
+    email: 'team@northvalleyair.com',
+    phone: '555-222-3333',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  assert.notEqual(newLeadAfterCustomerActive.id, activeLead.id);
+
+  await prisma.lead.update({
+    where: { id: newLeadAfterCustomerActive.id },
+    data: {
+      lifecycleStatus: 'CLOSED',
+      lifecycleChangedAt: new Date(),
+      lifecycleReasonCode: 'no_response',
+    },
+  });
+
+  const newLeadAfterClosed = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Jordan Park',
+    companyName: 'North Valley Air',
+    email: 'team@northvalleyair.com',
+    phone: '555-222-3333',
+    state: 'TX',
+    serviceTechCount: 5,
+  });
+
+  assert.notEqual(newLeadAfterClosed.id, newLeadAfterCustomerActive.id);
+
+  const leads = await prisma.lead.findMany({
+    where: {
+      email: 'team@northvalleyair.com',
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+  });
+
+  assert.equal(leads.length, 3);
+
+  const submissions = await prisma.websiteLeadSubmission.findMany({
+    where: {
+      email: 'team@northvalleyair.com',
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+  });
+
+  assert.deepEqual(
+    submissions.map((submission) => submission.outcome),
+    ['CREATED_NEW_LEAD', 'CREATED_NEW_LEAD', 'CREATED_NEW_LEAD'],
+  );
 });
 
 test('native website forms preserve explicit address and customer-intake metadata', SERIAL, async () => {

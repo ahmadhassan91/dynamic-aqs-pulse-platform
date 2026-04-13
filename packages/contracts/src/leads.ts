@@ -389,6 +389,55 @@ export interface WebsiteFormsSummary {
   latestLeadAt?: string;
 }
 
+export interface ListWebsiteLeadSubmissionsRequest {
+  search?: string;
+  sourceSiteId?: string;
+  outcome?: WebsiteLeadSubmissionOutcomeKey;
+  limit?: number;
+}
+
+export interface WebsiteLeadSubmissionSummary {
+  id: string;
+  websiteLeadSiteId?: string;
+  siteId?: string;
+  siteName?: string;
+  brandTag?: string;
+  linkedLeadId?: string;
+  linkedLeadCompanyName?: string;
+  linkedLeadStage?: LeadStageKey;
+  linkedLeadLifecycleStatus?: LeadLifecycleStatusKey;
+  leadType: WebsiteLeadTypeKey;
+  outcome: WebsiteLeadSubmissionOutcomeKey;
+  contactDisplayName: string;
+  companyName?: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  countryCode?: string;
+  serviceTechCount?: number;
+  installTechCount?: number;
+  truckCount?: number;
+  salesPersonCount?: number;
+  inquiryTopic?: string;
+  referralSource?: string;
+  referralDetail?: string;
+  createdAt: string;
+}
+
+export interface WebsiteLeadSubmissionSummaryRollup {
+  duplicateCount: number;
+  createdLeadCount: number;
+  siteCount: number;
+  uniqueLinkedLeadCount: number;
+  latestSubmissionAt?: string;
+}
+
+export interface ListWebsiteLeadSubmissionsResponse {
+  items: WebsiteLeadSubmissionSummary[];
+  total: number;
+  summary: WebsiteLeadSubmissionSummaryRollup;
+}
+
 export interface WebsiteLeadSiteSummary {
   id: string;
   siteId: string;

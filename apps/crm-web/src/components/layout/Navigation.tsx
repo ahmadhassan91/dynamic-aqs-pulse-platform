@@ -7,6 +7,7 @@ import { Box, Collapse, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } fro
 import {
   IconChevronRight,
   IconHome,
+  IconMapPin,
   IconShield,
   IconUserPlus,
   type TablerIcon,
@@ -103,6 +104,17 @@ export function Navigation() {
         { label: 'Workflow Queue', link: '/leads/activities' },
         ...(role && canAccessModule(role, 'cis') ? [{ label: 'Finance Queue', link: '/leads/finance' }] : []),
         { label: 'Analytics', link: '/leads/analytics' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'territories')) {
+    navItems.push({
+      label: 'Territory Management',
+      icon: IconMapPin,
+      links: [
+        { label: 'Territory Dashboard', link: '/territories' },
+        { label: 'Coverage Map', link: '/territory_map' },
       ],
     });
   }

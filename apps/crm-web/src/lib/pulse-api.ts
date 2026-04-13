@@ -71,6 +71,11 @@ import type {
   UpdateWebsiteLeadNotificationRecipientRequest,
   UpdateWebsiteLeadSiteRequest,
   SubmitPublicCisRequest,
+  TerritoryPolicySummary,
+  ListRegionsResponse,
+  ListShippingCentersResponse,
+  ListTerritoriesResponse,
+  ListTerritoryAssignmentHistoryResponse,
   TokenPair,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
@@ -249,6 +254,55 @@ export async function fetchLeadSources(apiBaseUrl: string, accessToken: string) 
     method: 'GET',
     accessToken,
   });
+}
+
+export async function fetchTerritoryPolicy(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TerritoryPolicySummary>(apiBaseUrl, '/api/v1/territories/policy', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTerritoryRegions(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListRegionsResponse>(apiBaseUrl, '/api/v1/territories/regions', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTerritoryShippingCenters(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListShippingCentersResponse>(apiBaseUrl, '/api/v1/territories/shipping-centers', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTerritories(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListTerritoriesResponse>(apiBaseUrl, '/api/v1/territories', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTerritoryAssignmentHistory(
+  apiBaseUrl: string,
+  accessToken: string,
+  entityType: 'lead' | 'account' | 'location',
+  entityId: string,
+) {
+  const searchParams = new URLSearchParams({
+    entityType,
+    entityId,
+  });
+
+  return requestJson<ListTerritoryAssignmentHistoryResponse>(
+    apiBaseUrl,
+    `/api/v1/territories/history?${searchParams.toString()}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
 }
 
 export async function fetchLeadRoutingPolicy(apiBaseUrl: string, accessToken: string) {

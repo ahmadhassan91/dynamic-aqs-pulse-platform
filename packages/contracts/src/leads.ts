@@ -1,4 +1,5 @@
 import type { CisFinanceDecisionStatusKey } from './cis.js';
+import type { TerritoryAssignmentMethodKey } from './territories.js';
 
 export const LEAD_STAGES = [
   'new',
@@ -248,7 +249,21 @@ export interface LeadSummary {
   routingThreshold: number;
   routingTeam: LeadRoutingTeamKey;
   leadOwnerName?: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  assignedTmUserId?: string;
   assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  territoryAssignmentMethod?: TerritoryAssignmentMethodKey;
+  territoryAssignedAt?: string;
   initialContactDueAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -489,7 +504,21 @@ export interface LeadWorkflowQueueItem {
   stageLabel: string;
   routingTeam: LeadRoutingTeamKey;
   leadOwnerName?: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  assignedTmUserId?: string;
   assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  territoryAssignmentMethod?: TerritoryAssignmentMethodKey;
+  territoryAssignedAt?: string;
   nextAction: string;
   actionType: LeadWorkflowActionTypeKey;
   urgency: LeadWorkflowUrgencyKey;

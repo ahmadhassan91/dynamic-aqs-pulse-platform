@@ -9,6 +9,7 @@ import {
   LeadRoutingBasis,
   LeadRoutingTeam,
   LeadStage,
+  TerritoryAssignmentMethod,
   Prisma,
   prisma,
   WebsiteLeadFormType,
@@ -67,11 +68,15 @@ import type {
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
   WebsiteLeadTypeKey,
+  TerritoryAssignmentMethodKey,
 } from '@pulse/contracts';
 import { findLeadRegionOption } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
+import {
+  syncLeadTerritoryAssignment,
+} from '../territories/service.js';
 import {
   WEBSITE_LEAD_NOTIFICATION_RECIPIENT_SEEDS,
   WEBSITE_LEAD_SITE_SEEDS,
@@ -92,11 +97,72 @@ const DEFAULT_BUSINESS_SEGMENT_CODE = 'residential';
 const DEFAULT_MANUAL_LEAD_SOURCE_CODE = 'manual_entry';
 const DEFAULT_WEBSITE_LEAD_SOURCE_CODE = 'branded_website';
 
+const LEAD_SUMMARY_INCLUDE = {
+  businessSegment: true,
+  leadSource: true,
+  territory: {
+    include: {
+      region: {
+        include: {
+          directorUser: {
+            select: {
+              id: true,
+              displayName: true,
+            },
+          },
+        },
+      },
+      shippingCenter: true,
+    },
+  },
+  shippingCenter: true,
+  assignedTmUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+  assignedRdUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+} satisfies Prisma.LeadInclude;
+
+const LEAD_DETAIL_INCLUDE = {
+  ...LEAD_SUMMARY_INCLUDE,
+  stageEvents: {
+    orderBy: {
+      occurredAt: 'desc',
+    },
+  },
+  cisPackages: {
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: 1,
+    include: {
+      financeDecision: true,
+    },
+  },
+} satisfies Prisma.LeadInclude;
+
+const LEAD_WORKFLOW_INCLUDE = {
+  ...LEAD_SUMMARY_INCLUDE,
+  cisPackages: {
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: 1,
+    include: {
+      financeDecision: true,
+    },
+  },
+} satisfies Prisma.LeadInclude;
+
 type LeadWithRefs = Prisma.LeadGetPayload<{
-  include: {
-    businessSegment: true;
-    leadSource: true;
-  };
+  include: typeof LEAD_SUMMARY_INCLUDE;
 }>;
 
 type WebsiteLeadSiteWithRecipients = Prisma.WebsiteLeadSiteGetPayload<{
@@ -106,24 +172,7 @@ type WebsiteLeadSiteWithRecipients = Prisma.WebsiteLeadSiteGetPayload<{
 }>;
 
 type LeadWithDetailRefs = Prisma.LeadGetPayload<{
-  include: {
-    businessSegment: true;
-    leadSource: true;
-    stageEvents: {
-      orderBy: {
-        occurredAt: 'desc';
-      };
-    };
-    cisPackages: {
-      orderBy: {
-        createdAt: 'desc';
-      };
-      take: 1;
-      include: {
-        financeDecision: true;
-      };
-    };
-  };
+  include: typeof LEAD_DETAIL_INCLUDE;
 }>;
 
 type LeadMutationContext = {
@@ -209,18 +258,7 @@ type RoutingDecision = {
 };
 
 type LeadWithWorkflowRefs = Prisma.LeadGetPayload<{
-  include: {
-    leadSource: true;
-    cisPackages: {
-      orderBy: {
-        createdAt: 'desc';
-      };
-      take: 1;
-      include: {
-        financeDecision: true;
-      };
-    };
-  };
+  include: typeof LEAD_WORKFLOW_INCLUDE;
 }>;
 
 type WorkflowTask = {
@@ -388,10 +426,7 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
         { createdAt: 'desc' },
       ],
       take: limit,
-      include: {
-        businessSegment: true,
-        leadSource: true,
-      },
+      include: LEAD_SUMMARY_INCLUDE,
     }),
     prisma.lead.count({ where }),
   ]);
@@ -451,10 +486,7 @@ export async function listWebsiteFormLeads(
         { updatedAt: 'desc' },
       ],
       take: limit,
-      include: {
-        businessSegment: true,
-        leadSource: true,
-      },
+      include: LEAD_SUMMARY_INCLUDE,
     }),
     prisma.lead.count({ where }),
     prisma.lead.count({ where: activePipelineWhere }),
@@ -916,18 +948,7 @@ export async function listLeadWorkflowQueue(
         { updatedAt: 'asc' },
         { createdAt: 'asc' },
       ],
-      include: {
-        leadSource: true,
-        cisPackages: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: 1,
-          include: {
-            financeDecision: true,
-          },
-        },
-      },
+      include: LEAD_WORKFLOW_INCLUDE,
     }),
   ]);
 
@@ -971,24 +992,7 @@ export async function getLeadDetail(actor: AuthenticatedActor, leadId: string): 
   const [lead, policy] = await Promise.all([
     prisma.lead.findUnique({
       where: { id: leadId },
-      include: {
-        businessSegment: true,
-        leadSource: true,
-        stageEvents: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-        cisPackages: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: 1,
-          include: {
-            financeDecision: true,
-          },
-        },
-      },
+      include: LEAD_DETAIL_INCLUDE,
     }),
     prisma.leadRoutingPolicy.findUnique({
       where: {
@@ -1634,10 +1638,7 @@ export async function transitionLeadStage(
   const lead = await prisma.$transaction(async (tx) => {
     const current = await tx.lead.findUnique({
       where: { id: leadId },
-      include: {
-        businessSegment: true,
-        leadSource: true,
-      },
+      include: LEAD_SUMMARY_INCLUDE,
     });
     if (!current) {
       throw new Error(`Lead not found: ${leadId}`);
@@ -1654,10 +1655,7 @@ export async function transitionLeadStage(
         stage: nextStage,
         ...timestampPatch,
       },
-      include: {
-        businessSegment: true,
-        leadSource: true,
-      },
+      include: LEAD_SUMMARY_INCLUDE,
     });
 
     await tx.leadStageEvent.create({
@@ -2039,10 +2037,17 @@ async function createLeadRecord(
       initialContactDueAt: addHours(now, policy.initialContactSlaHours),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
     },
-    include: {
-      businessSegment: true,
-      leadSource: true,
-    },
+  });
+
+  if (input.state) {
+    await syncLeadTerritoryAssignment(tx, {
+      leadId: lead.id,
+    });
+  }
+
+  const hydratedLead = await tx.lead.findUniqueOrThrow({
+    where: { id: lead.id },
+    include: LEAD_SUMMARY_INCLUDE,
   });
 
   if (options?.sourceMetadata && Object.keys(options.sourceMetadata).length > 0) {
@@ -2077,12 +2082,13 @@ async function createLeadRecord(
       entityType: LEAD_ENTITY_TYPE,
       entityId: lead.id,
       afterData: {
-        companyName: lead.companyName,
-        stage: toLeadStageKey(lead.stage),
-        routingTeam: toLeadRoutingTeamKey(lead.routingTeam),
+        companyName: hydratedLead.companyName,
+        stage: toLeadStageKey(hydratedLead.stage),
+        routingTeam: toLeadRoutingTeamKey(hydratedLead.routingTeam),
         businessSegmentCode: dependencies.businessSegmentCode,
         leadSourceCode: input.leadSourceCode,
-        serviceTechCount: lead.serviceTechCount,
+        serviceTechCount: hydratedLead.serviceTechCount,
+        territoryCode: hydratedLead.territory?.code ?? undefined,
       },
       metadata: {
         actorRole: context.actorRole,
@@ -2093,7 +2099,7 @@ async function createLeadRecord(
     }),
   });
 
-  return lead;
+  return hydratedLead;
 }
 
 async function resolveLeadDependencies(
@@ -2201,10 +2207,7 @@ async function findWebsiteLeadDuplicate(
       { updatedAt: 'desc' },
       { createdAt: 'desc' },
     ],
-    include: {
-      businessSegment: true,
-      leadSource: true,
-    },
+    include: LEAD_SUMMARY_INCLUDE,
   });
 }
 
@@ -2490,6 +2493,8 @@ function toWorkflowQueueComputationWithPolicy(
   const discoverySchedulingSla = getDiscoverySchedulingSlaState(lead, now, fallbackPolicy);
   const cisFollowUpSla = getCisFollowUpSlaState(lead, now, fallbackPolicy);
   const task = buildWorkflowTask(lead, fallbackPolicy, initialContactSla, discoverySchedulingSla, cisFollowUpSla);
+  const assignedTmName = lead.assignedTmUser?.displayName ?? lead.assignedTmName ?? undefined;
+  const assignedRdName = lead.assignedRdUser?.displayName ?? undefined;
 
   return {
     item: {
@@ -2525,7 +2530,23 @@ function toWorkflowQueueComputationWithPolicy(
       ...(lead.lifecycleReasonCode ? { lifecycleReasonCode: toLeadLifecycleReasonCodeKey(lead.lifecycleReasonCode) } : {}),
       ...(lead.lifecycleReasonNote ? { lifecycleReasonNote: lead.lifecycleReasonNote } : {}),
       ...(lead.leadOwnerName ? { leadOwnerName: lead.leadOwnerName } : {}),
-      ...(lead.assignedTmName ? { assignedTmName: lead.assignedTmName } : {}),
+      ...(lead.territoryId ? { territoryId: lead.territoryId } : {}),
+      ...(lead.territory?.code ? { territoryCode: lead.territory.code } : {}),
+      ...(lead.territory?.name ? { territoryName: lead.territory.name } : {}),
+      ...(lead.territory?.regionId ? { regionId: lead.territory.regionId } : {}),
+      ...(lead.territory?.region.code ? { regionCode: lead.territory.region.code } : {}),
+      ...(lead.territory?.region.name ? { regionName: lead.territory.region.name } : {}),
+      ...(lead.shippingCenterId ? { shippingCenterId: lead.shippingCenterId } : {}),
+      ...(lead.shippingCenter?.code ? { shippingCenterCode: lead.shippingCenter.code } : {}),
+      ...(lead.shippingCenter?.name ? { shippingCenterName: lead.shippingCenter.name } : {}),
+      ...(lead.assignedTmUserId ? { assignedTmUserId: lead.assignedTmUserId } : {}),
+      ...(assignedTmName ? { assignedTmName } : {}),
+      ...(lead.assignedRdUserId ? { assignedRdUserId: lead.assignedRdUserId } : {}),
+      ...(assignedRdName ? { assignedRdName } : {}),
+      ...(lead.territoryAssignmentMethod
+        ? { territoryAssignmentMethod: toLeadTerritoryAssignmentMethodKey(lead.territoryAssignmentMethod) }
+        : {}),
+      ...(lead.territoryAssignedAt ? { territoryAssignedAt: lead.territoryAssignedAt.toISOString() } : {}),
       ...(lead.initialContactDueAt ? { initialContactDueAt: lead.initialContactDueAt.toISOString() } : {}),
       ...((lead.stage === LeadStage.NEW || lead.initialContactDueAt) ? { hoursUntilInitialContactDue: initialContactSla.hoursUntilDue } : {}),
       ...(task.financeDecisionStatus ? { financeDecisionStatus: task.financeDecisionStatus } : {}),
@@ -2926,6 +2947,9 @@ function toWorkflowFinanceDecisionStatus(
 function toLeadSummary(lead: LeadWithRefs): LeadSummary {
   const initialContactDueAt = lead.initialContactDueAt?.toISOString();
   const lifecycleChangedAt = lead.lifecycleChangedAt?.toISOString();
+  const territoryAssignedAt = lead.territoryAssignedAt?.toISOString();
+  const assignedTmName = lead.assignedTmUser?.displayName ?? lead.assignedTmName ?? undefined;
+  const assignedRdName = lead.assignedRdUser?.displayName ?? undefined;
 
   return {
     id: lead.id,
@@ -2960,7 +2984,23 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(lead.ownershipGroupName ? { ownershipGroupName: lead.ownershipGroupName } : {}),
     ...(lead.privateLabelName ? { privateLabelName: lead.privateLabelName } : {}),
     ...(lead.leadOwnerName ? { leadOwnerName: lead.leadOwnerName } : {}),
-    ...(lead.assignedTmName ? { assignedTmName: lead.assignedTmName } : {}),
+    ...(lead.territoryId ? { territoryId: lead.territoryId } : {}),
+    ...(lead.territory?.code ? { territoryCode: lead.territory.code } : {}),
+    ...(lead.territory?.name ? { territoryName: lead.territory.name } : {}),
+    ...(lead.territory?.regionId ? { regionId: lead.territory.regionId } : {}),
+    ...(lead.territory?.region.code ? { regionCode: lead.territory.region.code } : {}),
+    ...(lead.territory?.region.name ? { regionName: lead.territory.region.name } : {}),
+    ...(lead.shippingCenterId ? { shippingCenterId: lead.shippingCenterId } : {}),
+    ...(lead.shippingCenter?.code ? { shippingCenterCode: lead.shippingCenter.code } : {}),
+    ...(lead.shippingCenter?.name ? { shippingCenterName: lead.shippingCenter.name } : {}),
+    ...(lead.assignedTmUserId ? { assignedTmUserId: lead.assignedTmUserId } : {}),
+    ...(assignedTmName ? { assignedTmName } : {}),
+    ...(lead.assignedRdUserId ? { assignedRdUserId: lead.assignedRdUserId } : {}),
+    ...(assignedRdName ? { assignedRdName } : {}),
+    ...(lead.territoryAssignmentMethod
+      ? { territoryAssignmentMethod: toLeadTerritoryAssignmentMethodKey(lead.territoryAssignmentMethod) }
+      : {}),
+    ...(territoryAssignedAt ? { territoryAssignedAt } : {}),
     ...(initialContactDueAt ? { initialContactDueAt } : {}),
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
@@ -3040,6 +3080,17 @@ function toLeadRoutingPolicySummary(policy: Prisma.LeadRoutingPolicyGetPayload<{
     ...(policy.notes ? { notes: policy.notes } : {}),
     updatedAt: policy.updatedAt.toISOString(),
   };
+}
+
+function toLeadTerritoryAssignmentMethodKey(value: TerritoryAssignmentMethod): TerritoryAssignmentMethodKey {
+  switch (value) {
+    case TerritoryAssignmentMethod.DEFAULT_STATE:
+      return 'default_state';
+    case TerritoryAssignmentMethod.MANUAL_OVERRIDE:
+      return 'manual_override';
+    case TerritoryAssignmentMethod.SYSTEM:
+      return 'system';
+  }
 }
 
 function toLeadStageKey(stage: LeadStage): LeadStageKey {

@@ -189,6 +189,18 @@ enum LeadRoutingTeam {
   NATIONAL_TM
 }
 
+enum TerritoryAssignmentMethod {
+  DEFAULT_STATE
+  MANUAL_OVERRIDE
+  SYSTEM
+}
+
+enum TerritoryAssignmentEntityType {
+  LEAD
+  ACCOUNT
+  LOCATION
+}
+
 enum LeadCaptureMethod {
   DIRECT_WEB_FORM
   MANUAL_ENTRY
@@ -377,10 +389,147 @@ model User {
   onboardingChecklistItemOwners OnboardingChecklistItem[] @relation("OnboardingChecklistItemOwner")
   onboardingChecklistItemCompleted OnboardingChecklistItem[] @relation("OnboardingChecklistItemCompletedBy")
   leadConversionPreparationsReviewed LeadConversionPreparation[] @relation("LeadConversionPreparationReviewedBy")
+  directedRegions            Region[] @relation("RegionDirector")
+  managedTerritories         Territory[] @relation("TerritoryManager")
+  assignedTmLeads            Lead[] @relation("LeadAssignedTm")
+  assignedRdLeads            Lead[] @relation("LeadAssignedRd")
+  territoryOverridesCreated  TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideCreatedBy")
+  territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
 
   @@index([roleCode])
   @@index([userType])
   @@index([isActive])
+}
+
+model ShippingCenter {
+  id               String    @id @default(uuid()) @db.Uuid
+  code             String    @unique
+  name             String
+  city             String?
+  state            String?
+  countryCode      String    @default("US")
+  isActive         Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  territories      Territory[]
+  assignedLeads    Lead[]    @relation("LeadShippingCenter")
+
+  @@index([isActive])
+  @@index([state])
+}
+
+model TerritoryPolicy {
+  id                               String   @id @default("default")
+  preHandoffTmVisibility           Boolean  @default(false)
+  assignNationalTmLeadsByDefault   Boolean  @default(true)
+  strategicGrowthRetainsOwnership  Boolean  @default(true)
+  notes                            String?
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+}
+
+model Region {
+  id               String      @id @default(uuid()) @db.Uuid
+  code             String      @unique
+  name             String
+  directorUserId   String?     @db.Uuid
+  isActive         Boolean     @default(true)
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  directorUser     User?       @relation("RegionDirector", fields: [directorUserId], references: [id], onDelete: SetNull)
+  territories      Territory[]
+
+  @@index([directorUserId])
+  @@index([isActive])
+}
+
+model Territory {
+  id               String                       @id @default(uuid()) @db.Uuid
+  code             String                       @unique
+  name             String
+  regionId         String                       @db.Uuid
+  managerUserId    String?                      @db.Uuid
+  shippingCenterId String?                      @db.Uuid
+  isActive         Boolean                      @default(true)
+  notes            String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  region           Region                       @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  managerUser      User?                        @relation("TerritoryManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  shippingCenter   ShippingCenter?              @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  stateCoverage    TerritoryStateCoverage[]
+  leads            Lead[]
+  assignmentOverrides TerritoryAssignmentOverride[]
+
+  @@index([regionId])
+  @@index([managerUserId])
+  @@index([shippingCenterId])
+  @@index([isActive])
+}
+
+model TerritoryStateCoverage {
+  id               String    @id @default(uuid()) @db.Uuid
+  territoryId      String    @db.Uuid
+  stateCode        String
+  countryCode      String    @default("US")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  territory        Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+
+  @@unique([countryCode, stateCode])
+  @@index([territoryId])
+}
+
+model TerritoryAssignmentOverride {
+  id               String                       @id @default(uuid()) @db.Uuid
+  entityType       TerritoryAssignmentEntityType
+  entityId         String
+  territoryId      String                       @db.Uuid
+  reasonCode       String
+  reasonNote       String?
+  createdByUserId  String?                      @db.Uuid
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  territory        Territory                    @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  createdByUser    User?                        @relation("TerritoryAssignmentOverrideCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([entityType, entityId])
+  @@index([territoryId])
+  @@index([createdByUserId])
+}
+
+model TerritoryAssignmentHistory {
+  id                      String                       @id @default(uuid()) @db.Uuid
+  entityType              TerritoryAssignmentEntityType
+  entityId                String
+  assignmentMethod        TerritoryAssignmentMethod
+  previousTerritoryId     String?                      @db.Uuid
+  previousTerritoryCode   String?
+  nextTerritoryId         String?                      @db.Uuid
+  nextTerritoryCode       String?
+  previousShippingCenterId String?                     @db.Uuid
+  nextShippingCenterId    String?                      @db.Uuid
+  previousAssignedTmUserId String?                     @db.Uuid
+  nextAssignedTmUserId    String?                      @db.Uuid
+  previousAssignedRdUserId String?                     @db.Uuid
+  nextAssignedRdUserId    String?                      @db.Uuid
+  changedByUserId         String?                      @db.Uuid
+  reasonCode              String?
+  reasonNote              String?
+  metadata                Json?
+  changedAt               DateTime                     @default(now())
+
+  changedByUser           User?                        @relation("TerritoryAssignmentHistoryChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, changedAt])
+  @@index([changedByUserId])
 }
 
 model UserIdentity {
@@ -717,6 +866,12 @@ model Lead {
   routingThresholdSnapshot Int
   routingTeam              LeadRoutingTeam
   leadOwnerName            String?
+  territoryId              String?            @db.Uuid
+  territoryAssignmentMethod TerritoryAssignmentMethod?
+  territoryAssignedAt      DateTime?
+  shippingCenterId         String?            @db.Uuid
+  assignedTmUserId         String?            @db.Uuid
+  assignedRdUserId         String?            @db.Uuid
   assignedTmName           String?
   stage                    LeadStage         @default(NEW)
   lifecycleStatus          LeadLifecycleStatus @default(ACTIVE)
@@ -747,6 +902,10 @@ model Lead {
 
   businessSegment          BusinessSegmentRef @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
   leadSource               LeadSourceRef      @relation(fields: [leadSourceId], references: [id], onDelete: Restrict)
+  territory                Territory?         @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  shippingCenter           ShippingCenter?    @relation("LeadShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  assignedTmUser           User?              @relation("LeadAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser           User?              @relation("LeadAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
   extension                LeadExtension?
   stageEvents              LeadStageEvent[]
   cisPackages              CisPackage[]
@@ -762,6 +921,10 @@ model Lead {
   @@index([stage])
   @@index([lifecycleStatus])
   @@index([routingTeam])
+  @@index([territoryId])
+  @@index([shippingCenterId])
+  @@index([assignedTmUserId])
+  @@index([assignedRdUserId])
   @@index([leadType])
   @@index([state])
   @@index([createdAt])

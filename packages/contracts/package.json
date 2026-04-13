@@ -15,7 +15,8 @@
     "./accounts": "./dist/accounts.js",
     "./cis": "./dist/cis.js",
     "./leads": "./dist/leads.js",
-    "./reference": "./dist/reference.js"
+    "./reference": "./dist/reference.js",
+    "./territories": "./dist/territories.js"
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",

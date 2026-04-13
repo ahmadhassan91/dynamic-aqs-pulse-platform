@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -74,6 +74,10 @@ const leadRegionSelectData = [
 
 type Props = {
   siteId: string;
+  siteOverride?: PublicWebsiteLeadSite;
+  mode?: 'live' | 'preview';
+  embedded?: boolean;
+  initialLeadType?: WebsiteLeadTypeKey;
 };
 
 type FormState = {
@@ -114,16 +118,31 @@ const initialFormState: FormState = {
   consent: false,
 };
 
-export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
-  const [site, setSite] = useState<PublicWebsiteLeadSite | null>(null);
+export function PublicWebsiteLeadCaptureForm({
+  siteId,
+  siteOverride,
+  mode = 'live',
+  embedded = false,
+  initialLeadType,
+}: Props) {
+  const isPreview = mode === 'preview';
+  const [site, setSite] = useState<PublicWebsiteLeadSite | null>(siteOverride ?? null);
   const [formState, setFormState] = useState<FormState>(initialFormState);
-  const [leadType, setLeadType] = useState<WebsiteLeadTypeKey>('homeowner');
-  const [isLoadingSite, setIsLoadingSite] = useState(true);
+  const [leadType, setLeadType] = useState<WebsiteLeadTypeKey>(initialLeadType ?? 'homeowner');
+  const [isLoadingSite, setIsLoadingSite] = useState(siteOverride ? false : true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedLeadId, setSubmittedLeadId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (siteOverride) {
+      setSite(siteOverride);
+      setLeadType(initialLeadType ?? (siteOverride.formType === 'contractor' ? 'contractor' : 'homeowner'));
+      setIsLoadingSite(false);
+      setErrorMessage(null);
+      return undefined;
+    }
+
     let cancelled = false;
 
     async function loadSite() {
@@ -154,7 +173,7 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [siteId]);
+  }, [initialLeadType, siteId, siteOverride]);
 
   const resolvedLeadType = useMemo<WebsiteLeadTypeKey>(() => {
     if (!site) {
@@ -173,6 +192,9 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
     event.preventDefault();
 
     if (!site) {
+      return;
+    }
+    if (isPreview) {
       return;
     }
 
@@ -219,51 +241,63 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
     }
   }
 
-  if (isLoadingSite) {
+  function renderShell(content: ReactNode) {
+    if (embedded) {
+      return <>{content}</>;
+    }
+
     return (
       <Container size="md" py="xl">
-        <Paper withBorder radius="lg" p="xl">
-          <Group justify="center" gap="sm">
-            <Loader size="sm" />
-            <Text size="sm" c="dimmed">Loading Pulse website form...</Text>
-          </Group>
-        </Paper>
+        {content}
       </Container>
+    );
+  }
+
+  if (isLoadingSite) {
+    return renderShell(
+      <Paper withBorder radius="lg" p="xl">
+        <Group justify="center" gap="sm">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">Loading Pulse website form...</Text>
+        </Group>
+      </Paper>,
     );
   }
 
   if (!site) {
-    return (
-      <Container size="md" py="xl">
-        <Alert color="red" icon={<IconAlertCircle size={16} />}>
-          {errorMessage ?? 'Website form is not available.'}
-        </Alert>
-      </Container>
+    return renderShell(
+      <Alert color="red" icon={<IconAlertCircle size={16} />}>
+        {errorMessage ?? 'Website form is not available.'}
+      </Alert>,
     );
   }
 
   if (submittedLeadId) {
-    return (
-      <Container size="md" py="xl">
-        <Paper withBorder radius="lg" p="xl">
-          <Stack gap="md" align="center">
-            <Badge color="green" variant="light">Submitted to Pulse CRM</Badge>
-            <Title order={2} ta="center">Thanks, we’ve received your request.</Title>
-            <Text ta="center" c="dimmed">
-              Your submission for {site.siteName} has been routed into the Pulse CRM workflow and the intake team will follow up from there.
-            </Text>
-            <Group gap="xs">
-              <IconCheck size={16} />
-              <Text size="sm">Reference lead ID: {submittedLeadId}</Text>
-            </Group>
-          </Stack>
-        </Paper>
-      </Container>
+    return renderShell(
+      <Paper withBorder radius="lg" p="xl">
+        <Stack gap="md" align="center">
+          <Badge color="green" variant="light">Submitted to Pulse CRM</Badge>
+          <Title order={2} ta="center">Thanks, we’ve received your request.</Title>
+          <Text ta="center" c="dimmed">
+            Your submission for {site.siteName} has been routed into the Pulse CRM workflow and the intake team will follow up from there.
+          </Text>
+          <Group gap="xs">
+            <IconCheck size={16} />
+            <Text size="sm">Reference lead ID: {submittedLeadId}</Text>
+          </Group>
+        </Stack>
+      </Paper>,
     );
   }
 
-  return (
-    <Container size="md" py="xl">
+  return renderShell(
+    <Stack gap="md">
+      {isPreview ? (
+        <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
+          Preview mode is rendering the real hosted Pulse form component. Submission is intentionally disabled in this modal.
+        </Alert>
+      ) : null}
+
       <Stack gap="md">
         <Stack gap={4} align="center">
           <Title order={2} ta="center">Contact an IAQ Professional</Title>
@@ -439,15 +473,21 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
                 />
               )}
 
-              <Button type="submit" fullWidth loading={isSubmitting} leftSection={<IconMail size={16} />}>
-                Submit
+              <Button
+                type="submit"
+                fullWidth
+                loading={isSubmitting}
+                disabled={isPreview}
+                leftSection={<IconMail size={16} />}
+              >
+                {isPreview ? 'Preview Only' : 'Submit'}
               </Button>
               <Text size="xs" c="dimmed" ta="center">Powered by Pulse CRM</Text>
             </Stack>
           </form>
         </Card>
       </Stack>
-    </Container>
+    </Stack>,
   );
 }
 

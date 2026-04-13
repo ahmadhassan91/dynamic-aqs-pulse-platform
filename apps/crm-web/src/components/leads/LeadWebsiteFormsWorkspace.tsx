@@ -8,7 +8,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   Code,
   CopyButton,
   Grid,
@@ -16,7 +15,6 @@ import {
   Modal,
   Paper,
   Select,
-  SegmentedControl,
   SimpleGrid,
   Stack,
   Switch,
@@ -62,6 +60,7 @@ import {
   updateWebsiteLeadSite,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { PublicWebsiteLeadCaptureForm } from './PublicWebsiteLeadCaptureForm';
 
 const DEFAULT_WEB_BASE_URL = process.env.NEXT_PUBLIC_PULSE_WEB_BASE_URL ?? 'http://localhost:3000';
 
@@ -109,28 +108,6 @@ const initialRecipientDraft: RecipientDraft = {
   roleTitle: '',
 };
 
-const homeownerInquiryOptions = [
-  'Improve indoor air quality',
-  'Address odors or allergies',
-  'Whole-home IAQ consultation',
-  'Service or support request',
-];
-
-const contractorInquiryOptions = [
-  'Become a contractor partner',
-  'Product, pricing, or availability',
-  'Training and onboarding',
-  'Existing account support',
-];
-
-const referralSourceOptions = [
-  'Search engine',
-  'Dealer referral',
-  'Social media',
-  'Affinity group',
-  'Existing customer',
-];
-
 export function LeadWebsiteFormsWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
@@ -140,7 +117,6 @@ export function LeadWebsiteFormsWorkspace() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewSite, setPreviewSite] = useState<WebsiteLeadSiteSummary | null>(null);
-  const [previewLeadType, setPreviewLeadType] = useState<WebsiteLeadTypeKey>('homeowner');
   const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
   const [siteDraft, setSiteDraft] = useState<SiteDraft>(initialSiteDraft);
   const [recipientDraft, setRecipientDraft] = useState<RecipientDraft>(initialRecipientDraft);
@@ -218,7 +194,6 @@ export function LeadWebsiteFormsWorkspace() {
 
   const openPreview = (site: WebsiteLeadSiteSummary) => {
     setPreviewSite(site);
-    setPreviewLeadType(site.formType === 'contractor' ? 'contractor' : 'homeowner');
   };
 
   async function handleToggleSite(site: WebsiteLeadSiteSummary) {
@@ -617,7 +592,13 @@ export function LeadWebsiteFormsWorkspace() {
           <Grid>
             <Grid.Col span={{ base: 12, md: 7 }}>
               <Card withBorder p="lg" radius="md">
-                {renderPreviewForm(previewSite, previewLeadType, setPreviewLeadType)}
+                <PublicWebsiteLeadCaptureForm
+                  siteId={previewSite.siteId}
+                  siteOverride={toPublicWebsiteLeadSite(previewSite)}
+                  mode="preview"
+                  embedded
+                  initialLeadType={previewSite.formType === 'contractor' ? 'contractor' : 'homeowner'}
+                />
               </Card>
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 5 }}>
@@ -626,7 +607,7 @@ export function LeadWebsiteFormsWorkspace() {
                   <Title order={5}>Pulse CRM Intake Outcome</Title>
                   <Text size="xs" c="dimmed">1. Source tagged as &quot;{previewSite.siteName}&quot;</Text>
                   <Text size="xs" c="dimmed">2. Brand tagged as &quot;{previewSite.brandTag}&quot;</Text>
-                  <Text size="xs" c="dimmed">3. Lead type stored as &quot;{resolvePreviewLeadType(previewSite.formType, previewLeadType)}&quot;</Text>
+                  <Text size="xs" c="dimmed">3. {formatPreviewLeadTypeCopy(previewSite.formType)}</Text>
                   <Text size="xs" c="dimmed">4. Website submission record is preserved for audit and analytics</Text>
                   <Text size="xs" c="dimmed">5. Residential lead is created or linked inside the main pipeline</Text>
                   <Text size="xs" c="dimmed">6. Team notifications fire for follow-up</Text>
@@ -724,129 +705,26 @@ export function LeadWebsiteFormsWorkspace() {
   );
 }
 
-function renderPreviewForm(
-  site: WebsiteLeadSiteSummary,
-  previewLeadType: WebsiteLeadTypeKey,
-  setPreviewLeadType: (value: WebsiteLeadTypeKey) => void,
-) {
-  const resolvedLeadType = resolvePreviewLeadType(site.formType, previewLeadType);
-
-  return (
-    <Stack gap="md">
-      <Stack gap={0} align="center">
-        <Title order={2} ta="center">Contact an IAQ Professional</Title>
-        <Text ta="center" fw={700} size="lg">Protect your Indoor Space</Text>
-        <Text ta="center" c="dimmed">{site.siteName}</Text>
-      </Stack>
-
-      {site.formType === 'both' ? (
-        <SegmentedControl
-          fullWidth
-          value={resolvedLeadType}
-          onChange={(value) => setPreviewLeadType(value as WebsiteLeadTypeKey)}
-          data={[
-            { label: 'Homeowner', value: 'homeowner' },
-            { label: 'Contractor', value: 'contractor' },
-          ]}
-        />
-      ) : (
-        <Badge variant="light" color={resolvedLeadType === 'homeowner' ? 'grape' : 'teal'} w="fit-content">
-          {resolvedLeadType === 'homeowner' ? 'Homeowner Form' : 'Contractor Form'}
-        </Badge>
-      )}
-
-      {resolvedLeadType === 'homeowner' ? (
-        <>
-          <Grid gutter="md">
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="First name" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Last name" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Email" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Mobile phone number or Direct phone" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Street address" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="City" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="State/Region" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Zip Code" readOnly />
-            </Grid.Col>
-          </Grid>
-          <Select label="For Homeowners: How can we help?" placeholder="Please Select" data={homeownerInquiryOptions} disabled />
-          <Textarea label="Please provide a brief summary of your request:" minRows={4} readOnly />
-          <Checkbox label="I agree to receive other communications from Dynamic AQS." readOnly />
-        </>
-      ) : (
-        <>
-          <Text size="sm" c="dimmed">Please select customer type:</Text>
-          <Group gap="xl">
-            <Checkbox label="New Customer" readOnly />
-            <Checkbox label="Existing Customer" readOnly />
-          </Group>
-          <Grid gutter="md">
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="First name" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Last name" readOnly />
-            </Grid.Col>
-            <Grid.Col span={12}>
-              <TextInput label="Company name" readOnly />
-            </Grid.Col>
-            <Grid.Col span={12}>
-              <TextInput label="# of Service Technicians" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Email" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Mobile phone number or Direct phone" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Street address" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="City" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="State/Region" readOnly />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput label="Zip Code" readOnly />
-            </Grid.Col>
-          </Grid>
-          <Select label="For HVAC Contractors, I am inquiring about:" placeholder="Please Select" data={contractorInquiryOptions} disabled />
-          <Textarea label="Please provide a brief summary of your request:" minRows={4} readOnly />
-          <Select label="How did you hear about us?" placeholder="Please Select" data={referralSourceOptions} disabled />
-          <TextInput label="Who can we thank for referring you?" readOnly />
-        </>
-      )}
-
-      <Button fullWidth>Submit</Button>
-      <Text size="xs" c="dimmed" ta="center">Powered by Pulse CRM</Text>
-    </Stack>
-  );
+function toPublicWebsiteLeadSite(site: WebsiteLeadSiteSummary) {
+  return {
+    id: site.id,
+    siteId: site.siteId,
+    siteName: site.siteName,
+    url: site.url,
+    brandTag: site.brandTag,
+    formType: site.formType,
+  };
 }
 
-function resolvePreviewLeadType(formType: WebsiteLeadFormTypeKey, previewLeadType: WebsiteLeadTypeKey): WebsiteLeadTypeKey {
-  if (formType === 'homeowner') {
-    return 'homeowner';
+function formatPreviewLeadTypeCopy(formType: WebsiteLeadFormTypeKey) {
+  if (formType === 'both') {
+    return 'Lead type is stored from the homeowner or contractor selection made in the live Pulse form.';
   }
   if (formType === 'contractor') {
-    return 'contractor';
+    return 'Lead type is stored as "contractor" from this live contractor form.';
   }
-  return previewLeadType;
+
+  return 'Lead type is stored as "homeowner" from this live homeowner form.';
 }
 
 function generateEmbedCode(site: WebsiteLeadSiteSummary, publicWebBaseUrl: string) {

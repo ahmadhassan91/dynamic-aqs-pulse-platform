@@ -978,7 +978,15 @@ async function refreshLeadReadinessState(
     ...(firstOrderReadyAt ? { firstOrderReadyAt } : {}),
     ...(detail.blockers[0] ? { blockedReason: detail.blockers[0] } : {}),
     ...(readinessNotes ? { notes: readinessNotes } : {}),
-    ...(refreshed.cisPackages[0]?.id ? { sourceCisPackageId: refreshed.cisPackages[0].id } : {}),
+    ...(refreshed.cisPackages[0]?.id
+      ? {
+          sourceCisPackage: {
+            connect: {
+              id: refreshed.cisPackages[0].id,
+            },
+          },
+        }
+      : {}),
   };
 
   await tx.leadReadinessState.upsert({
@@ -1116,11 +1124,11 @@ async function upsertLeadContactsFromLeadAndCis(
   lead: ReadinessContext,
 ) {
   const latestCis = lead.cisPackages[0];
-  const upserts: Array<Promise<unknown>> = [];
+  const upserts: Array<() => Promise<unknown>> = [];
 
   if (lead.contactDisplayName || lead.email || lead.phone) {
     upserts.push(
-      upsertLeadContactForRole(tx, lead.id, LeadContactRole.PRIMARY, LeadContactSource.LEAD_CAPTURE, {
+      () => upsertLeadContactForRole(tx, lead.id, LeadContactRole.PRIMARY, LeadContactSource.LEAD_CAPTURE, {
         displayName: lead.contactDisplayName || lead.companyName,
         email: lead.email ?? undefined,
         phone: lead.phone ?? undefined,
@@ -1133,7 +1141,7 @@ async function upsertLeadContactsFromLeadAndCis(
     const form = latestCis.formData;
     if (form.primaryContactName || form.primaryContactEmail || form.primaryContactCellPhone) {
       upserts.push(
-        upsertLeadContactForRole(tx, lead.id, LeadContactRole.PRIMARY, LeadContactSource.CIS_PRIMARY, {
+        () => upsertLeadContactForRole(tx, lead.id, LeadContactRole.PRIMARY, LeadContactSource.CIS_PRIMARY, {
           displayName: form.primaryContactName || lead.contactDisplayName || lead.companyName,
           title: form.primaryContactTitle ?? undefined,
           email: form.primaryContactEmail ?? undefined,
@@ -1145,7 +1153,7 @@ async function upsertLeadContactsFromLeadAndCis(
 
     if (form.ownerManagerName || form.ownerManagerEmail || form.ownerManagerCellPhone) {
       upserts.push(
-        upsertLeadContactForRole(tx, lead.id, LeadContactRole.OWNER_MANAGER, LeadContactSource.CIS_OWNER_MANAGER, {
+        () => upsertLeadContactForRole(tx, lead.id, LeadContactRole.OWNER_MANAGER, LeadContactSource.CIS_OWNER_MANAGER, {
           displayName: form.ownerManagerName || lead.companyName,
           title: form.ownerManagerTitle ?? undefined,
           email: form.ownerManagerEmail ?? undefined,
@@ -1156,7 +1164,7 @@ async function upsertLeadContactsFromLeadAndCis(
 
     if (form.orderingContactName || form.orderingContactEmail || form.orderingContactCellPhone) {
       upserts.push(
-        upsertLeadContactForRole(tx, lead.id, LeadContactRole.ORDERING, LeadContactSource.CIS_ORDERING, {
+        () => upsertLeadContactForRole(tx, lead.id, LeadContactRole.ORDERING, LeadContactSource.CIS_ORDERING, {
           displayName: form.orderingContactName || lead.companyName,
           email: form.orderingContactEmail ?? undefined,
           mobilePhone: form.orderingContactCellPhone ?? undefined,
@@ -1166,7 +1174,7 @@ async function upsertLeadContactsFromLeadAndCis(
 
     if (form.apContactName || form.apEmail || form.apDirectPhone) {
       upserts.push(
-        upsertLeadContactForRole(tx, lead.id, LeadContactRole.ACCOUNTS_PAYABLE, LeadContactSource.CIS_ACCOUNTS_PAYABLE, {
+        () => upsertLeadContactForRole(tx, lead.id, LeadContactRole.ACCOUNTS_PAYABLE, LeadContactSource.CIS_ACCOUNTS_PAYABLE, {
           displayName: form.apContactName || lead.companyName,
           email: form.apEmail ?? undefined,
           phone: form.apDirectPhone ?? undefined,
@@ -1175,7 +1183,9 @@ async function upsertLeadContactsFromLeadAndCis(
     }
   }
 
-  await Promise.all(upserts);
+  for (const runUpsert of upserts) {
+    await runUpsert();
+  }
 }
 
 async function upsertLeadContactForRole(

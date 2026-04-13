@@ -52,6 +52,7 @@ const WORKSPACE_LANDING_TARGETS: readonly WorkspaceLandingTarget[] = [
   { href: '/leads/forms', label: 'Website Forms', module: 'leads' },
   { href: '/leads/activities', label: 'Workflow Queue', module: 'leads' },
   { href: '/leads/finance', label: 'Finance Queue', module: 'leads', action: 'lead.finance_queue_view' },
+  { href: '/customers', label: 'Account Management', module: 'customers' },
   { href: '/admin', label: 'Administration', module: 'admin' },
   { href: '/admin/users', label: 'User Management', module: 'admin', action: 'admin.user_view' },
   { href: '/admin/roles', label: 'Roles & Permissions', module: 'admin', action: 'admin.role_view' },

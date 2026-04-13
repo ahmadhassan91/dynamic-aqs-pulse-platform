@@ -457,6 +457,7 @@ export interface ListWebsiteLeadSubmissionsResponse {
 
 export const WEBSITE_LEAD_SUBMISSION_RESOLUTION_DECISIONS = [
   'confirm_existing',
+  'relink_existing',
   'create_new_lead',
 ] as const;
 
@@ -464,6 +465,7 @@ export type WebsiteLeadSubmissionResolutionDecisionKey = (typeof WEBSITE_LEAD_SU
 
 export interface ResolveWebsiteLeadSubmissionRequest {
   decision: WebsiteLeadSubmissionResolutionDecisionKey;
+  targetLeadId?: string;
   reviewNote?: string;
 }
 

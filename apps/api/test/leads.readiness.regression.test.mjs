@@ -271,6 +271,38 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
   assert.equal(conditionalItemCount, 10);
 
   const readyFixture = await createFinanceReviewedLead(actor, 'approved');
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+  const region = await prisma.region.create({
+    data: {
+      code: 'rg_conversion',
+      name: 'Conversion Region',
+      directorUserId: actor.userId,
+      isActive: true,
+    },
+  });
+  const territory = await prisma.territory.create({
+    data: {
+      code: 'tx_conversion',
+      name: 'Texas Conversion Territory',
+      regionId: region.id,
+      managerUserId: actor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+  await prisma.lead.update({
+    where: { id: readyFixture.lead.id },
+    data: {
+      territoryId: territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date('2026-04-13T09:30:00.000Z'),
+      shippingCenterId: shippingCenter.id,
+      assignedTmUserId: actor.userId,
+      assignedRdUserId: actor.userId,
+    },
+  });
   await generateLeadReadinessChecklist(actor, readyFixture.lead.id);
 
   const firstImport = await importLeadContactsFromCis(actor, readyFixture.lead.id);
@@ -336,6 +368,17 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
   assert.ok(converted.accountId);
   assert.ok(converted.contactIds.length >= 1);
   assert.ok(converted.locationIds.length >= 1);
+
+  const convertedAccount = await prisma.account.findUniqueOrThrow({
+    where: { id: converted.accountId },
+  });
+  assert.equal(convertedAccount.sourceLeadId, readyFixture.lead.id);
+  assert.equal(convertedAccount.territoryId, territory.id);
+  assert.equal(convertedAccount.shippingCenterId, shippingCenter.id);
+  assert.equal(convertedAccount.assignedTmUserId, actor.userId);
+  assert.equal(convertedAccount.assignedRdUserId, actor.userId);
+  assert.equal(convertedAccount.territoryAssignmentMethod, 'MANUAL_OVERRIDE');
+  assert.ok(convertedAccount.territoryAssignedAt);
 
   const convertedReadiness = await getLeadReadiness(actor, readyFixture.lead.id);
   assert.ok(convertedReadiness);

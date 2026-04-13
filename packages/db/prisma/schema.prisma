@@ -401,6 +401,8 @@ model User {
   managedTerritories         Territory[] @relation("TerritoryManager")
   assignedTmLeads            Lead[] @relation("LeadAssignedTm")
   assignedRdLeads            Lead[] @relation("LeadAssignedRd")
+  assignedTmAccounts         Account[] @relation("AccountAssignedTm")
+  assignedRdAccounts         Account[] @relation("AccountAssignedRd")
   territoryOverridesCreated  TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideCreatedBy")
   territoryOverridesAssignedTm TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedTm")
   territoryOverridesAssignedRd TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
@@ -426,6 +428,7 @@ model ShippingCenter {
 
   territories      Territory[]
   assignedLeads    Lead[]    @relation("LeadShippingCenter")
+  assignedAccounts Account[] @relation("AccountShippingCenter")
 
   @@index([isActive])
   @@index([state])
@@ -475,6 +478,7 @@ model Territory {
   shippingCenter   ShippingCenter?              @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
   stateCoverage    TerritoryStateCoverage[]
   leads            Lead[]
+  accounts         Account[]
   assignmentOverrides TerritoryAssignmentOverride[]
 
   @@index([regionId])
@@ -1347,12 +1351,22 @@ model Account {
   isMixedBusinessAccount     Boolean                 @default(false)
   classificationDriftFlag     Boolean                 @default(false)
   financeAuthorityMode       String?
+  territoryId                String?                 @db.Uuid
+  territoryAssignmentMethod  TerritoryAssignmentMethod?
+  territoryAssignedAt        DateTime?
+  shippingCenterId           String?                 @db.Uuid
+  assignedTmUserId           String?                 @db.Uuid
+  assignedRdUserId           String?                 @db.Uuid
   isActive                   Boolean                 @default(true)
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 
   businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
   sourceLead                 Lead?                   @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
+  territory                  Territory?              @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  shippingCenter             ShippingCenter?         @relation("AccountShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  assignedTmUser             User?                   @relation("AccountAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser             User?                   @relation("AccountAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
   locations                  AccountLocation[]
   contacts                   Contact[]
   extension                  AccountExtension?
@@ -1361,6 +1375,10 @@ model Account {
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
+  @@index([territoryId])
+  @@index([shippingCenterId])
+  @@index([assignedTmUserId])
+  @@index([assignedRdUserId])
   @@index([isActive])
   @@index([accountType])
   @@index([displayName])

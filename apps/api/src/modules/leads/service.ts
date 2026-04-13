@@ -652,6 +652,7 @@ export async function resolveWebsiteLeadSubmission(
 
   const decision = requiredTrimmed(input.decision, 'decision');
   const reviewNote = optionalTrimmed(input.reviewNote) ?? null;
+  const targetLeadId = optionalTrimmed(input.targetLeadId) ?? null;
 
   const updatedSubmission = await prisma.$transaction(async (tx) => {
     const submission = await tx.websiteLeadSubmission.findUnique({
@@ -671,6 +672,11 @@ export async function resolveWebsiteLeadSubmission(
       if (
         (decision === 'confirm_existing' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING)
         || (decision === 'create_new_lead' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD)
+        || (
+          decision === 'relink_existing'
+          && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.RELINKED_EXISTING
+          && submission.linkedLeadId === targetLeadId
+        )
       ) {
         return submission;
       }
@@ -689,6 +695,29 @@ export async function resolveWebsiteLeadSubmission(
         }
         nextReviewStatus = WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING;
         break;
+      case 'relink_existing': {
+        if (!targetLeadId) {
+          throw new Error('targetLeadId is required when relinking a duplicate submission');
+        }
+        if (submission.linkedLeadId === targetLeadId) {
+          throw new Error('Selected lead is already linked to this submission. Use confirm existing instead.');
+        }
+
+        const targetLead = await tx.lead.findUnique({
+          where: { id: targetLeadId },
+          include: LEAD_SUMMARY_INCLUDE,
+        });
+        if (!targetLead) {
+          throw new Error('Selected lead for relink was not found');
+        }
+        if (targetLead.lifecycleStatus !== LeadLifecycleStatus.ACTIVE || targetLead.stage === LeadStage.CUSTOMER_ACTIVE) {
+          throw new Error('Duplicate submissions can only be relinked to active in-flight leads');
+        }
+
+        nextLinkedLeadId = targetLead.id;
+        nextReviewStatus = WebsiteLeadSubmissionReviewStatus.RELINKED_EXISTING;
+        break;
+      }
       case 'create_new_lead': {
         const normalized = normalizeLeadInput(
           buildLeadInputFromWebsiteSubmission(submission),
@@ -772,6 +801,34 @@ export async function resolveWebsiteLeadSubmission(
               submissionId: updated.id,
               reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(updated.reviewStatus),
               decision,
+              ...(updated.reviewNote ? { reviewNote: updated.reviewNote } : {}),
+            },
+          },
+          metadata: {
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            sessionId: actor.sessionId,
+            operation: 'lead.website_submission.resolve',
+            decision,
+          },
+        }),
+      });
+    }
+
+    if (submission.linkedLeadId && submission.linkedLeadId !== updated.linkedLeadId) {
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.UPDATE,
+          entityType: LEAD_ENTITY_TYPE,
+          entityId: submission.linkedLeadId,
+          afterData: {
+            duplicateSubmissionReview: {
+              submissionId: updated.id,
+              reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(updated.reviewStatus),
+              decision,
+              relinkedAway: true,
+              nextLinkedLeadId: updated.linkedLeadId ?? null,
               ...(updated.reviewNote ? { reviewNote: updated.reviewNote } : {}),
             },
           },

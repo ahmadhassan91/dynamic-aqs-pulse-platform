@@ -751,6 +751,12 @@ export async function convertLeadOnFirstOrder(
         financeAuthorityMode: preparation.financeAuthorityMode ?? null,
         businessSegmentId: lead.businessSegmentId,
         businessSegmentSource: SegmentAssignmentSource.CRM,
+        territoryId: lead.territoryId ?? null,
+        territoryAssignmentMethod: lead.territoryAssignmentMethod ?? null,
+        territoryAssignedAt: lead.territoryAssignedAt ?? null,
+        shippingCenterId: lead.shippingCenterId ?? null,
+        assignedTmUserId: lead.assignedTmUserId ?? null,
+        assignedRdUserId: lead.assignedRdUserId ?? null,
         isActive: true,
       },
     });
@@ -877,6 +883,10 @@ export async function convertLeadOnFirstOrder(
           firstOrderAt: firstOrderAt.toISOString(),
           createdContactIds: createdContacts.map((contact) => contact.id),
           createdLocationIds,
+          territoryId: account.territoryId ?? null,
+          shippingCenterId: account.shippingCenterId ?? null,
+          assignedTmUserId: account.assignedTmUserId ?? null,
+          assignedRdUserId: account.assignedRdUserId ?? null,
         },
       }),
     });

@@ -360,6 +360,141 @@ test('duplicate review can create a fresh lead from an immutable website submiss
   assert.equal(after.items[0].linkedLeadId, resolved.linkedLeadId);
 });
 
+test('duplicate review can relink a repeat submission to another active in-flight lead', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const originalLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Riley Relink',
+    companyName: 'Relink Comfort',
+    email: 'relink@comfort.test',
+    phone: '555-903-0000',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  const targetLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Riley Relink',
+    companyName: 'Relink Comfort West',
+    email: 'relink.ops@comfort.test',
+    phone: '555-903-9999',
+    state: 'TX',
+    serviceTechCount: 6,
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Riley Relink',
+    companyName: 'Relink Comfort',
+    email: 'relink@comfort.test',
+    phone: '555-903-0000',
+    state: 'TX',
+    serviceTechCount: 5,
+    inquiryTopic: 'Route this to the later in-flight lead',
+  });
+
+  const before = await listWebsiteLeadSubmissions(actor, {
+    search: 'Relink Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(before.items.length, 1);
+  assert.equal(before.items[0].linkedLeadId, originalLead.id);
+  assert.equal(before.items[0].reviewStatus, 'pending_review');
+
+  const resolved = await resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+    decision: 'relink_existing',
+    targetLeadId: targetLead.id,
+    reviewNote: 'Ops linked this repeat form to the more recent in-flight lead.',
+  });
+
+  assert.equal(resolved.linkedLeadId, targetLead.id);
+  assert.equal(resolved.reviewStatus, 'relinked_existing');
+  assert.equal(resolved.reviewedByUserId, actor.userId);
+  assert.match(resolved.reviewNote ?? '', /more recent/i);
+
+  const oldLeadAudit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'LEAD',
+      entityId: originalLead.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(oldLeadAudit);
+  assert.equal(oldLeadAudit.afterData.duplicateSubmissionReview.relinkedAway, true);
+
+  await assert.rejects(
+    () => resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+      decision: 'relink_existing',
+      targetLeadId: originalLead.id,
+    }),
+    /already been resolved/i,
+  );
+});
+
+test('duplicate review rejects relink targets that are already customer-active', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const originalLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Rory Guard',
+    companyName: 'Guard Comfort',
+    email: 'guard@comfort.test',
+    phone: '555-904-0000',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  const customerActiveLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Rory Guard',
+    companyName: 'Guard Comfort Active',
+    email: 'guard.active@comfort.test',
+    phone: '555-904-9999',
+    state: 'TX',
+    serviceTechCount: 7,
+  });
+
+  await prisma.lead.update({
+    where: { id: customerActiveLead.id },
+    data: {
+      stage: 'CUSTOMER_ACTIVE',
+      lifecycleStatus: 'ACTIVE',
+    },
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Rory Guard',
+    companyName: 'Guard Comfort',
+    email: 'guard@comfort.test',
+    phone: '555-904-0000',
+    state: 'TX',
+    serviceTechCount: 5,
+  });
+
+  const before = await listWebsiteLeadSubmissions(actor, {
+    search: 'Guard Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(before.items.length, 1);
+  assert.equal(before.items[0].linkedLeadId, originalLead.id);
+
+  await assert.rejects(
+    () => resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+      decision: 'relink_existing',
+      targetLeadId: customerActiveLead.id,
+    }),
+    /active in-flight leads/i,
+  );
+});
+
 test('website duplicate matching ignores customer-active and closed leads', SERIAL, async () => {
   const activeLead = await captureWebsiteLead({
     siteId: 'solace-air',

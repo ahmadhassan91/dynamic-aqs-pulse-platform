@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Box, Collapse, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
 import {
+  IconBuildingStore,
   IconChevronRight,
   IconHome,
   IconMapPin,
@@ -115,6 +116,16 @@ export function Navigation() {
       links: [
         { label: 'Territory Dashboard', link: '/territories' },
         { label: 'Coverage Map', link: '/territory_map' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'customers')) {
+    navItems.push({
+      label: 'Account Management',
+      icon: IconBuildingStore,
+      links: [
+        { label: 'All Accounts', link: '/customers' },
       ],
     });
   }

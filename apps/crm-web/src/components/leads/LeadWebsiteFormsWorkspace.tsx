@@ -49,6 +49,7 @@ import type {
   ListWebsiteLeadSubmissionsResponse,
   LeadRoutingPolicySummary,
   LeadRoutingBasisKey,
+  LeadSummary,
   LeadStageKey,
   ResolveWebsiteLeadSubmissionRequest,
   WebsiteLeadFormTypeKey,
@@ -59,6 +60,7 @@ import type {
 } from '@pulse/contracts';
 import {
   createWebsiteLeadNotificationRecipient,
+  fetchLeads,
   createWebsiteLeadSite,
   fetchLeadRoutingPolicy,
   fetchWebsiteLeadNotificationRecipients,
@@ -174,6 +176,9 @@ export function LeadWebsiteFormsWorkspace() {
   const [isSavingRecipient, setIsSavingRecipient] = useState(false);
   const [isSavingPolicy, setIsSavingPolicy] = useState(false);
   const [resolvingSubmissionKey, setResolvingSubmissionKey] = useState<string | null>(null);
+  const [relinkCandidates, setRelinkCandidates] = useState<LeadSummary[]>([]);
+  const [relinkTargetLeadId, setRelinkTargetLeadId] = useState<string | null>(null);
+  const [isLoadingRelinkCandidates, setIsLoadingRelinkCandidates] = useState(false);
 
   useEffect(() => {
     if (!auth) {
@@ -260,6 +265,70 @@ export function LeadWebsiteFormsWorkspace() {
     [recipients],
   );
   const canManageReference = auth ? canPerformAction(auth.identity.role, 'reference.manage') : false;
+  const accessToken = auth?.tokens.accessToken ?? '';
+
+  useEffect(() => {
+    if (!auth || !selectedSubmission || selectedSubmission.reviewStatus !== 'pending_review') {
+      setRelinkCandidates([]);
+      setRelinkTargetLeadId(null);
+      setIsLoadingRelinkCandidates(false);
+      return;
+    }
+
+    const submission = selectedSubmission;
+    let cancelled = false;
+
+    async function loadRelinkCandidates() {
+      setIsLoadingRelinkCandidates(true);
+      try {
+        const searchSeed = submission.companyName
+          ?? submission.email
+          ?? submission.contactDisplayName;
+        const response = await fetchLeads(apiBaseUrl, accessToken, {
+          ...(searchSeed ? { search: searchSeed } : {}),
+          limit: 25,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const candidates = response.items.filter((lead) => (
+          lead.lifecycleStatus === 'active'
+          && lead.stage !== 'customer_active'
+          && lead.id !== submission.linkedLeadId
+        ));
+
+        setRelinkCandidates(candidates);
+        setRelinkTargetLeadId((current) => current ?? candidates[0]?.id ?? null);
+      } catch (error) {
+        if (!cancelled) {
+          setRelinkCandidates([]);
+          setRelinkTargetLeadId(null);
+          notifications.show({
+            title: 'Relink candidates unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            color: 'red',
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingRelinkCandidates(false);
+        }
+      }
+    }
+
+    void loadRelinkCandidates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    apiBaseUrl,
+    auth,
+    selectedSubmission,
+  ]);
 
   if (!isHydrated) {
     return null;
@@ -268,8 +337,6 @@ export function LeadWebsiteFormsWorkspace() {
   if (!auth) {
     return null;
   }
-
-  const accessToken = auth.tokens.accessToken;
 
   const openPreview = (site: WebsiteLeadSiteSummary) => {
     setPreviewSite(site);
@@ -305,6 +372,14 @@ export function LeadWebsiteFormsWorkspace() {
     if (!selectedSubmission) {
       return;
     }
+    if (decision === 'relink_existing' && !relinkTargetLeadId) {
+      notifications.show({
+        title: 'Choose a target lead',
+        message: 'Select another active in-flight lead before relinking this repeat submission.',
+        color: 'orange',
+      });
+      return;
+    }
 
     const actionKey = `${selectedSubmission.id}:${decision}`;
     setResolvingSubmissionKey(actionKey);
@@ -312,6 +387,7 @@ export function LeadWebsiteFormsWorkspace() {
     try {
       const updated = await resolveWebsiteLeadSubmission(apiBaseUrl, accessToken, selectedSubmission.id, {
         decision,
+        ...(decision === 'relink_existing' && relinkTargetLeadId ? { targetLeadId: relinkTargetLeadId } : {}),
       });
       applyResolvedSubmission(updated);
       notifications.show({
@@ -319,6 +395,8 @@ export function LeadWebsiteFormsWorkspace() {
         message:
           decision === 'confirm_existing'
             ? 'Pulse will keep this website submission attached to the existing lead.'
+            : decision === 'relink_existing'
+              ? 'Pulse relinked this submission to the selected active lead.'
             : 'Pulse created a new lead from this website submission.',
         color: 'green',
       });
@@ -1184,26 +1262,59 @@ export function LeadWebsiteFormsWorkspace() {
               </Stack>
             </Paper>
             {selectedSubmission.reviewStatus === 'pending_review' ? (
-              <Group justify="flex-end">
-                <Button
-                  variant="default"
-                  loading={resolvingSubmissionKey === `${selectedSubmission.id}:confirm_existing`}
-                  onClick={() => {
-                    void handleResolveSubmission('confirm_existing');
-                  }}
-                >
-                  Confirm Existing Lead
-                </Button>
-                <Button
-                  leftSection={<IconPlus size={16} />}
-                  loading={resolvingSubmissionKey === `${selectedSubmission.id}:create_new_lead`}
-                  onClick={() => {
-                    void handleResolveSubmission('create_new_lead');
-                  }}
-                >
-                  Create New Lead From Submission
-                </Button>
-              </Group>
+              <Stack gap="md">
+                <Paper withBorder radius="md" p="md">
+                  <Stack gap="sm">
+                    <Text size="sm" fw={600}>Relink to another active lead</Text>
+                    <Text size="sm" c="dimmed">
+                      Use this when ops knows the repeat submission belongs under a different in-flight lead instead of the one Pulse matched first.
+                    </Text>
+                    <Select
+                      label="Target active lead"
+                      placeholder={isLoadingRelinkCandidates ? 'Loading active lead candidates…' : 'Select another active lead'}
+                      data={relinkCandidates.map((lead) => ({
+                        value: lead.id,
+                        label: `${lead.companyName} · ${lead.contactDisplayName} · ${STAGE_META[lead.stage].label}`,
+                      }))}
+                      value={relinkTargetLeadId}
+                      onChange={setRelinkTargetLeadId}
+                      searchable
+                      nothingFoundMessage="No alternate active leads found for this submission"
+                      disabled={isLoadingRelinkCandidates || relinkCandidates.length === 0}
+                    />
+                  </Stack>
+                </Paper>
+                <Group justify="flex-end">
+                  <Button
+                    variant="default"
+                    loading={resolvingSubmissionKey === `${selectedSubmission.id}:confirm_existing`}
+                    onClick={() => {
+                      void handleResolveSubmission('confirm_existing');
+                    }}
+                  >
+                    Confirm Existing Lead
+                  </Button>
+                  <Button
+                    variant="light"
+                    loading={resolvingSubmissionKey === `${selectedSubmission.id}:relink_existing`}
+                    disabled={relinkCandidates.length === 0 || !relinkTargetLeadId}
+                    onClick={() => {
+                      void handleResolveSubmission('relink_existing');
+                    }}
+                  >
+                    Relink To Selected Lead
+                  </Button>
+                  <Button
+                    leftSection={<IconPlus size={16} />}
+                    loading={resolvingSubmissionKey === `${selectedSubmission.id}:create_new_lead`}
+                    onClick={() => {
+                      void handleResolveSubmission('create_new_lead');
+                    }}
+                  >
+                    Create New Lead From Submission
+                  </Button>
+                </Group>
+              </Stack>
             ) : null}
           </Stack>
         ) : null}

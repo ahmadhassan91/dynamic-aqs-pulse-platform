@@ -45,7 +45,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
       if (method === 'GET') {
         const actor = await requireAuthenticatedActor(req, {
           module: 'customers',
-          action: 'location.view',
+          action: 'customer.view',
         });
         const query: ListAccountsRequest = {};
         const search = url.searchParams.get('search')?.trim();

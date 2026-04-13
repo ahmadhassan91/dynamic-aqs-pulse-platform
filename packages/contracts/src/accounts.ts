@@ -1,9 +1,27 @@
+import type { TerritoryAssignmentMethodKey } from './territories.js';
+
 export interface AccountSummary {
   id: string;
   accountNumber?: string;
+  sourceLeadId?: string;
   displayName: string;
   legalName?: string;
   accountType?: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  assignedTmUserId?: string;
+  assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  territoryAssignmentMethod?: TerritoryAssignmentMethodKey;
+  territoryAssignedAt?: string;
   isActive: boolean;
   contactCount: number;
   locationCount: number;

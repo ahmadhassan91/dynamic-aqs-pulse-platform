@@ -1,5 +1,5 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AuditAction, Prisma, prisma } from '@pulse/db';
+import { AuditAction, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
   AccountLocationSummary,
@@ -47,6 +47,24 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
       ],
       take: limit,
       include: {
+        territory: {
+          include: {
+            region: true,
+          },
+        },
+        shippingCenter: true,
+        assignedTmUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        assignedRdUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
         _count: {
           select: {
             contacts: true,
@@ -125,6 +143,24 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
   const account = await prisma.account.findUnique({
     where: { id: accountId },
     include: {
+      territory: {
+        include: {
+          region: true,
+        },
+      },
+      shippingCenter: true,
+      assignedTmUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      assignedRdUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
       locations: {
         orderBy: [
           { isPrimary: 'desc' },
@@ -409,12 +445,42 @@ export async function createAccountContact(
 function toAccountSummary(account: {
   id: string;
   accountNumber: string | null;
+  sourceLeadId?: string | null;
   displayName: string;
   legalName: string | null;
   accountType: string | null;
+  territoryId?: string | null;
+  territoryAssignmentMethod?: TerritoryAssignmentMethod | null;
+  territoryAssignedAt?: Date | null;
+  shippingCenterId?: string | null;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  territory?: {
+    id: string;
+    code: string;
+    name: string;
+    region: {
+      id: string;
+      code: string;
+      name: string;
+    };
+  } | null;
+  shippingCenter?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  assignedTmUser?: {
+    id: string;
+    displayName: string;
+  } | null;
+  assignedRdUser?: {
+    id: string;
+    displayName: string;
+  } | null;
   _count: {
     contacts: number;
     locations: number;
@@ -433,14 +499,63 @@ function toAccountSummary(account: {
   if (account.accountNumber) {
     summary.accountNumber = account.accountNumber;
   }
+  if (account.sourceLeadId) {
+    summary.sourceLeadId = account.sourceLeadId;
+  }
   if (account.legalName) {
     summary.legalName = account.legalName;
   }
   if (account.accountType) {
     summary.accountType = account.accountType;
   }
+  if (account.territory?.id) {
+    summary.territoryId = account.territory.id;
+    summary.territoryCode = account.territory.code;
+    summary.territoryName = account.territory.name;
+    summary.regionId = account.territory.region.id;
+    summary.regionCode = account.territory.region.code;
+    summary.regionName = account.territory.region.name;
+  } else if (account.territoryId) {
+    summary.territoryId = account.territoryId;
+  }
+  if (account.shippingCenter?.id) {
+    summary.shippingCenterId = account.shippingCenter.id;
+    summary.shippingCenterCode = account.shippingCenter.code;
+    summary.shippingCenterName = account.shippingCenter.name;
+  } else if (account.shippingCenterId) {
+    summary.shippingCenterId = account.shippingCenterId;
+  }
+  if (account.assignedTmUser?.id) {
+    summary.assignedTmUserId = account.assignedTmUser.id;
+    summary.assignedTmName = account.assignedTmUser.displayName;
+  } else if (account.assignedTmUserId) {
+    summary.assignedTmUserId = account.assignedTmUserId;
+  }
+  if (account.assignedRdUser?.id) {
+    summary.assignedRdUserId = account.assignedRdUser.id;
+    summary.assignedRdName = account.assignedRdUser.displayName;
+  } else if (account.assignedRdUserId) {
+    summary.assignedRdUserId = account.assignedRdUserId;
+  }
+  if (account.territoryAssignmentMethod) {
+    summary.territoryAssignmentMethod = toTerritoryAssignmentMethodKey(account.territoryAssignmentMethod);
+  }
+  if (account.territoryAssignedAt) {
+    summary.territoryAssignedAt = account.territoryAssignedAt.toISOString();
+  }
 
   return summary;
+}
+
+function toTerritoryAssignmentMethodKey(value: TerritoryAssignmentMethod) {
+  switch (value) {
+    case TerritoryAssignmentMethod.DEFAULT_STATE:
+      return 'default_state';
+    case TerritoryAssignmentMethod.MANUAL_OVERRIDE:
+      return 'manual_override';
+    case TerritoryAssignmentMethod.SYSTEM:
+      return 'system';
+  }
 }
 
 function toContactSummary(contact: {

@@ -17,6 +17,9 @@ import type {
   UpdateAdminUserResponse,
   AuthIdentity,
   AuthSession,
+  AccountDetail,
+  ListAccountsRequest,
+  ListAccountsResponse,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
   CisLinkIssueResponse,
@@ -379,6 +382,38 @@ export async function fetchLeads(apiBaseUrl: string, accessToken: string, query:
   const pathname = searchParams.size > 0 ? `/api/v1/leads?${searchParams.toString()}` : '/api/v1/leads';
 
   return requestJson<ListLeadsResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAccounts(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListAccountsRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.search) {
+    searchParams.set('search', query.search);
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+  if (query.includeInactive !== undefined) {
+    searchParams.set('includeInactive', String(query.includeInactive));
+  }
+
+  const pathname = searchParams.size > 0 ? `/api/v1/accounts?${searchParams.toString()}` : '/api/v1/accounts';
+
+  return requestJson<ListAccountsResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string, accountId: string) {
+  return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
     method: 'GET',
     accessToken,
   });

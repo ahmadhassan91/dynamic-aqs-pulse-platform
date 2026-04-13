@@ -21,7 +21,13 @@ import {
   Title,
 } from '@mantine/core';
 import { IconAlertCircle, IconCheck, IconMail } from '@tabler/icons-react';
-import type { CaptureWebsiteLeadRequest, PublicWebsiteLeadSite, WebsiteLeadTypeKey } from '@pulse/contracts';
+import {
+  type CaptureWebsiteLeadRequest,
+  findLeadRegionOption,
+  LEAD_REGION_OPTIONS,
+  type PublicWebsiteLeadSite,
+  type WebsiteLeadTypeKey,
+} from '@pulse/contracts';
 import { fetchPublicWebsiteLeadSite, submitPublicWebsiteLead } from '@/lib/pulse-api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
@@ -46,6 +52,23 @@ const referralSourceOptions = [
   'Social media',
   'Affinity group',
   'Existing customer',
+];
+
+const leadRegionSelectData = [
+  {
+    group: 'United States',
+    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'United States').map((option) => ({
+      value: option.value,
+      label: `${option.label} (${option.value})`,
+    })),
+  },
+  {
+    group: 'Canada',
+    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'Canada').map((option) => ({
+      value: option.value,
+      label: `${option.label} (${option.value})`,
+    })),
+  },
 ];
 
 type Props = {
@@ -151,6 +174,7 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
 
     try {
       const submissionMessage = buildSubmissionMessage(formState);
+      const regionOption = findLeadRegionOption(formState.state);
       const payload: CaptureWebsiteLeadRequest = {
         siteId: site.siteId,
         leadType: resolvedLeadType,
@@ -160,6 +184,7 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
         email: formState.email,
         phone: formState.phone,
         state: formState.state,
+        ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
         ...(formState.inquiryTopic ? { inquiryTopic: formState.inquiryTopic } : {}),
         ...(formState.referralSource ? { referralSource: formState.referralSource } : {}),
         ...(formState.referralDetail ? { referralDetail: formState.referralDetail } : {}),
@@ -329,11 +354,14 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
-                  <TextInput
-                    label="State/Region"
+                  <Select
+                    searchable
+                    label="State / Province"
+                    placeholder="Select location..."
                     required
-                    value={formState.state}
-                    onChange={(event) => setFormState((current) => ({ ...current, state: event.currentTarget.value }))}
+                    value={formState.state || null}
+                    onChange={(value) => setFormState((current) => ({ ...current, state: value ?? '' }))}
+                    data={leadRegionSelectData}
                   />
                 </Grid.Col>
               </Grid>

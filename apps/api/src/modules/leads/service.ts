@@ -64,6 +64,7 @@ import type {
   WebsiteLeadSiteSummary,
   WebsiteLeadTypeKey,
 } from '@pulse/contracts';
+import { findLeadRegionOption } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
@@ -1391,7 +1392,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
     }
 
     const normalizedState = normalizeState(input.state);
-    const normalizedCountryCode = normalizeCountryCode(input.countryCode);
+    const normalizedCountryCode = normalizeCountryCode(input.countryCode, normalizedState);
     const inquiryTopic = optionalTrimmed(input.inquiryTopic);
     const referralSource = optionalTrimmed(input.referralSource);
     const referralDetail = optionalTrimmed(input.referralDetail);
@@ -2107,7 +2108,7 @@ function normalizeLeadInput(
   const email = optionalTrimmed(asString(input.email));
   const phone = optionalTrimmed(asString(input.phone));
   const state = normalizeState(asString(input.state));
-  const countryCode = normalizeCountryCode(asString(input.countryCode));
+  const countryCode = normalizeCountryCode(asString(input.countryCode), state);
   const sourceDetail = optionalTrimmed(asString(input.sourceDetail));
   const leadType = normalizeOptionalWebsiteLeadType(input.leadType);
   const sourceSiteId = optionalTrimmed(asString(input.sourceSiteId));
@@ -2977,12 +2978,32 @@ function asString(value: unknown) {
 
 function normalizeState(value: string | undefined) {
   const trimmed = optionalTrimmed(value);
-  return trimmed ? trimmed.toUpperCase() : undefined;
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const resolved = findLeadRegionOption(trimmed);
+  if (!resolved) {
+    throw new Error('State/Province must be a valid US state or Canadian province');
+  }
+
+  return resolved.value;
 }
 
-function normalizeCountryCode(value: string | undefined) {
+function normalizeCountryCode(value: string | undefined, state: string | undefined) {
   const trimmed = optionalTrimmed(value);
-  return trimmed ? trimmed.toUpperCase() : undefined;
+  const normalized = trimmed ? trimmed.toUpperCase() : undefined;
+  const resolvedRegion = state ? findLeadRegionOption(state) : undefined;
+
+  if (!normalized) {
+    return resolvedRegion?.countryCode;
+  }
+
+  if (resolvedRegion && normalized !== resolvedRegion.countryCode) {
+    throw new Error('countryCode must match the selected state/province');
+  }
+
+  return normalized;
 }
 
 function addDays(value: Date, days: number) {

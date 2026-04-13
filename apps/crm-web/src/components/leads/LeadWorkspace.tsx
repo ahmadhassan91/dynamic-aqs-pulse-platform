@@ -42,13 +42,17 @@ import {
   IconUsers,
   IconWorld,
 } from '@tabler/icons-react';
-import type {
-  CreateLeadRequest,
-  LeadRoutingPolicySummary,
-  LeadRoutingTeamKey,
-  LeadStageKey,
-  LeadSummary,
-  ReferenceValueSummary,
+import {
+  findLeadRegionOption,
+  LEAD_MARKETING_SOURCES,
+  LEAD_RATINGS,
+  LEAD_REGION_OPTIONS,
+  type CreateLeadRequest,
+  type LeadRoutingPolicySummary,
+  type LeadRoutingTeamKey,
+  type LeadStageKey,
+  type LeadSummary,
+  type ReferenceValueSummary,
 } from '@pulse/contracts';
 import { createLead, fetchLeadRoutingPolicy, fetchLeadSources, fetchLeads } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -61,6 +65,8 @@ type LeadCreateFormState = {
   email: string;
   phone: string;
   state: string;
+  sourceCampaign: string;
+  leadRating: string;
   leadSourceCode: string;
   serviceTechCount: number;
   installTechCount: number;
@@ -90,11 +96,30 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
   email: '',
   phone: '',
   state: '',
+  sourceCampaign: '',
+  leadRating: '',
   leadSourceCode: 'manual_entry',
   serviceTechCount: 1,
   installTechCount: 0,
   notes: '',
 };
+
+const leadRegionSelectData = [
+  {
+    group: 'United States',
+    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'United States').map((option) => ({
+      value: option.value,
+      label: `${option.label} (${option.value})`,
+    })),
+  },
+  {
+    group: 'Canada',
+    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'Canada').map((option) => ({
+      value: option.value,
+      label: `${option.label} (${option.value})`,
+    })),
+  },
+];
 
 export function LeadWorkspace({
   initialTab = 'overview',
@@ -272,6 +297,7 @@ export function LeadWorkspace({
     setCreateLeadError(null);
 
     try {
+      const regionOption = findLeadRegionOption(createLeadForm.state);
       const payload: CreateLeadRequest = {
         companyName: createLeadForm.companyName.trim(),
         serviceTechCount: createLeadForm.serviceTechCount,
@@ -280,6 +306,9 @@ export function LeadWorkspace({
         ...(createLeadForm.email.trim() ? { email: createLeadForm.email.trim() } : {}),
         ...(createLeadForm.phone.trim() ? { phone: createLeadForm.phone.trim() } : {}),
         ...(createLeadForm.state.trim() ? { state: createLeadForm.state.trim() } : {}),
+        ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
+        ...(createLeadForm.sourceCampaign ? { sourceCampaign: createLeadForm.sourceCampaign } : {}),
+        ...(createLeadForm.leadRating ? { leadRating: createLeadForm.leadRating } : {}),
         ...(createLeadForm.installTechCount > 0 ? { installTechCount: createLeadForm.installTechCount } : {}),
         ...(createLeadForm.notes.trim() ? { notes: createLeadForm.notes.trim() } : {}),
       };
@@ -722,10 +751,13 @@ export function LeadWorkspace({
               value={createLeadForm.phone ?? ''}
               onChange={(event) => setCreateLeadForm((current) => ({ ...current, phone: event.currentTarget.value }))}
             />
-            <TextInput
-              label="State"
-              value={createLeadForm.state ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, state: event.currentTarget.value }))}
+            <Select
+              searchable
+              label="State / Province"
+              placeholder="Select location..."
+              value={createLeadForm.state || null}
+              onChange={(value) => setCreateLeadForm((current) => ({ ...current, state: value ?? '' }))}
+              data={leadRegionSelectData}
             />
             <Select
               label="Lead source"
@@ -735,6 +767,20 @@ export function LeadWorkspace({
                 value: source.code,
                 label: source.name,
               }))}
+            />
+            <Select
+              label="Marketing source"
+              placeholder="Select marketing source..."
+              value={createLeadForm.sourceCampaign || null}
+              onChange={(value) => setCreateLeadForm((current) => ({ ...current, sourceCampaign: value ?? '' }))}
+              data={LEAD_MARKETING_SOURCES}
+            />
+            <Select
+              label="Lead rating"
+              placeholder="Select lead rating..."
+              value={createLeadForm.leadRating || null}
+              onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadRating: value ?? '' }))}
+              data={LEAD_RATINGS}
             />
             <NumberInput
               label="Service tech count"

@@ -41,15 +41,12 @@ import {
   IconEye,
   IconMail,
   IconPlus,
-  IconRefresh,
   IconUsers,
   IconWorld,
 } from '@tabler/icons-react';
 import type {
   LeadRoutingPolicySummary,
   LeadStageKey,
-  ListWebsiteFormLeadsRequest,
-  WebsiteFormLeadSummary,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
@@ -60,7 +57,6 @@ import {
   createWebsiteLeadNotificationRecipient,
   createWebsiteLeadSite,
   fetchLeadRoutingPolicy,
-  fetchWebsiteFormLeads,
   fetchWebsiteLeadNotificationRecipients,
   fetchWebsiteLeadSites,
   updateWebsiteLeadNotificationRecipient,
@@ -78,7 +74,7 @@ const STAGE_META: Record<LeadStageKey, { label: string; color: string }> = {
   customer_active: { label: 'Customer Active', color: 'green' },
 };
 
-type WebsiteFormsTab = 'sites' | 'notifications' | 'submissions' | 'flow';
+type WebsiteFormsTab = 'sites' | 'notifications' | 'flow';
 
 type SiteDraft = {
   siteId: string;
@@ -137,15 +133,11 @@ const referralSourceOptions = [
 export function LeadWebsiteFormsWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
-  const [stageFilter, setStageFilter] = useState<LeadStageKey | ''>('');
-  const [searchQuery, setSearchQuery] = useState('');
   const [sites, setSites] = useState<WebsiteLeadSiteSummary[]>([]);
   const [recipients, setRecipients] = useState<WebsiteLeadNotificationRecipientSummary[]>([]);
-  const [submissions, setSubmissions] = useState<WebsiteFormLeadSummary[]>([]);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [refreshNonce, setRefreshNonce] = useState(0);
   const [previewSite, setPreviewSite] = useState<WebsiteLeadSiteSummary | null>(null);
   const [previewLeadType, setPreviewLeadType] = useState<WebsiteLeadTypeKey>('homeowner');
   const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
@@ -160,7 +152,6 @@ export function LeadWebsiteFormsWorkspace() {
     if (!auth) {
       setSites([]);
       setRecipients([]);
-      setSubmissions([]);
       setRoutingPolicy(null);
       return;
     }
@@ -173,16 +164,9 @@ export function LeadWebsiteFormsWorkspace() {
       setErrorMessage(null);
 
       try {
-        const query: ListWebsiteFormLeadsRequest = {
-          ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
-          ...(stageFilter ? { stage: stageFilter } : {}),
-          limit: 200,
-        };
-
-        const [siteResponse, recipientResponse, submissionResponse, routingPolicyResponse] = await Promise.all([
+        const [siteResponse, recipientResponse, routingPolicyResponse] = await Promise.all([
           fetchWebsiteLeadSites(apiBaseUrl, accessToken),
           fetchWebsiteLeadNotificationRecipients(apiBaseUrl, accessToken),
-          fetchWebsiteFormLeads(apiBaseUrl, accessToken, query),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
         ]);
 
@@ -192,7 +176,6 @@ export function LeadWebsiteFormsWorkspace() {
 
         setSites(siteResponse.items);
         setRecipients(recipientResponse.items);
-        setSubmissions(submissionResponse.items);
         setRoutingPolicy(routingPolicyResponse);
       } catch (error) {
         if (!cancelled) {
@@ -210,12 +193,11 @@ export function LeadWebsiteFormsWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, refreshNonce, searchQuery, stageFilter]);
+  }, [apiBaseUrl, auth]);
 
   const activeSites = sites.filter((site) => site.isActive).length;
   const totalLeadsThisMonth = sites.reduce((sum, site) => sum + site.submissionsLast30Days, 0);
   const totalLinkedLeads = sites.reduce((sum, site) => sum + site.linkedLeadsTotal, 0);
-  const latestWebsiteLead = submissions[0] ?? null;
   const browserBaseUrl = typeof window !== 'undefined' ? window.location.origin : apiBaseUrl;
 
   const activeRecipientCount = useMemo(
@@ -370,8 +352,8 @@ export function LeadWebsiteFormsWorkspace() {
           <Stack gap={4}>
             <Title order={1}>Pulse Website Lead Forms</Title>
             <Text size="sm" c="dimmed">
-              Manage homeowner and contractor forms embedded across branded websites. Each submission now posts directly into
-              Pulse CRM with governed site, brand, and lead-type tagging.
+              Manage homeowner and contractor forms embedded across 16 branded websites. Each submission posts directly into
+              Pulse CRM with site, brand, and lead-type tagging.
             </Text>
             <Group gap="xs">
               <Badge color="blue" variant="light">HubSpot Replaced</Badge>
@@ -379,14 +361,9 @@ export function LeadWebsiteFormsWorkspace() {
               <Badge color="grape" variant="light">{activeRecipientCount} Active Alert Recipients</Badge>
             </Group>
           </Stack>
-          <Group gap="sm">
-            <Button leftSection={<IconPlus size={16} />} onClick={() => setSiteModalOpen(true)}>
-              Add Website
-            </Button>
-            <Button variant="light" leftSection={<IconRefresh size={16} />} onClick={() => setRefreshNonce((value) => value + 1)} loading={isLoading}>
-              Refresh
-            </Button>
-          </Group>
+          <Button leftSection={<IconPlus size={16} />} onClick={() => setSiteModalOpen(true)}>
+            Add Website
+          </Button>
         </Group>
       </Paper>
 
@@ -422,10 +399,10 @@ export function LeadWebsiteFormsWorkspace() {
           icon={<IconUsers size={20} />}
         />
         <MetricCard
-          label="Alert Recipients"
-          value={String(activeRecipientCount)}
-          helper="Operational email recipients"
-          icon={<IconBell size={20} />}
+          label="Website Coverage"
+          value={String(sites.length)}
+          helper="Homeowner, contractor, or dual-mode templates"
+          icon={<IconWorld size={20} />}
           accent="green"
         />
       </SimpleGrid>
@@ -434,7 +411,6 @@ export function LeadWebsiteFormsWorkspace() {
         <Tabs.List>
           <Tabs.Tab value="sites" leftSection={<IconWorld size={16} />}>Websites ({sites.length})</Tabs.Tab>
           <Tabs.Tab value="notifications" leftSection={<IconBell size={16} />}>Notifications</Tabs.Tab>
-          <Tabs.Tab value="submissions" leftSection={<IconUsers size={16} />}>Recent Submissions</Tabs.Tab>
           <Tabs.Tab value="flow" leftSection={<IconArrowRight size={16} />}>Submission Flow</Tabs.Tab>
         </Tabs.List>
 
@@ -447,7 +423,7 @@ export function LeadWebsiteFormsWorkspace() {
                   <Table.Th>Brand</Table.Th>
                   <Table.Th>Form Type</Table.Th>
                   <Table.Th>Status</Table.Th>
-                  <Table.Th>Submissions (30d)</Table.Th>
+                  <Table.Th>Leads (Month)</Table.Th>
                   <Table.Th>Leads (Total)</Table.Th>
                   <Table.Th>Conv. Rate</Table.Th>
                   <Table.Th>Actions</Table.Th>
@@ -495,11 +471,6 @@ export function LeadWebsiteFormsWorkspace() {
                             <IconCode size={16} />
                           </ActionIcon>
                         </Tooltip>
-                        <Tooltip label="Open hosted form">
-                          <ActionIcon component={Link} href={`/forms/lead/${site.siteId}`} target="_blank" variant="subtle" color="grape">
-                            <IconBrowser size={16} />
-                          </ActionIcon>
-                        </Tooltip>
                       </Group>
                     </Table.Td>
                   </Table.Tr>
@@ -516,7 +487,8 @@ export function LeadWebsiteFormsWorkspace() {
                 <Stack gap={2}>
                   <Title order={4}>Lead Notification Recipients</Title>
                   <Text size="sm" c="dimmed">
-                    These recipients get an immediate operational email when any branded website form submits into Pulse CRM.
+                    These recipients get an immediate email when any branded website form submits into Pulse CRM. Legacy
+                    HubSpot notification emails are retired, but the operational alert flow remains the same.
                   </Text>
                 </Stack>
                 <Button variant="outline" leftSection={<IconPlus size={16} />} onClick={() => setRecipientModalOpen(true)}>
@@ -558,107 +530,6 @@ export function LeadWebsiteFormsWorkspace() {
               </Table>
             </Stack>
           </Paper>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="submissions" pt="md">
-          <Stack gap="md">
-            <Paper withBorder radius="md" p="md">
-              <Group gap="sm" wrap="wrap" align="flex-end">
-                <TextInput
-                  placeholder="Search company, contact, site, or email..."
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                  style={{ flex: '1 1 320px' }}
-                />
-                <Select
-                  placeholder="Stage"
-                  value={stageFilter}
-                  onChange={(value) => setStageFilter((value as LeadStageKey | null) ?? '')}
-                  data={Object.entries(STAGE_META).map(([stage, meta]) => ({
-                    value: stage,
-                    label: meta.label,
-                  }))}
-                  clearable
-                  w={220}
-                />
-                {latestWebsiteLead ? (
-                  <Button component={Link} href={`/leads/${latestWebsiteLead.id}`} variant="light" color="cyan">
-                    Open Latest Website Lead
-                  </Button>
-                ) : null}
-              </Group>
-            </Paper>
-
-            <Paper withBorder radius="md" p="sm">
-              {submissions.length === 0 ? (
-                <Text size="sm" c="dimmed" p="md">
-                  Recent website submissions will appear here once branded-site intake hits the production lead source.
-                </Text>
-              ) : (
-                <Table.ScrollContainer minWidth={1180}>
-                  <Table highlightOnHover verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Captured</Table.Th>
-                        <Table.Th>Company</Table.Th>
-                        <Table.Th>Contact</Table.Th>
-                        <Table.Th>Website</Table.Th>
-                        <Table.Th>Brand</Table.Th>
-                        <Table.Th>Stage</Table.Th>
-                        <Table.Th>Routing</Table.Th>
-                        <Table.Th>Capture Method</Table.Th>
-                        <Table.Th>Actions</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {submissions.map((lead) => (
-                        <Table.Tr key={lead.id}>
-                          <Table.Td>{formatDateTimeLabel(lead.createdAt)}</Table.Td>
-                          <Table.Td>
-                            <Stack gap={2}>
-                              <Text fw={600}>{lead.companyName}</Text>
-                              <Text size="xs" c="dimmed">{lead.sourceDetail ?? lead.leadSourceName}</Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            <Stack gap={2}>
-                              <Text>{lead.contactDisplayName}</Text>
-                              <Text size="xs" c="dimmed">{lead.email ?? lead.phone ?? 'No direct contact captured'}</Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            <Stack gap={2}>
-                              <Text>{lead.sourceSiteName ?? 'Site tag missing'}</Text>
-                              <Text size="xs" c="dimmed">{lead.sourceSiteId ?? 'No site ID captured'}</Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            {lead.sourceBrandTag ? <Badge color="blue" variant="light">{lead.sourceBrandTag}</Badge> : <Badge variant="outline">Missing</Badge>}
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge color={STAGE_META[lead.stage].color} variant="light">
-                              {STAGE_META[lead.stage].label}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'} variant="light">
-                              {formatRoutingTeam(lead.routingTeam)}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>{formatCaptureMethod(lead.leadCaptureMethod)}</Table.Td>
-                          <Table.Td>
-                            <Button component={Link} href={`/leads/${lead.id}`} size="xs" variant="light">
-                              Open Lead
-                            </Button>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              )}
-            </Paper>
-          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="flow" pt="md">
@@ -1007,16 +878,9 @@ function MetricCard({
 }) {
   return (
     <Card withBorder p="lg">
-      <Group justify="space-between" align="flex-start">
-        <Stack gap={4}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{label}</Text>
-          <Text size="xl" fw={700} c={accent}>{value}</Text>
-          <Text size="xs" c="dimmed">{helper}</Text>
-        </Stack>
-        <ActionIcon variant="light" color="blue" size="lg" radius="xl">
-          {icon}
-        </ActionIcon>
-      </Group>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{label}</Text>
+      <Text size="xl" fw={700} c={accent}>{value}</Text>
+      <Text size="xs" c="dimmed">{helper}</Text>
     </Card>
   );
 }
@@ -1027,34 +891,10 @@ function getFormTypeLabel(formType: WebsiteLeadFormTypeKey) {
   return 'Homeowner Only';
 }
 
-function formatCaptureMethod(value: string) {
-  switch (value) {
-    case 'direct_web_form':
-      return 'Direct web form';
-    case 'manual_entry':
-      return 'Manual entry';
-    case 'bulk_import':
-      return 'Bulk import';
-    case 'legacy_import':
-      return 'Legacy import';
-    default:
-      return value;
-  }
-}
-
 function formatRoutingBasis(value: string) {
   return value === 'service_tech_count' ? 'Service tech count' : 'Truck count';
 }
 
 function formatRoutingTeam(value: string) {
   return value === 'strategic_growth' ? 'Strategic Growth' : 'National TM';
-}
-
-function formatDateTimeLabel(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value));
 }

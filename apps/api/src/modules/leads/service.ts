@@ -1326,6 +1326,17 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
   const companyName = resolveWebsiteLeadCompanyName(input, leadType, resolvedName.contactDisplayName, site.siteName);
   const serviceTechCount = resolveWebsiteServiceTechCount(input, leadType);
   const notes = buildWebsiteCaptureNotes(input);
+  const normalizedState = normalizeState(input.state);
+  const normalizedCountryCode = normalizeCountryCode(input.countryCode, normalizedState);
+  const inquiryTopic = optionalTrimmed(input.inquiryTopic);
+  const referralSource = optionalTrimmed(input.referralSource);
+  const referralDetail = optionalTrimmed(input.referralDetail);
+  const message = optionalTrimmed(input.message);
+  const streetAddress = optionalTrimmed(input.streetAddress);
+  const city = optionalTrimmed(input.city);
+  const postalCode = optionalTrimmed(input.postalCode);
+  const customerStatus = normalizeOptionalWebsiteCustomerStatus(input.customerStatus);
+  const marketingConsent = typeof input.marketingConsent === 'boolean' ? input.marketingConsent : undefined;
 
   const normalizedInput: LeadInputSource = {
     companyName,
@@ -1382,21 +1393,27 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
         {
           sourceMetadata: {
             captureChannel: 'branded_website',
-            inquiryTopic: optionalTrimmed(input.inquiryTopic),
-            referralSource: optionalTrimmed(input.referralSource),
-            referralDetail: optionalTrimmed(input.referralDetail),
+            ...(inquiryTopic ? { inquiryTopic } : {}),
+            ...(referralSource ? { referralSource } : {}),
+            ...(referralDetail ? { referralDetail } : {}),
+            ...(customerStatus ? { customerStatus } : {}),
+            ...(marketingConsent !== undefined ? { marketingConsent } : {}),
+            ...(streetAddress || city || normalizedState || postalCode || normalizedCountryCode
+              ? {
+                  submittedAddress: {
+                    ...(streetAddress ? { line1: streetAddress } : {}),
+                    ...(city ? { city } : {}),
+                    ...(normalizedState ? { state: normalizedState } : {}),
+                    ...(postalCode ? { postalCode } : {}),
+                    ...(normalizedCountryCode ? { countryCode: normalizedCountryCode } : {}),
+                  },
+                }
+              : {}),
           },
         },
       );
       outcome = WebsiteLeadSubmissionOutcome.CREATED_NEW_LEAD;
     }
-
-    const normalizedState = normalizeState(input.state);
-    const normalizedCountryCode = normalizeCountryCode(input.countryCode, normalizedState);
-    const inquiryTopic = optionalTrimmed(input.inquiryTopic);
-    const referralSource = optionalTrimmed(input.referralSource);
-    const referralDetail = optionalTrimmed(input.referralDetail);
-    const message = optionalTrimmed(input.message);
 
     await tx.websiteLeadSubmission.create({
       data: {
@@ -2905,6 +2922,17 @@ function buildWebsiteCaptureNotes(input: CaptureWebsiteLeadRequest) {
 function normalizeOptionalWebsiteLeadType(value: unknown) {
   const normalized = optionalTrimmed(asString(value));
   return normalized ? toWebsiteLeadTypeEnum(normalized) : undefined;
+}
+
+function normalizeOptionalWebsiteCustomerStatus(value: unknown) {
+  const normalized = optionalTrimmed(asString(value));
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === 'new_customer' || normalized === 'existing_customer') {
+    return normalized;
+  }
+  throw new Error('customerStatus must be new_customer or existing_customer');
 }
 
 function normalizeEmailAddress(value: string) {

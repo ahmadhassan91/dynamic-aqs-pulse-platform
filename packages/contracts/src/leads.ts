@@ -50,6 +50,13 @@ export const WEBSITE_LEAD_TYPES = [
 
 export type WebsiteLeadTypeKey = (typeof WEBSITE_LEAD_TYPES)[number];
 
+export const WEBSITE_LEAD_CUSTOMER_STATUSES = [
+  'new_customer',
+  'existing_customer',
+] as const;
+
+export type WebsiteLeadCustomerStatusKey = (typeof WEBSITE_LEAD_CUSTOMER_STATUSES)[number];
+
 export const WEBSITE_LEAD_SUBMISSION_OUTCOMES = [
   'created_new_lead',
   'attached_to_existing_lead',
@@ -538,8 +545,13 @@ export interface CaptureWebsiteLeadRequest {
   contactDisplayName?: string;
   email?: string;
   phone?: string;
+  streetAddress?: string;
+  city?: string;
   state?: string;
+  postalCode?: string;
   countryCode?: string;
+  customerStatus?: WebsiteLeadCustomerStatusKey;
+  marketingConsent?: boolean;
   serviceTechCount?: number;
   installTechCount?: number;
   truckCount?: number;

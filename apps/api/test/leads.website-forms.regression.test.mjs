@@ -156,6 +156,68 @@ test('duplicate website submissions attach to the existing lead instead of creat
   assert.equal(submissions[1].serviceTechCount, 5);
 });
 
+test('native website forms preserve explicit address and customer-intake metadata', async () => {
+  const lead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Morgan Reyes',
+    companyName: 'Northline Comfort',
+    email: 'morgan@northlinecomfort.com',
+    phone: '555-777-8888',
+    streetAddress: '455 Market Street',
+    city: 'Toronto',
+    state: 'Ontario',
+    postalCode: 'M5V 2L9',
+    customerStatus: 'existing_customer',
+    serviceTechCount: 6,
+    inquiryTopic: 'Training and onboarding',
+    referralSource: 'Dealer referral',
+    referralDetail: 'Regional distributor',
+  });
+
+  const extension = await prisma.leadExtension.findUniqueOrThrow({
+    where: { leadId: lead.id },
+  });
+  const submission = await prisma.websiteLeadSubmission.findFirstOrThrow({
+    where: { linkedLeadId: lead.id },
+  });
+
+  assert.deepEqual(extension.sourceMetadata, {
+    captureChannel: 'branded_website',
+    inquiryTopic: 'Training and onboarding',
+    referralSource: 'Dealer referral',
+    referralDetail: 'Regional distributor',
+    customerStatus: 'existing_customer',
+    submittedAddress: {
+      line1: '455 Market Street',
+      city: 'Toronto',
+      state: 'ON',
+      postalCode: 'M5V 2L9',
+      countryCode: 'CA',
+    },
+  });
+
+  assert.equal(submission.state, 'ON');
+  assert.equal(submission.countryCode, 'CA');
+  assert.deepEqual(submission.payload, {
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Morgan Reyes',
+    companyName: 'Northline Comfort',
+    email: 'morgan@northlinecomfort.com',
+    phone: '555-777-8888',
+    streetAddress: '455 Market Street',
+    city: 'Toronto',
+    state: 'Ontario',
+    postalCode: 'M5V 2L9',
+    customerStatus: 'existing_customer',
+    serviceTechCount: 6,
+    inquiryTopic: 'Training and onboarding',
+    referralSource: 'Dealer referral',
+    referralDetail: 'Regional distributor',
+  });
+});
+
 test('admin users can manage website sites and notification recipients through the service layer', async () => {
   const actor = await createAdminActor();
 

@@ -26,6 +26,7 @@ import {
   findLeadRegionOption,
   LEAD_REGION_OPTIONS,
   type PublicWebsiteLeadSite,
+  type WebsiteLeadCustomerStatusKey,
   type WebsiteLeadTypeKey,
 } from '@pulse/contracts';
 import { fetchPublicWebsiteLeadSite, submitPublicWebsiteLead } from '@/lib/pulse-api';
@@ -80,6 +81,9 @@ type FormState = {
   lastName: string;
   email: string;
   phone: string;
+  streetAddress: string;
+  city: string;
+  postalCode: string;
   companyName: string;
   serviceTechCount: string;
   state: string;
@@ -87,7 +91,7 @@ type FormState = {
   message: string;
   referralSource: string;
   referralDetail: string;
-  customerStatus: 'new_customer' | 'existing_customer';
+  customerStatus: WebsiteLeadCustomerStatusKey;
   consent: boolean;
 };
 
@@ -96,6 +100,9 @@ const initialFormState: FormState = {
   lastName: '',
   email: '',
   phone: '',
+  streetAddress: '',
+  city: '',
+  postalCode: '',
   companyName: '',
   serviceTechCount: '',
   state: '',
@@ -183,8 +190,13 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
         contactLastName: formState.lastName,
         email: formState.email,
         phone: formState.phone,
+        ...(formState.streetAddress.trim() ? { streetAddress: formState.streetAddress.trim() } : {}),
+        ...(formState.city.trim() ? { city: formState.city.trim() } : {}),
         state: formState.state,
+        ...(formState.postalCode.trim() ? { postalCode: formState.postalCode.trim() } : {}),
         ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
+        ...(resolvedLeadType === 'contractor' ? { customerStatus: formState.customerStatus } : {}),
+        ...(resolvedLeadType === 'homeowner' ? { marketingConsent: formState.consent } : {}),
         ...(formState.inquiryTopic ? { inquiryTopic: formState.inquiryTopic } : {}),
         ...(formState.referralSource ? { referralSource: formState.referralSource } : {}),
         ...(formState.referralDetail ? { referralDetail: formState.referralDetail } : {}),
@@ -354,6 +366,22 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
+                  <TextInput
+                    label="Street address"
+                    required
+                    value={formState.streetAddress}
+                    onChange={(event) => setFormState((current) => ({ ...current, streetAddress: event.currentTarget.value }))}
+                  />
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 6 }}>
+                  <TextInput
+                    label="City"
+                    required
+                    value={formState.city}
+                    onChange={(event) => setFormState((current) => ({ ...current, city: event.currentTarget.value }))}
+                  />
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 6 }}>
                   <Select
                     searchable
                     label="State / Province"
@@ -362,6 +390,14 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
                     value={formState.state || null}
                     onChange={(value) => setFormState((current) => ({ ...current, state: value ?? '' }))}
                     data={leadRegionSelectData}
+                  />
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 6 }}>
+                  <TextInput
+                    label="Zip / Postal Code"
+                    required
+                    value={formState.postalCode}
+                    onChange={(event) => setFormState((current) => ({ ...current, postalCode: event.currentTarget.value }))}
                   />
                 </Grid.Col>
               </Grid>
@@ -416,12 +452,5 @@ export function PublicWebsiteLeadCaptureForm({ siteId }: Props) {
 }
 
 function buildSubmissionMessage(formState: FormState) {
-  const lines = [
-    formState.message.trim() ? formState.message.trim() : undefined,
-    formState.customerStatus === 'existing_customer' ? 'Customer status: Existing customer' : undefined,
-    formState.customerStatus === 'new_customer' ? 'Customer status: New customer' : undefined,
-    formState.consent ? 'Marketing consent: Yes' : undefined,
-  ].filter((value): value is string => Boolean(value));
-
-  return lines.join('\n') || undefined;
+  return formState.message.trim() || undefined;
 }

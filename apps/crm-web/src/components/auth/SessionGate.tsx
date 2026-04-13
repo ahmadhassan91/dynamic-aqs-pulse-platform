@@ -1,8 +1,10 @@
 'use client';
 
-import { Alert, Button, Card, Group, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
-import { IconAlertCircle, IconLock } from '@tabler/icons-react';
-import { usePulseSession } from '@/lib/pulse-session';
+import Link from 'next/link';
+import { useMemo } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { Button, Card, Stack, Text, Title } from '@mantine/core';
+import { IconLock } from '@tabler/icons-react';
 
 export function SessionGate({
   title = 'Sign in to Pulse CRM',
@@ -11,17 +13,13 @@ export function SessionGate({
   title?: string;
   description?: string;
 }) {
-  const {
-    apiBaseUrl,
-    authError,
-    email,
-    isLoggingIn,
-    login,
-    password,
-    setApiBaseUrl,
-    setEmail,
-    setPassword,
-  } = usePulseSession();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const nextHref = useMemo(() => {
+    const query = searchParams?.toString();
+    const nextPath = query ? `${pathname}?${query}` : pathname;
+    return `/auth/login?next=${encodeURIComponent(nextPath)}`;
+  }, [pathname, searchParams]);
 
   return (
     <Card withBorder radius="xl" p="xl" maw={560} mx="auto" className="premium-hero-panel">
@@ -30,45 +28,12 @@ export function SessionGate({
           <Title order={2}>{title}</Title>
           <Text c="dimmed">{description}</Text>
         </Stack>
-
-        <form onSubmit={login}>
-          <Stack gap="md">
-          <TextInput
-            label="API base URL"
-            value={apiBaseUrl}
-            onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
-            placeholder="http://localhost:4000"
-          />
-          <TextInput
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-            placeholder="admin@pulse.local"
-          />
-          <PasswordInput
-            label="Password"
-            value={password}
-            onChange={(event) => setPassword(event.currentTarget.value)}
-            placeholder="Enter your Pulse password"
-          />
-
-          {authError ? (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} className="premium-subhero-panel">
-              {authError}
-            </Alert>
-          ) : null}
-
-          <Group justify="space-between" align="center">
-            <Text size="sm" c="dimmed">
-              Sessions stay in this browser session only.
-            </Text>
-            <Button type="submit" leftSection={<IconLock size={16} />} loading={isLoggingIn}>
-              Sign in
-            </Button>
-          </Group>
-          </Stack>
-        </form>
+        <Text size="sm" c="dimmed">
+          You&apos;ll continue through the same authenticated Pulse login flow used across the rest of the CRM.
+        </Text>
+        <Button component={Link} href={nextHref} leftSection={<IconLock size={16} />} size="md" w="fit-content">
+          Go to sign in
+        </Button>
       </Stack>
     </Card>
   );

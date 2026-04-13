@@ -28,7 +28,6 @@ type PulseSessionContextValue = {
   login: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   loginWithCredentials: (input: { email: string; password: string; rememberMe?: boolean }) => Promise<AuthBundle>;
   logout: () => Promise<void>;
-  setApiBaseUrl: (value: string) => void;
   setEmail: (value: string) => void;
   setPassword: (value: string) => void;
   setRememberMe: (value: boolean) => void;
@@ -37,8 +36,8 @@ type PulseSessionContextValue = {
 const PulseSessionContext = createContext<PulseSessionContextValue | null>(null);
 
 export function PulseSessionProvider({ children }: { children: ReactNode }) {
-  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
-  const [email, setEmail] = useState('admin@pulse.local');
+  const apiBaseUrl = DEFAULT_API_BASE_URL;
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [auth, setAuth] = useState<AuthBundle | null>(null);
@@ -54,10 +53,7 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
     const storedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (storedSettings) {
       try {
-        const parsed = JSON.parse(storedSettings) as Partial<{ apiBaseUrl: string; email: string; rememberMe: boolean }>;
-        if (parsed.apiBaseUrl) {
-          setApiBaseUrl(parsed.apiBaseUrl);
-        }
+        const parsed = JSON.parse(storedSettings) as Partial<{ email: string; rememberMe: boolean }>;
         if (parsed.email) {
           setEmail(parsed.email);
         }
@@ -93,12 +89,11 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(
       SETTINGS_STORAGE_KEY,
       JSON.stringify({
-        apiBaseUrl,
         email,
         rememberMe,
       }),
     );
-  }, [apiBaseUrl, email, isHydrated, rememberMe]);
+  }, [email, isHydrated, rememberMe]);
 
   useEffect(() => {
     if (!isHydrated || typeof window === 'undefined') {
@@ -233,7 +228,6 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       rememberMe,
       login,
       logout,
-      setApiBaseUrl,
       setEmail,
       setPassword,
       setRememberMe,

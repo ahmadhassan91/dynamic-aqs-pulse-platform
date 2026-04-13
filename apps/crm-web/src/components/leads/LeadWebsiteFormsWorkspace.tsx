@@ -52,7 +52,6 @@ import type {
   WebsiteLeadSiteSummary,
   WebsiteLeadTypeKey,
 } from '@pulse/contracts';
-import { SessionGate } from '@/components/auth/SessionGate';
 import {
   createWebsiteLeadNotificationRecipient,
   createWebsiteLeadSite,
@@ -63,6 +62,8 @@ import {
   updateWebsiteLeadSite,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+
+const DEFAULT_WEB_BASE_URL = process.env.NEXT_PUBLIC_PULSE_WEB_BASE_URL ?? 'http://localhost:3000';
 
 const STAGE_META: Record<LeadStageKey, { label: string; color: string }> = {
   new: { label: 'New', color: 'blue' },
@@ -198,7 +199,7 @@ export function LeadWebsiteFormsWorkspace() {
   const activeSites = sites.filter((site) => site.isActive).length;
   const totalLeadsThisMonth = sites.reduce((sum, site) => sum + site.submissionsLast30Days, 0);
   const totalLinkedLeads = sites.reduce((sum, site) => sum + site.linkedLeadsTotal, 0);
-  const browserBaseUrl = typeof window !== 'undefined' ? window.location.origin : apiBaseUrl;
+  const publicWebBaseUrl = DEFAULT_WEB_BASE_URL;
 
   const activeRecipientCount = useMemo(
     () => recipients.filter((recipient) => recipient.isActive).length,
@@ -210,12 +211,7 @@ export function LeadWebsiteFormsWorkspace() {
   }
 
   if (!auth) {
-    return (
-      <SessionGate
-        title="Sign in to open Website Forms"
-        description="Website-form administration now runs on the same live Pulse session and production lead APIs as the rest of the CRM."
-      />
-    );
+    return null;
   }
 
   const accessToken = auth.tokens.accessToken;
@@ -591,9 +587,9 @@ export function LeadWebsiteFormsWorkspace() {
               Pulse CRM and post directly into the live lead-capture endpoint.
             </Alert>
             <Code block style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
-              {generateEmbedCode(embedSite, browserBaseUrl)}
+              {generateEmbedCode(embedSite, publicWebBaseUrl)}
             </Code>
-            <CopyButton value={generateEmbedCode(embedSite, browserBaseUrl)}>
+            <CopyButton value={generateEmbedCode(embedSite, publicWebBaseUrl)}>
               {({ copied, copy }) => (
                 <Button
                   color={copied ? 'green' : 'blue'}
@@ -853,10 +849,12 @@ function resolvePreviewLeadType(formType: WebsiteLeadFormTypeKey, previewLeadTyp
   return previewLeadType;
 }
 
-function generateEmbedCode(site: WebsiteLeadSiteSummary, browserBaseUrl: string) {
+function generateEmbedCode(site: WebsiteLeadSiteSummary, publicWebBaseUrl: string) {
+  const hostedFormUrl = new URL(`/forms/lead/${site.siteId}`, publicWebBaseUrl).toString();
+
   return `<!-- Pulse Website Form - ${site.siteName} -->
 <iframe
-  src="${browserBaseUrl}/forms/lead/${site.siteId}"
+  src="${hostedFormUrl}"
   title="Pulse Lead Capture - ${site.siteName}"
   style="width:100%;min-height:980px;border:0;border-radius:16px;"
   loading="lazy">

@@ -19,6 +19,7 @@ let scheduleLeadDiscovery;
 let completeLeadDiscovery;
 let skipLeadDiscovery;
 let transitionLeadStage;
+const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
@@ -61,7 +62,7 @@ async function createAdminActor() {
   return actor;
 }
 
-test('manual intake normalizes approved regions and preserves marketing metadata', async () => {
+test('manual intake normalizes approved regions and preserves marketing metadata', SERIAL, async () => {
   const actor = await createAdminActor();
   const lead = await createLead(actor, {
     companyName: 'Northern Air Partners',
@@ -84,7 +85,7 @@ test('manual intake normalizes approved regions and preserves marketing metadata
   assert.equal(detail.leadRating, 'warm');
 });
 
-test('manual intake rejects unsupported state or province values', async () => {
+test('manual intake rejects unsupported state or province values', SERIAL, async () => {
   const actor = await createAdminActor();
 
   await assert.rejects(
@@ -98,7 +99,7 @@ test('manual intake rejects unsupported state or province values', async () => {
   );
 });
 
-test('discovery scheduling and completion enforce summary rules', async () => {
+test('discovery scheduling and completion enforce summary rules', SERIAL, async () => {
   const actor = await createAdminActor();
   const lead = await createLead(actor, {
     companyName: 'Discovery Ready IAQ',
@@ -144,7 +145,7 @@ test('discovery scheduling and completion enforce summary rules', async () => {
   assert.equal(completed.discoverySummary, 'Customer is aligned on IAQ add-ons and ready for CIS.');
 });
 
-test('discovery fast-track requires an explicit reason and preserves it on the lead', async () => {
+test('discovery fast-track requires an explicit reason and preserves it on the lead', SERIAL, async () => {
   const actor = await createAdminActor();
   const lead = await createLead(actor, {
     companyName: 'Fast Track Mechanical',
@@ -170,7 +171,7 @@ test('discovery fast-track requires an explicit reason and preserves it on the l
   assert.equal(skipped.discoveryFastTrackReason, 'Existing relationship with Dynamic AQS leadership.');
 });
 
-test('cis signing transition stamps submission and signature timestamps', async () => {
+test('cis signing transition stamps submission and signature timestamps', SERIAL, async () => {
   const actor = await createAdminActor();
   const lead = await createLead(actor, {
     companyName: 'CIS Transition HVAC',

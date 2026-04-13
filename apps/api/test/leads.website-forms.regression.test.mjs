@@ -21,6 +21,7 @@ let createWebsiteLeadNotificationRecipient;
 let updateWebsiteLeadNotificationRecipient;
 let getPublicWebsiteLeadSite;
 let captureWebsiteLead;
+const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
@@ -74,7 +75,7 @@ async function createAdminActor() {
   return actor;
 }
 
-test('seeded website sites expose active public form configuration', async () => {
+test('seeded website sites expose active public form configuration', SERIAL, async () => {
   const actor = await createAdminActor();
   const siteList = await listWebsiteLeadSites(actor);
 
@@ -88,7 +89,7 @@ test('seeded website sites expose active public form configuration', async () =>
   await assert.rejects(() => getPublicWebsiteLeadSite('eco-air'), /not available/i);
 });
 
-test('public website capture rejects lead types outside the configured form mode', async () => {
+test('public website capture rejects lead types outside the configured form mode', SERIAL, async () => {
   await assert.rejects(
     () =>
       captureWebsiteLead({
@@ -103,7 +104,7 @@ test('public website capture rejects lead types outside the configured form mode
   );
 });
 
-test('duplicate website submissions attach to the existing lead instead of creating a second one', async () => {
+test('duplicate website submissions attach to the existing lead instead of creating a second one', SERIAL, async () => {
   const firstLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -156,7 +157,7 @@ test('duplicate website submissions attach to the existing lead instead of creat
   assert.equal(submissions[1].serviceTechCount, 5);
 });
 
-test('native website forms preserve explicit address and customer-intake metadata', async () => {
+test('native website forms preserve explicit address and customer-intake metadata', SERIAL, async () => {
   const lead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -218,7 +219,7 @@ test('native website forms preserve explicit address and customer-intake metadat
   });
 });
 
-test('admin users can manage website sites and notification recipients through the service layer', async () => {
+test('admin users can manage website sites and notification recipients through the service layer', SERIAL, async () => {
   const actor = await createAdminActor();
 
   const createdSite = await createWebsiteLeadSite(actor, {

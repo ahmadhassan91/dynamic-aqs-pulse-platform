@@ -1,4 +1,4 @@
 const message =
-  'Prisma seed placeholder: no reference data has been approved yet.';
+  'Prisma seed is intentionally a no-op. Pulse seeds governed reference data through module bootstrap services.';
 
 console.log(message);

@@ -1,4 +1,4 @@
-import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
+import { assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
 import {
   AuditAction,
   CisFinanceDecisionStatus,
@@ -42,6 +42,10 @@ import type {
   LeadStageKey,
   LeadWorkflowTaskSummary,
   LeadWorkflowActionTypeKey,
+  LeadHistoryFeedEntry,
+  LeadHistoryFeedActorSummary,
+  ListLeadHistoryFeedRequest,
+  ListLeadHistoryFeedResponse,
   LeadWorkflowQueueItem,
   LeadWorkflowQueueSummary,
   LeadWorkflowQueueViewKey,
@@ -1078,6 +1082,86 @@ export async function listLeadWorkflowQueue(
     items: filteredItems.slice(0, limit),
     total: filteredItems.length,
     summary,
+  };
+}
+
+export async function listLeadHistoryFeed(
+  actor: AuthenticatedActor,
+  query: ListLeadHistoryFeedRequest = {},
+): Promise<ListLeadHistoryFeedResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.view');
+
+  const limit = normalizeLimit(query.limit);
+  const search = optionalTrimmed(query.search);
+
+  const entries = await prisma.auditEntry.findMany({
+    where: {
+      entityType: LEAD_ENTITY_TYPE,
+    },
+    orderBy: [{ createdAt: 'desc' }],
+    take: search ? 300 : Math.min(Math.max(limit * 3, limit), 300),
+    include: {
+      actor: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          roleCode: true,
+        },
+      },
+    },
+  });
+
+  const leadIds = [...new Set(entries.flatMap((entry) => (entry.entityId ? [entry.entityId] : [])))];
+  const leads = leadIds.length === 0
+    ? []
+    : await prisma.lead.findMany({
+        where: {
+          id: { in: leadIds },
+        },
+        include: LEAD_SUMMARY_INCLUDE,
+      });
+  const leadById = new Map(leads.map((lead) => [lead.id, lead] as const));
+
+  const items = entries
+    .map((entry) => {
+      if (!entry.entityId) {
+        return null;
+      }
+
+      const lead = leadById.get(entry.entityId);
+      if (!lead) {
+        return null;
+      }
+
+      const item = toLeadHistoryFeedEntry(entry, lead);
+      if (!item) {
+        return null;
+      }
+
+      if (search) {
+        const haystacks = [
+          item.companyName,
+          item.contactDisplayName,
+          item.title,
+          item.summary,
+          item.actor?.displayName,
+          item.actor?.email,
+        ];
+        if (!haystacks.some((value) => (value ?? '').toLowerCase().includes(search.toLowerCase()))) {
+          return null;
+        }
+      }
+
+      return item;
+    })
+    .filter((item): item is LeadHistoryFeedEntry => item !== null)
+    .slice(0, limit);
+
+  return {
+    items,
+    total: items.length,
   };
 }
 
@@ -2640,6 +2724,130 @@ function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): We
   };
 }
 
+function toLeadHistoryFeedEntry(
+  entry: Prisma.AuditEntryGetPayload<{
+    include: {
+      actor: {
+        select: {
+          id: true;
+          email: true;
+          displayName: true;
+          roleCode: true;
+        };
+      };
+    };
+  }>,
+  lead: LeadWithRefs,
+): LeadHistoryFeedEntry | null {
+  if (!entry.entityId) {
+    return null;
+  }
+
+  const title = summarizeLeadHistoryTitle(entry.action, entry.beforeData, entry.afterData, entry.metadata);
+  const summary = summarizeLeadHistoryDetail(entry.action, entry.beforeData, entry.afterData, entry.metadata);
+
+  return {
+    id: entry.id,
+    leadId: entry.entityId,
+    companyName: lead.companyName,
+    contactDisplayName: lead.contactDisplayName,
+    stage: toLeadStageKey(lead.stage),
+    lifecycleStatus: toLeadLifecycleStatusKey(lead.lifecycleStatus),
+    title,
+    summary,
+    occurredAt: entry.createdAt.toISOString(),
+    ...(entry.actor ? { actor: toLeadHistoryFeedActor(entry.actor) } : {}),
+  };
+}
+
+function toLeadHistoryFeedActor(actor: {
+  id: string;
+  displayName: string;
+  email: string;
+  roleCode: string;
+}): LeadHistoryFeedActorSummary {
+  return {
+    userId: actor.id,
+    displayName: actor.displayName,
+    email: actor.email,
+    role: normalizeRole(actor.roleCode),
+  };
+}
+
+function summarizeLeadHistoryTitle(
+  action: AuditAction,
+  beforeData: Prisma.JsonValue | null,
+  afterData: Prisma.JsonValue | null,
+  metadata: Prisma.JsonValue | null,
+) {
+  if (action === AuditAction.CREATE) {
+    return 'Lead Created';
+  }
+
+  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
+  const lifecycleStatus = getJsonRecordString(afterData, 'lifecycleStatus');
+  const beforeStage = getJsonRecordString(beforeData, 'stage');
+  const afterStage = getJsonRecordString(afterData, 'stage');
+
+  switch (workflowAction) {
+    case 'log_initial_contact':
+      return 'Initial Contact Logged';
+    case 'schedule_discovery':
+      return 'Discovery Scheduled';
+    case 'complete_discovery':
+      return 'Discovery Completed';
+    case 'skip_discovery':
+      return 'Discovery Fast-Tracked';
+    case 'reopen_lead':
+      return 'Lead Reopened';
+    case 'update_lead_lifecycle':
+      return lifecycleStatus === 'closed' ? 'Lead Closed' : 'Lead Parked';
+    default:
+      if (typeof afterStage === 'string' && afterStage !== beforeStage) {
+        return `Stage Changed to ${toLeadStageLabel(toLeadStageEnum(afterStage as LeadStageKey))}`;
+      }
+      return 'Lead Updated';
+  }
+}
+
+function summarizeLeadHistoryDetail(
+  action: AuditAction,
+  beforeData: Prisma.JsonValue | null,
+  afterData: Prisma.JsonValue | null,
+  metadata: Prisma.JsonValue | null,
+) {
+  if (action === AuditAction.CREATE) {
+    return 'Lead entered Pulse CRM and started the governed workflow.';
+  }
+
+  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
+  const note = getJsonRecordString(metadata, 'note')?.trim() ?? '';
+  const reasonCode = getJsonRecordString(afterData, 'lifecycleReasonCode');
+  const reasonNote = getJsonRecordString(afterData, 'lifecycleReasonNote');
+  const beforeStage = getJsonRecordString(beforeData, 'stage');
+  const afterStage = getJsonRecordString(afterData, 'stage');
+
+  switch (workflowAction) {
+    case 'log_initial_contact':
+      return note || 'Initial outreach was logged against the lead.';
+    case 'schedule_discovery':
+      return note || 'Discovery was scheduled and the lead moved into the next workflow gate.';
+    case 'complete_discovery':
+      return note || 'Discovery details were captured and the lead was advanced.';
+    case 'skip_discovery':
+      return note || 'Discovery was intentionally fast-tracked with a recorded reason.';
+    case 'reopen_lead':
+      return 'Lead was moved back into the active pipeline.';
+    case 'update_lead_lifecycle':
+      return formatLifecycleReason(reasonCode, reasonNote) ?? 'Lead lifecycle status changed.';
+    default:
+      if (typeof afterStage === 'string' && afterStage !== beforeStage) {
+        return note || `Workflow advanced to ${toLeadStageLabel(toLeadStageEnum(afterStage as LeadStageKey))}.`;
+      }
+      return note || 'Lead details were updated in Pulse CRM.';
+  }
+}
+
 function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): WorkflowQueueComputation {
   return toWorkflowQueueComputationWithPolicy(lead, now, null);
 }
@@ -3816,6 +4024,33 @@ function diffBusinessDaysCeil(from: Date, to: Date) {
 function isWeekend(value: Date) {
   const day = value.getDay();
   return day === 0 || day === 6;
+}
+
+function isRecord(value: Prisma.JsonValue | null | undefined): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getJsonRecordString(value: Prisma.JsonValue | null | undefined, key: string) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, Prisma.JsonValue>;
+  const field = record[key];
+  return typeof field === 'string' ? field : undefined;
+}
+
+function formatLifecycleReason(reasonCode?: string, reasonNote?: string) {
+  if (!reasonCode) {
+    return reasonNote;
+  }
+
+  const label = reasonCode
+    .split('_')
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');
+
+  return reasonNote ? `${label}: ${reasonNote}` : label;
 }
 
 function buildInMemoryLeadRoutingPolicy(): LeadRoutingPolicyRecord {

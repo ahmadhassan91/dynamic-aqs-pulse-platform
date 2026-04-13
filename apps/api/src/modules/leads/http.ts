@@ -18,6 +18,7 @@ import type {
   LeadStageKey,
   LeadLifecycleStatusKey,
   LeadWorkflowQueueViewKey,
+  ListLeadHistoryFeedRequest,
   ListLeadsRequest,
   ListWebsiteLeadSubmissionsRequest,
   ListWebsiteFormLeadsRequest,
@@ -55,6 +56,7 @@ import {
   importLeads,
   logLeadInitialContact,
   listLeadWorkflowQueue,
+  listLeadHistoryFeed,
   listLeads,
   listWebsiteLeadNotificationRecipients,
   listWebsiteLeadSites,
@@ -101,6 +103,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || pathname === '/api/v1/leads/website-sites'
     || pathname === '/api/v1/leads/website-notification-recipients'
     || pathname === '/api/v1/leads/workflow-queue'
+    || pathname === '/api/v1/leads/history-feed'
     || pathname === '/api/v1/leads/import'
     || pathname === '/api/v1/leads/import/file'
     || pathname === '/api/v1/leads/import/preview'
@@ -302,6 +305,29 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       }
 
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    if (pathname === '/api/v1/leads/history-feed') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.view',
+      });
+      const search = url.searchParams.get('search')?.trim();
+      const limit = parseInteger(url.searchParams.get('limit'));
+      const query: ListLeadHistoryFeedRequest = {};
+      if (search) {
+        query.search = search;
+      }
+      if (limit !== undefined) {
+        query.limit = limit;
+      }
+
+      const response = await listLeadHistoryFeed(actor, query);
+      return jsonResponse(res, 200, response);
     }
 
     if (pathname === '/api/v1/leads/workflow-queue') {

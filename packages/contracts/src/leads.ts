@@ -595,6 +595,36 @@ export interface ListLeadWorkflowQueueResponse {
   summary: LeadWorkflowQueueSummary;
 }
 
+export interface LeadHistoryFeedActorSummary {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: string;
+}
+
+export interface LeadHistoryFeedEntry {
+  id: string;
+  leadId: string;
+  companyName: string;
+  contactDisplayName: string;
+  stage: LeadStageKey;
+  lifecycleStatus: LeadLifecycleStatusKey;
+  title: string;
+  summary: string;
+  occurredAt: string;
+  actor?: LeadHistoryFeedActorSummary;
+}
+
+export interface ListLeadHistoryFeedRequest {
+  search?: string;
+  limit?: number;
+}
+
+export interface ListLeadHistoryFeedResponse {
+  items: LeadHistoryFeedEntry[];
+  total: number;
+}
+
 export interface LeadRoutingPolicySummary {
   routingBasis: LeadRoutingBasisKey;
   strategicGrowthMax: number;

@@ -22,6 +22,7 @@ let createWebsiteLeadNotificationRecipient;
 let updateWebsiteLeadNotificationRecipient;
 let getPublicWebsiteLeadSite;
 let captureWebsiteLead;
+let listWebsiteFormLeads;
 let listWebsiteLeadSubmissions;
 const SERIAL = { concurrency: false };
 
@@ -41,6 +42,7 @@ test.before(async () => {
     updateWebsiteLeadNotificationRecipient,
     getPublicWebsiteLeadSite,
     captureWebsiteLead,
+    listWebsiteFormLeads,
     listWebsiteLeadSubmissions,
   } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
@@ -295,6 +297,114 @@ test('website duplicate matching ignores customer-active and closed leads', SERI
     submissions.map((submission) => submission.outcome),
     ['CREATED_NEW_LEAD', 'CREATED_NEW_LEAD', 'CREATED_NEW_LEAD'],
   );
+});
+
+test('website-form lead lists keep parked and closed records out of the active intake view by default', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const activeLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Robin Active',
+    companyName: 'Active Comfort',
+    email: 'active@comfort.test',
+    phone: '555-100-1000',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+  const parkedLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Parker Hold',
+    companyName: 'Hold Comfort',
+    email: 'hold@comfort.test',
+    phone: '555-100-2000',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+  const closedLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Cora Archive',
+    companyName: 'Archive Comfort',
+    email: 'archive@comfort.test',
+    phone: '555-100-3000',
+    state: 'TX',
+    serviceTechCount: 2,
+  });
+
+  await prisma.lead.update({
+    where: { id: parkedLead.id },
+    data: {
+      lifecycleStatus: 'PARKED',
+      lifecycleChangedAt: new Date(),
+      lifecycleReasonCode: 'follow_up_later',
+      lifecycleReasonNote: 'Waiting for next trade show season.',
+    },
+  });
+  await prisma.lead.update({
+    where: { id: closedLead.id },
+    data: {
+      lifecycleStatus: 'CLOSED',
+      lifecycleChangedAt: new Date(),
+      lifecycleReasonCode: 'no_response',
+      lifecycleReasonNote: 'No response after website follow-up.',
+    },
+  });
+
+  const activeView = await listWebsiteFormLeads(actor, {});
+  const parkedView = await listWebsiteFormLeads(actor, { lifecycleStatus: 'parked' });
+  const closedView = await listWebsiteFormLeads(actor, { lifecycleStatus: 'closed' });
+
+  assert.deepEqual(activeView.items.map((item) => item.id), [activeLead.id]);
+  assert.deepEqual(parkedView.items.map((item) => item.id), [parkedLead.id]);
+  assert.deepEqual(closedView.items.map((item) => item.id), [closedLead.id]);
+});
+
+test('website lead submission review keeps duplicate history visible after a linked lead is archived', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Chris Review',
+    companyName: 'Review Comfort',
+    email: 'review@comfort.test',
+    phone: '555-888-0000',
+    state: 'TX',
+    serviceTechCount: 4,
+    inquiryTopic: 'First request',
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Chris Review',
+    companyName: 'Review Comfort',
+    email: 'review@comfort.test',
+    phone: '555-888-0000',
+    state: 'TX',
+    serviceTechCount: 5,
+    inquiryTopic: 'Duplicate follow-up',
+  });
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      lifecycleStatus: 'CLOSED',
+      lifecycleChangedAt: new Date(),
+      lifecycleReasonCode: 'follow_up_later',
+      lifecycleReasonNote: 'Closed after duplicate review handoff.',
+    },
+  });
+
+  const submissions = await listWebsiteLeadSubmissions(actor, {
+    search: 'Review Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+
+  assert.equal(submissions.items.length, 1);
+  assert.equal(submissions.items[0].linkedLeadId, lead.id);
+  assert.equal(submissions.items[0].linkedLeadLifecycleStatus, 'closed');
+  assert.equal(submissions.items[0].outcome, 'attached_to_existing_lead');
 });
 
 test('native website forms preserve explicit address and customer-intake metadata', SERIAL, async () => {

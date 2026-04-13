@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Alert,
@@ -25,19 +25,30 @@ import {
   IconActivity,
   IconAlertCircle,
   IconAlertTriangle,
+  IconArchive,
   IconCheck,
+  IconClock,
   IconFlame,
+  IconHistory,
   IconInfoCircle,
   IconListDetails,
   IconMail,
   IconPhone,
   IconSearch,
 } from '@tabler/icons-react';
-import type { LeadRoutingPolicySummary, LeadStageKey, LeadWorkflowQueueItem } from '@pulse/contracts';
-import { fetchLeadRoutingPolicy, fetchLeadWorkflowQueue } from '@/lib/pulse-api';
+import type {
+  LeadHistoryFeedEntry,
+  LeadLifecycleStatusKey,
+  LeadRoutingPolicySummary,
+  LeadStageKey,
+  LeadSummary,
+  LeadWorkflowQueueItem,
+} from '@pulse/contracts';
+import { fetchLeadHistoryFeed, fetchLeadRoutingPolicy, fetchLeadWorkflowQueue, fetchLeads } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type WorkflowTab = 'all' | 'urgent' | 'stagnant';
+type InactiveTab = 'parked' | 'closed';
 
 const PAGE_SIZE_OPTIONS = ['10', '25', '50'] as const;
 
@@ -60,6 +71,25 @@ function formatStageLabel(stage: LeadStageKey) {
   }
 }
 
+function getStageColor(stage: LeadStageKey) {
+  switch (stage) {
+    case 'new':
+      return 'blue';
+    case 'discovery_scheduled':
+      return 'indigo';
+    case 'discovery_completed':
+      return 'orange';
+    case 'cis_sent':
+      return 'grape';
+    case 'cis_signed':
+      return 'teal';
+    case 'onboarding_completed':
+      return 'cyan';
+    case 'customer_active':
+      return 'green';
+  }
+}
+
 function getUrgencyWeight(urgency: LeadWorkflowQueueItem['urgency']) {
   switch (urgency) {
     case 'high':
@@ -75,18 +105,58 @@ function getOwnerLabel(item: LeadWorkflowQueueItem) {
   return item.assignedTmName ?? item.leadOwnerName ?? 'Unassigned';
 }
 
-function getWorkflowOwners(items: LeadWorkflowQueueItem[]) {
-  return [...new Set(items.flatMap((item) => [item.assignedTmName, item.leadOwnerName].filter(Boolean) as string[]))]
-    .sort((left, right) => left.localeCompare(right));
+function getLeadOwnerLabel(lead: LeadSummary) {
+  return lead.assignedTmName ?? lead.leadOwnerName ?? 'Unassigned';
+}
+
+function getWorkflowOwners(items: LeadWorkflowQueueItem[], inactiveLeads: LeadSummary[]) {
+  return [...new Set([
+    ...items.flatMap((item) => [item.assignedTmName, item.leadOwnerName].filter(Boolean) as string[]),
+    ...inactiveLeads.flatMap((lead) => [lead.assignedTmName, lead.leadOwnerName].filter(Boolean) as string[]),
+  ])].sort((left, right) => left.localeCompare(right));
+}
+
+function formatRoutingBasis(value: LeadRoutingPolicySummary['routingBasis']) {
+  return value === 'service_tech_count' ? 'service tech count' : 'truck count';
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatLifecycleStatus(value: LeadLifecycleStatusKey) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getLifecycleColor(value: LeadLifecycleStatusKey) {
+  if (value === 'parked') return 'yellow';
+  if (value === 'closed') return 'dark';
+  return 'green';
+}
+
+function formatHistoryActor(entry: LeadHistoryFeedEntry) {
+  return entry.actor?.displayName ?? 'System';
 }
 
 export default function ActivityManager() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [queueItems, setQueueItems] = useState<LeadWorkflowQueueItem[]>([]);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
+  const [historyItems, setHistoryItems] = useState<LeadHistoryFeedEntry[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [parkedLeads, setParkedLeads] = useState<LeadSummary[]>([]);
+  const [parkedTotal, setParkedTotal] = useState(0);
+  const [closedLeads, setClosedLeads] = useState<LeadSummary[]>([]);
+  const [closedTotal, setClosedTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkflowTab>('all');
+  const [inactiveTab, setInactiveTab] = useState<InactiveTab>('parked');
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(10);
@@ -101,6 +171,12 @@ export default function ActivityManager() {
     if (!auth) {
       setQueueItems([]);
       setRoutingPolicy(null);
+      setHistoryItems([]);
+      setHistoryTotal(0);
+      setParkedLeads([]);
+      setParkedTotal(0);
+      setClosedLeads([]);
+      setClosedTotal(0);
       return;
     }
 
@@ -112,12 +188,26 @@ export default function ActivityManager() {
       setError(null);
 
       try {
-        const [queueResponse, routingPolicyResponse] = await Promise.all([
+        const [queueResponse, routingPolicyResponse, historyResponse, parkedResponse, closedResponse] = await Promise.all([
           fetchLeadWorkflowQueue(apiBaseUrl, accessToken, {
             ...(debouncedSearch ? { search: debouncedSearch } : {}),
             limit: 200,
           }),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
+          fetchLeadHistoryFeed(apiBaseUrl, accessToken, {
+            ...(debouncedSearch ? { search: debouncedSearch } : {}),
+            limit: 20,
+          }),
+          fetchLeads(apiBaseUrl, accessToken, {
+            ...(debouncedSearch ? { search: debouncedSearch } : {}),
+            lifecycleStatus: 'parked',
+            limit: 50,
+          }),
+          fetchLeads(apiBaseUrl, accessToken, {
+            ...(debouncedSearch ? { search: debouncedSearch } : {}),
+            lifecycleStatus: 'closed',
+            limit: 50,
+          }),
         ]);
 
         if (cancelled) {
@@ -126,6 +216,12 @@ export default function ActivityManager() {
 
         setQueueItems(queueResponse.items);
         setRoutingPolicy(routingPolicyResponse);
+        setHistoryItems(historyResponse.items);
+        setHistoryTotal(historyResponse.total);
+        setParkedLeads(parkedResponse.items);
+        setParkedTotal(parkedResponse.total);
+        setClosedLeads(closedResponse.items);
+        setClosedTotal(closedResponse.total);
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -144,7 +240,8 @@ export default function ActivityManager() {
     };
   }, [apiBaseUrl, auth, debouncedSearch]);
 
-  const ownerOptions = useMemo(() => getWorkflowOwners(queueItems), [queueItems]);
+  const allInactiveLeads = useMemo(() => [...parkedLeads, ...closedLeads], [parkedLeads, closedLeads]);
+  const ownerOptions = useMemo(() => getWorkflowOwners(queueItems, allInactiveLeads), [queueItems, allInactiveLeads]);
   const initialContactSlaHours = routingPolicy?.initialContactSlaHours ?? 24;
   const discoverySchedulingSlaHours = routingPolicy?.discoverySchedulingSlaHours ?? 72;
   const cisFollowUpBusinessDays = routingPolicy?.cisFollowUpBusinessDays ?? 5;
@@ -181,6 +278,17 @@ export default function ActivityManager() {
     [stagnantDayThreshold, workflowItems],
   );
 
+  const filteredParkedLeads = useMemo(
+    () => parkedLeads.filter((lead) => ownerFilter.length === 0 || ownerFilter.includes(getLeadOwnerLabel(lead))),
+    [ownerFilter, parkedLeads],
+  );
+
+  const filteredClosedLeads = useMemo(
+    () => closedLeads.filter((lead) => ownerFilter.length === 0 || ownerFilter.includes(getLeadOwnerLabel(lead))),
+    [closedLeads, ownerFilter],
+  );
+  const filteredInactiveCount = filteredParkedLeads.length + filteredClosedLeads.length;
+
   const itemsByTab: Record<WorkflowTab, LeadWorkflowQueueItem[]> = {
     all: workflowItems,
     urgent: urgentItems,
@@ -198,15 +306,16 @@ export default function ActivityManager() {
     return null;
   }
 
+  const inactiveItems = inactiveTab === 'parked' ? filteredParkedLeads : filteredClosedLeads;
+
   return (
     <Box>
       <Stack gap="md" mb="xl">
         <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
-          <Text size="sm" fw={600}>This queue reflects current lead activity.</Text>
+          <Text size="sm" fw={600}>This workspace reflects current lead activity and historical movement.</Text>
           <Text size="xs" c="dimmed">
-            It is built from each lead&apos;s live stage, the {initialContactSlaHours}-hour initial contact SLA,
-            the {discoverySchedulingSlaHours}-hour discovery scheduling target, and the {cisFollowUpBusinessDays}-business-day
-            CIS follow-up window.
+            Queue actions come from live stage, SLA, and next required action. Recent history is read from the lead audit trail,
+            and parked or closed records remain visible here for operational follow-up and recovery.
             {routingPolicy ? ` Routing is currently based on ${formatRoutingBasis(routingPolicy.routingBasis)}.` : ''}
           </Text>
         </Alert>
@@ -217,45 +326,42 @@ export default function ActivityManager() {
           </Alert>
         ) : null}
 
-        <SimpleGrid cols={{ base: 1, md: 3 }}>
-          <Card withBorder radius="md" p="sm" bg="blue.0">
-            <Group justify="space-between">
-              <Stack gap={0}>
-                <Text size="xs" c="dimmed" fw={700}>OPEN ACTIONS</Text>
-                <Text size="xl" fw={800}>{workflowItems.length}</Text>
-              </Stack>
-              <ThemeIcon color="blue" variant="light" size="lg">
-                <IconListDetails size={20} />
-              </ThemeIcon>
-            </Group>
-          </Card>
-          <Card withBorder radius="md" p="sm" bg={urgentItems.length > 0 ? 'orange.0' : 'gray.0'}>
-            <Group justify="space-between">
-              <Stack gap={0}>
-                <Text size="xs" c="dimmed" fw={700}>URGENT ACTIONS</Text>
-                <Text size="xl" fw={800} c={urgentItems.length > 0 ? 'orange.7' : 'dark'}>{urgentItems.length}</Text>
-              </Stack>
-              <ThemeIcon color={urgentItems.length > 0 ? 'orange' : 'gray'} variant="light" size="lg">
-                <IconFlame size={20} />
-              </ThemeIcon>
-            </Group>
-          </Card>
-          <Card withBorder radius="md" p="sm" bg={stagnantItems.length > 0 ? 'red.0' : 'green.0'}>
-            <Group justify="space-between">
-              <Stack gap={0}>
-                <Text size="xs" c="dimmed" fw={700}>STAGNANT (&gt;{stagnantDayThreshold}d)</Text>
-                <Text size="xl" fw={800} c={stagnantItems.length > 0 ? 'red.7' : 'green.7'}>{stagnantItems.length}</Text>
-              </Stack>
-              <ThemeIcon color={stagnantItems.length > 0 ? 'red' : 'green'} variant="light" size="lg">
-                <IconAlertTriangle size={20} />
-              </ThemeIcon>
-            </Group>
-          </Card>
+        <SimpleGrid cols={{ base: 1, md: 5 }}>
+          <MetricCard
+            label="Open Actions"
+            value={String(workflowItems.length)}
+            color="blue"
+            icon={<IconListDetails size={20} />}
+          />
+          <MetricCard
+            label="Urgent Actions"
+            value={String(urgentItems.length)}
+            color={urgentItems.length > 0 ? 'orange' : 'gray'}
+            icon={<IconFlame size={20} />}
+          />
+          <MetricCard
+            label={`Stagnant >${stagnantDayThreshold}d`}
+            value={String(stagnantItems.length)}
+            color={stagnantItems.length > 0 ? 'red' : 'green'}
+            icon={<IconAlertTriangle size={20} />}
+          />
+          <MetricCard
+            label="Recent History"
+            value={String(historyTotal)}
+            color="grape"
+            icon={<IconHistory size={20} />}
+          />
+          <MetricCard
+            label="Inactive Leads"
+            value={String(ownerFilter.length === 0 ? parkedTotal + closedTotal : filteredInactiveCount)}
+            color="dark"
+            icon={<IconArchive size={20} />}
+          />
         </SimpleGrid>
 
         <Group gap="sm" wrap="wrap" align="flex-end">
           <TextInput
-            placeholder="Search companies, contacts, or queue actions..."
+            placeholder="Search companies, contacts, or workflow activity..."
             leftSection={<IconSearch size={16} />}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.currentTarget.value)}
@@ -292,10 +398,10 @@ export default function ActivityManager() {
         </Tabs.List>
 
         <Card withBorder p="xs" radius="md" mb="md">
-            <Group justify="space-between" align="center" wrap="wrap" gap="sm">
-              <Text size="sm" fw={600}>
-                {activeItems.length === 0 ? 'No workflow items in this view' : `Showing ${rangeStart}-${rangeEnd} of ${activeItems.length}`}
-              </Text>
+          <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+            <Text size="sm" fw={600}>
+              {activeItems.length === 0 ? 'No workflow items in this view' : `Showing ${rangeStart}-${rangeEnd} of ${activeItems.length}`}
+            </Text>
             <Group gap="xs" align="center" wrap="wrap">
               <Select
                 size="xs"
@@ -326,14 +432,10 @@ export default function ActivityManager() {
         <Tabs.Panel value={activeTab}>
           <Stack gap="sm">
             {paginatedItems.length === 0 ? (
-              <Paper withBorder p="xl" radius="md" style={{ borderStyle: 'dashed' }} bg="transparent">
-                <Stack align="center" gap="xs">
-                  <IconCheck size={32} color="var(--mantine-color-green-6)" />
-                  <Text size="sm" c="dimmed">
-                    {isLoading ? 'Refreshing workflow queue...' : 'All clear. No workflow items in this view.'}
-                  </Text>
-                </Stack>
-              </Paper>
+              <EmptyState
+                icon={<IconCheck size={32} color="var(--mantine-color-green-6)" />}
+                message={isLoading ? 'Refreshing workflow queue...' : 'All clear. No workflow items in this view.'}
+              />
             ) : (
               paginatedItems.map((item) => (
                 <Card key={item.leadId} withBorder radius="md" shadow="sm" p="md">
@@ -396,10 +498,168 @@ export default function ActivityManager() {
           </Stack>
         </Tabs.Panel>
       </Tabs>
+
+      <Paper withBorder radius="md" p="lg" mt="xl">
+        <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={2}>
+              <Text fw={700}>Recent Lead History</Text>
+              <Text size="sm" c="dimmed">
+                Recent lead changes are pulled from the live audit trail so ops can review reopen, park, close, and workflow movement without opening every record.
+              </Text>
+            </Stack>
+            <Badge color="grape" variant="light">{historyTotal} recent events</Badge>
+          </Group>
+
+          {historyItems.length === 0 ? (
+            <EmptyState
+              icon={<IconHistory size={32} color="var(--mantine-color-violet-6)" />}
+              message={isLoading ? 'Refreshing lead history...' : 'No recent lead history matches this filter.'}
+            />
+          ) : (
+            <Stack gap="sm">
+              {historyItems.map((entry) => (
+                <Card key={entry.id} withBorder radius="md" p="md">
+                  <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+                    <Stack gap={4} style={{ flex: 1 }}>
+                      <Group gap="xs" wrap="wrap">
+                        <Text fw={700}>{entry.title}</Text>
+                        <Badge size="xs" color={getStageColor(entry.stage)} variant="light">
+                          {formatStageLabel(entry.stage)}
+                        </Badge>
+                        <Badge size="xs" color={getLifecycleColor(entry.lifecycleStatus)} variant="outline">
+                          {formatLifecycleStatus(entry.lifecycleStatus)}
+                        </Badge>
+                      </Group>
+                      <Text size="sm" c="dimmed">{entry.summary}</Text>
+                      <Group gap="xs" wrap="wrap">
+                        <Text size="sm" fw={600}>{entry.companyName}</Text>
+                        <Text size="xs" c="dimmed">•</Text>
+                        <Text size="xs" c="dimmed">{entry.contactDisplayName}</Text>
+                        <Text size="xs" c="dimmed">•</Text>
+                        <Text size="xs" c="dimmed">{formatDateTime(entry.occurredAt)}</Text>
+                        <Text size="xs" c="dimmed">•</Text>
+                        <Text size="xs" c="dimmed">{formatHistoryActor(entry)}</Text>
+                      </Group>
+                    </Stack>
+                    <Button component={Link} href={`/leads/${entry.leadId}`} variant="subtle" size="sm">
+                      Open Record
+                    </Button>
+                  </Group>
+                </Card>
+              ))}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+
+      <Paper withBorder radius="md" p="lg" mt="xl">
+        <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={2}>
+              <Text fw={700}>Inactive Lead Records</Text>
+              <Text size="sm" c="dimmed">
+                Parked and closed leads remain visible for recovery, reporting, and duplicate-aware intake decisions.
+              </Text>
+            </Stack>
+            <Badge color="dark" variant="light">
+              {ownerFilter.length === 0 ? parkedTotal + closedTotal : filteredInactiveCount} inactive leads
+            </Badge>
+          </Group>
+
+          <Tabs value={inactiveTab} onChange={(value) => setInactiveTab((value as InactiveTab) || 'parked')} variant="pills" radius="md">
+            <Tabs.List>
+              <Tabs.Tab value="parked" leftSection={<IconClock size={16} />}>
+                Parked ({filteredParkedLeads.length})
+              </Tabs.Tab>
+              <Tabs.Tab value="closed" leftSection={<IconArchive size={16} />}>
+                Closed ({filteredClosedLeads.length})
+              </Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value={inactiveTab} pt="md">
+              {inactiveItems.length === 0 ? (
+                <EmptyState
+                  icon={<IconArchive size={32} color="var(--mantine-color-dark-4)" />}
+                  message={isLoading ? 'Refreshing inactive lead records...' : `No ${inactiveTab} leads match this filter.`}
+                />
+              ) : (
+                <Stack gap="sm">
+                  {inactiveItems.map((lead) => (
+                    <Card key={lead.id} withBorder radius="md" p="md">
+                      <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+                        <Stack gap={4} style={{ flex: 1 }}>
+                          <Group gap="xs" wrap="wrap">
+                            <Text fw={700}>{lead.companyName}</Text>
+                            <Badge size="xs" color={getLifecycleColor(lead.lifecycleStatus)} variant="filled">
+                              {formatLifecycleStatus(lead.lifecycleStatus)}
+                            </Badge>
+                            <Badge size="xs" color={getStageColor(lead.stage)} variant="light">
+                              {formatStageLabel(lead.stage)}
+                            </Badge>
+                          </Group>
+                          <Text size="sm" c="dimmed">
+                            {lead.lifecycleReasonNote
+                              ? `${lead.lifecycleReasonCode ?? 'Reason'}: ${lead.lifecycleReasonNote}`
+                              : lead.lifecycleReasonCode ?? 'Lifecycle reason recorded'}
+                          </Text>
+                          <Group gap="xs" wrap="wrap">
+                            <Text size="xs" c="dimmed">{lead.contactDisplayName}</Text>
+                            <Text size="xs" c="dimmed">•</Text>
+                            <Text size="xs" c="dimmed">Assigned: {getLeadOwnerLabel(lead)}</Text>
+                            <Text size="xs" c="dimmed">•</Text>
+                            <Text size="xs" c="dimmed">Updated {formatDateTime(lead.updatedAt)}</Text>
+                          </Group>
+                        </Stack>
+                        <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="sm">
+                          Open Record
+                        </Button>
+                      </Group>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
+            </Tabs.Panel>
+          </Tabs>
+        </Stack>
+      </Paper>
     </Box>
   );
 }
 
-function formatRoutingBasis(value: LeadRoutingPolicySummary['routingBasis']) {
-  return value === 'service_tech_count' ? 'service tech count' : 'truck count';
+function MetricCard({
+  label,
+  value,
+  color,
+  icon,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Card withBorder radius="md" p="sm" bg={`${color}.0`}>
+      <Group justify="space-between">
+        <Stack gap={0}>
+          <Text size="xs" c="dimmed" fw={700}>{label}</Text>
+          <Text size="xl" fw={800} c={color === 'gray' ? 'dark' : `${color}.7`}>{value}</Text>
+        </Stack>
+        <ThemeIcon color={color} variant="light" size="lg">
+          {icon}
+        </ThemeIcon>
+      </Group>
+    </Card>
+  );
+}
+
+function EmptyState({ icon, message }: { icon: ReactNode; message: string }) {
+  return (
+    <Paper withBorder p="xl" radius="md" style={{ borderStyle: 'dashed' }} bg="transparent">
+      <Stack align="center" gap="xs">
+        {icon}
+        <Text size="sm" c="dimmed">{message}</Text>
+      </Stack>
+    </Paper>
+  );
 }

@@ -15,7 +15,7 @@ export default function LeadsWorkflowQueuePage() {
       <div>
         <Title order={1}>Workflow Queue</Title>
         <Text size="sm" c="dimmed">
-          Workflow-driven queue derived from live lead stage, SLA, and next required action.
+          Workflow-driven queue derived from live lead stage, SLA, next required action, and recent operational history.
         </Text>
       </div>
 

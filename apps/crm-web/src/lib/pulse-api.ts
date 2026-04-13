@@ -36,6 +36,8 @@ import type {
   LeadContactSummary,
   LeadConversionPreparationRecord,
   LeadConversionValidationResponse,
+  ListLeadHistoryFeedRequest,
+  ListLeadHistoryFeedResponse,
   LeadReadinessBlockersResponse,
   LeadReadinessDetail,
   LeadSummary,
@@ -534,6 +536,30 @@ export async function fetchLeadWorkflowQueue(
     : '/api/v1/leads/workflow-queue';
 
   return requestJson<ListLeadWorkflowQueueResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchLeadHistoryFeed(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListLeadHistoryFeedRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.search) {
+    searchParams.set('search', query.search);
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/leads/history-feed?${searchParams.toString()}`
+    : '/api/v1/leads/history-feed';
+
+  return requestJson<ListLeadHistoryFeedResponse>(apiBaseUrl, pathname, {
     method: 'GET',
     accessToken,
   });

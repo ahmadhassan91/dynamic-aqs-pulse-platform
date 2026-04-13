@@ -668,12 +668,22 @@ model LeadStageRef {
 }
 
 model LeadRoutingPolicy {
-  id                  String            @id @default("default")
-  routingBasis        LeadRoutingBasis  @default(SERVICE_TECH_COUNT)
-  strategicGrowthMax  Int               @default(5)
-  notes               String?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id                                       String           @id @default("default")
+  routingBasis                             LeadRoutingBasis @default(SERVICE_TECH_COUNT)
+  strategicGrowthMax                       Int              @default(5)
+  initialContactSlaHours                   Int              @default(24)
+  initialContactUrgentWindowHours          Int              @default(12)
+  initialContactManagerEscalationDelayHours Int            @default(12)
+  initialContactLeadershipEscalationDelayHours Int         @default(24)
+  discoverySchedulingSlaHours              Int              @default(72)
+  discoverySchedulingManagerEscalationDelayHours Int       @default(48)
+  cisFollowUpBusinessDays                  Int              @default(5)
+  cisFollowUpProspectReminderDelayBusinessDays Int         @default(3)
+  cisFollowUpOwnerAlertDelayBusinessDays   Int              @default(5)
+  stagnantStageDays                        Int              @default(7)
+  notes                                    String?
+  createdAt                                DateTime         @default(now())
+  updatedAt                                DateTime         @updatedAt
 }
 
 model Lead {

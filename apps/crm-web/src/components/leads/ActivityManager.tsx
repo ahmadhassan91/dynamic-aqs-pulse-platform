@@ -40,7 +40,6 @@ import { usePulseSession } from '@/lib/pulse-session';
 type WorkflowTab = 'all' | 'urgent' | 'stagnant';
 
 const PAGE_SIZE_OPTIONS = ['10', '25', '50'] as const;
-const STAGNANT_DAY_THRESHOLD = 7;
 
 function formatStageLabel(stage: LeadStageKey) {
   switch (stage) {
@@ -146,6 +145,10 @@ export default function ActivityManager() {
   }, [apiBaseUrl, auth, debouncedSearch]);
 
   const ownerOptions = useMemo(() => getWorkflowOwners(queueItems), [queueItems]);
+  const initialContactSlaHours = routingPolicy?.initialContactSlaHours ?? 24;
+  const discoverySchedulingSlaHours = routingPolicy?.discoverySchedulingSlaHours ?? 72;
+  const cisFollowUpBusinessDays = routingPolicy?.cisFollowUpBusinessDays ?? 5;
+  const stagnantDayThreshold = routingPolicy?.stagnantStageDays ?? 7;
 
   const workflowItems = useMemo<LeadWorkflowQueueItem[]>(() => {
     return queueItems
@@ -174,8 +177,8 @@ export default function ActivityManager() {
   );
 
   const stagnantItems = useMemo(
-    () => workflowItems.filter((item) => item.daysInStage > STAGNANT_DAY_THRESHOLD),
-    [workflowItems],
+    () => workflowItems.filter((item) => item.daysInStage > stagnantDayThreshold),
+    [stagnantDayThreshold, workflowItems],
   );
 
   const itemsByTab: Record<WorkflowTab, LeadWorkflowQueueItem[]> = {
@@ -201,7 +204,9 @@ export default function ActivityManager() {
         <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
           <Text size="sm" fw={600}>This queue reflects current lead activity.</Text>
           <Text size="xs" c="dimmed">
-            It is built from each lead&apos;s live stage, 48-hour initial contact SLA, and next required action.
+            It is built from each lead&apos;s live stage, the {initialContactSlaHours}-hour initial contact SLA,
+            the {discoverySchedulingSlaHours}-hour discovery scheduling target, and the {cisFollowUpBusinessDays}-business-day
+            CIS follow-up window.
             {routingPolicy ? ` Routing is currently based on ${formatRoutingBasis(routingPolicy.routingBasis)}.` : ''}
           </Text>
         </Alert>
@@ -238,7 +243,7 @@ export default function ActivityManager() {
           <Card withBorder radius="md" p="sm" bg={stagnantItems.length > 0 ? 'red.0' : 'green.0'}>
             <Group justify="space-between">
               <Stack gap={0}>
-                <Text size="xs" c="dimmed" fw={700}>STAGNANT (&gt;7d)</Text>
+                <Text size="xs" c="dimmed" fw={700}>STAGNANT (&gt;{stagnantDayThreshold}d)</Text>
                 <Text size="xl" fw={800} c={stagnantItems.length > 0 ? 'red.7' : 'green.7'}>{stagnantItems.length}</Text>
               </Stack>
               <ThemeIcon color={stagnantItems.length > 0 ? 'red' : 'green'} variant="light" size="lg">
@@ -348,7 +353,7 @@ export default function ActivityManager() {
                           <Text fw={700} size="md">{item.nextAction}</Text>
                           <Badge size="xs" color={item.colorToken} variant="light">{item.stageLabel}</Badge>
                           {item.slaRisk ? <Badge size="xs" color="red" variant="filled">SLA risk</Badge> : null}
-                          {item.daysInStage > STAGNANT_DAY_THRESHOLD ? (
+                          {item.daysInStage > stagnantDayThreshold ? (
                             <Badge size="xs" color="orange" variant="light">
                               {item.daysInStage}d in stage
                             </Badge>

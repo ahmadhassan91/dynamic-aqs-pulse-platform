@@ -521,6 +521,16 @@ export interface LeadRoutingPolicySummary {
   routingBasis: LeadRoutingBasisKey;
   strategicGrowthMax: number;
   nationalTmMin: number;
+  initialContactSlaHours: number;
+  initialContactUrgentWindowHours: number;
+  initialContactManagerEscalationDelayHours: number;
+  initialContactLeadershipEscalationDelayHours: number;
+  discoverySchedulingSlaHours: number;
+  discoverySchedulingManagerEscalationDelayHours: number;
+  cisFollowUpBusinessDays: number;
+  cisFollowUpProspectReminderDelayBusinessDays: number;
+  cisFollowUpOwnerAlertDelayBusinessDays: number;
+  stagnantStageDays: number;
   notes?: string;
   updatedAt: string;
 }
@@ -528,6 +538,16 @@ export interface LeadRoutingPolicySummary {
 export interface UpdateLeadRoutingPolicyRequest {
   routingBasis?: LeadRoutingBasisKey;
   strategicGrowthMax?: number;
+  initialContactSlaHours?: number;
+  initialContactUrgentWindowHours?: number;
+  initialContactManagerEscalationDelayHours?: number;
+  initialContactLeadershipEscalationDelayHours?: number;
+  discoverySchedulingSlaHours?: number;
+  discoverySchedulingManagerEscalationDelayHours?: number;
+  cisFollowUpBusinessDays?: number;
+  cisFollowUpProspectReminderDelayBusinessDays?: number;
+  cisFollowUpOwnerAlertDelayBusinessDays?: number;
+  stagnantStageDays?: number;
   notes?: string;
 }
 

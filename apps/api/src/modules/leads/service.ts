@@ -238,11 +238,31 @@ type WorkflowQueueComputation = {
 };
 
 type InitialContactSlaState = {
+  dueAt: Date;
   hoursUntilDue: number;
   hasInitialContact: boolean;
   overdue: boolean;
   urgent: boolean;
 };
+
+type DiscoverySchedulingSlaState = {
+  applicable: boolean;
+  dueAt?: Date;
+  hoursUntilDue?: number;
+  overdue: boolean;
+  urgent: boolean;
+};
+
+type CisFollowUpSlaState = {
+  applicable: boolean;
+  dueAt?: Date;
+  reminderAt?: Date;
+  businessDaysUntilDue?: number;
+  overdue: boolean;
+  reminderDue: boolean;
+};
+
+type LeadRoutingPolicyRecord = Prisma.LeadRoutingPolicyGetPayload<{}>;
 
 const LEAD_STAGE_ORDER: Record<LeadStage, number> = {
   NEW: 1,
@@ -253,9 +273,6 @@ const LEAD_STAGE_ORDER: Record<LeadStage, number> = {
   ONBOARDING_COMPLETED: 6,
   CUSTOMER_ACTIVE: 7,
 };
-
-const INITIAL_CONTACT_URGENT_WINDOW_HOURS = 12;
-const STAGNANT_STAGE_DAYS = 7;
 
 export async function ensureLeadRoutingPolicySeeded() {
   await prisma.leadRoutingPolicy.upsert({
@@ -887,29 +904,40 @@ export async function listLeadWorkflowQueue(
     where.OR = buildWorkflowLeadSearchClauses(search);
   }
 
-  const leads = await prisma.lead.findMany({
-    where,
-    orderBy: [
-      { updatedAt: 'asc' },
-      { createdAt: 'asc' },
-    ],
-    include: {
-      leadSource: true,
-      cisPackages: {
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 1,
-        include: {
-          financeDecision: true,
+  const [policy, leads] = await Promise.all([
+    prisma.leadRoutingPolicy.findUnique({
+      where: {
+        id: 'default',
+      },
+    }),
+    prisma.lead.findMany({
+      where,
+      orderBy: [
+        { updatedAt: 'asc' },
+        { createdAt: 'asc' },
+      ],
+      include: {
+        leadSource: true,
+        cisPackages: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          include: {
+            financeDecision: true,
+          },
         },
       },
-    },
-  });
+    }),
+  ]);
+
+  if (!policy) {
+    throw new Error('Lead routing policy is not seeded');
+  }
 
   const now = new Date();
   const queueComputations = leads
-    .map((lead) => toWorkflowQueueComputation(lead, now))
+    .map((lead) => toWorkflowQueueComputationWithPolicy(lead, now, policy))
     .sort((left, right) => {
       const urgencyDelta = getWorkflowUrgencyWeight(right.item.urgency) - getWorkflowUrgencyWeight(left.item.urgency);
       if (urgencyDelta !== 0) {
@@ -922,10 +950,11 @@ export async function listLeadWorkflowQueue(
       return left.stageAnchorAt.getTime() - right.stageAnchorAt.getTime();
     });
 
-  const summary = summarizeWorkflowQueue(queueComputations.map((entry) => entry.item));
+  const summary = summarizeWorkflowQueue(queueComputations.map((entry) => entry.item), policy.stagnantStageDays);
   const filteredItems = filterWorkflowQueueItems(
     queueComputations.map((entry) => entry.item),
     query.view,
+    policy.stagnantStageDays,
   );
 
   return {
@@ -939,33 +968,40 @@ export async function getLeadDetail(actor: AuthenticatedActor, leadId: string): 
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
 
-  const lead = await prisma.lead.findUnique({
-    where: { id: leadId },
-    include: {
-      businessSegment: true,
-      leadSource: true,
-      stageEvents: {
-        orderBy: {
-          occurredAt: 'desc',
+  const [lead, policy] = await Promise.all([
+    prisma.lead.findUnique({
+      where: { id: leadId },
+      include: {
+        businessSegment: true,
+        leadSource: true,
+        stageEvents: {
+          orderBy: {
+            occurredAt: 'desc',
+          },
+        },
+        cisPackages: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          include: {
+            financeDecision: true,
+          },
         },
       },
-      cisPackages: {
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 1,
-        include: {
-          financeDecision: true,
-        },
+    }),
+    prisma.leadRoutingPolicy.findUnique({
+      where: {
+        id: 'default',
       },
-    },
-  });
+    }),
+  ]);
 
   if (!lead) {
     return null;
   }
 
-  return toLeadDetail(lead);
+  return toLeadDetail(lead, policy ?? buildInMemoryLeadRoutingPolicy());
 }
 
 export async function logLeadInitialContact(
@@ -1786,11 +1822,109 @@ export async function updateLeadRoutingPolicy(
     }
     data.strategicGrowthMax = normalized;
   }
+  if (input.initialContactSlaHours !== undefined) {
+    data.initialContactSlaHours = normalizePositiveInteger(input.initialContactSlaHours, 'initialContactSlaHours');
+  }
+  if (input.initialContactUrgentWindowHours !== undefined) {
+    data.initialContactUrgentWindowHours = normalizePositiveInteger(
+      input.initialContactUrgentWindowHours,
+      'initialContactUrgentWindowHours',
+    );
+  }
+  if (input.initialContactManagerEscalationDelayHours !== undefined) {
+    data.initialContactManagerEscalationDelayHours = normalizePositiveInteger(
+      input.initialContactManagerEscalationDelayHours,
+      'initialContactManagerEscalationDelayHours',
+    );
+  }
+  if (input.initialContactLeadershipEscalationDelayHours !== undefined) {
+    data.initialContactLeadershipEscalationDelayHours = normalizePositiveInteger(
+      input.initialContactLeadershipEscalationDelayHours,
+      'initialContactLeadershipEscalationDelayHours',
+    );
+  }
+  if (input.discoverySchedulingSlaHours !== undefined) {
+    data.discoverySchedulingSlaHours = normalizePositiveInteger(
+      input.discoverySchedulingSlaHours,
+      'discoverySchedulingSlaHours',
+    );
+  }
+  if (input.discoverySchedulingManagerEscalationDelayHours !== undefined) {
+    data.discoverySchedulingManagerEscalationDelayHours = normalizePositiveInteger(
+      input.discoverySchedulingManagerEscalationDelayHours,
+      'discoverySchedulingManagerEscalationDelayHours',
+    );
+  }
+  if (input.cisFollowUpBusinessDays !== undefined) {
+    data.cisFollowUpBusinessDays = normalizePositiveInteger(input.cisFollowUpBusinessDays, 'cisFollowUpBusinessDays');
+  }
+  if (input.cisFollowUpProspectReminderDelayBusinessDays !== undefined) {
+    data.cisFollowUpProspectReminderDelayBusinessDays = normalizePositiveInteger(
+      input.cisFollowUpProspectReminderDelayBusinessDays,
+      'cisFollowUpProspectReminderDelayBusinessDays',
+    );
+  }
+  if (input.cisFollowUpOwnerAlertDelayBusinessDays !== undefined) {
+    data.cisFollowUpOwnerAlertDelayBusinessDays = normalizePositiveInteger(
+      input.cisFollowUpOwnerAlertDelayBusinessDays,
+      'cisFollowUpOwnerAlertDelayBusinessDays',
+    );
+  }
+  if (input.stagnantStageDays !== undefined) {
+    data.stagnantStageDays = normalizePositiveInteger(input.stagnantStageDays, 'stagnantStageDays');
+  }
   if (input.notes !== undefined) {
     data.notes = optionalTrimmed(input.notes) ?? null;
   }
   if (Object.keys(data).length === 0) {
     throw new Error('At least one field must be provided');
+  }
+
+  const nextPolicy = {
+    routingBasis: data.routingBasis ?? current.routingBasis,
+    strategicGrowthMax: data.strategicGrowthMax ?? current.strategicGrowthMax,
+    initialContactSlaHours: data.initialContactSlaHours ?? current.initialContactSlaHours,
+    initialContactUrgentWindowHours:
+      data.initialContactUrgentWindowHours ?? current.initialContactUrgentWindowHours,
+    initialContactManagerEscalationDelayHours:
+      data.initialContactManagerEscalationDelayHours ?? current.initialContactManagerEscalationDelayHours,
+    initialContactLeadershipEscalationDelayHours:
+      data.initialContactLeadershipEscalationDelayHours ?? current.initialContactLeadershipEscalationDelayHours,
+    discoverySchedulingSlaHours:
+      data.discoverySchedulingSlaHours ?? current.discoverySchedulingSlaHours,
+    discoverySchedulingManagerEscalationDelayHours:
+      data.discoverySchedulingManagerEscalationDelayHours ?? current.discoverySchedulingManagerEscalationDelayHours,
+    cisFollowUpBusinessDays: data.cisFollowUpBusinessDays ?? current.cisFollowUpBusinessDays,
+    cisFollowUpProspectReminderDelayBusinessDays:
+      data.cisFollowUpProspectReminderDelayBusinessDays ?? current.cisFollowUpProspectReminderDelayBusinessDays,
+    cisFollowUpOwnerAlertDelayBusinessDays:
+      data.cisFollowUpOwnerAlertDelayBusinessDays ?? current.cisFollowUpOwnerAlertDelayBusinessDays,
+    stagnantStageDays: data.stagnantStageDays ?? current.stagnantStageDays,
+  };
+
+  if (nextPolicy.initialContactUrgentWindowHours > nextPolicy.initialContactSlaHours) {
+    throw new Error('initialContactUrgentWindowHours cannot exceed initialContactSlaHours');
+  }
+  if (
+    nextPolicy.initialContactLeadershipEscalationDelayHours
+    < nextPolicy.initialContactManagerEscalationDelayHours
+  ) {
+    throw new Error('initialContactLeadershipEscalationDelayHours must be greater than or equal to the manager escalation delay');
+  }
+  if (
+    nextPolicy.cisFollowUpProspectReminderDelayBusinessDays
+    > nextPolicy.cisFollowUpBusinessDays
+  ) {
+    throw new Error('cisFollowUpProspectReminderDelayBusinessDays cannot exceed cisFollowUpBusinessDays');
+  }
+  if (
+    nextPolicy.cisFollowUpOwnerAlertDelayBusinessDays
+    < nextPolicy.cisFollowUpProspectReminderDelayBusinessDays
+  ) {
+    throw new Error('cisFollowUpOwnerAlertDelayBusinessDays must be greater than or equal to the prospect reminder delay');
+  }
+  if (nextPolicy.cisFollowUpOwnerAlertDelayBusinessDays > nextPolicy.cisFollowUpBusinessDays) {
+    throw new Error('cisFollowUpOwnerAlertDelayBusinessDays cannot exceed cisFollowUpBusinessDays');
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -1810,11 +1944,31 @@ export async function updateLeadRoutingPolicy(
         beforeData: {
           routingBasis: toLeadRoutingBasisKey(current.routingBasis),
           strategicGrowthMax: current.strategicGrowthMax,
+          initialContactSlaHours: current.initialContactSlaHours,
+          initialContactUrgentWindowHours: current.initialContactUrgentWindowHours,
+          initialContactManagerEscalationDelayHours: current.initialContactManagerEscalationDelayHours,
+          initialContactLeadershipEscalationDelayHours: current.initialContactLeadershipEscalationDelayHours,
+          discoverySchedulingSlaHours: current.discoverySchedulingSlaHours,
+          discoverySchedulingManagerEscalationDelayHours: current.discoverySchedulingManagerEscalationDelayHours,
+          cisFollowUpBusinessDays: current.cisFollowUpBusinessDays,
+          cisFollowUpProspectReminderDelayBusinessDays: current.cisFollowUpProspectReminderDelayBusinessDays,
+          cisFollowUpOwnerAlertDelayBusinessDays: current.cisFollowUpOwnerAlertDelayBusinessDays,
+          stagnantStageDays: current.stagnantStageDays,
           notes: current.notes ?? undefined,
         },
         afterData: {
           routingBasis: toLeadRoutingBasisKey(next.routingBasis),
           strategicGrowthMax: next.strategicGrowthMax,
+          initialContactSlaHours: next.initialContactSlaHours,
+          initialContactUrgentWindowHours: next.initialContactUrgentWindowHours,
+          initialContactManagerEscalationDelayHours: next.initialContactManagerEscalationDelayHours,
+          initialContactLeadershipEscalationDelayHours: next.initialContactLeadershipEscalationDelayHours,
+          discoverySchedulingSlaHours: next.discoverySchedulingSlaHours,
+          discoverySchedulingManagerEscalationDelayHours: next.discoverySchedulingManagerEscalationDelayHours,
+          cisFollowUpBusinessDays: next.cisFollowUpBusinessDays,
+          cisFollowUpProspectReminderDelayBusinessDays: next.cisFollowUpProspectReminderDelayBusinessDays,
+          cisFollowUpOwnerAlertDelayBusinessDays: next.cisFollowUpOwnerAlertDelayBusinessDays,
+          stagnantStageDays: next.stagnantStageDays,
           notes: next.notes ?? undefined,
         },
         metadata: {
@@ -1882,7 +2036,7 @@ async function createLeadRecord(
         : {}),
       ...(input.assignedTmName !== undefined ? { assignedTmName: input.assignedTmName } : {}),
       stage: LeadStage.NEW,
-      initialContactDueAt: addHours(now, 48),
+      initialContactDueAt: addHours(now, policy.initialContactSlaHours),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
     },
     include: {
@@ -1974,7 +2128,7 @@ async function resolveLeadDependencies(
   };
 }
 
-async function getRoutingPolicy(tx: Prisma.TransactionClient) {
+async function getRoutingPolicy(tx: Prisma.TransactionClient): Promise<LeadRoutingPolicyRecord> {
   const policy = await tx.leadRoutingPolicy.findUnique({
     where: {
       id: 'default',
@@ -2321,10 +2475,21 @@ function toWebsiteFormLeadSummary(lead: LeadWithRefs): WebsiteFormLeadSummary {
 }
 
 function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): WorkflowQueueComputation {
+  return toWorkflowQueueComputationWithPolicy(lead, now, null);
+}
+
+function toWorkflowQueueComputationWithPolicy(
+  lead: LeadWithWorkflowRefs,
+  now: Date,
+  policy: LeadRoutingPolicyRecord | null,
+): WorkflowQueueComputation {
   const stageAnchorAt = getWorkflowStageAnchorAt(lead);
   const daysInStage = Math.floor((now.getTime() - stageAnchorAt.getTime()) / (24 * 60 * 60 * 1000));
-  const sla = getInitialContactSlaState(lead, now);
-  const task = buildWorkflowTask(lead, sla);
+  const fallbackPolicy = policy ?? buildInMemoryLeadRoutingPolicy();
+  const initialContactSla = getInitialContactSlaState(lead, now, fallbackPolicy);
+  const discoverySchedulingSla = getDiscoverySchedulingSlaState(lead, now, fallbackPolicy);
+  const cisFollowUpSla = getCisFollowUpSlaState(lead, now, fallbackPolicy);
+  const task = buildWorkflowTask(lead, fallbackPolicy, initialContactSla, discoverySchedulingSla, cisFollowUpSla);
 
   return {
     item: {
@@ -2343,7 +2508,13 @@ function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): Work
       colorToken: task.colorToken,
       reason: task.reason,
       daysInStage,
-      slaRisk: !sla.hasInitialContact && (sla.overdue || sla.urgent),
+      slaRisk: (
+        (!initialContactSla.hasInitialContact && (initialContactSla.overdue || initialContactSla.urgent))
+        || discoverySchedulingSla.overdue
+        || discoverySchedulingSla.urgent
+        || cisFollowUpSla.overdue
+        || cisFollowUpSla.reminderDue
+      ),
       ...(lead.email ? { email: lead.email } : {}),
       ...(lead.phone ? { phone: lead.phone } : {}),
       ...(lead.state ? { state: lead.state } : {}),
@@ -2356,7 +2527,7 @@ function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): Work
       ...(lead.leadOwnerName ? { leadOwnerName: lead.leadOwnerName } : {}),
       ...(lead.assignedTmName ? { assignedTmName: lead.assignedTmName } : {}),
       ...(lead.initialContactDueAt ? { initialContactDueAt: lead.initialContactDueAt.toISOString() } : {}),
-      ...((lead.stage === LeadStage.NEW || lead.initialContactDueAt) ? { hoursUntilInitialContactDue: sla.hoursUntilDue } : {}),
+      ...((lead.stage === LeadStage.NEW || lead.initialContactDueAt) ? { hoursUntilInitialContactDue: initialContactSla.hoursUntilDue } : {}),
       ...(task.financeDecisionStatus ? { financeDecisionStatus: task.financeDecisionStatus } : {}),
       createdAt: lead.createdAt.toISOString(),
       updatedAt: lead.updatedAt.toISOString(),
@@ -2365,22 +2536,26 @@ function toWorkflowQueueComputation(lead: LeadWithWorkflowRefs, now: Date): Work
   };
 }
 
-function filterWorkflowQueueItems(items: LeadWorkflowQueueItem[], view: LeadWorkflowQueueViewKey | undefined) {
+function filterWorkflowQueueItems(
+  items: LeadWorkflowQueueItem[],
+  view: LeadWorkflowQueueViewKey | undefined,
+  staleThresholdDays: number,
+) {
   if (view === 'urgent') {
     return items.filter((item) => item.urgency === 'high');
   }
   if (view === 'stagnant') {
-    return items.filter((item) => item.daysInStage > STAGNANT_STAGE_DAYS);
+    return items.filter((item) => item.daysInStage > staleThresholdDays);
   }
 
   return items;
 }
 
-function summarizeWorkflowQueue(items: LeadWorkflowQueueItem[]): LeadWorkflowQueueSummary {
+function summarizeWorkflowQueue(items: LeadWorkflowQueueItem[], staleThresholdDays: number): LeadWorkflowQueueSummary {
   return {
     openActionCount: items.length,
     urgentCount: items.filter((item) => item.urgency === 'high').length,
-    stagnantCount: items.filter((item) => item.daysInStage > STAGNANT_STAGE_DAYS).length,
+    stagnantCount: items.filter((item) => item.daysInStage > staleThresholdDays).length,
     slaRiskCount: items.filter((item) => item.slaRisk).length,
   };
 }
@@ -2409,20 +2584,84 @@ function getWorkflowStageAnchorAt(lead: LeadWithWorkflowRefs) {
   }
 }
 
-function getInitialContactSlaState(lead: LeadWithWorkflowRefs, now: Date): InitialContactSlaState {
-  const dueAt = lead.initialContactDueAt ?? addHours(lead.createdAt, 48);
+function getInitialContactSlaState(
+  lead: LeadWithWorkflowRefs,
+  now: Date,
+  policy: LeadRoutingPolicyRecord,
+): InitialContactSlaState {
+  const dueAt = lead.initialContactDueAt ?? addHours(lead.createdAt, policy.initialContactSlaHours);
   const hoursUntilDue = Math.floor((dueAt.getTime() - now.getTime()) / (60 * 60 * 1000));
   const hasInitialContact = Boolean(lead.initialContactedAt) || lead.stage !== LeadStage.NEW;
 
   return {
+    dueAt,
     hoursUntilDue,
     hasInitialContact,
     overdue: !hasInitialContact && dueAt.getTime() < now.getTime(),
-    urgent: !hasInitialContact && dueAt.getTime() >= now.getTime() && hoursUntilDue < INITIAL_CONTACT_URGENT_WINDOW_HOURS,
+    urgent: !hasInitialContact && dueAt.getTime() >= now.getTime() && hoursUntilDue < policy.initialContactUrgentWindowHours,
   };
 }
 
-function buildWorkflowTask(lead: LeadWithWorkflowRefs, sla: InitialContactSlaState): WorkflowTask {
+function getDiscoverySchedulingSlaState(
+  lead: LeadWithWorkflowRefs,
+  now: Date,
+  policy: LeadRoutingPolicyRecord,
+): DiscoverySchedulingSlaState {
+  if (lead.stage !== LeadStage.NEW || !lead.initialContactedAt) {
+    return {
+      applicable: false,
+      overdue: false,
+      urgent: false,
+    };
+  }
+
+  const dueAt = addHours(lead.initialContactedAt, policy.discoverySchedulingSlaHours);
+  const hoursUntilDue = Math.floor((dueAt.getTime() - now.getTime()) / (60 * 60 * 1000));
+  const urgentWindowHours = Math.max(1, Math.min(policy.initialContactUrgentWindowHours, policy.discoverySchedulingSlaHours));
+
+  return {
+    applicable: true,
+    dueAt,
+    hoursUntilDue,
+    overdue: dueAt.getTime() < now.getTime(),
+    urgent: dueAt.getTime() >= now.getTime() && hoursUntilDue < urgentWindowHours,
+  };
+}
+
+function getCisFollowUpSlaState(
+  lead: LeadWithWorkflowRefs,
+  now: Date,
+  policy: LeadRoutingPolicyRecord,
+): CisFollowUpSlaState {
+  if (lead.stage !== LeadStage.CIS_SENT || !lead.cisSentAt || lead.cisSubmittedAt) {
+    return {
+      applicable: false,
+      overdue: false,
+      reminderDue: false,
+    };
+  }
+
+  const reminderAt = addBusinessDays(lead.cisSentAt, policy.cisFollowUpProspectReminderDelayBusinessDays);
+  const dueAt = addBusinessDays(lead.cisSentAt, policy.cisFollowUpBusinessDays);
+  const businessDaysUntilDue = diffBusinessDaysCeil(now, dueAt);
+
+  return {
+    applicable: true,
+    dueAt,
+    reminderAt,
+    businessDaysUntilDue,
+    overdue: dueAt.getTime() < now.getTime(),
+    reminderDue: reminderAt.getTime() <= now.getTime() && dueAt.getTime() >= now.getTime(),
+  };
+}
+
+function buildWorkflowTask(
+  lead: LeadWithWorkflowRefs,
+  policy: LeadRoutingPolicyRecord,
+  initialContactSla: InitialContactSlaState,
+  discoverySchedulingSla: DiscoverySchedulingSlaState,
+  cisFollowUpSla: CisFollowUpSlaState,
+): WorkflowTask {
   if (lead.lifecycleStatus === LeadLifecycleStatus.PARKED) {
     return {
       nextAction: 'Resume Lead',
@@ -2443,29 +2682,29 @@ function buildWorkflowTask(lead: LeadWithWorkflowRefs, sla: InitialContactSlaSta
     };
   }
 
-  if (!sla.hasInitialContact && sla.overdue) {
+  if (!initialContactSla.hasInitialContact && initialContactSla.overdue) {
     return {
       nextAction: 'Make Initial Contact',
       actionType: 'call',
       urgency: 'high',
       colorToken: 'red',
-      reason: '48-hour initial contact SLA is overdue. Immediate outreach is required.',
+      reason: `${policy.initialContactSlaHours}-hour initial contact SLA is overdue. Immediate outreach is required.`,
     };
   }
 
-  if (!sla.hasInitialContact && sla.urgent) {
+  if (!initialContactSla.hasInitialContact && initialContactSla.urgent) {
     return {
       nextAction: 'Make Initial Contact',
       actionType: 'call',
       urgency: 'high',
       colorToken: 'orange',
-      reason: `${Math.max(sla.hoursUntilDue, 0)} hours remain in the 48-hour initial contact SLA.`,
+      reason: `${Math.max(initialContactSla.hoursUntilDue, 0)} hours remain in the ${policy.initialContactSlaHours}-hour initial contact SLA.`,
     };
   }
 
   switch (lead.stage) {
     case LeadStage.NEW:
-      if (!sla.hasInitialContact) {
+      if (!initialContactSla.hasInitialContact) {
         return {
           nextAction: 'Make Initial Contact',
           actionType: 'call',
@@ -2475,12 +2714,32 @@ function buildWorkflowTask(lead: LeadWithWorkflowRefs, sla: InitialContactSlaSta
         };
       }
 
+      if (discoverySchedulingSla.overdue) {
+        return {
+          nextAction: 'Schedule Discovery Call',
+          actionType: 'call',
+          urgency: 'high',
+          colorToken: 'red',
+          reason: `Discovery scheduling is overdue. The lead has been waiting more than ${policy.discoverySchedulingSlaHours} hours since initial contact.`,
+        };
+      }
+
+      if (discoverySchedulingSla.urgent) {
+        return {
+          nextAction: 'Schedule Discovery Call',
+          actionType: 'call',
+          urgency: 'medium',
+          colorToken: 'orange',
+          reason: `Discovery should be scheduled within ${Math.max(discoverySchedulingSla.hoursUntilDue ?? 0, 0)} hours to stay inside policy.`,
+        };
+      }
+
       return {
         nextAction: 'Schedule Discovery Call',
         actionType: 'call',
-        urgency: 'high',
+        urgency: 'medium',
         colorToken: 'blue',
-        reason: 'Initial contact is recorded. Discovery scheduling is the next workflow gate.',
+        reason: `Initial contact is recorded. Discovery should be scheduled within ${policy.discoverySchedulingSlaHours} hours.`,
       };
     case LeadStage.DISCOVERY_SCHEDULED:
       return {
@@ -2499,12 +2758,42 @@ function buildWorkflowTask(lead: LeadWithWorkflowRefs, sla: InitialContactSlaSta
         reason: 'Discovery is complete. The CIS package is the next required workflow step.',
       };
     case LeadStage.CIS_SENT:
+      if (lead.cisSubmittedAt) {
+        return {
+          nextAction: 'Review Returned CIS',
+          actionType: 'task',
+          urgency: 'high',
+          colorToken: 'grape',
+          reason: 'The prospect submitted the CIS package. Internal review and sign-off should happen before finance handoff.',
+        };
+      }
+
+      if (cisFollowUpSla.overdue) {
+        return {
+          nextAction: 'Follow Up CIS',
+          actionType: 'call',
+          urgency: 'high',
+          colorToken: 'red',
+          reason: `CIS follow-up is overdue. The package has been out for more than ${policy.cisFollowUpBusinessDays} business days.`,
+        };
+      }
+
+      if (cisFollowUpSla.reminderDue) {
+        return {
+          nextAction: 'Follow Up CIS',
+          actionType: 'call',
+          urgency: 'medium',
+          colorToken: 'orange',
+          reason: `The CIS follow-up reminder window is open after ${policy.cisFollowUpProspectReminderDelayBusinessDays} business days.`,
+        };
+      }
+
       return {
         nextAction: 'Follow Up CIS',
         actionType: 'call',
         urgency: 'medium',
         colorToken: 'cyan',
-        reason: 'CIS was sent and is still awaiting submission or internal review completion.',
+        reason: `CIS was sent and is still awaiting submission. Pulse will flag it once the ${policy.cisFollowUpBusinessDays}-business-day follow-up window is reached.`,
       };
     case LeadStage.CIS_SIGNED:
       return buildPostCisSignedWorkflowTask(lead);
@@ -2678,7 +2967,7 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
   };
 }
 
-function toLeadDetail(lead: LeadWithDetailRefs): LeadDetail {
+function toLeadDetail(lead: LeadWithDetailRefs, policy: LeadRoutingPolicyRecord): LeadDetail {
   const initialContactedAt = lead.initialContactedAt?.toISOString();
   const discoveryScheduledAt = lead.discoveryScheduledAt?.toISOString();
   const discoveryCompletedAt = lead.discoveryCompletedAt?.toISOString();
@@ -2687,7 +2976,11 @@ function toLeadDetail(lead: LeadWithDetailRefs): LeadDetail {
   const cisSignedAt = lead.cisSignedAt?.toISOString();
   const onboardingCompletedAt = lead.onboardingCompletedAt?.toISOString();
   const firstOrderAt = lead.firstOrderAt?.toISOString();
-  const workflowTask = buildWorkflowTask(lead, getInitialContactSlaState(lead, new Date()));
+  const now = new Date();
+  const initialContactSla = getInitialContactSlaState(lead, now, policy);
+  const discoverySchedulingSla = getDiscoverySchedulingSlaState(lead, now, policy);
+  const cisFollowUpSla = getCisFollowUpSlaState(lead, now, policy);
+  const workflowTask = buildWorkflowTask(lead, policy, initialContactSla, discoverySchedulingSla, cisFollowUpSla);
 
   return {
     ...toLeadSummary(lead),
@@ -2734,6 +3027,16 @@ function toLeadRoutingPolicySummary(policy: Prisma.LeadRoutingPolicyGetPayload<{
     routingBasis: toLeadRoutingBasisKey(policy.routingBasis),
     strategicGrowthMax: policy.strategicGrowthMax,
     nationalTmMin: policy.strategicGrowthMax + 1,
+    initialContactSlaHours: policy.initialContactSlaHours,
+    initialContactUrgentWindowHours: policy.initialContactUrgentWindowHours,
+    initialContactManagerEscalationDelayHours: policy.initialContactManagerEscalationDelayHours,
+    initialContactLeadershipEscalationDelayHours: policy.initialContactLeadershipEscalationDelayHours,
+    discoverySchedulingSlaHours: policy.discoverySchedulingSlaHours,
+    discoverySchedulingManagerEscalationDelayHours: policy.discoverySchedulingManagerEscalationDelayHours,
+    cisFollowUpBusinessDays: policy.cisFollowUpBusinessDays,
+    cisFollowUpProspectReminderDelayBusinessDays: policy.cisFollowUpProspectReminderDelayBusinessDays,
+    cisFollowUpOwnerAlertDelayBusinessDays: policy.cisFollowUpOwnerAlertDelayBusinessDays,
+    stagnantStageDays: policy.stagnantStageDays,
     ...(policy.notes ? { notes: policy.notes } : {}),
     updatedAt: policy.updatedAt.toISOString(),
   };
@@ -3261,4 +3564,63 @@ function normalizePositiveInteger(value: unknown, fieldName: string, allowZero =
 
 function addHours(value: Date, hours: number) {
   return new Date(value.getTime() + hours * 60 * 60 * 1000);
+}
+
+function addBusinessDays(value: Date, businessDays: number) {
+  const result = new Date(value.getTime());
+  let remaining = businessDays;
+
+  while (remaining > 0) {
+    result.setDate(result.getDate() + 1);
+    if (!isWeekend(result)) {
+      remaining -= 1;
+    }
+  }
+
+  return result;
+}
+
+function diffBusinessDaysCeil(from: Date, to: Date) {
+  if (from.getTime() === to.getTime()) {
+    return 0;
+  }
+
+  const direction = from.getTime() < to.getTime() ? 1 : -1;
+  const cursor = new Date(from.getTime());
+  let businessDays = 0;
+
+  while ((direction === 1 && cursor.getTime() < to.getTime()) || (direction === -1 && cursor.getTime() > to.getTime())) {
+    cursor.setDate(cursor.getDate() + direction);
+    if (!isWeekend(cursor)) {
+      businessDays += direction;
+    }
+  }
+
+  return businessDays;
+}
+
+function isWeekend(value: Date) {
+  const day = value.getDay();
+  return day === 0 || day === 6;
+}
+
+function buildInMemoryLeadRoutingPolicy(): LeadRoutingPolicyRecord {
+  return {
+    id: 'default',
+    routingBasis: LeadRoutingBasis.SERVICE_TECH_COUNT,
+    strategicGrowthMax: 5,
+    initialContactSlaHours: 24,
+    initialContactUrgentWindowHours: 12,
+    initialContactManagerEscalationDelayHours: 12,
+    initialContactLeadershipEscalationDelayHours: 24,
+    discoverySchedulingSlaHours: 72,
+    discoverySchedulingManagerEscalationDelayHours: 48,
+    cisFollowUpBusinessDays: 5,
+    cisFollowUpProspectReminderDelayBusinessDays: 3,
+    cisFollowUpOwnerAlertDelayBusinessDays: 5,
+    stagnantStageDays: 7,
+    notes: 'PRD-backed in-memory fallback policy.',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
 }

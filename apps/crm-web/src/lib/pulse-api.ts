@@ -47,6 +47,7 @@ import type {
   LeadImportFilePreviewResponse,
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
+  UpdateLeadRoutingPolicyRequest,
   ListLeadWorkflowQueueRequest,
   ListLeadWorkflowQueueResponse,
   LeadStageKey,
@@ -254,6 +255,18 @@ export async function fetchLeadRoutingPolicy(apiBaseUrl: string, accessToken: st
   return requestJson<LeadRoutingPolicySummary>(apiBaseUrl, '/api/v1/leads/routing-policy', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function updateLeadRoutingPolicy(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateLeadRoutingPolicyRequest,
+) {
+  return requestJson<LeadRoutingPolicySummary>(apiBaseUrl, '/api/v1/leads/routing-policy', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
   });
 }
 

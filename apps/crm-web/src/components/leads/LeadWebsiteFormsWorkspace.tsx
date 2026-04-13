@@ -13,6 +13,7 @@ import {
   Grid,
   Group,
   Modal,
+  NumberInput,
   Paper,
   Select,
   SimpleGrid,
@@ -44,6 +45,7 @@ import {
 } from '@tabler/icons-react';
 import type {
   LeadRoutingPolicySummary,
+  LeadRoutingBasisKey,
   LeadStageKey,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
@@ -56,9 +58,11 @@ import {
   fetchLeadRoutingPolicy,
   fetchWebsiteLeadNotificationRecipients,
   fetchWebsiteLeadSites,
+  updateLeadRoutingPolicy,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { PublicWebsiteLeadCaptureForm } from './PublicWebsiteLeadCaptureForm';
 
@@ -92,6 +96,22 @@ type RecipientDraft = {
   roleTitle: string;
 };
 
+type FlowPolicyDraft = {
+  routingBasis: LeadRoutingBasisKey;
+  strategicGrowthMax: number;
+  initialContactSlaHours: number;
+  initialContactUrgentWindowHours: number;
+  initialContactManagerEscalationDelayHours: number;
+  initialContactLeadershipEscalationDelayHours: number;
+  discoverySchedulingSlaHours: number;
+  discoverySchedulingManagerEscalationDelayHours: number;
+  cisFollowUpBusinessDays: number;
+  cisFollowUpProspectReminderDelayBusinessDays: number;
+  cisFollowUpOwnerAlertDelayBusinessDays: number;
+  stagnantStageDays: number;
+  notes: string;
+};
+
 const initialSiteDraft: SiteDraft = {
   siteId: '',
   siteName: '',
@@ -108,6 +128,22 @@ const initialRecipientDraft: RecipientDraft = {
   roleTitle: '',
 };
 
+const initialFlowPolicyDraft: FlowPolicyDraft = {
+  routingBasis: 'service_tech_count',
+  strategicGrowthMax: 5,
+  initialContactSlaHours: 24,
+  initialContactUrgentWindowHours: 12,
+  initialContactManagerEscalationDelayHours: 12,
+  initialContactLeadershipEscalationDelayHours: 24,
+  discoverySchedulingSlaHours: 72,
+  discoverySchedulingManagerEscalationDelayHours: 48,
+  cisFollowUpBusinessDays: 5,
+  cisFollowUpProspectReminderDelayBusinessDays: 3,
+  cisFollowUpOwnerAlertDelayBusinessDays: 5,
+  stagnantStageDays: 7,
+  notes: '',
+};
+
 export function LeadWebsiteFormsWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
@@ -120,16 +156,19 @@ export function LeadWebsiteFormsWorkspace() {
   const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
   const [siteDraft, setSiteDraft] = useState<SiteDraft>(initialSiteDraft);
   const [recipientDraft, setRecipientDraft] = useState<RecipientDraft>(initialRecipientDraft);
+  const [flowPolicyDraft, setFlowPolicyDraft] = useState<FlowPolicyDraft>(initialFlowPolicyDraft);
   const [siteModalOpen, setSiteModalOpen] = useState(false);
   const [recipientModalOpen, setRecipientModalOpen] = useState(false);
   const [isSavingSite, setIsSavingSite] = useState(false);
   const [isSavingRecipient, setIsSavingRecipient] = useState(false);
+  const [isSavingPolicy, setIsSavingPolicy] = useState(false);
 
   useEffect(() => {
     if (!auth) {
       setSites([]);
       setRecipients([]);
       setRoutingPolicy(null);
+      setFlowPolicyDraft(initialFlowPolicyDraft);
       return;
     }
 
@@ -154,6 +193,21 @@ export function LeadWebsiteFormsWorkspace() {
         setSites(siteResponse.items);
         setRecipients(recipientResponse.items);
         setRoutingPolicy(routingPolicyResponse);
+        setFlowPolicyDraft({
+          routingBasis: routingPolicyResponse.routingBasis,
+          strategicGrowthMax: routingPolicyResponse.strategicGrowthMax,
+          initialContactSlaHours: routingPolicyResponse.initialContactSlaHours,
+          initialContactUrgentWindowHours: routingPolicyResponse.initialContactUrgentWindowHours,
+          initialContactManagerEscalationDelayHours: routingPolicyResponse.initialContactManagerEscalationDelayHours,
+          initialContactLeadershipEscalationDelayHours: routingPolicyResponse.initialContactLeadershipEscalationDelayHours,
+          discoverySchedulingSlaHours: routingPolicyResponse.discoverySchedulingSlaHours,
+          discoverySchedulingManagerEscalationDelayHours: routingPolicyResponse.discoverySchedulingManagerEscalationDelayHours,
+          cisFollowUpBusinessDays: routingPolicyResponse.cisFollowUpBusinessDays,
+          cisFollowUpProspectReminderDelayBusinessDays: routingPolicyResponse.cisFollowUpProspectReminderDelayBusinessDays,
+          cisFollowUpOwnerAlertDelayBusinessDays: routingPolicyResponse.cisFollowUpOwnerAlertDelayBusinessDays,
+          stagnantStageDays: routingPolicyResponse.stagnantStageDays,
+          notes: routingPolicyResponse.notes ?? '',
+        });
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -181,6 +235,7 @@ export function LeadWebsiteFormsWorkspace() {
     () => recipients.filter((recipient) => recipient.isActive).length,
     [recipients],
   );
+  const canManageReference = auth ? canPerformAction(auth.identity.role, 'reference.manage') : false;
 
   if (!isHydrated) {
     return null;
@@ -313,6 +368,57 @@ export function LeadWebsiteFormsWorkspace() {
       });
     } finally {
       setIsSavingRecipient(false);
+    }
+  }
+
+  async function handleSaveFlowPolicy() {
+    setIsSavingPolicy(true);
+    try {
+      const updated = await updateLeadRoutingPolicy(apiBaseUrl, accessToken, {
+        routingBasis: flowPolicyDraft.routingBasis,
+        strategicGrowthMax: flowPolicyDraft.strategicGrowthMax,
+        initialContactSlaHours: flowPolicyDraft.initialContactSlaHours,
+        initialContactUrgentWindowHours: flowPolicyDraft.initialContactUrgentWindowHours,
+        initialContactManagerEscalationDelayHours: flowPolicyDraft.initialContactManagerEscalationDelayHours,
+        initialContactLeadershipEscalationDelayHours: flowPolicyDraft.initialContactLeadershipEscalationDelayHours,
+        discoverySchedulingSlaHours: flowPolicyDraft.discoverySchedulingSlaHours,
+        discoverySchedulingManagerEscalationDelayHours: flowPolicyDraft.discoverySchedulingManagerEscalationDelayHours,
+        cisFollowUpBusinessDays: flowPolicyDraft.cisFollowUpBusinessDays,
+        cisFollowUpProspectReminderDelayBusinessDays: flowPolicyDraft.cisFollowUpProspectReminderDelayBusinessDays,
+        cisFollowUpOwnerAlertDelayBusinessDays: flowPolicyDraft.cisFollowUpOwnerAlertDelayBusinessDays,
+        stagnantStageDays: flowPolicyDraft.stagnantStageDays,
+        ...(flowPolicyDraft.notes.trim() ? { notes: flowPolicyDraft.notes.trim() } : {}),
+      });
+
+      setRoutingPolicy(updated);
+      setFlowPolicyDraft({
+        routingBasis: updated.routingBasis,
+        strategicGrowthMax: updated.strategicGrowthMax,
+        initialContactSlaHours: updated.initialContactSlaHours,
+        initialContactUrgentWindowHours: updated.initialContactUrgentWindowHours,
+        initialContactManagerEscalationDelayHours: updated.initialContactManagerEscalationDelayHours,
+        initialContactLeadershipEscalationDelayHours: updated.initialContactLeadershipEscalationDelayHours,
+        discoverySchedulingSlaHours: updated.discoverySchedulingSlaHours,
+        discoverySchedulingManagerEscalationDelayHours: updated.discoverySchedulingManagerEscalationDelayHours,
+        cisFollowUpBusinessDays: updated.cisFollowUpBusinessDays,
+        cisFollowUpProspectReminderDelayBusinessDays: updated.cisFollowUpProspectReminderDelayBusinessDays,
+        cisFollowUpOwnerAlertDelayBusinessDays: updated.cisFollowUpOwnerAlertDelayBusinessDays,
+        stagnantStageDays: updated.stagnantStageDays,
+        notes: updated.notes ?? '',
+      });
+      notifications.show({
+        title: 'Flow policy updated',
+        message: 'Routing and SLA thresholds are now saved in Pulse CRM.',
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Flow policy update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingPolicy(false);
     }
   }
 
@@ -542,9 +648,200 @@ export function LeadWebsiteFormsWorkspace() {
             {routingPolicy ? (
               <Alert mt="lg" color="blue" variant="light">
                 Current routing rule: {formatRoutingBasis(routingPolicy.routingBasis)} with Strategic Growth through{' '}
-                {routingPolicy.strategicGrowthMax} and National TM from {routingPolicy.nationalTmMin}.
+                {routingPolicy.strategicGrowthMax} and National TM from {routingPolicy.nationalTmMin}. Initial contact is due
+                within {routingPolicy.initialContactSlaHours} hours, discovery should be scheduled within{' '}
+                {routingPolicy.discoverySchedulingSlaHours} hours of first contact, and CIS follow-up becomes active after{' '}
+                {routingPolicy.cisFollowUpBusinessDays} business days.
               </Alert>
             ) : null}
+
+            <Paper withBorder radius="md" p="lg" mt="lg">
+              <Group justify="space-between" align="flex-start" mb="md">
+                <Stack gap={2}>
+                  <Title order={5}>Routing & SLA policy</Title>
+                  <Text size="sm" c="dimmed">
+                    These settings back the live workflow queue, website intake routing, and lead-readiness timing rules.
+                  </Text>
+                </Stack>
+                <Button onClick={() => void handleSaveFlowPolicy()} loading={isSavingPolicy} disabled={!canManageReference}>
+                  Save Policy
+                </Button>
+              </Group>
+
+              {!canManageReference ? (
+                <Alert color="gray" variant="light" mb="md">
+                  Your current role can review this policy, but only admins can change it.
+                </Alert>
+              ) : null}
+
+              <Stack gap="lg">
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <Select
+                    label="Routing basis"
+                    data={[
+                      { value: 'service_tech_count', label: 'Service Tech Count' },
+                      { value: 'truck_count', label: 'Truck Count' },
+                    ]}
+                    value={flowPolicyDraft.routingBasis}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      routingBasis: (value as LeadRoutingBasisKey | null) ?? current.routingBasis,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Strategic Growth max"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.strategicGrowthMax}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      strategicGrowthMax: typeof value === 'number' ? value : current.strategicGrowthMax,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, md: 3 }}>
+                  <NumberInput
+                    label="Initial contact SLA (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.initialContactSlaHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      initialContactSlaHours: typeof value === 'number' ? value : current.initialContactSlaHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Urgent window (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.initialContactUrgentWindowHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      initialContactUrgentWindowHours: typeof value === 'number' ? value : current.initialContactUrgentWindowHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Stagnant stage threshold (days)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.stagnantStageDays}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      stagnantStageDays: typeof value === 'number' ? value : current.stagnantStageDays,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <NumberInput
+                    label="Manager alert after breach (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.initialContactManagerEscalationDelayHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      initialContactManagerEscalationDelayHours:
+                        typeof value === 'number' ? value : current.initialContactManagerEscalationDelayHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Leadership alert after breach (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.initialContactLeadershipEscalationDelayHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      initialContactLeadershipEscalationDelayHours:
+                        typeof value === 'number' ? value : current.initialContactLeadershipEscalationDelayHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <NumberInput
+                    label="Discovery scheduling SLA (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.discoverySchedulingSlaHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      discoverySchedulingSlaHours:
+                        typeof value === 'number' ? value : current.discoverySchedulingSlaHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Discovery escalation delay (hours)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.discoverySchedulingManagerEscalationDelayHours}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      discoverySchedulingManagerEscalationDelayHours:
+                        typeof value === 'number' ? value : current.discoverySchedulingManagerEscalationDelayHours,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, md: 3 }}>
+                  <NumberInput
+                    label="CIS follow-up SLA (business days)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.cisFollowUpBusinessDays}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      cisFollowUpBusinessDays: typeof value === 'number' ? value : current.cisFollowUpBusinessDays,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Prospect reminder delay (business days)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.cisFollowUpProspectReminderDelayBusinessDays}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      cisFollowUpProspectReminderDelayBusinessDays:
+                        typeof value === 'number' ? value : current.cisFollowUpProspectReminderDelayBusinessDays,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                  <NumberInput
+                    label="Owner alert delay (business days)"
+                    min={1}
+                    allowDecimal={false}
+                    value={flowPolicyDraft.cisFollowUpOwnerAlertDelayBusinessDays}
+                    onChange={(value) => setFlowPolicyDraft((current) => ({
+                      ...current,
+                      cisFollowUpOwnerAlertDelayBusinessDays:
+                        typeof value === 'number' ? value : current.cisFollowUpOwnerAlertDelayBusinessDays,
+                    }))}
+                    disabled={!canManageReference}
+                  />
+                </SimpleGrid>
+
+                <Textarea
+                  label="Policy notes"
+                  value={flowPolicyDraft.notes}
+                  onChange={(event) => setFlowPolicyDraft((current) => ({
+                    ...current,
+                    notes: event.currentTarget.value,
+                  }))}
+                  disabled={!canManageReference}
+                  minRows={2}
+                />
+              </Stack>
+            </Paper>
           </Paper>
         </Tabs.Panel>
       </Tabs>

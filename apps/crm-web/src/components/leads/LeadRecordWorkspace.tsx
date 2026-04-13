@@ -44,11 +44,13 @@ import type {
   LeadConsignmentInterestStatusKey,
   LeadLifecycleReasonCodeKey,
   LeadDetail,
+  LeadRoutingPolicySummary,
 } from '@pulse/contracts';
 import { canPerformAction } from '@/lib/access';
 import {
   completeLeadDiscovery,
   fetchLeadDetail,
+  fetchLeadRoutingPolicy,
   logLeadInitialContact,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
@@ -89,6 +91,7 @@ const LEAD_CLOSE_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; labe
 export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [lead, setLead] = useState<LeadDetail | null>(null);
+  const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
   const [activeTab, setActiveTab] = useState<LeadRecordTab>('overview');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +119,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   useEffect(() => {
     if (!auth) {
       setLead(null);
+      setRoutingPolicy(null);
       return;
     }
 
@@ -127,14 +131,19 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       setError(null);
 
       try {
-        const response = await fetchLeadDetail(apiBaseUrl, accessToken, leadId);
+        const [leadResponse, routingPolicyResponse] = await Promise.all([
+          fetchLeadDetail(apiBaseUrl, accessToken, leadId),
+          fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
+        ]);
         if (!cancelled) {
-          setLead(response);
+          setLead(leadResponse);
+          setRoutingPolicy(routingPolicyResponse);
         }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
           setLead(null);
+          setRoutingPolicy(null);
         }
       } finally {
         if (!cancelled) {
@@ -173,6 +182,9 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
 
   const hasInitialContact = Boolean(lead?.initialContactedAt) || lead?.stage !== 'new';
   const leadIsActive = lead?.lifecycleStatus === 'active';
+  const initialContactSlaHours = routingPolicy?.initialContactSlaHours ?? 24;
+  const initialContactUrgentWindowHours = routingPolicy?.initialContactUrgentWindowHours ?? 12;
+  const discoverySchedulingSlaHours = routingPolicy?.discoverySchedulingSlaHours ?? 72;
   const lifecycleReasonOptions = lifecycleDraftStatus === 'closed'
     ? LEAD_CLOSE_REASON_OPTIONS
     : LEAD_PARK_REASON_OPTIONS;
@@ -198,10 +210,10 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     const hoursLeft = Math.floor((new Date(lead.initialContactDueAt).getTime() - Date.now()) / 3600000);
     return {
       overdue: !hasInitialContact && hoursLeft < 0,
-      urgent: !hasInitialContact && hoursLeft >= 0 && hoursLeft < 12,
+      urgent: !hasInitialContact && hoursLeft >= 0 && hoursLeft < initialContactUrgentWindowHours,
       hoursLeft,
     };
-  }, [hasInitialContact, lead?.initialContactDueAt]);
+  }, [hasInitialContact, initialContactUrgentWindowHours, lead?.initialContactDueAt]);
 
   const workflowGates = useMemo(() => {
     if (!lead) {
@@ -214,7 +226,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         complete: hasInitialContact,
         detail: hasInitialContact
           ? `Logged ${lead.initialContactedAt ? `on ${formatDateLabel(lead.initialContactedAt)}` : 'inside Pulse CRM'}.`
-          : '48-hour SLA is still active until the first contact is recorded.',
+          : `${initialContactSlaHours}-hour SLA is still active until the first contact is recorded.`,
       },
       {
         label: 'Discovery',
@@ -223,7 +235,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           ? lead.discoveryCallSkipped
             ? 'Discovery was bypassed with a documented fast-track reason.'
             : `Completed on ${formatDateLabel(lead.discoveryCompletedAt)}.`
-          : 'Discovery notes or a fast-track reason are still required before CIS can move cleanly.',
+          : `Discovery notes or a fast-track reason are still required before CIS can move cleanly, and scheduling should happen within ${discoverySchedulingSlaHours} hours of first contact.`,
       },
       {
         label: 'CIS Submission',
@@ -249,7 +261,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           : 'Portal/setup readiness is still inside CRM scope before the first-order handoff.',
       },
     ];
-  }, [hasInitialContact, lead]);
+  }, [discoverySchedulingSlaHours, hasInitialContact, initialContactSlaHours, lead]);
 
   const activityItems = useMemo(() => {
     if (!lead) {

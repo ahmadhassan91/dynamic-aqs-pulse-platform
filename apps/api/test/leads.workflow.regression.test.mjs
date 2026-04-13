@@ -15,12 +15,15 @@ let loginWithPassword;
 let authenticateAccessToken;
 let createLead;
 let getLeadDetail;
+let getLeadRoutingPolicy;
 let listLeadWorkflowQueue;
 let scheduleLeadDiscovery;
 let completeLeadDiscovery;
 let skipLeadDiscovery;
 let transitionLeadStage;
 let updateLeadLifecycle;
+let updateLeadRoutingPolicy;
+let logLeadInitialContact;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -28,7 +31,21 @@ test.before(async () => {
 
   const configModule = await import('../dist/config.js');
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
-  ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead, getLeadDetail, listLeadWorkflowQueue, scheduleLeadDiscovery, completeLeadDiscovery, skipLeadDiscovery, transitionLeadStage, updateLeadLifecycle } = await import('../dist/modules/leads/service.js'));
+  ({
+    ensureLeadRoutingPolicySeeded,
+    ensureWebsiteLeadConfigSeeded,
+    createLead,
+    getLeadDetail,
+    getLeadRoutingPolicy,
+    listLeadWorkflowQueue,
+    logLeadInitialContact,
+    scheduleLeadDiscovery,
+    completeLeadDiscovery,
+    skipLeadDiscovery,
+    transitionLeadStage,
+    updateLeadLifecycle,
+    updateLeadRoutingPolicy,
+  } = await import('../dist/modules/leads/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -63,6 +80,139 @@ async function createAdminActor() {
   assert.ok(actor, 'expected a bootstrap admin actor');
   return actor;
 }
+
+test('lead routing policy defaults are PRD-backed and new leads inherit the initial contact due date', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const policy = await getLeadRoutingPolicy(actor);
+
+  assert.equal(policy.initialContactSlaHours, 24);
+  assert.equal(policy.discoverySchedulingSlaHours, 72);
+  assert.equal(policy.cisFollowUpBusinessDays, 5);
+  assert.equal(policy.stagnantStageDays, 7);
+
+  const lead = await createLead(actor, {
+    companyName: 'PRD Default Timing HVAC',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+
+  assert.ok(lead.initialContactDueAt, 'expected an initial contact due date');
+  const hoursUntilDue = Math.round((new Date(lead.initialContactDueAt).getTime() - new Date(lead.createdAt).getTime()) / 3600000);
+  assert.equal(hoursUntilDue, 24);
+});
+
+test('workflow queue falls back to the live SLA policy when historical leads are missing initial contact due dates', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Historical Lead Timing Backfill',
+    serviceTechCount: 2,
+    state: 'TX',
+  });
+
+  const twentySixHoursAgo = new Date(Date.now() - (26 * 3600000));
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      initialContactDueAt: null,
+      createdAt: twentySixHoursAgo,
+    },
+  });
+
+  const queue = await listLeadWorkflowQueue(actor, {});
+  const item = queue.items.find((entry) => entry.leadId === lead.id);
+
+  assert.ok(item, 'expected historical lead in workflow queue');
+  assert.equal(item.urgency, 'high');
+  assert.equal(item.slaRisk, true);
+  assert.match(item.reason, /24-hour initial contact SLA is overdue/i);
+});
+
+test('discovery scheduling SLA becomes the next queue priority after initial contact is logged', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Discovery Scheduling Priority',
+    serviceTechCount: 4,
+    state: 'FL',
+  });
+
+  await logLeadInitialContact(actor, lead.id, {
+    note: 'Initial outreach completed from workflow suite.',
+  });
+
+  const eightyHoursAgo = new Date(Date.now() - (80 * 3600000));
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      initialContactedAt: eightyHoursAgo,
+      updatedAt: eightyHoursAgo,
+    },
+  });
+
+  const queue = await listLeadWorkflowQueue(actor, {});
+  const item = queue.items.find((entry) => entry.leadId === lead.id);
+
+  assert.ok(item, 'expected lead in workflow queue');
+  assert.equal(item.nextAction, 'Schedule Discovery Call');
+  assert.equal(item.urgency, 'high');
+  assert.match(item.reason, /Discovery scheduling is overdue/i);
+});
+
+test('routing policy updates change queue stale thresholds and CIS follow-up timing', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const updatedPolicy = await updateLeadRoutingPolicy(actor, {
+    stagnantStageDays: 3,
+    cisFollowUpBusinessDays: 4,
+    cisFollowUpProspectReminderDelayBusinessDays: 2,
+    cisFollowUpOwnerAlertDelayBusinessDays: 4,
+  });
+
+  assert.equal(updatedPolicy.stagnantStageDays, 3);
+  assert.equal(updatedPolicy.cisFollowUpBusinessDays, 4);
+
+  const staleLead = await createLead(actor, {
+    companyName: 'Stale Queue Threshold HVAC',
+    serviceTechCount: 1,
+    state: 'CA',
+  });
+
+  await prisma.lead.update({
+    where: { id: staleLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (5 * 24 * 3600000)),
+    },
+  });
+
+  const cisLead = await createLead(actor, {
+    companyName: 'CIS Reminder Window Heating',
+    serviceTechCount: 6,
+    state: 'NV',
+  });
+
+  await transitionLeadStage(actor, cisLead.id, {
+    toStage: 'cis_sent',
+    note: 'CIS issued from workflow timing regression.',
+  });
+
+  const threeBusinessDaysAgo = new Date(Date.now() - (5 * 24 * 3600000));
+  await prisma.lead.update({
+    where: { id: cisLead.id },
+    data: {
+      cisSentAt: threeBusinessDaysAgo,
+      cisSubmittedAt: null,
+    },
+  });
+
+  const stagnantView = await listLeadWorkflowQueue(actor, { view: 'stagnant' });
+  assert.ok(stagnantView.items.some((entry) => entry.leadId === staleLead.id), 'expected lead to be stale once threshold is lowered');
+
+  const queue = await listLeadWorkflowQueue(actor, {});
+  const cisItem = queue.items.find((entry) => entry.leadId === cisLead.id);
+  assert.ok(cisItem, 'expected CIS follow-up lead in queue');
+  assert.equal(cisItem.nextAction, 'Follow Up CIS');
+  assert.equal(cisItem.urgency, 'medium');
+  assert.match(cisItem.reason, /reminder window is open/i);
+});
 
 test('manual intake normalizes approved regions and preserves marketing metadata', SERIAL, async () => {
   const actor = await createAdminActor();

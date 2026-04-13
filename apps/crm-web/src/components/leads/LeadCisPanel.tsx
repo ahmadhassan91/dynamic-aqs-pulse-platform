@@ -1,0 +1,907 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  AuthRole,
+  CisFinanceDecisionRequest,
+  CisFinanceDecisionStatusKey,
+  CisPackageDetail,
+  CisPaymentMethodKey,
+  CisPaymentTermsKey,
+  LeadDetail,
+} from '@pulse/contracts';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CopyButton,
+  Divider,
+  Group,
+  Paper,
+  Select,
+  SimpleGrid,
+  Stack,
+  Tabs,
+  Text,
+  TextInput,
+  Textarea,
+  ThemeIcon,
+  Title,
+} from '@mantine/core';
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconClipboardCheck,
+  IconCopy,
+  IconCreditCard,
+  IconExternalLink,
+  IconFileDescription,
+  IconLink,
+  IconMail,
+  IconSend,
+} from '@tabler/icons-react';
+import {
+  fetchLeadCisPackage,
+  issueLeadCisLink,
+  recordLeadCisFinanceDecision,
+  reviewLeadCisPackage,
+  submitLeadCisToFinance,
+} from '@/lib/pulse-api';
+
+type LeadCisPanelProps = {
+  apiBaseUrl: string;
+  accessToken: string;
+  actorRole: AuthRole;
+  lead: LeadDetail;
+  onLeadChanged: () => void;
+};
+
+type FinanceDecisionState = Exclude<CisFinanceDecisionStatusKey, 'not_submitted' | 'pending'>;
+
+const SENDABLE_LEAD_STAGES = new Set<LeadDetail['stage']>([
+  'discovery_completed',
+  'cis_sent',
+  'cis_signed',
+  'onboarding_completed',
+  'customer_active',
+]);
+
+const CIS_MANAGE_ROLES = new Set<AuthRole>([
+  'SUPER_ADMIN',
+  'EXECUTIVE',
+  'SALES_BD_REP',
+  'SALES_BD_LEADERSHIP',
+  'ADMIN_CSR_OPS',
+]);
+
+const FINANCE_DECISION_ROLES = new Set<AuthRole>([
+  'SUPER_ADMIN',
+  'EXECUTIVE',
+  'FINANCE',
+]);
+
+const FINANCE_DECISION_OPTIONS: readonly { value: FinanceDecisionState; label: string }[] = [
+  { value: 'approved', label: 'Approve' },
+  { value: 'conditional', label: 'Approve with conditions' },
+  { value: 'info_requested', label: 'Request more information' },
+  { value: 'declined', label: 'Decline' },
+] as const;
+
+const PAYMENT_TERM_OPTIONS: readonly CisPaymentTermsKey[] = ['NET_30', 'NET_60', 'COD', 'CUSTOM'];
+
+export function LeadCisPanel({
+  apiBaseUrl,
+  accessToken,
+  actorRole,
+  lead,
+  onLeadChanged,
+}: LeadCisPanelProps) {
+  const [cisPackage, setCisPackage] = useState<CisPackageDetail | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [lastIssuedPublicUrl, setLastIssuedPublicUrl] = useState<string | null>(null);
+  const [recipientEmail, setRecipientEmail] = useState(lead.email ?? '');
+  const [linkNote, setLinkNote] = useState('');
+  const [salesReviewNotes, setSalesReviewNotes] = useState('');
+  const [financeCoverNotes, setFinanceCoverNotes] = useState('');
+  const [financeSubmissionNotes, setFinanceSubmissionNotes] = useState('');
+  const [financeDecision, setFinanceDecision] = useState<FinanceDecisionState>('approved');
+  const [financeDecisionNotes, setFinanceDecisionNotes] = useState('');
+  const [requestedInfoNotes, setRequestedInfoNotes] = useState('');
+  const [creditLineAmount, setCreditLineAmount] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState<CisPaymentTermsKey>('NET_30');
+  const [isSendingLink, setIsSendingLink] = useState(false);
+  const [isSigningOff, setIsSigningOff] = useState(false);
+  const [isSubmittingFinance, setIsSubmittingFinance] = useState(false);
+  const [isRecordingDecision, setIsRecordingDecision] = useState(false);
+
+  const canManageCis = CIS_MANAGE_ROLES.has(actorRole);
+  const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
+  const canIssueCis = SENDABLE_LEAD_STAGES.has(lead.stage);
+
+  useEffect(() => {
+    setRecipientEmail(lead.email ?? '');
+    setLinkNote('');
+  }, [lead.email, lead.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCis() {
+      setIsLoading(true);
+      setLoadError(null);
+
+      try {
+        const response = await fetchLeadCisPackage(apiBaseUrl, accessToken, lead.id);
+        if (!cancelled) {
+          setCisPackage(response);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : String(error));
+          setCisPackage(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadCis();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, apiBaseUrl, lead.id]);
+
+  useEffect(() => {
+    if (!cisPackage) {
+      setSalesReviewNotes('');
+      setFinanceCoverNotes('');
+      setFinanceSubmissionNotes('');
+      setFinanceDecision('approved');
+      setFinanceDecisionNotes('');
+      setRequestedInfoNotes('');
+      setCreditLineAmount('');
+      setPaymentTerms('NET_30');
+      return;
+    }
+
+    setSalesReviewNotes(cisPackage.internalReview?.salesReviewNotes ?? '');
+    setFinanceCoverNotes(cisPackage.internalReview?.financeCoverNotes ?? '');
+    setFinanceSubmissionNotes(cisPackage.financeDecision?.submissionNotes ?? '');
+    setFinanceDecisionNotes(cisPackage.financeDecision?.decisionNotes ?? '');
+    setRequestedInfoNotes(cisPackage.financeDecision?.requestedInfoNotes ?? '');
+    setCreditLineAmount(
+      cisPackage.financeDecision?.creditLineAmount !== undefined
+        ? String(cisPackage.financeDecision.creditLineAmount)
+        : '',
+    );
+    setPaymentTerms(cisPackage.financeDecision?.paymentTerms ?? 'NET_30');
+  }, [cisPackage]);
+
+  const paymentMethod = cisPackage?.formData.paymentMethod;
+  const requiresCreditTerms =
+    paymentMethod !== undefined
+    && paymentMethod !== 'CREDIT_CARD'
+    && financeDecision === 'approved';
+
+  const financeStatusLabel = useMemo(() => {
+    if (!cisPackage?.financeDecision) {
+      return cisPackage?.status === 'sales_signed_off' ? 'Awaiting finance submission' : 'Not submitted';
+    }
+
+    return formatFinanceDecisionStatus(cisPackage.financeDecision.status);
+  }, [cisPackage]);
+
+  async function reloadCis() {
+    const response = await fetchLeadCisPackage(apiBaseUrl, accessToken, lead.id);
+    setCisPackage(response);
+  }
+
+  async function handleIssueLink(action: 'send-link' | 'resend-link') {
+    if (!canManageCis || !canIssueCis) {
+      return;
+    }
+
+    setIsSendingLink(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await issueLeadCisLink(
+        apiBaseUrl,
+        accessToken,
+        lead.id,
+        {
+          ...(recipientEmail.trim() ? { recipientEmail: recipientEmail.trim() } : {}),
+          ...(linkNote.trim() ? { note: linkNote.trim() } : {}),
+        },
+        action,
+      );
+
+      setLastIssuedPublicUrl(response.publicUrl);
+      setActionMessage(action === 'send-link' ? 'CIS link issued successfully.' : 'Fresh CIS link issued successfully.');
+      await reloadCis();
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSendingLink(false);
+    }
+  }
+
+  async function handleReviewSignoff() {
+    if (!cisPackage || !canManageCis) {
+      return;
+    }
+
+    setIsSigningOff(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await reviewLeadCisPackage(apiBaseUrl, accessToken, cisPackage.id, {
+        ...(salesReviewNotes.trim() ? { salesReviewNotes: salesReviewNotes.trim() } : {}),
+        ...(financeCoverNotes.trim() ? { financeCoverNotes: financeCoverNotes.trim() } : {}),
+      });
+
+      setCisPackage(response);
+      setActionMessage('CIS package reviewed and signed off.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSigningOff(false);
+    }
+  }
+
+  async function handleSubmitToFinance() {
+    if (!cisPackage || !canManageCis) {
+      return;
+    }
+
+    setIsSubmittingFinance(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await submitLeadCisToFinance(apiBaseUrl, accessToken, cisPackage.id, {
+        ...(financeSubmissionNotes.trim() ? { submissionNotes: financeSubmissionNotes.trim() } : {}),
+      });
+
+      setCisPackage(response);
+      setActionMessage('CIS package submitted to finance.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmittingFinance(false);
+    }
+  }
+
+  async function handleFinanceDecision() {
+    if (!cisPackage || !canDecideFinance) {
+      return;
+    }
+
+    setIsRecordingDecision(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const payload: CisFinanceDecisionRequest = {
+        decision: financeDecision,
+        ...(financeDecisionNotes.trim() ? { decisionNotes: financeDecisionNotes.trim() } : {}),
+        ...(requestedInfoNotes.trim() ? { requestedInfoNotes: requestedInfoNotes.trim() } : {}),
+        ...(creditLineAmount.trim() ? { creditLineAmount: Number(creditLineAmount) } : {}),
+        ...(paymentTerms ? { paymentTerms } : {}),
+      };
+
+      const response = await recordLeadCisFinanceDecision(apiBaseUrl, accessToken, cisPackage.id, payload);
+
+      setCisPackage(response);
+      setActionMessage(`Finance decision recorded: ${formatFinanceDecisionStatus(response.financeDecision?.status ?? financeDecision)}.`);
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRecordingDecision(false);
+    }
+  }
+
+  return (
+    <Paper withBorder radius="xl" p="lg" className="premium-drawer-card">
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={4}>
+            <Title order={4}>CIS Workspace</Title>
+            <Text size="sm" c="dimmed">
+              Send the digital CIS, review the returned package, and route finance decisions without leaving the approved lead workspace.
+            </Text>
+          </Stack>
+          <Badge variant="light" color={cisPackage ? statusColor(cisPackage.status) : canIssueCis ? 'blue' : 'gray'}>
+            {cisPackage ? formatCisStatus(cisPackage.status) : canIssueCis ? 'Ready to send' : 'Discovery gated'}
+          </Badge>
+        </Group>
+
+        {loadError ? (
+          <Alert color="red" icon={<IconAlertCircle size={16} />}>
+            {loadError}
+          </Alert>
+        ) : null}
+
+        {actionMessage ? (
+          <Alert color="teal" icon={<IconCheck size={16} />}>
+            {actionMessage}
+          </Alert>
+        ) : null}
+
+        {actionError ? (
+          <Alert color="red" icon={<IconAlertCircle size={16} />}>
+            {actionError}
+          </Alert>
+        ) : null}
+
+        {isLoading ? <Text size="sm" c="dimmed">Loading CIS package...</Text> : null}
+
+        {!isLoading && !loadError && !cisPackage ? (
+          <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+            <Stack gap="md">
+              <Group justify="space-between" align="center">
+                <Group gap="xs">
+                  <ThemeIcon size="lg" color="blue" variant="light" radius="xl">
+                    <IconLink size={18} />
+                  </ThemeIcon>
+                  <div>
+                    <Text fw={700}>Step 1. Send & Track CIS</Text>
+                    <Text size="xs" c="dimmed">Issue the prospect-facing CIS from the lead workspace.</Text>
+                  </div>
+                </Group>
+                <Badge variant="light" color={canIssueCis ? 'blue' : 'orange'}>
+                  {canIssueCis ? 'Ready' : 'Blocked'}
+                </Badge>
+              </Group>
+
+              {!canIssueCis ? (
+                <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                  CIS is gated until discovery is complete. Move the lead into Discovery Completed first, then issue the digital link from here.
+                </Alert>
+              ) : null}
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                <TextInput
+                  label="Recipient email"
+                  value={recipientEmail}
+                  onChange={(event) => setRecipientEmail(event.currentTarget.value)}
+                  placeholder="prospect@example.com"
+                  disabled={!canManageCis || isSendingLink}
+                />
+                <TextInput
+                  label="Current lead stage"
+                  value={formatLeadStage(lead.stage)}
+                  disabled
+                />
+              </SimpleGrid>
+
+              <Textarea
+                label="Internal send note"
+                value={linkNote}
+                onChange={(event) => setLinkNote(event.currentTarget.value)}
+                placeholder="Capture any context that should travel with the CIS send event."
+                minRows={3}
+                disabled={!canManageCis || isSendingLink}
+              />
+
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">
+                  Contact: {lead.contactDisplayName || 'Not captured yet'}
+                </Text>
+                <Button
+                  leftSection={<IconSend size={16} />}
+                  onClick={() => {
+                    void handleIssueLink('send-link');
+                  }}
+                  loading={isSendingLink}
+                  disabled={!canManageCis || !canIssueCis}
+                >
+                  Send CIS link
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+        ) : null}
+
+        {cisPackage ? (
+          <>
+            <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Group gap="xs">
+                    <ThemeIcon size="lg" color="grape" variant="light" radius="xl">
+                      <IconClipboardCheck size={18} />
+                    </ThemeIcon>
+                    <div>
+                      <Text fw={700}>Package status and checkpoints</Text>
+                      <Text size="xs" c="dimmed">Follow the same send, review, and finance rhythm from the approved prototype.</Text>
+                    </div>
+                  </Group>
+                  <Badge variant="light" color={statusColor(cisPackage.status)}>
+                    {formatCisStatus(cisPackage.status)}
+                  </Badge>
+                </Group>
+
+                <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
+                  <MetricCard label="Link sends" value={String(cisPackage.externalLinkSentCount)} />
+                  <MetricCard label="Finance status" value={financeStatusLabel} />
+                  <MetricCard label="Payment method" value={formatPaymentMethod(paymentMethod)} />
+                  <MetricCard label="Card on file" value={cisPackage.formData.cardOnFileAuthorized ? 'Authorized' : 'Pending'} />
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                  <ReadOnlyField label="Last sent" value={formatOptionalDate(cisPackage.externalLinkLastSentAt)} />
+                  <ReadOnlyField label="Link expires" value={formatOptionalDate(cisPackage.externalLinkExpiresAt)} />
+                  <ReadOnlyField label="Prospect submitted" value={formatOptionalDate(cisPackage.submittedAt)} />
+                  <ReadOnlyField label="Finance decided" value={formatOptionalDate(cisPackage.financeDecidedAt)} />
+                </SimpleGrid>
+              </Stack>
+            </Card>
+
+            <Card withBorder radius="xl" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Group gap="xs">
+                    <ThemeIcon size="lg" color="blue" variant="light" radius="xl">
+                      <IconMail size={18} />
+                    </ThemeIcon>
+                    <div>
+                      <Text fw={700}>Step 1. Send & Track CIS</Text>
+                      <Text size="xs" c="dimmed">Resend the link, capture context, and open the public package when needed.</Text>
+                    </div>
+                  </Group>
+                  <Badge variant="light" color={cisPackage.submittedAt ? 'teal' : 'orange'}>
+                    {cisPackage.submittedAt ? 'Prospect submitted' : 'Awaiting prospect'}
+                  </Badge>
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                  <TextInput
+                    label="Recipient email"
+                    value={recipientEmail}
+                    onChange={(event) => setRecipientEmail(event.currentTarget.value)}
+                    placeholder="prospect@example.com"
+                    disabled={!canManageCis || isSendingLink}
+                  />
+                  <TextInput
+                    label="Entry method"
+                    value={cisPackage.entryMethod === 'digital_link' ? 'Digital link' : 'Scanned PDF'}
+                    disabled
+                  />
+                </SimpleGrid>
+
+                <Textarea
+                  label="Send note"
+                  value={linkNote}
+                  onChange={(event) => setLinkNote(event.currentTarget.value)}
+                  placeholder="Capture resend context or handoff notes."
+                  minRows={3}
+                  disabled={!canManageCis || isSendingLink}
+                />
+
+                <Group gap="sm" wrap="wrap">
+                  <Button
+                    leftSection={<IconSend size={16} />}
+                    variant="light"
+                    onClick={() => {
+                      void handleIssueLink('resend-link');
+                    }}
+                    loading={isSendingLink}
+                    disabled={!canManageCis}
+                  >
+                    Resend link
+                  </Button>
+                  {lastIssuedPublicUrl ? (
+                    <>
+                      <CopyButton value={lastIssuedPublicUrl}>
+                        {({ copied, copy }) => (
+                          <Button
+                            leftSection={copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                            variant="light"
+                            color={copied ? 'teal' : 'gray'}
+                            onClick={copy}
+                          >
+                            {copied ? 'Copied' : 'Copy link'}
+                          </Button>
+                        )}
+                      </CopyButton>
+                      <Button
+                        component="a"
+                        href={lastIssuedPublicUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        leftSection={<IconExternalLink size={16} />}
+                      >
+                        Open public CIS
+                      </Button>
+                    </>
+                  ) : null}
+                </Group>
+              </Stack>
+            </Card>
+
+            <Card withBorder radius="xl" p="lg">
+              <Stack gap="md">
+                <Group gap="xs">
+                  <ThemeIcon size="lg" color="green" variant="light" radius="xl">
+                    <IconFileDescription size={18} />
+                  </ThemeIcon>
+                  <div>
+                    <Text fw={700}>Step 2. Review CIS data</Text>
+                    <Text size="xs" c="dimmed">Review the structured package inside the same card and tab language used by the approved prototype.</Text>
+                  </div>
+                </Group>
+
+                <Tabs defaultValue="company" className="premium-tabs-shell">
+                  <Tabs.List>
+                    <Tabs.Tab value="company">Company & Contacts</Tabs.Tab>
+                    <Tabs.Tab value="ordering">Ordering & AP</Tabs.Tab>
+                    <Tabs.Tab value="payment">Payment & Signature</Tabs.Tab>
+                  </Tabs.List>
+
+                  <Tabs.Panel value="company" pt="md">
+                    <Stack gap="md">
+                      <Text fw={600} size="sm" c="blue.7">Help Us Learn About Your Company</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Company website" value={cisPackage.formData.companyWebsite} />
+                        <ReadOnlyField label="Service technicians" value={formatOptionalNumber(cisPackage.formData.numOfTechs)} />
+                        <ReadOnlyField label="Install trucks / techs" value={formatOptionalNumber(cisPackage.formData.numOfInstallTechs)} />
+                        <ReadOnlyField label="Salespeople / advisors" value={formatOptionalNumber(cisPackage.formData.numOfSalespeopleAdvisors)} />
+                        <ReadOnlyField label="Affinity / franchise" value={cisPackage.formData.affinityGroupOrFranchise} />
+                        <ReadOnlyField label="Private equity" value={cisPackage.formData.isPrivateEquity ? 'Yes' : 'No'} />
+                        <ReadOnlyField label="Parent company" value={cisPackage.formData.parentCompanyName} />
+                      </SimpleGrid>
+
+                      <Divider />
+
+                      <Text fw={600} size="sm" c="blue.7">Primary Contact</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Name" value={cisPackage.formData.primaryContactName} />
+                        <ReadOnlyField label="Title" value={cisPackage.formData.primaryContactTitle} />
+                        <ReadOnlyField label="Email" value={cisPackage.formData.primaryContactEmail} />
+                        <ReadOnlyField label="Cell phone" value={cisPackage.formData.primaryContactCellPhone} />
+                      </SimpleGrid>
+
+                      <Divider />
+
+                      <Text fw={600} size="sm" c="blue.7">Owner / General Manager</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Name" value={cisPackage.formData.ownerManagerName} />
+                        <ReadOnlyField label="Title" value={cisPackage.formData.ownerManagerTitle} />
+                        <ReadOnlyField label="Email" value={cisPackage.formData.ownerManagerEmail} />
+                        <ReadOnlyField label="Cell phone" value={cisPackage.formData.ownerManagerCellPhone} />
+                      </SimpleGrid>
+
+                      <Divider />
+
+                      <Text fw={600} size="sm" c="blue.7">Business Information as Registered</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Legal company name" value={cisPackage.formData.legalCompanyName} />
+                        <ReadOnlyField label="Company phone" value={cisPackage.formData.companyPhone} />
+                        <ReadOnlyField label="Type of business" value={cisPackage.formData.typeOfBusiness} />
+                        <ReadOnlyField label="Physical address" value={formatAddress(cisPackage.formData.physicalAddress, cisPackage.formData.physicalCity, cisPackage.formData.physicalState, cisPackage.formData.physicalZip)} />
+                        <ReadOnlyField label="Billing address" value={formatAddress(cisPackage.formData.billingAddress, cisPackage.formData.billingCity, cisPackage.formData.billingState, cisPackage.formData.billingZip)} />
+                        <ReadOnlyField label="Time in business" value={formatTenure(cisPackage.formData.yearsInBusiness, cisPackage.formData.monthsInBusiness)} />
+                      </SimpleGrid>
+                    </Stack>
+                  </Tabs.Panel>
+
+                  <Tabs.Panel value="ordering" pt="md">
+                    <Stack gap="md">
+                      <Text fw={600} size="sm" c="blue.7">Who Will Be Ordering and Accounts Payable</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Ordering contact" value={cisPackage.formData.orderingContactName} />
+                        <ReadOnlyField label="Ordering contact cell" value={cisPackage.formData.orderingContactCellPhone} />
+                        <ReadOnlyField label="Ordering contact email" value={cisPackage.formData.orderingContactEmail} />
+                        <ReadOnlyField label="Accounts payable" value={cisPackage.formData.apContactName} />
+                        <ReadOnlyField label="AP direct phone" value={cisPackage.formData.apDirectPhone} />
+                        <ReadOnlyField label="AP email" value={cisPackage.formData.apEmail} />
+                      </SimpleGrid>
+                    </Stack>
+                  </Tabs.Panel>
+
+                  <Tabs.Panel value="payment" pt="md">
+                    <Stack gap="md">
+                      <Text fw={600} size="sm" c="blue.7">Payment Authorization</Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        <ReadOnlyField label="Preferred payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
+                        <ReadOnlyField label="ACH authorized" value={cisPackage.formData.achAuthorized ? 'Yes' : 'No'} />
+                        <ReadOnlyField label="Card on file authorized" value={cisPackage.formData.cardOnFileAuthorized ? 'Yes' : 'No'} />
+                        <ReadOnlyField label="Resale certificate attached" value={cisPackage.formData.resaleCertificateAttached ? 'Yes' : 'No'} />
+                        <ReadOnlyField label="Signature captured" value={cisPackage.formData.signatureCapturedAt ? formatDateTimeLabel(cisPackage.formData.signatureCapturedAt) : 'Pending'} />
+                        <ReadOnlyField label="Prospect last saved" value={formatOptionalDate(cisPackage.formData.lastSavedAt)} />
+                      </SimpleGrid>
+                    </Stack>
+                  </Tabs.Panel>
+                </Tabs>
+              </Stack>
+            </Card>
+
+            <Card withBorder radius="xl" p="lg">
+              <Stack gap="md">
+                <Group gap="xs">
+                  <ThemeIcon size="lg" color="teal" variant="light" radius="xl">
+                    <IconClipboardCheck size={18} />
+                  </ThemeIcon>
+                  <div>
+                    <Text fw={700}>Step 3. Internal review and finance</Text>
+                    <Text size="xs" c="dimmed">Keep the send, sign-off, and finance actions in one structured workspace instead of a separate mini-app.</Text>
+                  </div>
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, xl: canDecideFinance ? 3 : 2 }} spacing="md">
+                  <Card withBorder radius="xl" p="md">
+                    <Stack gap="sm">
+                      <Text fw={600}>Sales / BD review</Text>
+                      <Textarea
+                        label="Review notes"
+                        value={salesReviewNotes}
+                        onChange={(event) => setSalesReviewNotes(event.currentTarget.value)}
+                        placeholder="Capture completeness, corrections, and prospect follow-up context."
+                        minRows={4}
+                        disabled={!canManageCis || isSigningOff}
+                      />
+                      <Textarea
+                        label="Finance cover notes"
+                        value={financeCoverNotes}
+                        onChange={(event) => setFinanceCoverNotes(event.currentTarget.value)}
+                        placeholder="Summarize the ask for finance review."
+                        minRows={4}
+                        disabled={!canManageCis || isSigningOff}
+                      />
+                      <Button
+                        onClick={() => {
+                          void handleReviewSignoff();
+                        }}
+                        loading={isSigningOff}
+                        disabled={!canManageCis || !['submitted', 'review_in_progress', 'sales_signed_off'].includes(cisPackage.status)}
+                      >
+                        Record sales sign-off
+                      </Button>
+                    </Stack>
+                  </Card>
+
+                  <Card withBorder radius="xl" p="md">
+                    <Stack gap="sm">
+                      <Text fw={600}>Finance submission</Text>
+                      <Textarea
+                        label="Submission notes"
+                        value={financeSubmissionNotes}
+                        onChange={(event) => setFinanceSubmissionNotes(event.currentTarget.value)}
+                        placeholder="Explain the requested terms or any review caveats."
+                        minRows={4}
+                        disabled={!canManageCis || isSubmittingFinance}
+                      />
+                      <ReadOnlyField label="Sales sign-off" value={formatOptionalDate(cisPackage.salesSignedOffAt)} />
+                      <ReadOnlyField label="Submitted to finance" value={formatOptionalDate(cisPackage.financeSubmittedAt)} />
+                      <Button
+                        onClick={() => {
+                          void handleSubmitToFinance();
+                        }}
+                        loading={isSubmittingFinance}
+                        disabled={!canManageCis || !['sales_signed_off', 'finance_pending'].includes(cisPackage.status)}
+                      >
+                        Submit to finance
+                      </Button>
+                    </Stack>
+                  </Card>
+
+                  {canDecideFinance ? (
+                    <Card withBorder radius="xl" p="md">
+                      <Stack gap="sm">
+                        <Text fw={600}>Finance decision</Text>
+                        <Select
+                          label="Decision"
+                          value={financeDecision}
+                          onChange={(value) => {
+                            if (value) {
+                              setFinanceDecision(value as FinanceDecisionState);
+                            }
+                          }}
+                          data={FINANCE_DECISION_OPTIONS}
+                          disabled={isRecordingDecision}
+                        />
+                        {requiresCreditTerms ? (
+                          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                            <TextInput
+                              label="Credit line amount"
+                              value={creditLineAmount}
+                              onChange={(event) => setCreditLineAmount(event.currentTarget.value)}
+                              placeholder="50000"
+                              disabled={isRecordingDecision}
+                            />
+                            <Select
+                              label="Payment terms"
+                              value={paymentTerms}
+                              onChange={(value) => {
+                                if (value) {
+                                  setPaymentTerms(value as CisPaymentTermsKey);
+                                }
+                              }}
+                              data={PAYMENT_TERM_OPTIONS.map((option) => ({
+                                value: option,
+                                label: formatPaymentTerms(option),
+                              }))}
+                              disabled={isRecordingDecision}
+                            />
+                          </SimpleGrid>
+                        ) : null}
+                        <Textarea
+                          label="Decision notes"
+                          value={financeDecisionNotes}
+                          onChange={(event) => setFinanceDecisionNotes(event.currentTarget.value)}
+                          placeholder="Capture approval terms, conditions, or decline reasons."
+                          minRows={3}
+                          disabled={isRecordingDecision}
+                        />
+                        {(financeDecision === 'conditional' || financeDecision === 'info_requested') ? (
+                          <Textarea
+                            label="Requested information"
+                            value={requestedInfoNotes}
+                            onChange={(event) => setRequestedInfoNotes(event.currentTarget.value)}
+                            placeholder="List the information or corrections finance still needs."
+                            minRows={3}
+                            disabled={isRecordingDecision}
+                          />
+                        ) : null}
+                        <Button
+                          onClick={() => {
+                            void handleFinanceDecision();
+                          }}
+                          loading={isRecordingDecision}
+                          disabled={!['finance_pending', 'finance_approved', 'finance_declined'].includes(cisPackage.status)}
+                        >
+                          Record finance decision
+                        </Button>
+                      </Stack>
+                    </Card>
+                  ) : null}
+                </SimpleGrid>
+              </Stack>
+            </Card>
+
+            {cisPackage.events.length > 0 ? (
+              <Card withBorder radius="xl" p="lg">
+                <Stack gap="sm">
+                  <Group gap="xs">
+                    <ThemeIcon size="lg" color="gray" variant="light" radius="xl">
+                      <IconMail size={18} />
+                    </ThemeIcon>
+                    <Text fw={700}>CIS timeline</Text>
+                  </Group>
+                  {cisPackage.events.slice(0, 6).map((event, index) => (
+                    <Stack key={event.id} gap={6}>
+                      {index > 0 ? <Divider /> : null}
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text fw={600}>{formatCisEvent(event.eventType)}</Text>
+                          <Text size="sm" c="dimmed">{event.note ?? 'No note captured for this step.'}</Text>
+                        </Stack>
+                        <Text size="sm" c="dimmed">{formatDateTimeLabel(event.occurredAt)}</Text>
+                      </Group>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card withBorder radius="xl" p="md" className="premium-stat-card">
+      <Stack gap={4}>
+        <Text size="xs" tt="uppercase" fw={700} c="dimmed">
+          {label}
+        </Text>
+        <Text fw={700}>{value}</Text>
+      </Stack>
+    </Card>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string | undefined }) {
+  return (
+    <Stack gap={2}>
+      <Text size="xs" tt="uppercase" fw={700} c="dimmed">
+        {label}
+      </Text>
+      <Text size="sm" fw={500}>
+        {value && value.trim() ? value : '—'}
+      </Text>
+    </Stack>
+  );
+}
+
+function statusColor(status: CisPackageDetail['status']) {
+  switch (status) {
+    case 'finance_approved':
+    case 'completed':
+      return 'green';
+    case 'sales_signed_off':
+    case 'finance_pending':
+      return 'blue';
+    case 'submitted':
+    case 'review_in_progress':
+      return 'yellow';
+    case 'finance_declined':
+      return 'red';
+    default:
+      return 'gray';
+  }
+}
+
+function formatCisStatus(status: CisPackageDetail['status']) {
+  return status.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+}
+
+function formatLeadStage(stage: LeadDetail['stage']) {
+  return stage.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+}
+
+function formatFinanceDecisionStatus(status: CisFinanceDecisionStatusKey) {
+  return status.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+}
+
+function formatPaymentMethod(value: CisPaymentMethodKey | undefined) {
+  if (!value) {
+    return 'Not selected';
+  }
+
+  return value === 'CREDIT_CARD' ? 'Credit Card' : value.replace('_', ' ');
+}
+
+function formatPaymentTerms(value: CisPaymentTermsKey) {
+  return value.replace('_', ' ');
+}
+
+function formatDateTimeLabel(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatOptionalDate(value?: string) {
+  return value ? formatDateTimeLabel(value) : '—';
+}
+
+function formatOptionalNumber(value?: number) {
+  return value !== undefined ? String(value) : '—';
+}
+
+function formatTenure(years?: number, months?: number) {
+  if (years === undefined && months === undefined) {
+    return '—';
+  }
+
+  return `${years ?? 0} years / ${months ?? 0} months`;
+}
+
+function formatAddress(address?: string, city?: string, state?: string, zip?: string) {
+  const parts = [address, city, state, zip].filter((value) => value && value.trim());
+  return parts.length > 0 ? parts.join(', ') : '—';
+}
+
+function formatCisEvent(eventType: string) {
+  return eventType.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+}

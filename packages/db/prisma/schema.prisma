@@ -59,6 +59,7 @@ enum ExternalReferenceSource {
 }
 
 enum ExternalReferenceEntityType {
+  LEAD
   ACCOUNT
   CONTACT
   LOCATION
@@ -89,6 +90,7 @@ enum DataSourceSystem {
 }
 
 enum DataRecordEntityType {
+  LEAD
   ACCOUNT
   CONTACT
   LOCATION
@@ -161,6 +163,188 @@ enum SessionAuthMethod {
   SERVICE
 }
 
+enum LeadStage {
+  NEW
+  DISCOVERY_SCHEDULED
+  DISCOVERY_COMPLETED
+  CIS_SENT
+  CIS_SIGNED
+  ONBOARDING_COMPLETED
+  CUSTOMER_ACTIVE
+}
+
+enum LeadRoutingBasis {
+  SERVICE_TECH_COUNT
+  TRUCK_COUNT
+}
+
+enum LeadRoutingTeam {
+  STRATEGIC_GROWTH
+  NATIONAL_TM
+}
+
+enum LeadCaptureMethod {
+  DIRECT_WEB_FORM
+  MANUAL_ENTRY
+  BULK_IMPORT
+  LEGACY_IMPORT
+}
+
+enum WebsiteLeadFormType {
+  HOMEOWNER
+  CONTRACTOR
+  BOTH
+}
+
+enum WebsiteLeadType {
+  HOMEOWNER
+  CONTRACTOR
+}
+
+enum WebsiteLeadSubmissionOutcome {
+  CREATED_NEW_LEAD
+  ATTACHED_TO_EXISTING_LEAD
+}
+
+enum LeadConsignmentInterestStatus {
+  NOT_DISCUSSED
+  INTERESTED
+  APPROVED
+  DECLINED
+}
+
+enum LeadConsignmentEntryTiming {
+  AT_ONBOARDING
+  LATER
+}
+
+enum LeadReadinessStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  READY
+  CONVERTED
+}
+
+enum OnboardingChecklistStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
+
+enum OnboardingChecklistItemStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  NOT_REQUIRED
+}
+
+enum LeadContactRole {
+  PRIMARY
+  OWNER_MANAGER
+  ORDERING
+  ACCOUNTS_PAYABLE
+  TECHNICAL
+  OTHER
+}
+
+enum LeadContactSource {
+  LEAD_CAPTURE
+  CIS_PRIMARY
+  CIS_OWNER_MANAGER
+  CIS_ORDERING
+  CIS_ACCOUNTS_PAYABLE
+  MANUAL
+}
+
+enum LeadConversionPreparationStatus {
+  DRAFT
+  VALIDATED
+  BLOCKED
+  CONVERTED
+}
+
+enum PortalEligibilityStatus {
+  UNASSESSED
+  BLOCKED
+  READY
+  PROVISIONED
+}
+
+enum CisPackageStatus {
+  NOT_SENT
+  LINK_SENT
+  DRAFT_IN_PROGRESS
+  SUBMITTED
+  REVIEW_IN_PROGRESS
+  SALES_SIGNED_OFF
+  FINANCE_PENDING
+  FINANCE_APPROVED
+  FINANCE_DECLINED
+  COMPLETED
+}
+
+enum CisEntryMethod {
+  DIGITAL_LINK
+  SCANNED_PDF
+}
+
+enum CisPaymentStatus {
+  NOT_STARTED
+  VAULT_PENDING
+  VAULT_COMPLETE
+  NOT_REQUIRED
+}
+
+enum CisEsignStatus {
+  NOT_STARTED
+  SIGNED
+  VENDOR_PENDING
+}
+
+enum CisPaymentMethod {
+  NET_30
+  ACH
+  CREDIT_CARD
+}
+
+enum CisDocumentType {
+  SCANNED_CIS_PDF
+  RESALE_CERTIFICATE
+  SUPPORTING_ATTACHMENT
+}
+
+enum CisParseStatus {
+  QUEUED
+  PARSED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum CisPaymentVaultProvider {
+  EBIZCHARGE
+  MONERIS
+  UNKNOWN
+}
+
+enum CisFinanceDecisionStatus {
+  NOT_SUBMITTED
+  PENDING
+  INFO_REQUESTED
+  APPROVED
+  CONDITIONAL
+  DECLINED
+}
+
+enum CisPaymentTerms {
+  NET_30
+  NET_60
+  COD
+  CUSTOM
+}
+
 model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique
@@ -179,6 +363,14 @@ model User {
   classificationExceptionsOpened   ClassificationException[] @relation("ClassificationExceptionOpenedBy")
   classificationExceptionsResolved ClassificationException[] @relation("ClassificationExceptionResolvedBy")
   migrationRunsStarted        MigrationRun[] @relation("MigrationRunStartedBy")
+  leadStageEvents             LeadStageEvent[] @relation("LeadStageEventActor")
+  cisInternalReviewsStarted   CisInternalReview[] @relation("CisInternalReviewStartedBy")
+  cisInternalReviewsSignedOff CisInternalReview[] @relation("CisInternalReviewSignedOffBy")
+  cisFinanceDecisionsSubmitted CisFinanceDecision[] @relation("CisFinanceDecisionSubmittedBy")
+  cisFinanceDecisionsDecided  CisFinanceDecision[] @relation("CisFinanceDecisionDecidedBy")
+  onboardingChecklistItemOwners OnboardingChecklistItem[] @relation("OnboardingChecklistItemOwner")
+  onboardingChecklistItemCompleted OnboardingChecklistItem[] @relation("OnboardingChecklistItemCompletedBy")
+  leadConversionPreparationsReviewed LeadConversionPreparation[] @relation("LeadConversionPreparationReviewedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -391,6 +583,7 @@ model BusinessSegmentRef {
 
   assignments      AccountSegmentAssignment[]
   accounts         Account[]
+  leads            Lead[]
   exceptions       ClassificationException[]
 
   @@index([isActive])
@@ -407,13 +600,537 @@ model LeadSourceRef {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  leads            Lead[]
+
   @@index([isActive])
   @@index([sortOrder])
+}
+
+model WebsiteLeadSite {
+  id                     String                           @id @default(uuid()) @db.Uuid
+  siteId                 String                           @unique
+  siteName               String
+  url                    String
+  brandTag               String
+  formType               WebsiteLeadFormType
+  isActive               Boolean                          @default(true)
+  notes                  String?
+  createdAt              DateTime                         @default(now())
+  updatedAt              DateTime                         @updatedAt
+
+  submissions            WebsiteLeadSubmission[]
+  notificationRecipients WebsiteLeadNotificationRecipient[]
+
+  @@index([isActive])
+  @@index([formType])
+  @@index([brandTag])
+}
+
+model WebsiteLeadNotificationRecipient {
+  id                String            @id @default(uuid()) @db.Uuid
+  websiteLeadSiteId String?           @db.Uuid
+  name              String
+  email             String
+  roleTitle         String?
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  websiteLeadSite   WebsiteLeadSite?  @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
+
+  @@unique([websiteLeadSiteId, email])
+  @@index([websiteLeadSiteId])
+  @@index([email])
+  @@index([isActive])
+}
+
+model LeadStageRef {
+  id               String    @id @default(uuid()) @db.Uuid
+  stage            LeadStage @unique
+  code             String    @unique
+  name             String
+  dashboardLabel   String?
+  description      String?
+  isActive         Boolean   @default(true)
+  isTerminal       Boolean   @default(false)
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model LeadRoutingPolicy {
+  id                  String            @id @default("default")
+  routingBasis        LeadRoutingBasis  @default(SERVICE_TECH_COUNT)
+  strategicGrowthMax  Int               @default(5)
+  notes               String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+}
+
+model Lead {
+  id                       String            @id @default(uuid()) @db.Uuid
+  companyName              String
+  contactFirstName         String?
+  contactLastName          String?
+  contactDisplayName       String
+  email                    String?
+  phone                    String?
+  state                    String?
+  countryCode              String?           @default("US")
+  businessSegmentId        String            @db.Uuid
+  leadSourceId             String            @db.Uuid
+  leadCaptureMethod        LeadCaptureMethod @default(MANUAL_ENTRY)
+  leadType                 WebsiteLeadType?
+  sourceDetail             String?
+  sourceSiteId             String?
+  sourceSiteName           String?
+  sourceBrandTag           String?
+  sourceCampaign           String?
+  leadRating               String?
+  serviceTechCount         Int
+  installTechCount         Int?
+  truckCount               Int?
+  salesPersonCount         Int?
+  affinityGroupName        String?
+  ownershipGroupName       String?
+  privateLabelName         String?
+  routingBasisSnapshot     LeadRoutingBasis
+  routingThresholdSnapshot Int
+  routingTeam              LeadRoutingTeam
+  leadOwnerName            String?
+  assignedTmName           String?
+  stage                    LeadStage         @default(NEW)
+  initialContactDueAt      DateTime?
+  initialContactedAt       DateTime?
+  discoveryCallSkipped     Boolean           @default(false)
+  discoveryScheduledAt     DateTime?
+  discoveryCompletedAt     DateTime?
+  discoveryPainPoints      String[]          @default([])
+  discoveryCurrentIaqSetup String?
+  discoveryDecisionMaker   String?
+  discoveryBuyingIntent    String?
+  consignmentInterestStatus LeadConsignmentInterestStatus?
+  consignmentEntryTiming   LeadConsignmentEntryTiming?
+  discoveryFastTrackReason String?
+  discoverySummary         String?
+  cisSentAt                DateTime?
+  cisSubmittedAt           DateTime?
+  cisSignedAt              DateTime?
+  onboardingCompletedAt    DateTime?
+  firstOrderAt             DateTime?
+  notes                    String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  businessSegment          BusinessSegmentRef @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
+  leadSource               LeadSourceRef      @relation(fields: [leadSourceId], references: [id], onDelete: Restrict)
+  extension                LeadExtension?
+  stageEvents              LeadStageEvent[]
+  cisPackages              CisPackage[]
+  leadContacts             LeadContact[]
+  readinessState           LeadReadinessState?
+  onboardingChecklist      OnboardingChecklist?
+  conversionPreparation    LeadConversionPreparation?
+  convertedAccount         Account?           @relation("LeadToAccount")
+  websiteSubmissions       WebsiteLeadSubmission[] @relation("LeadToWebsiteSubmission")
+
+  @@index([businessSegmentId])
+  @@index([leadSourceId])
+  @@index([stage])
+  @@index([routingTeam])
+  @@index([leadType])
+  @@index([state])
+  @@index([createdAt])
+  @@index([initialContactDueAt])
+}
+
+model WebsiteLeadSubmission {
+  id                String                         @id @default(uuid()) @db.Uuid
+  websiteLeadSiteId String?                        @db.Uuid
+  linkedLeadId      String?                        @db.Uuid
+  leadType          WebsiteLeadType
+  outcome           WebsiteLeadSubmissionOutcome   @default(CREATED_NEW_LEAD)
+  contactDisplayName String
+  contactFirstName  String?
+  contactLastName   String?
+  companyName       String?
+  email             String?
+  phone             String?
+  state             String?
+  countryCode       String?
+  serviceTechCount  Int?
+  installTechCount  Int?
+  truckCount        Int?
+  salesPersonCount  Int?
+  inquiryTopic      String?
+  referralSource    String?
+  referralDetail    String?
+  message           String?
+  payload           Json?
+  createdAt         DateTime                       @default(now())
+
+  websiteLeadSite   WebsiteLeadSite?               @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
+  linkedLead        Lead?                          @relation("LeadToWebsiteSubmission", fields: [linkedLeadId], references: [id], onDelete: SetNull)
+
+  @@index([websiteLeadSiteId, createdAt])
+  @@index([linkedLeadId])
+  @@index([leadType])
+  @@index([outcome])
+  @@index([email])
+}
+
+model LeadExtension {
+  leadId              String    @id @db.Uuid
+  legacyAttributes    Json?
+  sourceMetadata      Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+model LeadStageEvent {
+  id                  String    @id @default(uuid()) @db.Uuid
+  leadId              String    @db.Uuid
+  actorUserId         String?   @db.Uuid
+  fromStage           LeadStage?
+  toStage             LeadStage
+  note                String?
+  metadata            Json?
+  occurredAt          DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+
+  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor               User?     @relation("LeadStageEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, occurredAt])
+  @@index([actorUserId])
+  @@index([toStage])
+}
+
+model LeadContact {
+  id                       String            @id @default(uuid()) @db.Uuid
+  leadId                   String            @db.Uuid
+  role                     LeadContactRole
+  source                   LeadContactSource?
+  displayName              String
+  firstName                String?
+  lastName                 String?
+  title                    String?
+  email                    String?
+  phone                    String?
+  mobilePhone              String?
+  isPrimary                Boolean           @default(false)
+  isActive                 Boolean           @default(true)
+  notes                    String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  lead                     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([role])
+  @@index([email])
+  @@index([isPrimary])
+  @@index([isActive])
+}
+
+model LeadReadinessState {
+  leadId                   String                    @id @db.Uuid
+  status                   LeadReadinessStatus       @default(NOT_STARTED)
+  checklistGeneratedAt     DateTime?
+  financeApprovedAt        DateTime?
+  priceClassResolvedAt     DateTime?
+  portalAccessGrantedAt    DateTime?
+  firstOrderReadyAt        DateTime?
+  convertedAt              DateTime?
+  blockedReason            String?
+  notes                    String?
+  sourceCisPackageId       String?                   @db.Uuid
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  lead                     Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sourceCisPackage         CisPackage?               @relation(fields: [sourceCisPackageId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([financeApprovedAt])
+  @@index([firstOrderReadyAt])
+  @@index([convertedAt])
+  @@index([sourceCisPackageId])
+}
+
+model OnboardingChecklist {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  leadId                   String                    @unique @db.Uuid
+  status                   OnboardingChecklistStatus @default(NOT_STARTED)
+  startedAt                DateTime                  @default(now())
+  completedAt              DateTime?
+  blockedReason            String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  lead                     Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  items                    OnboardingChecklistItem[]
+
+  @@index([status])
+  @@index([completedAt])
+}
+
+model OnboardingChecklistItem {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  checklistId              String                       @db.Uuid
+  code                     String
+  label                    String
+  ownerRoleCode            String?
+  ownerUserId              String?                      @db.Uuid
+  status                   OnboardingChecklistItemStatus @default(PENDING)
+  required                 Boolean                      @default(true)
+  sortOrder                Int                          @default(0)
+  dueAt                    DateTime?
+  completedAt              DateTime?
+  completedByUserId        String?                      @db.Uuid
+  notes                    String?
+  metadata                 Json?
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+
+  checklist                OnboardingChecklist          @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  ownerUser                User?                        @relation("OnboardingChecklistItemOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  completedByUser          User?                        @relation("OnboardingChecklistItemCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([checklistId, code])
+  @@index([checklistId, sortOrder])
+  @@index([status])
+  @@index([ownerRoleCode])
+  @@index([ownerUserId])
+  @@index([completedByUserId])
+}
+
+model CisPackage {
+  id                       String            @id @default(uuid()) @db.Uuid
+  leadId                   String            @db.Uuid
+  status                   CisPackageStatus  @default(NOT_SENT)
+  entryMethod              CisEntryMethod
+  externalLinkTokenHash    String?           @unique
+  externalLinkExpiresAt    DateTime?
+  externalLinkLastSentAt   DateTime?
+  externalLinkSentCount    Int               @default(0)
+  submittedAt              DateTime?
+  reviewStartedAt          DateTime?
+  salesSignedOffAt         DateTime?
+  financeSubmittedAt       DateTime?
+  financeDecidedAt         DateTime?
+  completedAt              DateTime?
+  paymentStatus            CisPaymentStatus  @default(NOT_STARTED)
+  esignStatus              CisEsignStatus    @default(NOT_STARTED)
+  notes                    String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  lead                     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  formData                 CisFormData?
+  internalReview           CisInternalReview?
+  financeDecision          CisFinanceDecision?
+  events                   CisPackageEvent[]
+  documents                CisDocument[]
+  parsedDrafts             CisParsedDraft[]
+  paymentVaultReferences   CisPaymentVaultReference[]
+  readinessStates          LeadReadinessState[]
+
+  @@index([leadId, createdAt])
+  @@index([status])
+  @@index([entryMethod])
+}
+
+model CisInternalReview {
+  id                       String            @id @default(uuid()) @db.Uuid
+  cisPackageId             String            @unique @db.Uuid
+  reviewStartedByUserId    String?           @db.Uuid
+  salesReviewNotes         String?
+  salesSignedOffByUserId   String?           @db.Uuid
+  salesSignedOffAt         DateTime?
+  financeCoverNotes        String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  reviewStartedBy          User?             @relation("CisInternalReviewStartedBy", fields: [reviewStartedByUserId], references: [id], onDelete: SetNull)
+  salesSignedOffBy         User?             @relation("CisInternalReviewSignedOffBy", fields: [salesSignedOffByUserId], references: [id], onDelete: SetNull)
+
+  @@index([reviewStartedByUserId])
+  @@index([salesSignedOffByUserId])
+  @@index([salesSignedOffAt])
+}
+
+model CisFinanceDecision {
+  id                         String                    @id @default(uuid()) @db.Uuid
+  cisPackageId               String                    @unique @db.Uuid
+  status                     CisFinanceDecisionStatus  @default(NOT_SUBMITTED)
+  submittedByUserId          String?                   @db.Uuid
+  submittedAt                DateTime?
+  creditLineAmountCents      Int?
+  paymentTerms               CisPaymentTerms?
+  submissionNotes            String?
+  requestedInfoNotes         String?
+  decisionNotes              String?
+  decidedByUserId            String?                   @db.Uuid
+  decidedAt                  DateTime?
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+
+  cisPackage                 CisPackage                @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  submittedBy                User?                     @relation("CisFinanceDecisionSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  decidedBy                  User?                     @relation("CisFinanceDecisionDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([submittedByUserId])
+  @@index([decidedByUserId])
+  @@index([submittedAt])
+  @@index([decidedAt])
+}
+
+model CisFormData {
+  id                         String            @id @default(uuid()) @db.Uuid
+  cisPackageId               String            @unique @db.Uuid
+  companyWebsite             String?
+  numOfTechs                 Int?
+  numOfInstallTechs          Int?
+  numOfSalespeopleAdvisors   Int?
+  affinityGroupOrFranchise   String?
+  isPrivateEquity            Boolean           @default(false)
+  parentCompanyName          String?
+  primaryContactName         String?
+  primaryContactTitle        String?
+  primaryContactEmail        String?
+  primaryContactCellPhone    String?
+  ownerManagerName           String?
+  ownerManagerTitle          String?
+  ownerManagerEmail          String?
+  ownerManagerCellPhone      String?
+  legalCompanyName           String?
+  physicalAddress            String?
+  physicalCity               String?
+  physicalState              String?
+  physicalZip                String?
+  physicalCountryCode        String?           @default("US")
+  billingAddress            String?
+  billingCity               String?
+  billingState              String?
+  billingZip                String?
+  billingCountryCode        String?            @default("US")
+  companyPhone              String?
+  typeOfBusiness            String?
+  yearsInBusiness           Int?
+  monthsInBusiness          Int?
+  orderingContactName       String?
+  orderingContactCellPhone  String?
+  orderingContactEmail      String?
+  apContactName             String?
+  apDirectPhone             String?
+  apEmail                   String?
+  paymentMethod             CisPaymentMethod?
+  achAuthorized             Boolean           @default(false)
+  cardOnFileAuthorized      Boolean           @default(false)
+  resaleCertificateAttached Boolean           @default(false)
+  signatureCapturedAt       DateTime?
+  submittedByProspectAt     DateTime?
+  lastSavedAt               DateTime?
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  cisPackage                CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+
+  @@index([paymentMethod])
+  @@index([submittedByProspectAt])
+}
+
+model CisPackageEvent {
+  id                       String            @id @default(uuid()) @db.Uuid
+  cisPackageId             String            @db.Uuid
+  eventType                String
+  fromStatus               CisPackageStatus?
+  toStatus                 CisPackageStatus?
+  actorUserId              String?           @db.Uuid
+  actorType                String
+  note                     String?
+  metadata                 Json?
+  occurredAt               DateTime          @default(now())
+  createdAt                DateTime          @default(now())
+
+  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+
+  @@index([cisPackageId, occurredAt])
+  @@index([eventType])
+}
+
+model CisDocument {
+  id                       String            @id @default(uuid()) @db.Uuid
+  cisPackageId             String            @db.Uuid
+  documentType             CisDocumentType
+  storageKey               String
+  fileName                 String
+  mimeType                 String
+  uploadedByUserId         String?           @db.Uuid
+  uploadedAt               DateTime          @default(now())
+  sha256                   String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  parsedDrafts             CisParsedDraft[]
+
+  @@index([cisPackageId, documentType])
+}
+
+model CisParsedDraft {
+  id                       String            @id @default(uuid()) @db.Uuid
+  cisPackageId             String            @db.Uuid
+  documentId               String            @db.Uuid
+  parserVersion            String
+  parseStatus              CisParseStatus    @default(QUEUED)
+  rawExtractionText        String?
+  rawStructuredPayload     Json?
+  fieldConfidenceMap       Json?
+  safeFieldPayload         Json?
+  paymentFieldsDetected    Boolean           @default(false)
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  document                 CisDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([cisPackageId, createdAt])
+  @@index([documentId])
+  @@index([parseStatus])
+}
+
+model CisPaymentVaultReference {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  cisPackageId             String                  @db.Uuid
+  provider                 CisPaymentVaultProvider @default(UNKNOWN)
+  vaultToken               String?
+  vaultCustomerRef         String?
+  last4                    String?
+  brand                    String?
+  authorizationCapturedAt  DateTime?
+  status                   String
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  cisPackage               CisPackage              @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+
+  @@index([cisPackageId, createdAt])
+  @@index([provider])
 }
 
 model Account {
   id                         String                  @id @default(uuid()) @db.Uuid
   accountNumber              String?                 @unique
+  sourceLeadId               String?                 @unique @db.Uuid
   displayName                String
   legalName                  String?
   accountType                String?
@@ -427,16 +1144,47 @@ model Account {
   updatedAt                  DateTime                @updatedAt
 
   businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  sourceLead                 Lead?                   @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
   locations                  AccountLocation[]
   contacts                   Contact[]
   extension                  AccountExtension?
   segmentAssignments         AccountSegmentAssignment[]
   classificationExceptions    ClassificationException[]
 
+  @@index([sourceLeadId])
   @@index([businessSegmentId])
   @@index([isActive])
   @@index([accountType])
   @@index([displayName])
+}
+
+model LeadConversionPreparation {
+  leadId                   String                          @id @db.Uuid
+  status                   LeadConversionPreparationStatus @default(DRAFT)
+  targetAccountName        String?
+  legalCompanyName         String?
+  accountType              String?
+  financeAuthorityMode     String?
+  priceClassCode           String?
+  portalEligibilityStatus  PortalEligibilityStatus         @default(UNASSESSED)
+  shippingAddressSnapshot  Json?
+  billingAddressSnapshot   Json?
+  conversionReady          Boolean                         @default(false)
+  conversionBlockedReason  String?
+  notes                    String?
+  validatedAt              DateTime?
+  reviewedAt               DateTime?
+  reviewedByUserId         String?                         @db.Uuid
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+
+  lead                     Lead                           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  reviewedBy               User?                          @relation("LeadConversionPreparationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([portalEligibilityStatus])
+  @@index([conversionReady])
+  @@index([reviewedByUserId])
 }
 
 model AccountLocation {

@@ -8,6 +8,10 @@ export type AppLoggingConfig = {
   level: 'debug' | 'info' | 'warn' | 'error';
 };
 
+export type AppWebConfig = {
+  publicBaseUrl: string;
+};
+
 export type AppAcumaticaConfig = {
   baseUrl: string;
   apiVersion: string;
@@ -59,6 +63,7 @@ export type AppConfig = {
   };
   server: AppServerConfig;
   logging: AppLoggingConfig;
+  web: AppWebConfig;
   database: AppDatabaseConfig;
   acumatica: AppAcumaticaConfig;
   queue: AppQueueConfig;
@@ -85,6 +90,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     logging: {
       level: parseLogLevel(env.LOG_LEVEL),
+    },
+    web: {
+      publicBaseUrl: env.APP_WEB_BASE_URL?.trim() || 'http://localhost:3000',
     },
     database: {
       url: databaseUrl,

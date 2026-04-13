@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "jsx": "preserve",
+    "incremental": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@pulse/auth": ["../../packages/auth/dist/index.d.ts"],
+      "@pulse/auth/*": ["../../packages/auth/dist/*.d.ts"],
+      "@pulse/contracts": ["../../packages/contracts/dist/index.d.ts"],
+      "@pulse/contracts/*": ["../../packages/contracts/dist/*.d.ts"]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "noEmit": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

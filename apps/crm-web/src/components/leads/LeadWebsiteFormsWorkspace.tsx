@@ -1,0 +1,1060 @@
+'use client';
+
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import {
+  ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Code,
+  CopyButton,
+  Grid,
+  Group,
+  Modal,
+  Paper,
+  Select,
+  SegmentedControl,
+  SimpleGrid,
+  Stack,
+  Switch,
+  Table,
+  Tabs,
+  Text,
+  TextInput,
+  Textarea,
+  Timeline,
+  Title,
+  Tooltip,
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import {
+  IconAlertCircle,
+  IconArrowRight,
+  IconBell,
+  IconBrowser,
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconEye,
+  IconMail,
+  IconPlus,
+  IconRefresh,
+  IconUsers,
+  IconWorld,
+} from '@tabler/icons-react';
+import type {
+  LeadRoutingPolicySummary,
+  LeadStageKey,
+  ListWebsiteFormLeadsRequest,
+  WebsiteFormLeadSummary,
+  WebsiteLeadFormTypeKey,
+  WebsiteLeadNotificationRecipientSummary,
+  WebsiteLeadSiteSummary,
+  WebsiteLeadTypeKey,
+} from '@pulse/contracts';
+import { SessionGate } from '@/components/auth/SessionGate';
+import {
+  createWebsiteLeadNotificationRecipient,
+  createWebsiteLeadSite,
+  fetchLeadRoutingPolicy,
+  fetchWebsiteFormLeads,
+  fetchWebsiteLeadNotificationRecipients,
+  fetchWebsiteLeadSites,
+  updateWebsiteLeadNotificationRecipient,
+  updateWebsiteLeadSite,
+} from '@/lib/pulse-api';
+import { usePulseSession } from '@/lib/pulse-session';
+
+const STAGE_META: Record<LeadStageKey, { label: string; color: string }> = {
+  new: { label: 'New', color: 'blue' },
+  discovery_scheduled: { label: 'Discovery Scheduled', color: 'indigo' },
+  discovery_completed: { label: 'Discovery Completed', color: 'orange' },
+  cis_sent: { label: 'CIS Sent', color: 'grape' },
+  cis_signed: { label: 'CIS Signed', color: 'teal' },
+  onboarding_completed: { label: 'Onboarding Completed', color: 'cyan' },
+  customer_active: { label: 'Customer Active', color: 'green' },
+};
+
+type WebsiteFormsTab = 'sites' | 'notifications' | 'submissions' | 'flow';
+
+type SiteDraft = {
+  siteId: string;
+  siteName: string;
+  url: string;
+  brandTag: string;
+  formType: WebsiteLeadFormTypeKey;
+  notes: string;
+};
+
+type RecipientDraft = {
+  websiteLeadSiteId: string;
+  name: string;
+  email: string;
+  roleTitle: string;
+};
+
+const initialSiteDraft: SiteDraft = {
+  siteId: '',
+  siteName: '',
+  url: '',
+  brandTag: '',
+  formType: 'both',
+  notes: '',
+};
+
+const initialRecipientDraft: RecipientDraft = {
+  websiteLeadSiteId: '',
+  name: '',
+  email: '',
+  roleTitle: '',
+};
+
+const homeownerInquiryOptions = [
+  'Improve indoor air quality',
+  'Address odors or allergies',
+  'Whole-home IAQ consultation',
+  'Service or support request',
+];
+
+const contractorInquiryOptions = [
+  'Become a contractor partner',
+  'Product, pricing, or availability',
+  'Training and onboarding',
+  'Existing account support',
+];
+
+const referralSourceOptions = [
+  'Search engine',
+  'Dealer referral',
+  'Social media',
+  'Affinity group',
+  'Existing customer',
+];
+
+export function LeadWebsiteFormsWorkspace() {
+  const { apiBaseUrl, auth, isHydrated } = usePulseSession();
+  const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
+  const [stageFilter, setStageFilter] = useState<LeadStageKey | ''>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sites, setSites] = useState<WebsiteLeadSiteSummary[]>([]);
+  const [recipients, setRecipients] = useState<WebsiteLeadNotificationRecipientSummary[]>([]);
+  const [submissions, setSubmissions] = useState<WebsiteFormLeadSummary[]>([]);
+  const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [previewSite, setPreviewSite] = useState<WebsiteLeadSiteSummary | null>(null);
+  const [previewLeadType, setPreviewLeadType] = useState<WebsiteLeadTypeKey>('homeowner');
+  const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
+  const [siteDraft, setSiteDraft] = useState<SiteDraft>(initialSiteDraft);
+  const [recipientDraft, setRecipientDraft] = useState<RecipientDraft>(initialRecipientDraft);
+  const [siteModalOpen, setSiteModalOpen] = useState(false);
+  const [recipientModalOpen, setRecipientModalOpen] = useState(false);
+  const [isSavingSite, setIsSavingSite] = useState(false);
+  const [isSavingRecipient, setIsSavingRecipient] = useState(false);
+
+  useEffect(() => {
+    if (!auth) {
+      setSites([]);
+      setRecipients([]);
+      setSubmissions([]);
+      setRoutingPolicy(null);
+      return;
+    }
+
+    let cancelled = false;
+    const accessToken = auth.tokens.accessToken;
+
+    async function loadWebsiteFormsWorkspace() {
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const query: ListWebsiteFormLeadsRequest = {
+          ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
+          ...(stageFilter ? { stage: stageFilter } : {}),
+          limit: 200,
+        };
+
+        const [siteResponse, recipientResponse, submissionResponse, routingPolicyResponse] = await Promise.all([
+          fetchWebsiteLeadSites(apiBaseUrl, accessToken),
+          fetchWebsiteLeadNotificationRecipients(apiBaseUrl, accessToken),
+          fetchWebsiteFormLeads(apiBaseUrl, accessToken, query),
+          fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSites(siteResponse.items);
+        setRecipients(recipientResponse.items);
+        setSubmissions(submissionResponse.items);
+        setRoutingPolicy(routingPolicyResponse);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadWebsiteFormsWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, refreshNonce, searchQuery, stageFilter]);
+
+  const activeSites = sites.filter((site) => site.isActive).length;
+  const totalLeadsThisMonth = sites.reduce((sum, site) => sum + site.submissionsLast30Days, 0);
+  const totalLinkedLeads = sites.reduce((sum, site) => sum + site.linkedLeadsTotal, 0);
+  const latestWebsiteLead = submissions[0] ?? null;
+  const browserBaseUrl = typeof window !== 'undefined' ? window.location.origin : apiBaseUrl;
+
+  const activeRecipientCount = useMemo(
+    () => recipients.filter((recipient) => recipient.isActive).length,
+    [recipients],
+  );
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  if (!auth) {
+    return (
+      <SessionGate
+        title="Sign in to open Website Forms"
+        description="Website-form administration now runs on the same live Pulse session and production lead APIs as the rest of the CRM."
+      />
+    );
+  }
+
+  const accessToken = auth.tokens.accessToken;
+
+  const openPreview = (site: WebsiteLeadSiteSummary) => {
+    setPreviewSite(site);
+    setPreviewLeadType(site.formType === 'contractor' ? 'contractor' : 'homeowner');
+  };
+
+  async function handleToggleSite(site: WebsiteLeadSiteSummary) {
+    try {
+      const updated = await updateWebsiteLeadSite(apiBaseUrl, accessToken, site.id, {
+        isActive: !site.isActive,
+      });
+
+      setSites((current) => current.map((entry) => (
+        entry.id === site.id
+          ? {
+              ...entry,
+              ...updated,
+              submissionsLast30Days: entry.submissionsLast30Days,
+              linkedLeadsTotal: entry.linkedLeadsTotal,
+              activePipelineLeads: entry.activePipelineLeads,
+              convertedLeads: entry.convertedLeads,
+              conversionRate: entry.conversionRate,
+              ...(entry.recentSubmissionAt ? { recentSubmissionAt: entry.recentSubmissionAt } : {}),
+            }
+          : entry
+      )));
+      notifications.show({
+        title: 'Website updated',
+        message: `${site.siteName} is now ${updated.isActive ? 'active' : 'inactive'} for Pulse-native capture.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Website update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    }
+  }
+
+  async function handleToggleRecipient(recipient: WebsiteLeadNotificationRecipientSummary) {
+    try {
+      const updated = await updateWebsiteLeadNotificationRecipient(
+        apiBaseUrl,
+        accessToken,
+        recipient.id,
+        { isActive: !recipient.isActive },
+      );
+
+      setRecipients((current) => current.map((entry) => (entry.id === recipient.id ? updated : entry)));
+      notifications.show({
+        title: 'Recipient updated',
+        message: `${updated.name} is now ${updated.isActive ? 'active' : 'inactive'} for website-form alerts.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Recipient update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    }
+  }
+
+  async function handleCreateSite() {
+    setIsSavingSite(true);
+    try {
+      const payload = {
+        siteId: siteDraft.siteId,
+        siteName: siteDraft.siteName,
+        url: siteDraft.url,
+        brandTag: siteDraft.brandTag,
+        formType: siteDraft.formType,
+        ...(siteDraft.notes.trim() ? { notes: siteDraft.notes.trim() } : {}),
+      };
+      const created = await createWebsiteLeadSite(apiBaseUrl, accessToken, payload);
+
+      setSites((current) => [...current, created].sort((left, right) => left.siteName.localeCompare(right.siteName)));
+      setSiteDraft(initialSiteDraft);
+      setSiteModalOpen(false);
+      notifications.show({
+        title: 'Website added',
+        message: `${created.siteName} is now configured for Pulse-native capture.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Website creation failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingSite(false);
+    }
+  }
+
+  async function handleCreateRecipient() {
+    setIsSavingRecipient(true);
+    try {
+      const payload = {
+        ...(recipientDraft.websiteLeadSiteId ? { websiteLeadSiteId: recipientDraft.websiteLeadSiteId } : {}),
+        name: recipientDraft.name,
+        email: recipientDraft.email,
+        ...(recipientDraft.roleTitle.trim() ? { roleTitle: recipientDraft.roleTitle.trim() } : {}),
+      };
+      const created = await createWebsiteLeadNotificationRecipient(apiBaseUrl, accessToken, payload);
+
+      setRecipients((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
+      setRecipientDraft(initialRecipientDraft);
+      setRecipientModalOpen(false);
+      notifications.show({
+        title: 'Recipient added',
+        message: `${created.name} will now receive website-form alerts.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Recipient creation failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingRecipient(false);
+    }
+  }
+
+  return (
+    <Stack gap="md">
+      <Paper withBorder radius="md" p="lg">
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={4}>
+            <Title order={1}>Pulse Website Lead Forms</Title>
+            <Text size="sm" c="dimmed">
+              Manage homeowner and contractor forms embedded across branded websites. Each submission now posts directly into
+              Pulse CRM with governed site, brand, and lead-type tagging.
+            </Text>
+            <Group gap="xs">
+              <Badge color="blue" variant="light">HubSpot Replaced</Badge>
+              <Badge color="cyan" variant="light">{activeSites} Active Sites</Badge>
+              <Badge color="grape" variant="light">{activeRecipientCount} Active Alert Recipients</Badge>
+            </Group>
+          </Stack>
+          <Group gap="sm">
+            <Button leftSection={<IconPlus size={16} />} onClick={() => setSiteModalOpen(true)}>
+              Add Website
+            </Button>
+            <Button variant="light" leftSection={<IconRefresh size={16} />} onClick={() => setRefreshNonce((value) => value + 1)} loading={isLoading}>
+              Refresh
+            </Button>
+          </Group>
+        </Group>
+      </Paper>
+
+      <Alert color="blue" variant="light">
+        Pulse CRM is the lead-capture engine behind the branded-site forms. SolaceAir-style homeowner and contractor forms are
+        rendered on each site, then submitted straight into the residential lead workflow without a third-party handoff.
+      </Alert>
+
+      {errorMessage ? (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {errorMessage}
+        </Alert>
+      ) : null}
+
+      <SimpleGrid cols={{ base: 2, md: 4 }}>
+        <MetricCard
+          label="Active Sites"
+          value={String(activeSites)}
+          helper={`of ${sites.length} configured`}
+          icon={<IconWorld size={20} />}
+        />
+        <MetricCard
+          label="Leads This Month"
+          value={String(totalLeadsThisMonth)}
+          helper="Directly posted into Pulse CRM"
+          icon={<IconCheck size={20} />}
+          accent="blue"
+        />
+        <MetricCard
+          label="All-Time Leads"
+          value={String(totalLinkedLeads)}
+          helper="Across all branded websites"
+          icon={<IconUsers size={20} />}
+        />
+        <MetricCard
+          label="Alert Recipients"
+          value={String(activeRecipientCount)}
+          helper="Operational email recipients"
+          icon={<IconBell size={20} />}
+          accent="green"
+        />
+      </SimpleGrid>
+
+      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as WebsiteFormsTab) ?? 'sites')}>
+        <Tabs.List>
+          <Tabs.Tab value="sites" leftSection={<IconWorld size={16} />}>Websites ({sites.length})</Tabs.Tab>
+          <Tabs.Tab value="notifications" leftSection={<IconBell size={16} />}>Notifications</Tabs.Tab>
+          <Tabs.Tab value="submissions" leftSection={<IconUsers size={16} />}>Recent Submissions</Tabs.Tab>
+          <Tabs.Tab value="flow" leftSection={<IconArrowRight size={16} />}>Submission Flow</Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="sites" pt="md">
+          <Paper withBorder radius="md" p="md">
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Website</Table.Th>
+                  <Table.Th>Brand</Table.Th>
+                  <Table.Th>Form Type</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Submissions (30d)</Table.Th>
+                  <Table.Th>Leads (Total)</Table.Th>
+                  <Table.Th>Conv. Rate</Table.Th>
+                  <Table.Th>Actions</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {sites.map((site) => (
+                  <Table.Tr key={site.id}>
+                    <Table.Td>
+                      <Text fw={500} size="sm">{site.siteName}</Text>
+                      <Text size="xs" c="dimmed">{site.url}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge variant="light">{site.brandTag}</Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge variant="outline" size="sm" color={site.formType === 'both' ? 'blue' : site.formType === 'contractor' ? 'teal' : 'grape'}>
+                        {getFormTypeLabel(site.formType)}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Switch
+                        checked={site.isActive}
+                        onChange={() => void handleToggleSite(site)}
+                        size="sm"
+                        color="green"
+                      />
+                    </Table.Td>
+                    <Table.Td fw={600}>{site.submissionsLast30Days}</Table.Td>
+                    <Table.Td>{site.linkedLeadsTotal}</Table.Td>
+                    <Table.Td>
+                      <Badge color={site.conversionRate > 25 ? 'green' : site.conversionRate > 15 ? 'blue' : 'orange'} variant="light">
+                        {site.conversionRate}%
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs">
+                        <Tooltip label="Preview form">
+                          <ActionIcon variant="subtle" color="blue" onClick={() => openPreview(site)}>
+                            <IconEye size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Get embed code">
+                          <ActionIcon variant="subtle" color="teal" onClick={() => setEmbedSite(site)}>
+                            <IconCode size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Open hosted form">
+                          <ActionIcon component={Link} href={`/forms/lead/${site.siteId}`} target="_blank" variant="subtle" color="grape">
+                            <IconBrowser size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="notifications" pt="md">
+          <Paper withBorder radius="md" p="lg">
+            <Stack gap="md">
+              <Group justify="space-between">
+                <Stack gap={2}>
+                  <Title order={4}>Lead Notification Recipients</Title>
+                  <Text size="sm" c="dimmed">
+                    These recipients get an immediate operational email when any branded website form submits into Pulse CRM.
+                  </Text>
+                </Stack>
+                <Button variant="outline" leftSection={<IconPlus size={16} />} onClick={() => setRecipientModalOpen(true)}>
+                  Add Recipient
+                </Button>
+              </Group>
+
+              <Table>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th>Email</Table.Th>
+                    <Table.Th>Role</Table.Th>
+                    <Table.Th>Scope</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {recipients.map((recipient) => {
+                    const scopedSite = sites.find((site) => site.id === recipient.websiteLeadSiteId);
+                    return (
+                      <Table.Tr key={recipient.id}>
+                        <Table.Td fw={500}>{recipient.name}</Table.Td>
+                        <Table.Td>{recipient.email}</Table.Td>
+                        <Table.Td>{recipient.roleTitle ?? 'Operational recipient'}</Table.Td>
+                        <Table.Td>{scopedSite ? scopedSite.siteName : 'All branded sites'}</Table.Td>
+                        <Table.Td>
+                          <Switch
+                            checked={recipient.isActive}
+                            onChange={() => void handleToggleRecipient(recipient)}
+                            size="sm"
+                            color="green"
+                          />
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </Stack>
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="submissions" pt="md">
+          <Stack gap="md">
+            <Paper withBorder radius="md" p="md">
+              <Group gap="sm" wrap="wrap" align="flex-end">
+                <TextInput
+                  placeholder="Search company, contact, site, or email..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                  style={{ flex: '1 1 320px' }}
+                />
+                <Select
+                  placeholder="Stage"
+                  value={stageFilter}
+                  onChange={(value) => setStageFilter((value as LeadStageKey | null) ?? '')}
+                  data={Object.entries(STAGE_META).map(([stage, meta]) => ({
+                    value: stage,
+                    label: meta.label,
+                  }))}
+                  clearable
+                  w={220}
+                />
+                {latestWebsiteLead ? (
+                  <Button component={Link} href={`/leads/${latestWebsiteLead.id}`} variant="light" color="cyan">
+                    Open Latest Website Lead
+                  </Button>
+                ) : null}
+              </Group>
+            </Paper>
+
+            <Paper withBorder radius="md" p="sm">
+              {submissions.length === 0 ? (
+                <Text size="sm" c="dimmed" p="md">
+                  Recent website submissions will appear here once branded-site intake hits the production lead source.
+                </Text>
+              ) : (
+                <Table.ScrollContainer minWidth={1180}>
+                  <Table highlightOnHover verticalSpacing="sm">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Captured</Table.Th>
+                        <Table.Th>Company</Table.Th>
+                        <Table.Th>Contact</Table.Th>
+                        <Table.Th>Website</Table.Th>
+                        <Table.Th>Brand</Table.Th>
+                        <Table.Th>Stage</Table.Th>
+                        <Table.Th>Routing</Table.Th>
+                        <Table.Th>Capture Method</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {submissions.map((lead) => (
+                        <Table.Tr key={lead.id}>
+                          <Table.Td>{formatDateTimeLabel(lead.createdAt)}</Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={600}>{lead.companyName}</Text>
+                              <Text size="xs" c="dimmed">{lead.sourceDetail ?? lead.leadSourceName}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{lead.contactDisplayName}</Text>
+                              <Text size="xs" c="dimmed">{lead.email ?? lead.phone ?? 'No direct contact captured'}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{lead.sourceSiteName ?? 'Site tag missing'}</Text>
+                              <Text size="xs" c="dimmed">{lead.sourceSiteId ?? 'No site ID captured'}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            {lead.sourceBrandTag ? <Badge color="blue" variant="light">{lead.sourceBrandTag}</Badge> : <Badge variant="outline">Missing</Badge>}
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge color={STAGE_META[lead.stage].color} variant="light">
+                              {STAGE_META[lead.stage].label}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'} variant="light">
+                              {formatRoutingTeam(lead.routingTeam)}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>{formatCaptureMethod(lead.leadCaptureMethod)}</Table.Td>
+                          <Table.Td>
+                            <Button component={Link} href={`/leads/${lead.id}`} size="xs" variant="light">
+                              Open Lead
+                            </Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
+            </Paper>
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="flow" pt="md">
+          <Paper withBorder radius="md" p="lg">
+            <Title order={4} mb="md">Pulse Website Submission Flow</Title>
+            <Timeline active={4} bulletSize={28} lineWidth={2}>
+              <Timeline.Item bullet={<IconBrowser size={16} />} title="1. Branded website form renders">
+                <Text c="dimmed" size="sm">
+                  A homeowner or contractor fills out the Pulse-powered form embedded on a branded site. Sites can run
+                  homeowner-only, contractor-only, or dual-mode templates.
+                </Text>
+              </Timeline.Item>
+              <Timeline.Item bullet={<IconArrowRight size={16} />} title="2. Pulse CRM ingests the submission">
+                <Text c="dimmed" size="sm">
+                  The form posts directly to <Code>POST /api/v1/public/leads/capture</Code> with site, brand, and lead-type
+                  metadata. No HubSpot or third-party relay is required.
+                </Text>
+              </Timeline.Item>
+              <Timeline.Item bullet={<IconUsers size={16} />} title="3. Residential lead record is created or linked">
+                <Text c="dimmed" size="sm">
+                  Pulse normalizes the payload, tags the source website, and now records each submission separately so repeat
+                  submissions can attach to an existing in-flight lead instead of silently duplicating data.
+                </Text>
+              </Timeline.Item>
+              <Timeline.Item bullet={<IconMail size={16} />} title="4. Operational notifications fire">
+                <Text c="dimmed" size="sm">
+                  The configured intake recipients receive immediate operational alerts with site, contact, and inquiry details
+                  so follow-up starts without leaving Pulse CRM.
+                </Text>
+              </Timeline.Item>
+              <Timeline.Item bullet={<IconCheck size={16} />} title="5. SLA and workflow tracking begin">
+                <Text c="dimmed" size="sm">
+                  The lead enters the same governed workspace used for discovery, CIS, onboarding readiness, finance review, and
+                  first-order activation.
+                </Text>
+              </Timeline.Item>
+            </Timeline>
+
+            {routingPolicy ? (
+              <Alert mt="lg" color="blue" variant="light">
+                Current routing rule: {formatRoutingBasis(routingPolicy.routingBasis)} with Strategic Growth through{' '}
+                {routingPolicy.strategicGrowthMax} and National TM from {routingPolicy.nationalTmMin}.
+              </Alert>
+            ) : null}
+          </Paper>
+        </Tabs.Panel>
+      </Tabs>
+
+      <Modal
+        opened={embedSite !== null}
+        onClose={() => setEmbedSite(null)}
+        title={embedSite ? `Embed Code - ${embedSite.siteName}` : ''}
+        size="lg"
+      >
+        {embedSite ? (
+          <Stack gap="md">
+            <Alert color="blue" variant="light">
+              Copy this snippet into the branded contact page for <strong>{embedSite.siteName}</strong>. The form will render from
+              Pulse CRM and post directly into the live lead-capture endpoint.
+            </Alert>
+            <Code block style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
+              {generateEmbedCode(embedSite, browserBaseUrl)}
+            </Code>
+            <CopyButton value={generateEmbedCode(embedSite, browserBaseUrl)}>
+              {({ copied, copy }) => (
+                <Button
+                  color={copied ? 'green' : 'blue'}
+                  onClick={copy}
+                  leftSection={copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                >
+                  {copied ? 'Copied!' : 'Copy Embed Code'}
+                </Button>
+              )}
+            </CopyButton>
+            <Button component={Link} href={`/forms/lead/${embedSite.siteId}`} target="_blank" variant="outline">
+              Open Hosted Form
+            </Button>
+          </Stack>
+        ) : null}
+      </Modal>
+
+      <Modal
+        opened={previewSite !== null}
+        onClose={() => setPreviewSite(null)}
+        title={previewSite ? `Form Preview - ${previewSite.siteName}` : ''}
+        size="xl"
+      >
+        {previewSite ? (
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 7 }}>
+              <Card withBorder p="lg" radius="md">
+                {renderPreviewForm(previewSite, previewLeadType, setPreviewLeadType)}
+              </Card>
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 5 }}>
+              <Paper p="md" bg="gray.0" radius="md">
+                <Stack gap="sm">
+                  <Title order={5}>Pulse CRM Intake Outcome</Title>
+                  <Text size="xs" c="dimmed">1. Source tagged as &quot;{previewSite.siteName}&quot;</Text>
+                  <Text size="xs" c="dimmed">2. Brand tagged as &quot;{previewSite.brandTag}&quot;</Text>
+                  <Text size="xs" c="dimmed">3. Lead type stored as &quot;{resolvePreviewLeadType(previewSite.formType, previewLeadType)}&quot;</Text>
+                  <Text size="xs" c="dimmed">4. Website submission record is preserved for audit and analytics</Text>
+                  <Text size="xs" c="dimmed">5. Residential lead is created or linked inside the main pipeline</Text>
+                  <Text size="xs" c="dimmed">6. Team notifications fire for follow-up</Text>
+                </Stack>
+              </Paper>
+            </Grid.Col>
+          </Grid>
+        ) : null}
+      </Modal>
+
+      <Modal opened={siteModalOpen} onClose={() => setSiteModalOpen(false)} title="Add Website" size="lg">
+        <Stack gap="md">
+          <TextInput
+            label="Site ID"
+            value={siteDraft.siteId}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, siteId: event.currentTarget.value }))}
+            placeholder="solace-air"
+          />
+          <TextInput
+            label="Site Name"
+            value={siteDraft.siteName}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, siteName: event.currentTarget.value }))}
+            placeholder="SolaceAir.com"
+          />
+          <TextInput
+            label="Website URL"
+            value={siteDraft.url}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, url: event.currentTarget.value }))}
+            placeholder="https://example.com/contact-us"
+          />
+          <Group grow>
+            <TextInput
+              label="Brand Tag"
+              value={siteDraft.brandTag}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, brandTag: event.currentTarget.value.toUpperCase() }))}
+              placeholder="SLA"
+            />
+            <Select
+              label="Form Type"
+              value={siteDraft.formType}
+              onChange={(value) => setSiteDraft((current) => ({ ...current, formType: (value as WebsiteLeadFormTypeKey | null) ?? 'both' }))}
+              data={[
+                { value: 'homeowner', label: 'Homeowner Only' },
+                { value: 'contractor', label: 'Contractor Only' },
+                { value: 'both', label: 'Homeowner + Contractor' },
+              ]}
+            />
+          </Group>
+          <Textarea
+            label="Notes"
+            value={siteDraft.notes}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, notes: event.currentTarget.value }))}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setSiteModalOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleCreateSite()} loading={isSavingSite}>Create Website</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={recipientModalOpen} onClose={() => setRecipientModalOpen(false)} title="Add Recipient" size="md">
+        <Stack gap="md">
+          <Select
+            label="Scope"
+            value={recipientDraft.websiteLeadSiteId}
+            onChange={(value) => setRecipientDraft((current) => ({ ...current, websiteLeadSiteId: value ?? '' }))}
+            data={[
+              { value: '', label: 'All branded sites' },
+              ...sites.map((site) => ({ value: site.id, label: site.siteName })),
+            ]}
+          />
+          <TextInput
+            label="Name"
+            value={recipientDraft.name}
+            onChange={(event) => setRecipientDraft((current) => ({ ...current, name: event.currentTarget.value }))}
+          />
+          <TextInput
+            label="Email"
+            value={recipientDraft.email}
+            onChange={(event) => setRecipientDraft((current) => ({ ...current, email: event.currentTarget.value }))}
+          />
+          <TextInput
+            label="Role"
+            value={recipientDraft.roleTitle}
+            onChange={(event) => setRecipientDraft((current) => ({ ...current, roleTitle: event.currentTarget.value }))}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setRecipientModalOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleCreateRecipient()} loading={isSavingRecipient}>Add Recipient</Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </Stack>
+  );
+}
+
+function renderPreviewForm(
+  site: WebsiteLeadSiteSummary,
+  previewLeadType: WebsiteLeadTypeKey,
+  setPreviewLeadType: (value: WebsiteLeadTypeKey) => void,
+) {
+  const resolvedLeadType = resolvePreviewLeadType(site.formType, previewLeadType);
+
+  return (
+    <Stack gap="md">
+      <Stack gap={0} align="center">
+        <Title order={2} ta="center">Contact an IAQ Professional</Title>
+        <Text ta="center" fw={700} size="lg">Protect your Indoor Space</Text>
+        <Text ta="center" c="dimmed">{site.siteName}</Text>
+      </Stack>
+
+      {site.formType === 'both' ? (
+        <SegmentedControl
+          fullWidth
+          value={resolvedLeadType}
+          onChange={(value) => setPreviewLeadType(value as WebsiteLeadTypeKey)}
+          data={[
+            { label: 'Homeowner', value: 'homeowner' },
+            { label: 'Contractor', value: 'contractor' },
+          ]}
+        />
+      ) : (
+        <Badge variant="light" color={resolvedLeadType === 'homeowner' ? 'grape' : 'teal'} w="fit-content">
+          {resolvedLeadType === 'homeowner' ? 'Homeowner Form' : 'Contractor Form'}
+        </Badge>
+      )}
+
+      {resolvedLeadType === 'homeowner' ? (
+        <>
+          <Grid gutter="md">
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="First name" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Last name" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Email" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Mobile phone number or Direct phone" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Street address" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="City" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="State/Region" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Zip Code" readOnly />
+            </Grid.Col>
+          </Grid>
+          <Select label="For Homeowners: How can we help?" placeholder="Please Select" data={homeownerInquiryOptions} disabled />
+          <Textarea label="Please provide a brief summary of your request:" minRows={4} readOnly />
+          <Checkbox label="I agree to receive other communications from Dynamic AQS." readOnly />
+        </>
+      ) : (
+        <>
+          <Text size="sm" c="dimmed">Please select customer type:</Text>
+          <Group gap="xl">
+            <Checkbox label="New Customer" readOnly />
+            <Checkbox label="Existing Customer" readOnly />
+          </Group>
+          <Grid gutter="md">
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="First name" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Last name" readOnly />
+            </Grid.Col>
+            <Grid.Col span={12}>
+              <TextInput label="Company name" readOnly />
+            </Grid.Col>
+            <Grid.Col span={12}>
+              <TextInput label="# of Service Technicians" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Email" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Mobile phone number or Direct phone" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Street address" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="City" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="State/Region" readOnly />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput label="Zip Code" readOnly />
+            </Grid.Col>
+          </Grid>
+          <Select label="For HVAC Contractors, I am inquiring about:" placeholder="Please Select" data={contractorInquiryOptions} disabled />
+          <Textarea label="Please provide a brief summary of your request:" minRows={4} readOnly />
+          <Select label="How did you hear about us?" placeholder="Please Select" data={referralSourceOptions} disabled />
+          <TextInput label="Who can we thank for referring you?" readOnly />
+        </>
+      )}
+
+      <Button fullWidth>Submit</Button>
+      <Text size="xs" c="dimmed" ta="center">Powered by Pulse CRM</Text>
+    </Stack>
+  );
+}
+
+function resolvePreviewLeadType(formType: WebsiteLeadFormTypeKey, previewLeadType: WebsiteLeadTypeKey): WebsiteLeadTypeKey {
+  if (formType === 'homeowner') {
+    return 'homeowner';
+  }
+  if (formType === 'contractor') {
+    return 'contractor';
+  }
+  return previewLeadType;
+}
+
+function generateEmbedCode(site: WebsiteLeadSiteSummary, browserBaseUrl: string) {
+  return `<!-- Pulse Website Form - ${site.siteName} -->
+<iframe
+  src="${browserBaseUrl}/forms/lead/${site.siteId}"
+  title="Pulse Lead Capture - ${site.siteName}"
+  style="width:100%;min-height:980px;border:0;border-radius:16px;"
+  loading="lazy">
+</iframe>`;
+}
+
+function MetricCard({
+  label,
+  value,
+  helper,
+  icon,
+  accent = 'dark',
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  icon: ReactNode;
+  accent?: string;
+}) {
+  return (
+    <Card withBorder p="lg">
+      <Group justify="space-between" align="flex-start">
+        <Stack gap={4}>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{label}</Text>
+          <Text size="xl" fw={700} c={accent}>{value}</Text>
+          <Text size="xs" c="dimmed">{helper}</Text>
+        </Stack>
+        <ActionIcon variant="light" color="blue" size="lg" radius="xl">
+          {icon}
+        </ActionIcon>
+      </Group>
+    </Card>
+  );
+}
+
+function getFormTypeLabel(formType: WebsiteLeadFormTypeKey) {
+  if (formType === 'both') return 'Homeowner + Contractor';
+  if (formType === 'contractor') return 'Contractor Only';
+  return 'Homeowner Only';
+}
+
+function formatCaptureMethod(value: string) {
+  switch (value) {
+    case 'direct_web_form':
+      return 'Direct web form';
+    case 'manual_entry':
+      return 'Manual entry';
+    case 'bulk_import':
+      return 'Bulk import';
+    case 'legacy_import':
+      return 'Legacy import';
+    default:
+      return value;
+  }
+}
+
+function formatRoutingBasis(value: string) {
+  return value === 'service_tech_count' ? 'Service tech count' : 'Truck count';
+}
+
+function formatRoutingTeam(value: string) {
+  return value === 'strategic_growth' ? 'Strategic Growth' : 'National TM';
+}
+
+function formatDateTimeLabel(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}

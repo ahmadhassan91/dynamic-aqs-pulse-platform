@@ -1,0 +1,813 @@
+import type { CisFinanceDecisionStatusKey } from './cis.js';
+
+export const LEAD_STAGES = [
+  'new',
+  'discovery_scheduled',
+  'discovery_completed',
+  'cis_sent',
+  'cis_signed',
+  'onboarding_completed',
+  'customer_active',
+] as const;
+
+export type LeadStageKey = (typeof LEAD_STAGES)[number];
+
+export const LEAD_ROUTING_BASES = [
+  'service_tech_count',
+  'truck_count',
+] as const;
+
+export type LeadRoutingBasisKey = (typeof LEAD_ROUTING_BASES)[number];
+
+export const LEAD_ROUTING_TEAMS = [
+  'strategic_growth',
+  'national_tm',
+] as const;
+
+export type LeadRoutingTeamKey = (typeof LEAD_ROUTING_TEAMS)[number];
+
+export const LEAD_CAPTURE_METHODS = [
+  'direct_web_form',
+  'manual_entry',
+  'bulk_import',
+  'legacy_import',
+] as const;
+
+export type LeadCaptureMethodKey = (typeof LEAD_CAPTURE_METHODS)[number];
+
+export const WEBSITE_LEAD_FORM_TYPES = [
+  'homeowner',
+  'contractor',
+  'both',
+] as const;
+
+export type WebsiteLeadFormTypeKey = (typeof WEBSITE_LEAD_FORM_TYPES)[number];
+
+export const WEBSITE_LEAD_TYPES = [
+  'homeowner',
+  'contractor',
+] as const;
+
+export type WebsiteLeadTypeKey = (typeof WEBSITE_LEAD_TYPES)[number];
+
+export const WEBSITE_LEAD_SUBMISSION_OUTCOMES = [
+  'created_new_lead',
+  'attached_to_existing_lead',
+] as const;
+
+export type WebsiteLeadSubmissionOutcomeKey = (typeof WEBSITE_LEAD_SUBMISSION_OUTCOMES)[number];
+
+export const LEAD_CONSIGNMENT_INTEREST_STATUSES = [
+  'not_discussed',
+  'interested',
+  'approved',
+  'declined',
+] as const;
+
+export type LeadConsignmentInterestStatusKey = (typeof LEAD_CONSIGNMENT_INTEREST_STATUSES)[number];
+
+export const LEAD_CONSIGNMENT_ENTRY_TIMINGS = [
+  'at_onboarding',
+  'later',
+] as const;
+
+export type LeadConsignmentEntryTimingKey = (typeof LEAD_CONSIGNMENT_ENTRY_TIMINGS)[number];
+
+export const LEAD_WORKFLOW_QUEUE_VIEWS = [
+  'all',
+  'urgent',
+  'stagnant',
+] as const;
+
+export type LeadWorkflowQueueViewKey = (typeof LEAD_WORKFLOW_QUEUE_VIEWS)[number];
+
+export const LEAD_WORKFLOW_ACTION_TYPES = [
+  'call',
+  'email',
+  'task',
+] as const;
+
+export type LeadWorkflowActionTypeKey = (typeof LEAD_WORKFLOW_ACTION_TYPES)[number];
+
+export const LEAD_WORKFLOW_URGENCY_LEVELS = [
+  'high',
+  'medium',
+  'low',
+] as const;
+
+export type LeadWorkflowUrgencyKey = (typeof LEAD_WORKFLOW_URGENCY_LEVELS)[number];
+
+export const LEAD_READINESS_STATUSES = [
+  'not_started',
+  'in_progress',
+  'blocked',
+  'ready',
+  'converted',
+] as const;
+
+export type LeadReadinessStatusKey = (typeof LEAD_READINESS_STATUSES)[number];
+
+export const ONBOARDING_CHECKLIST_STATUSES = [
+  'not_started',
+  'in_progress',
+  'blocked',
+  'completed',
+] as const;
+
+export type OnboardingChecklistStatusKey = (typeof ONBOARDING_CHECKLIST_STATUSES)[number];
+
+export const ONBOARDING_CHECKLIST_ITEM_STATUSES = [
+  'pending',
+  'in_progress',
+  'blocked',
+  'completed',
+  'not_required',
+] as const;
+
+export type OnboardingChecklistItemStatusKey = (typeof ONBOARDING_CHECKLIST_ITEM_STATUSES)[number];
+
+export const LEAD_CONTACT_ROLES = [
+  'primary',
+  'owner_manager',
+  'ordering',
+  'accounts_payable',
+  'technical',
+  'other',
+] as const;
+
+export type LeadContactRoleKey = (typeof LEAD_CONTACT_ROLES)[number];
+
+export const LEAD_CONTACT_SOURCES = [
+  'lead_capture',
+  'cis_primary',
+  'cis_owner_manager',
+  'cis_ordering',
+  'cis_accounts_payable',
+  'manual',
+] as const;
+
+export type LeadContactSourceKey = (typeof LEAD_CONTACT_SOURCES)[number];
+
+export const LEAD_CONVERSION_PREPARATION_STATUSES = [
+  'draft',
+  'validated',
+  'blocked',
+  'converted',
+] as const;
+
+export type LeadConversionPreparationStatusKey = (typeof LEAD_CONVERSION_PREPARATION_STATUSES)[number];
+
+export const PORTAL_ELIGIBILITY_STATUSES = [
+  'unassessed',
+  'blocked',
+  'ready',
+  'provisioned',
+] as const;
+
+export type PortalEligibilityStatusKey = (typeof PORTAL_ELIGIBILITY_STATUSES)[number];
+
+export const LEAD_IMPORT_TARGET_FIELDS = [
+  'companyName',
+  'contactFirstName',
+  'contactLastName',
+  'contactDisplayName',
+  'email',
+  'phone',
+  'state',
+  'countryCode',
+  'sourceDetail',
+  'leadRating',
+  'serviceTechCount',
+  'installTechCount',
+  'truckCount',
+  'salesPersonCount',
+  'affinityGroupName',
+  'ownershipGroupName',
+  'privateLabelName',
+  'notes',
+] as const;
+
+export type LeadImportTargetFieldKey = (typeof LEAD_IMPORT_TARGET_FIELDS)[number];
+
+export interface LeadSummary {
+  id: string;
+  companyName: string;
+  contactDisplayName: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  countryCode?: string;
+  businessSegmentCode: string;
+  leadSourceCode: string;
+  leadSourceName: string;
+  leadCaptureMethod: LeadCaptureMethodKey;
+  leadType?: WebsiteLeadTypeKey;
+  sourceDetail?: string;
+  sourceSiteId?: string;
+  sourceSiteName?: string;
+  sourceBrandTag?: string;
+  serviceTechCount: number;
+  installTechCount?: number;
+  truckCount?: number;
+  salesPersonCount?: number;
+  affinityGroupName?: string;
+  ownershipGroupName?: string;
+  privateLabelName?: string;
+  stage: LeadStageKey;
+  routingBasis: LeadRoutingBasisKey;
+  routingThreshold: number;
+  routingTeam: LeadRoutingTeamKey;
+  leadOwnerName?: string;
+  assignedTmName?: string;
+  initialContactDueAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadStageEventSummary {
+  id: string;
+  fromStage?: LeadStageKey;
+  toStage: LeadStageKey;
+  note?: string;
+  actorUserId?: string;
+  occurredAt: string;
+}
+
+export interface LeadReadinessItemSummary {
+  id: string;
+  code: string;
+  label: string;
+  ownerRoleCode?: string;
+  ownerUserId?: string;
+  status: OnboardingChecklistItemStatusKey;
+  required: boolean;
+  sortOrder: number;
+  dueAt?: string;
+  completedAt?: string;
+  completedByUserId?: string;
+  notes?: string;
+}
+
+export interface LeadReadinessSummary {
+  leadId: string;
+  status: LeadReadinessStatusKey;
+  checklistStatus: OnboardingChecklistStatusKey;
+  checklistGeneratedAt?: string;
+  financeApprovedAt?: string;
+  priceClassResolvedAt?: string;
+  portalAccessGrantedAt?: string;
+  firstOrderReadyAt?: string;
+  convertedAt?: string;
+  blockedReason?: string;
+  notes?: string;
+  sourceCisPackageId?: string;
+  requiredItemCount: number;
+  completedRequiredItemCount: number;
+  blockingItemCount: number;
+}
+
+export interface LeadReadinessDetail {
+  summary: LeadReadinessSummary;
+  items: LeadReadinessItemSummary[];
+  blockers: string[];
+}
+
+export interface LeadWorkflowTaskSummary {
+  nextAction: string;
+  actionType: LeadWorkflowActionTypeKey;
+  urgency: LeadWorkflowUrgencyKey;
+  colorToken: string;
+  reason: string;
+  financeDecisionStatus?: CisFinanceDecisionStatusKey;
+}
+
+export interface LeadDetail extends LeadSummary {
+  contactFirstName?: string;
+  contactLastName?: string;
+  sourceCampaign?: string;
+  leadRating?: string;
+  notes?: string;
+  initialContactedAt?: string;
+  discoveryCallSkipped?: boolean;
+  discoveryScheduledAt?: string;
+  discoveryCompletedAt?: string;
+  discoveryPainPoints?: string[];
+  discoveryCurrentIaqSetup?: string;
+  discoveryDecisionMaker?: string;
+  discoveryBuyingIntent?: string;
+  consignmentInterestStatus?: LeadConsignmentInterestStatusKey;
+  consignmentEntryTiming?: LeadConsignmentEntryTimingKey;
+  discoveryFastTrackReason?: string;
+  discoverySummary?: string;
+  cisSentAt?: string;
+  cisSubmittedAt?: string;
+  cisSignedAt?: string;
+  onboardingCompletedAt?: string;
+  firstOrderAt?: string;
+  workflowTask: LeadWorkflowTaskSummary;
+  stageHistory: LeadStageEventSummary[];
+  readiness?: LeadReadinessSummary;
+}
+
+export interface ListLeadsRequest {
+  search?: string;
+  stage?: LeadStageKey;
+  routingTeam?: LeadRoutingTeamKey;
+  leadSourceCode?: string;
+  limit?: number;
+}
+
+export interface ListLeadsResponse {
+  items: LeadSummary[];
+  total: number;
+}
+
+export interface ListWebsiteFormLeadsRequest {
+  search?: string;
+  stage?: LeadStageKey;
+  sourceSiteId?: string;
+  limit?: number;
+}
+
+export interface WebsiteFormLeadSummary extends LeadSummary {
+  sourceCampaign?: string;
+  intakeAgeHours: number;
+  activePipeline: boolean;
+}
+
+export interface WebsiteFormsSummary {
+  activePipelineCount: number;
+  convertedCount: number;
+  siteCount: number;
+  latestLeadAt?: string;
+}
+
+export interface WebsiteLeadSiteSummary {
+  id: string;
+  siteId: string;
+  siteName: string;
+  url: string;
+  brandTag: string;
+  formType: WebsiteLeadFormTypeKey;
+  isActive: boolean;
+  notes?: string;
+  submissionsLast30Days: number;
+  linkedLeadsTotal: number;
+  activePipelineLeads: number;
+  convertedLeads: number;
+  conversionRate: number;
+  recentSubmissionAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateWebsiteLeadSiteRequest {
+  siteId: string;
+  siteName: string;
+  url: string;
+  brandTag: string;
+  formType: WebsiteLeadFormTypeKey;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface UpdateWebsiteLeadSiteRequest {
+  siteName?: string;
+  url?: string;
+  brandTag?: string;
+  formType?: WebsiteLeadFormTypeKey;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface ListWebsiteLeadSitesResponse {
+  items: WebsiteLeadSiteSummary[];
+}
+
+export interface WebsiteLeadNotificationRecipientSummary {
+  id: string;
+  websiteLeadSiteId?: string;
+  name: string;
+  email: string;
+  roleTitle?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateWebsiteLeadNotificationRecipientRequest {
+  websiteLeadSiteId?: string;
+  name: string;
+  email: string;
+  roleTitle?: string;
+  isActive?: boolean;
+}
+
+export interface UpdateWebsiteLeadNotificationRecipientRequest {
+  websiteLeadSiteId?: string | null;
+  name?: string;
+  email?: string;
+  roleTitle?: string;
+  isActive?: boolean;
+}
+
+export interface ListWebsiteLeadNotificationRecipientsResponse {
+  items: WebsiteLeadNotificationRecipientSummary[];
+}
+
+export interface PublicWebsiteLeadSite {
+  id: string;
+  siteId: string;
+  siteName: string;
+  url: string;
+  brandTag: string;
+  formType: WebsiteLeadFormTypeKey;
+}
+
+export interface ListWebsiteFormLeadsResponse {
+  items: WebsiteFormLeadSummary[];
+  total: number;
+  summary: WebsiteFormsSummary;
+}
+
+export interface ListLeadWorkflowQueueRequest {
+  search?: string;
+  routingTeam?: LeadRoutingTeamKey;
+  view?: LeadWorkflowQueueViewKey;
+  limit?: number;
+}
+
+export interface LeadWorkflowQueueItem {
+  leadId: string;
+  companyName: string;
+  contactDisplayName: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  leadSourceCode: string;
+  leadSourceName: string;
+  sourceSiteId?: string;
+  sourceSiteName?: string;
+  sourceBrandTag?: string;
+  stage: LeadStageKey;
+  stageLabel: string;
+  routingTeam: LeadRoutingTeamKey;
+  leadOwnerName?: string;
+  assignedTmName?: string;
+  nextAction: string;
+  actionType: LeadWorkflowActionTypeKey;
+  urgency: LeadWorkflowUrgencyKey;
+  colorToken: string;
+  reason: string;
+  daysInStage: number;
+  slaRisk: boolean;
+  initialContactDueAt?: string;
+  hoursUntilInitialContactDue?: number;
+  financeDecisionStatus?: CisFinanceDecisionStatusKey;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadWorkflowQueueSummary {
+  openActionCount: number;
+  urgentCount: number;
+  stagnantCount: number;
+  slaRiskCount: number;
+}
+
+export interface ListLeadWorkflowQueueResponse {
+  items: LeadWorkflowQueueItem[];
+  total: number;
+  summary: LeadWorkflowQueueSummary;
+}
+
+export interface LeadRoutingPolicySummary {
+  routingBasis: LeadRoutingBasisKey;
+  strategicGrowthMax: number;
+  nationalTmMin: number;
+  notes?: string;
+  updatedAt: string;
+}
+
+export interface UpdateLeadRoutingPolicyRequest {
+  routingBasis?: LeadRoutingBasisKey;
+  strategicGrowthMax?: number;
+  notes?: string;
+}
+
+export interface CreateLeadRequest {
+  companyName: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  contactDisplayName?: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  countryCode?: string;
+  businessSegmentCode?: string;
+  leadSourceCode?: string;
+  sourceDetail?: string;
+  sourceSiteId?: string;
+  sourceSiteName?: string;
+  sourceBrandTag?: string;
+  sourceCampaign?: string;
+  leadRating?: string;
+  serviceTechCount: number;
+  installTechCount?: number;
+  truckCount?: number;
+  salesPersonCount?: number;
+  affinityGroupName?: string;
+  ownershipGroupName?: string;
+  privateLabelName?: string;
+  leadOwnerName?: string;
+  assignedTmName?: string;
+  notes?: string;
+}
+
+export interface CaptureWebsiteLeadRequest {
+  siteId: string;
+  leadType: WebsiteLeadTypeKey;
+  siteName?: string;
+  brandTag?: string;
+  campaign?: string;
+  formType?: WebsiteLeadFormTypeKey;
+  fullName?: string;
+  companyName?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  contactDisplayName?: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  countryCode?: string;
+  serviceTechCount?: number;
+  installTechCount?: number;
+  truckCount?: number;
+  salesPersonCount?: number;
+  inquiryTopic?: string;
+  referralSource?: string;
+  referralDetail?: string;
+  message?: string;
+  affinityGroupName?: string;
+  ownershipGroupName?: string;
+  privateLabelName?: string;
+  notes?: string;
+}
+
+export interface ImportLeadRowInput {
+  companyName?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  contactDisplayName?: string;
+  email?: string;
+  phone?: string;
+  state?: string;
+  countryCode?: string;
+  sourceDetail?: string;
+  leadRating?: string;
+  serviceTechCount?: number;
+  installTechCount?: number;
+  truckCount?: number;
+  salesPersonCount?: number;
+  affinityGroupName?: string;
+  ownershipGroupName?: string;
+  privateLabelName?: string;
+  notes?: string;
+}
+
+export interface ImportLeadsRequest {
+  batchName?: string;
+  businessSegmentCode?: string;
+  leadSourceCode?: string;
+  sourceSiteId?: string;
+  sourceSiteName?: string;
+  sourceBrandTag?: string;
+  rows: ImportLeadRowInput[];
+}
+
+export interface ImportLeadsError {
+  rowIndex: number;
+  detail: string;
+}
+
+export interface ImportLeadsResponse {
+  batchName?: string;
+  createdCount: number;
+  skippedCount: number;
+  errorCount: number;
+  items: LeadSummary[];
+  errors: ImportLeadsError[];
+}
+
+export interface TransitionLeadStageRequest {
+  toStage: LeadStageKey;
+  note?: string;
+}
+
+export interface LogLeadInitialContactRequest {
+  note?: string;
+}
+
+export interface ScheduleLeadDiscoveryRequest {
+  note?: string;
+}
+
+export interface CompleteLeadDiscoveryRequest {
+  painPoints?: string[];
+  currentIaqSetup?: string;
+  decisionMaker?: string;
+  buyingIntent?: string;
+  consignmentInterestStatus?: LeadConsignmentInterestStatusKey;
+  consignmentEntryTiming?: LeadConsignmentEntryTimingKey;
+  summary?: string;
+  note?: string;
+}
+
+export interface SkipLeadDiscoveryRequest extends CompleteLeadDiscoveryRequest {
+  fastTrackReason: string;
+}
+
+export interface UpdateLeadReadinessItemRequest {
+  status?: OnboardingChecklistItemStatusKey;
+  ownerRoleCode?: string;
+  ownerUserId?: string;
+  dueAt?: string;
+  notes?: string;
+}
+
+export interface LeadReadinessBlockersResponse {
+  leadId: string;
+  blockers: string[];
+}
+
+export interface LeadContactSummary {
+  id: string;
+  leadId: string;
+  role: LeadContactRoleKey;
+  source?: LeadContactSourceKey;
+  displayName: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  mobilePhone?: string;
+  isPrimary: boolean;
+  isActive: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLeadContactRequest {
+  role: LeadContactRoleKey;
+  source?: LeadContactSourceKey;
+  displayName: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  mobilePhone?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface UpdateLeadContactRequest {
+  role?: LeadContactRoleKey;
+  source?: LeadContactSourceKey;
+  displayName?: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  mobilePhone?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface LeadAddressSnapshot {
+  name?: string;
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  countryCode?: string;
+}
+
+export interface LeadConversionPreparationRecord {
+  leadId: string;
+  status: LeadConversionPreparationStatusKey;
+  targetAccountName?: string;
+  legalCompanyName?: string;
+  accountType?: string;
+  financeAuthorityMode?: string;
+  priceClassCode?: string;
+  portalEligibilityStatus: PortalEligibilityStatusKey;
+  shippingAddressSnapshot?: LeadAddressSnapshot;
+  billingAddressSnapshot?: LeadAddressSnapshot;
+  conversionReady: boolean;
+  conversionBlockedReason?: string;
+  notes?: string;
+  validatedAt?: string;
+  reviewedAt?: string;
+  reviewedByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateLeadConversionPreparationRequest {
+  targetAccountName?: string;
+  legalCompanyName?: string;
+  accountType?: string;
+  financeAuthorityMode?: string;
+  priceClassCode?: string;
+  portalEligibilityStatus?: PortalEligibilityStatusKey;
+  shippingAddressSnapshot?: LeadAddressSnapshot;
+  billingAddressSnapshot?: LeadAddressSnapshot;
+  notes?: string;
+}
+
+export interface LeadConversionValidationResponse {
+  preparation: LeadConversionPreparationRecord;
+  blockers: string[];
+  ready: boolean;
+}
+
+export interface ConvertLeadOnFirstOrderRequest {
+  firstOrderConfirmedAt?: string;
+  note?: string;
+}
+
+export interface ConvertLeadOnFirstOrderResponse {
+  leadId: string;
+  accountId: string;
+  contactIds: string[];
+  locationIds: string[];
+  convertedAt: string;
+}
+
+export interface LeadImportTargetFieldOption {
+  value: LeadImportTargetFieldKey;
+  label: string;
+}
+
+export interface LeadImportFilePreviewRequest {
+  fileName: string;
+  fileContentBase64: string;
+  sheetName?: string;
+}
+
+export interface LeadImportColumnPreview {
+  sourceHeader: string;
+  sampleValue?: string;
+  suggestedTargetField?: LeadImportTargetFieldKey;
+}
+
+export interface LeadImportPreviewRow {
+  rowNumber: number;
+  values: Record<string, string>;
+}
+
+export interface LeadImportFilePreviewResponse {
+  fileName: string;
+  format: 'csv' | 'xlsx';
+  sheetName: string;
+  availableSheets: string[];
+  totalRows: number;
+  targetFieldOptions: LeadImportTargetFieldOption[];
+  columns: LeadImportColumnPreview[];
+  previewRows: LeadImportPreviewRow[];
+}
+
+export interface LeadImportColumnMapping {
+  sourceHeader: string;
+  targetField?: LeadImportTargetFieldKey;
+}
+
+export interface ImportLeadFileRequest extends Omit<ImportLeadsRequest, 'rows'> {
+  fileName: string;
+  fileContentBase64: string;
+  sheetName?: string;
+  mappings: LeadImportColumnMapping[];
+}
+
+export interface LeadImportFileError {
+  rowNumber: number;
+  detail: string;
+}
+
+export interface ImportLeadFileResponse {
+  batchName?: string;
+  totalRows: number;
+  mappedRows: number;
+  createdCount: number;
+  skippedCount: number;
+  errorCount: number;
+  items: LeadSummary[];
+  errors: LeadImportFileError[];
+}

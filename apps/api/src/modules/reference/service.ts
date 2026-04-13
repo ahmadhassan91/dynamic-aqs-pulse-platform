@@ -1,9 +1,15 @@
 import { assertActionAccess } from '@pulse/auth';
-import { AuditAction, prisma, type Prisma } from '@pulse/db';
+import { AuditAction, LeadStage, prisma } from '@pulse/db';
 import type {
   CreateLeadSourceRequest,
+  LeadSourceImportRow,
+  LeadStageReferenceSummary,
+  LeadStageImportRow,
+  ReferenceImportRequest,
+  ReferenceImportResponse,
   ReferenceListResponse,
   ReferenceValueSummary,
+  UpdateLeadStageReferenceRequest,
   UpdateReferenceValueRequest,
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
@@ -11,6 +17,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 
 const BUSINESS_SEGMENT_ENTITY_TYPE = 'BUSINESS_SEGMENT_REF';
 const LEAD_SOURCE_ENTITY_TYPE = 'LEAD_SOURCE_REF';
+const LEAD_STAGE_ENTITY_TYPE = 'LEAD_STAGE_REF';
 
 const DEFAULT_BUSINESS_SEGMENTS = [
   { code: 'residential', name: 'Residential', description: 'Residential-focused accounts and downstream views.', sortOrder: 10 },
@@ -29,6 +36,72 @@ const DEFAULT_LEAD_SOURCES = [
   { code: 'affinity_roster', name: 'Affinity Group Roster', description: 'Lead sourced from affinity-group roster data.', sortOrder: 60 },
   { code: 'ownership_roster', name: 'Ownership / PE Roster', description: 'Lead sourced from ownership or private-equity roster data.', sortOrder: 70 },
   { code: 'manual_entry', name: 'Manual Entry', description: 'Lead created manually by BD or admin staff.', sortOrder: 80 },
+] as const;
+
+const DEFAULT_LEAD_STAGES = [
+  {
+    stage: LeadStage.NEW,
+    code: 'new',
+    name: 'New Lead',
+    dashboardLabel: 'New',
+    description: 'New lead awaiting first contact and qualification follow-through.',
+    sortOrder: 10,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.DISCOVERY_SCHEDULED,
+    code: 'discovery_scheduled',
+    name: 'Discovery Scheduled',
+    dashboardLabel: 'Discovery Scheduled',
+    description: 'Discovery call or discovery step has been scheduled.',
+    sortOrder: 20,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.DISCOVERY_COMPLETED,
+    code: 'discovery_completed',
+    name: 'Discovery Completed',
+    dashboardLabel: 'Discovery Complete',
+    description: 'Discovery findings have been captured or an approved skip reason is on file.',
+    sortOrder: 30,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.CIS_SENT,
+    code: 'cis_sent',
+    name: 'CIS Sent',
+    dashboardLabel: 'CIS Sent',
+    description: 'CIS / credit onboarding package has been sent to the lead.',
+    sortOrder: 40,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.CIS_SIGNED,
+    code: 'cis_signed',
+    name: 'CIS Signed',
+    dashboardLabel: 'CIS Signed',
+    description: 'CIS package has been returned and accepted for onboarding progression.',
+    sortOrder: 50,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.ONBOARDING_COMPLETED,
+    code: 'onboarding_completed',
+    name: 'Onboarding Completed',
+    dashboardLabel: 'Onboarding Complete',
+    description: 'Operational onboarding steps are complete and the lead is customer-ready.',
+    sortOrder: 60,
+    isTerminal: false,
+  },
+  {
+    stage: LeadStage.CUSTOMER_ACTIVE,
+    code: 'customer_active',
+    name: 'Customer Active',
+    dashboardLabel: 'Customer Active',
+    description: 'First order milestone reached and the lead has transitioned into an active customer.',
+    sortOrder: 70,
+    isTerminal: true,
+  },
 ] as const;
 
 export async function ensureReferenceDataSeeded() {
@@ -61,6 +134,24 @@ export async function ensureReferenceDataSeeded() {
             description: item.description,
             sortOrder: item.sortOrder,
             isActive: true,
+          },
+        }),
+      ),
+      ...DEFAULT_LEAD_STAGES.map((item) =>
+        tx.leadStageRef.upsert({
+          where: {
+            stage: item.stage,
+          },
+          update: {},
+          create: {
+            stage: item.stage,
+            code: item.code,
+            name: item.name,
+            dashboardLabel: item.dashboardLabel,
+            description: item.description,
+            sortOrder: item.sortOrder,
+            isActive: true,
+            isTerminal: item.isTerminal,
           },
         }),
       ),
@@ -141,6 +232,21 @@ export async function listLeadSources(actor: AuthenticatedActor): Promise<Refere
   };
 }
 
+export async function listLeadStages(actor: AuthenticatedActor): Promise<ReferenceListResponse<LeadStageReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.view');
+
+  const items = await prisma.leadStageRef.findMany({
+    orderBy: [
+      { sortOrder: 'asc' },
+      { name: 'asc' },
+    ],
+  });
+
+  return {
+    items: items.map(toLeadStageReferenceSummary),
+  };
+}
+
 export async function createLeadSource(
   actor: AuthenticatedActor,
   input: CreateLeadSourceRequest,
@@ -183,6 +289,97 @@ export async function createLeadSource(
   });
 
   return toReferenceValueSummary(created);
+}
+
+export async function importLeadSources(
+  actor: AuthenticatedActor,
+  input: ReferenceImportRequest<LeadSourceImportRow>,
+): Promise<ReferenceImportResponse<ReferenceValueSummary>> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  validateReferenceImportRows(input.rows, 'rows');
+  assertUniqueNormalizedCodes(input.rows);
+
+  const batchName = optionalTrimmed(input.batchName);
+  const sourceLabel = optionalTrimmed(input.sourceLabel);
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  const items = await prisma.$transaction(async (tx) => {
+    const results: ReferenceValueSummary[] = [];
+
+    for (const [index, row] of input.rows.entries()) {
+      const normalized = normalizeLeadSourceImportRow(row, index);
+      const current = await tx.leadSourceRef.findUnique({
+        where: {
+          code: normalized.code,
+        },
+      });
+
+      if (current) {
+        const next = await tx.leadSourceRef.update({
+          where: { id: current.id },
+          data: {
+            name: normalized.name,
+            ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+            ...(normalized.isActive !== undefined ? { isActive: normalized.isActive } : {}),
+            ...(normalized.sortOrder !== undefined ? { sortOrder: normalized.sortOrder } : {}),
+          },
+        });
+
+        await tx.auditEntry.create({
+          data: buildAuditEntryData({
+            actorUserId: actor.userId,
+            action: AuditAction.UPDATE,
+            entityType: LEAD_SOURCE_ENTITY_TYPE,
+            entityId: next.id,
+            beforeData: toReferenceValueAuditPayload(current),
+            afterData: toReferenceValueAuditPayload(next),
+            metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+          }),
+        });
+
+        results.push(toReferenceValueSummary(next));
+        updatedCount += 1;
+        continue;
+      }
+
+      const next = await tx.leadSourceRef.create({
+        data: {
+          code: normalized.code,
+          name: normalized.name,
+          ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+          isActive: normalized.isActive ?? true,
+          sortOrder: normalized.sortOrder ?? 0,
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: LEAD_SOURCE_ENTITY_TYPE,
+          entityId: next.id,
+          afterData: toReferenceValueAuditPayload(next),
+          metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+        }),
+      });
+
+      results.push(toReferenceValueSummary(next));
+      createdCount += 1;
+    }
+
+    return results;
+  });
+
+  return {
+    ...(batchName !== undefined ? { batchName } : {}),
+    ...(sourceLabel !== undefined ? { sourceLabel } : {}),
+    processedCount: input.rows.length,
+    createdCount,
+    updatedCount,
+    items,
+  };
 }
 
 export async function updateLeadSource(
@@ -228,8 +425,153 @@ export async function updateLeadSource(
   return toReferenceValueSummary(updated);
 }
 
+export async function importLeadStages(
+  actor: AuthenticatedActor,
+  input: ReferenceImportRequest<LeadStageImportRow>,
+): Promise<ReferenceImportResponse<LeadStageReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  validateReferenceImportRows(input.rows, 'rows');
+  assertUniqueLeadStages(input.rows);
+
+  const batchName = optionalTrimmed(input.batchName);
+  const sourceLabel = optionalTrimmed(input.sourceLabel);
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  const items = await prisma.$transaction(async (tx) => {
+    const results: LeadStageReferenceSummary[] = [];
+
+    for (const [index, row] of input.rows.entries()) {
+      const normalized = normalizeLeadStageImportRow(row, index);
+      const stage = toLeadStageEnum(normalized.stage);
+      const current = await tx.leadStageRef.findUnique({
+        where: {
+          stage,
+        },
+      });
+
+      if (current) {
+        const next = await tx.leadStageRef.update({
+          where: { id: current.id },
+          data: {
+            name: normalized.name,
+            ...(normalized.dashboardLabel !== undefined ? { dashboardLabel: normalized.dashboardLabel } : {}),
+            ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+            ...(normalized.isActive !== undefined ? { isActive: normalized.isActive } : {}),
+            ...(normalized.isTerminal !== undefined ? { isTerminal: normalized.isTerminal } : {}),
+            ...(normalized.sortOrder !== undefined ? { sortOrder: normalized.sortOrder } : {}),
+          },
+        });
+
+        await tx.auditEntry.create({
+          data: buildAuditEntryData({
+            actorUserId: actor.userId,
+            action: AuditAction.UPDATE,
+            entityType: LEAD_STAGE_ENTITY_TYPE,
+            entityId: next.id,
+            beforeData: toLeadStageAuditPayload(current),
+            afterData: toLeadStageAuditPayload(next),
+            metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+          }),
+        });
+
+        results.push(toLeadStageReferenceSummary(next));
+        updatedCount += 1;
+        continue;
+      }
+
+      const next = await tx.leadStageRef.create({
+        data: {
+          stage,
+          code: normalized.stage,
+          name: normalized.name,
+          ...(normalized.dashboardLabel !== undefined ? { dashboardLabel: normalized.dashboardLabel } : {}),
+          ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+          isActive: normalized.isActive ?? true,
+          isTerminal: normalized.isTerminal ?? normalized.stage === 'customer_active',
+          sortOrder: normalized.sortOrder ?? defaultLeadStageSortOrder(normalized.stage),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: LEAD_STAGE_ENTITY_TYPE,
+          entityId: next.id,
+          afterData: toLeadStageAuditPayload(next),
+          metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+        }),
+      });
+
+      results.push(toLeadStageReferenceSummary(next));
+      createdCount += 1;
+    }
+
+    return results;
+  });
+
+  return {
+    ...(batchName !== undefined ? { batchName } : {}),
+    ...(sourceLabel !== undefined ? { sourceLabel } : {}),
+    processedCount: input.rows.length,
+    createdCount,
+    updatedCount,
+    items,
+  };
+}
+
+export async function updateLeadStage(
+  actor: AuthenticatedActor,
+  id: string,
+  input: UpdateLeadStageReferenceRequest,
+): Promise<LeadStageReferenceSummary | null> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  const current = await prisma.leadStageRef.findUnique({
+    where: { id },
+  });
+  if (!current) {
+    return null;
+  }
+
+  const data = buildLeadStageUpdateData(input);
+  if (Object.keys(data).length === 0) {
+    throw new Error('At least one field must be provided');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.leadStageRef.update({
+      where: { id },
+      data,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: LEAD_STAGE_ENTITY_TYPE,
+        entityId: next.id,
+        beforeData: toLeadStageAuditPayload(current),
+        afterData: toLeadStageAuditPayload(next),
+        metadata: baseReferenceAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toLeadStageReferenceSummary(updated);
+}
+
 function buildReferenceValueUpdateData(input: UpdateReferenceValueRequest) {
-  const data: Prisma.BusinessSegmentRefUpdateInput = {};
+  const data: {
+    name?: string;
+    description?: string | null;
+    isActive?: boolean;
+    sortOrder?: number;
+  } = {};
 
   const name = input.name?.trim();
   if (name) {
@@ -247,6 +589,76 @@ function buildReferenceValueUpdateData(input: UpdateReferenceValueRequest) {
   }
 
   return data;
+}
+
+function buildLeadStageUpdateData(input: UpdateLeadStageReferenceRequest) {
+  const data: {
+    name?: string;
+    description?: string | null;
+    dashboardLabel?: string | null;
+    isActive?: boolean;
+    isTerminal?: boolean;
+    sortOrder?: number;
+  } = {};
+
+  const name = input.name?.trim();
+  if (name) {
+    data.name = name;
+  }
+
+  if (input.description !== undefined) {
+    data.description = optionalTrimmed(input.description) ?? null;
+  }
+  if (input.dashboardLabel !== undefined) {
+    data.dashboardLabel = optionalTrimmed(input.dashboardLabel) ?? null;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+  if (input.isTerminal !== undefined) {
+    data.isTerminal = input.isTerminal;
+  }
+  if (input.sortOrder !== undefined) {
+    data.sortOrder = normalizeSortOrder(input.sortOrder);
+  }
+
+  return data;
+}
+
+function normalizeLeadSourceImportRow(row: LeadSourceImportRow, rowIndex: number) {
+  const code = normalizeReferenceCode(row.code);
+  const name = row.name?.trim();
+  if (!code) {
+    throw new Error(`rows[${rowIndex}].code is required`);
+  }
+  if (!name) {
+    throw new Error(`rows[${rowIndex}].name is required`);
+  }
+
+  return {
+    code,
+    name,
+    ...(row.description !== undefined ? { description: optionalTrimmed(row.description) ?? null } : {}),
+    ...(row.isActive !== undefined ? { isActive: row.isActive } : {}),
+    ...(row.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(row.sortOrder) } : {}),
+  };
+}
+
+function normalizeLeadStageImportRow(row: LeadStageImportRow, rowIndex: number) {
+  const name = row.name?.trim();
+  if (!name) {
+    throw new Error(`rows[${rowIndex}].name is required`);
+  }
+
+  return {
+    stage: row.stage,
+    name,
+    ...(row.dashboardLabel !== undefined ? { dashboardLabel: optionalTrimmed(row.dashboardLabel) ?? null } : {}),
+    ...(row.description !== undefined ? { description: optionalTrimmed(row.description) ?? null } : {}),
+    ...(row.isActive !== undefined ? { isActive: row.isActive } : {}),
+    ...(row.isTerminal !== undefined ? { isTerminal: row.isTerminal } : {}),
+    ...(row.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(row.sortOrder) } : {}),
+  };
 }
 
 function toReferenceValueSummary(value: {
@@ -276,6 +688,41 @@ function toReferenceValueSummary(value: {
   return summary;
 }
 
+function toLeadStageReferenceSummary(value: {
+  id: string;
+  stage: LeadStage;
+  code: string;
+  name: string;
+  dashboardLabel: string | null;
+  description: string | null;
+  isActive: boolean;
+  isTerminal: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): LeadStageReferenceSummary {
+  const summary: LeadStageReferenceSummary = {
+    id: value.id,
+    stage: toLeadStageKey(value.stage),
+    code: value.code,
+    name: value.name,
+    isActive: value.isActive,
+    isTerminal: value.isTerminal,
+    sortOrder: value.sortOrder,
+    createdAt: value.createdAt.toISOString(),
+    updatedAt: value.updatedAt.toISOString(),
+  };
+
+  if (value.dashboardLabel) {
+    summary.dashboardLabel = value.dashboardLabel;
+  }
+  if (value.description) {
+    summary.description = value.description;
+  }
+
+  return summary;
+}
+
 function toReferenceValueAuditPayload(value: {
   code: string;
   name: string;
@@ -292,11 +739,48 @@ function toReferenceValueAuditPayload(value: {
   };
 }
 
+function toLeadStageAuditPayload(value: {
+  stage: LeadStage;
+  code: string;
+  name: string;
+  dashboardLabel: string | null;
+  description: string | null;
+  isActive: boolean;
+  isTerminal: boolean;
+  sortOrder: number;
+}) {
+  return {
+    stage: toLeadStageKey(value.stage),
+    code: value.code,
+    name: value.name,
+    dashboardLabel: value.dashboardLabel,
+    description: value.description,
+    isActive: value.isActive,
+    isTerminal: value.isTerminal,
+    sortOrder: value.sortOrder,
+  };
+}
+
 function baseReferenceAuditMetadata(actor: AuthenticatedActor) {
   return {
     sessionId: actor.sessionId,
     actorRole: actor.role,
     actorType: actor.actorType,
+  };
+}
+
+function buildReferenceImportAuditMetadata(
+  actor: AuthenticatedActor,
+  batchName: string | undefined,
+  sourceLabel: string | undefined,
+  rowIndex: number,
+) {
+  return {
+    ...baseReferenceAuditMetadata(actor),
+    importMode: 'reference_import',
+    rowIndex,
+    ...(batchName !== undefined ? { batchName } : {}),
+    ...(sourceLabel !== undefined ? { sourceLabel } : {}),
   };
 }
 
@@ -324,4 +808,94 @@ function normalizeSortOrder(value: number | undefined) {
   }
 
   return value;
+}
+
+function validateReferenceImportRows(rows: unknown[], fieldName: string) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(`${fieldName} must contain at least one item`);
+  }
+  if (rows.length > 200) {
+    throw new Error(`${fieldName} cannot exceed 200 items`);
+  }
+}
+
+function assertUniqueNormalizedCodes(rows: LeadSourceImportRow[]) {
+  const seen = new Set<string>();
+  for (const [index, row] of rows.entries()) {
+    const code = normalizeReferenceCode(row.code);
+    if (!code) {
+      continue;
+    }
+    if (seen.has(code)) {
+      throw new Error(`rows[${index}].code duplicates another row: ${code}`);
+    }
+    seen.add(code);
+  }
+}
+
+function assertUniqueLeadStages(rows: LeadStageImportRow[]) {
+  const seen = new Set<string>();
+  for (const [index, row] of rows.entries()) {
+    if (seen.has(row.stage)) {
+      throw new Error(`rows[${index}].stage duplicates another row: ${row.stage}`);
+    }
+    seen.add(row.stage);
+  }
+}
+
+function defaultLeadStageSortOrder(stage: LeadStageReferenceSummary['stage']) {
+  switch (stage) {
+    case 'new':
+      return 10;
+    case 'discovery_scheduled':
+      return 20;
+    case 'discovery_completed':
+      return 30;
+    case 'cis_sent':
+      return 40;
+    case 'cis_signed':
+      return 50;
+    case 'onboarding_completed':
+      return 60;
+    case 'customer_active':
+      return 70;
+  }
+}
+
+function toLeadStageKey(stage: LeadStage) {
+  switch (stage) {
+    case LeadStage.NEW:
+      return 'new';
+    case LeadStage.DISCOVERY_SCHEDULED:
+      return 'discovery_scheduled';
+    case LeadStage.DISCOVERY_COMPLETED:
+      return 'discovery_completed';
+    case LeadStage.CIS_SENT:
+      return 'cis_sent';
+    case LeadStage.CIS_SIGNED:
+      return 'cis_signed';
+    case LeadStage.ONBOARDING_COMPLETED:
+      return 'onboarding_completed';
+    case LeadStage.CUSTOMER_ACTIVE:
+      return 'customer_active';
+  }
+}
+
+function toLeadStageEnum(stage: LeadStageReferenceSummary['stage']) {
+  switch (stage) {
+    case 'new':
+      return LeadStage.NEW;
+    case 'discovery_scheduled':
+      return LeadStage.DISCOVERY_SCHEDULED;
+    case 'discovery_completed':
+      return LeadStage.DISCOVERY_COMPLETED;
+    case 'cis_sent':
+      return LeadStage.CIS_SENT;
+    case 'cis_signed':
+      return LeadStage.CIS_SIGNED;
+    case 'onboarding_completed':
+      return LeadStage.ONBOARDING_COMPLETED;
+    case 'customer_active':
+      return LeadStage.CUSTOMER_ACTIVE;
+  }
 }

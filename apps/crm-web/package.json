@@ -3,12 +3,30 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "echo \"CRM web scaffold pending\"",
-    "build": "echo \"CRM web build scaffold pending\"",
-    "lint": "echo \"CRM web lint scaffold pending\"",
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint . --max-warnings=0",
     "test": "echo \"CRM web test scaffold pending\"",
-    "typecheck": "echo \"CRM web typecheck scaffold pending\"",
-    "clean": "rm -rf .next out"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf .next out tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.3.5",
+    "@mantine/hooks": "^8.3.5",
+    "@mantine/notifications": "^8.3.5",
+    "@pulse/auth": "workspace:^",
+    "@pulse/contracts": "workspace:^",
+    "@tabler/icons-react": "^3.35.0",
+    "next": "^16.2.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.13",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.3",
+    "typescript": "^5.8.3"
   }
 }
-

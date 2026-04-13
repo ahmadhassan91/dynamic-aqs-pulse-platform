@@ -3,8 +3,12 @@ import { URL } from 'node:url';
 import { prisma } from '@pulse/db';
 import { createAcumaticaClient, type AcumaticaClient, type AcumaticaHealthStatus } from '@pulse/acumatica';
 import type { AppConfig } from './config.js';
+import { handleAdminRoutes } from './modules/admin/http.js';
 import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
+import { handleCisRoutes } from './modules/cis/http.js';
+import { handleLeadRoutes } from './modules/leads/http.js';
+import { ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded } from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
@@ -59,6 +63,8 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
 
   await prisma.$connect();
   await ensureReferenceDataSeeded();
+  await ensureLeadRoutingPolicySeeded();
+  await ensureWebsiteLeadConfigSeeded();
 
   try {
     await workers.start();
@@ -98,6 +104,10 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
 async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: RequestContext) {
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+
+  if (applyCorsHeaders(req, res, ctx.config)) {
+    return;
+  }
 
   if (method === 'GET' && (url.pathname === '/health/live' || url.pathname === '/api/v1/health/live')) {
     return jsonResponse(res, 200, {
@@ -176,8 +186,29 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
+  const adminRouteHandled = await handleAdminRoutes(req, res, url, {
+    config: ctx.config,
+    getDatabaseHealth,
+    getQueueStatus: () => ctx.queue.status(),
+    getWorkersStatus: () => ctx.workers.status(),
+    getAcumaticaHealth: () => getAcumaticaHealth(ctx.createAcumatica),
+  });
+  if (adminRouteHandled !== false) {
+    return;
+  }
+
   const accountRouteHandled = await handleAccountRoutes(req, res, url);
   if (accountRouteHandled !== false) {
+    return;
+  }
+
+  const cisRouteHandled = await handleCisRoutes(req, res, url, ctx.config);
+  if (cisRouteHandled !== false) {
+    return;
+  }
+
+  const leadRouteHandled = await handleLeadRoutes(req, res, url);
+  if (leadRouteHandled !== false) {
     return;
   }
 
@@ -230,4 +261,45 @@ async function closeHttpServer(server: Server) {
       resolve();
     });
   });
+}
+
+function applyCorsHeaders(req: IncomingMessage, res: ServerResponse, config: AppConfig) {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return false;
+  }
+
+  const allowedOrigins = getAllowedOrigins(config);
+  if (allowedOrigins.has(origin)) {
+    res.setHeader('access-control-allow-origin', origin);
+    res.setHeader('vary', 'Origin');
+    res.setHeader('access-control-allow-headers', 'authorization, content-type');
+    res.setHeader('access-control-allow-methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+    res.setHeader('access-control-max-age', '86400');
+  }
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = allowedOrigins.has(origin) ? 204 : 403;
+    res.end();
+    return true;
+  }
+
+  return false;
+}
+
+function getAllowedOrigins(config: AppConfig) {
+  const allowedOrigins = new Set<string>([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3010',
+    'http://127.0.0.1:3010',
+  ]);
+
+  try {
+    allowedOrigins.add(new URL(config.web.publicBaseUrl).origin);
+  } catch {
+    // Ignore invalid public base URL.
+  }
+
+  return allowedOrigins;
 }

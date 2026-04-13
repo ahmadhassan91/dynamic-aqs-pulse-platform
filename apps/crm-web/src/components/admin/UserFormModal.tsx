@@ -1,0 +1,142 @@
+'use client';
+
+import { useState } from 'react';
+import {
+  Alert,
+  Button,
+  Group,
+  Modal,
+  Select,
+  Stack,
+  Switch,
+  TextInput,
+} from '@mantine/core';
+import type { AdminUserSummary, AuthRole } from '@pulse/contracts';
+import { AUTH_ROLES } from '@pulse/contracts';
+
+type UserFormValues = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: AuthRole;
+  isActive: boolean;
+  password: string;
+};
+
+export function UserFormModal({
+  opened,
+  onClose,
+  user,
+  onSubmit,
+  loading = false,
+  error,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  user?: AdminUserSummary | null;
+  onSubmit: (values: UserFormValues) => Promise<void>;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const [values, setValues] = useState<UserFormValues>(() => buildInitialValues(user));
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  return (
+    <Modal opened={opened} onClose={onClose} title={user ? 'Edit User' : 'Create New User'} size="md">
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+
+          if (!/^\S+@\S+\.\S+$/.test(values.email)) {
+            setValidationError('A valid email address is required.');
+            return;
+          }
+
+          if (!values.firstName.trim() || !values.lastName.trim()) {
+            setValidationError('First name and last name are required.');
+            return;
+          }
+
+          setValidationError(null);
+          await onSubmit(values);
+        }}
+      >
+        <Stack gap="md">
+          {validationError || error ? (
+            <Alert color="red">
+              {validationError || error}
+            </Alert>
+          ) : null}
+
+          <TextInput
+            label="Email Address"
+            placeholder="user@dynamicaqs.com"
+            value={values.email}
+            onChange={(event) => setValues((current) => ({ ...current, email: event.currentTarget.value }))}
+            required
+          />
+
+          <Group grow>
+            <TextInput
+              label="First Name"
+              value={values.firstName}
+              onChange={(event) => setValues((current) => ({ ...current, firstName: event.currentTarget.value }))}
+              required
+            />
+            <TextInput
+              label="Last Name"
+              value={values.lastName}
+              onChange={(event) => setValues((current) => ({ ...current, lastName: event.currentTarget.value }))}
+              required
+            />
+          </Group>
+
+          <Select
+            label="Role"
+            data={AUTH_ROLES.map((role) => ({ value: role, label: role.replace(/_/g, ' ') }))}
+            value={values.role}
+            onChange={(value) => setValues((current) => ({ ...current, role: (value as AuthRole) || current.role }))}
+            required
+          />
+
+          {!user ? (
+            <TextInput
+              label="Temporary Password"
+              placeholder="Leave blank to auto-generate"
+              value={values.password}
+              onChange={(event) => setValues((current) => ({ ...current, password: event.currentTarget.value }))}
+            />
+          ) : null}
+
+          <Switch
+            label="User is active"
+            checked={values.isActive}
+            onChange={(event) => setValues((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+          />
+
+          <Group justify="flex-end" gap="sm">
+            <Button variant="light" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={loading}>
+              {user ? 'Update User' : 'Create User'}
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+function buildInitialValues(user?: AdminUserSummary | null): UserFormValues {
+  const [firstName = '', ...rest] = (user?.displayName ?? '').split(/\s+/).filter(Boolean);
+
+  return {
+    email: user?.email ?? '',
+    firstName: user?.firstName ?? firstName,
+    lastName: user?.lastName ?? rest.join(' '),
+    role: user?.role ?? 'ADMIN_CSR_OPS',
+    isActive: user?.isActive ?? true,
+    password: '',
+  };
+}

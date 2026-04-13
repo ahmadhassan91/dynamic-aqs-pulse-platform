@@ -178,7 +178,10 @@ export async function getCurrentSession(accessToken: string) {
     return null;
   }
 
-  return buildSessionState(session.user, session);
+  return {
+    identity: buildAuthIdentity(session.user),
+    session: buildSessionState(session.user, session),
+  };
 }
 
 export async function authenticateAccessToken(accessToken: string): Promise<AuthenticatedActor | null> {

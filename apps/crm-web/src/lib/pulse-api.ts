@@ -45,6 +45,7 @@ import type {
   ImportLeadFileResponse,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
+  LeadTerritoryAssignmentSummary,
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
   UpdateLeadRoutingPolicyRequest,
@@ -60,6 +61,7 @@ import type {
   LoginRequest,
   PublicWebsiteLeadSite,
   ReferenceListResponse,
+  ReassignLeadTerritoryRequest,
   ReferenceValueSummary,
   ScheduleLeadDiscoveryRequest,
   SavePublicCisDraftRequest,
@@ -301,6 +303,23 @@ export async function fetchTerritoryAssignmentHistory(
     {
       method: 'GET',
       accessToken,
+    },
+  );
+}
+
+export async function reassignLeadTerritory(
+  apiBaseUrl: string,
+  accessToken: string,
+  leadId: string,
+  input: ReassignLeadTerritoryRequest,
+) {
+  return requestJson<LeadTerritoryAssignmentSummary>(
+    apiBaseUrl,
+    `/api/v1/territories/assignments/leads/${leadId}`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
     },
   );
 }

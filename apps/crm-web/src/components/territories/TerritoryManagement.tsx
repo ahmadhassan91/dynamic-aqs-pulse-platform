@@ -8,19 +8,26 @@ import {
   Button,
   Divider,
   Group,
+  Loader,
+  Modal,
   Paper,
+  Select,
   SimpleGrid,
   Stack,
   Table,
   Tabs,
   Text,
+  Textarea,
   ThemeIcon,
+  Timeline,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowRight,
   IconBuildingWarehouse,
+  IconHistory,
   IconMap,
   IconMapPin,
   IconRefresh,
@@ -32,16 +39,20 @@ import type {
   LeadSummary,
   RegionSummary,
   ShippingCenterSummary,
+  TerritoryAssignmentHistoryEntry,
   TerritoryPolicySummary,
   TerritorySummary,
 } from '@pulse/contracts';
 import {
   fetchLeads,
+  fetchTerritoryAssignmentHistory,
   fetchTerritoryPolicy,
   fetchTerritoryRegions,
   fetchTerritoryShippingCenters,
   fetchTerritories,
+  reassignLeadTerritory,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import {
   TerritoryCommandDashboard,
@@ -50,6 +61,15 @@ import {
 } from './TerritoryCommandDashboard';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list';
+
+const TERRITORY_OVERRIDE_REASON_OPTIONS = [
+  { value: 'manual_override', label: 'Manual Override' },
+  { value: 'coverage_exception', label: 'Coverage Exception' },
+  { value: 'shipping_alignment', label: 'Shipping Alignment' },
+  { value: 'lead_request', label: 'Lead Request' },
+  { value: 'data_cleanup', label: 'Data Cleanup' },
+  { value: 'other', label: 'Other' },
+] as const;
 
 export function TerritoryManagement({
   initialTab = 'dashboard',
@@ -66,6 +86,15 @@ export function TerritoryManagement({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [reassignLead, setReassignLead] = useState<LeadSummary | null>(null);
+  const [historyLead, setHistoryLead] = useState<LeadSummary | null>(null);
+  const [assignmentHistory, setAssignmentHistory] = useState<TerritoryAssignmentHistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isSavingReassignment, setIsSavingReassignment] = useState(false);
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState('');
+  const [reassignReasonCode, setReassignReasonCode] = useState<string>('manual_override');
+  const [reassignReasonNote, setReassignReasonNote] = useState('');
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -134,9 +163,22 @@ export function TerritoryManagement({
     () => leads.filter((lead) => lead.lifecycleStatus === 'active' && lead.stage !== 'customer_active'),
     [leads],
   );
+  const canReassignTerritory = auth ? canPerformAction(auth.identity.role, 'territory.reassign') : false;
 
   const unassignedLeads = useMemo(
     () => activePipelineLeads.filter((lead) => !lead.territoryId),
+    [activePipelineLeads],
+  );
+
+  const territoryLeadRoster = useMemo(
+    () =>
+      [...activePipelineLeads].sort((left, right) => {
+        if (Boolean(left.territoryId) !== Boolean(right.territoryId)) {
+          return left.territoryId ? 1 : -1;
+        }
+
+        return left.companyName.localeCompare(right.companyName);
+      }),
     [activePipelineLeads],
   );
 
@@ -233,6 +275,102 @@ export function TerritoryManagement({
       })),
     [regions, territories],
   );
+
+  const territorySelectData = useMemo(
+    () =>
+      territories
+        .filter((territory) => territory.isActive)
+        .map((territory) => ({
+          value: territory.id,
+          label: `${territory.code} · ${territory.name}`,
+        })),
+    [territories],
+  );
+
+  useEffect(() => {
+    if (!historyLead || !auth) {
+      setAssignmentHistory([]);
+      setHistoryError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const accessToken = auth.tokens.accessToken;
+    const leadId = historyLead.id;
+
+    async function loadAssignmentHistory() {
+      setIsLoadingHistory(true);
+      setHistoryError(null);
+
+      try {
+        const response = await fetchTerritoryAssignmentHistory(
+          apiBaseUrl,
+          accessToken,
+          'lead',
+          leadId,
+        );
+
+        if (!cancelled) {
+          setAssignmentHistory(response.items);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHistoryError(error instanceof Error ? error.message : String(error));
+          setAssignmentHistory([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingHistory(false);
+        }
+      }
+    }
+
+    void loadAssignmentHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, historyLead]);
+
+  function openReassignmentModal(lead: LeadSummary) {
+    setReassignLead(lead);
+    setSelectedTerritoryId(lead.territoryId ?? '');
+    setReassignReasonCode('manual_override');
+    setReassignReasonNote('');
+  }
+
+  async function handleLeadReassignment() {
+    if (!auth || !reassignLead || !selectedTerritoryId) {
+      return;
+    }
+
+    setIsSavingReassignment(true);
+
+    try {
+      const response = await reassignLeadTerritory(apiBaseUrl, auth.tokens.accessToken, reassignLead.id, {
+        territoryId: selectedTerritoryId,
+        reasonCode: reassignReasonCode,
+        ...(reassignReasonNote.trim() ? { reasonNote: reassignReasonNote.trim() } : {}),
+      });
+
+      notifications.show({
+        title: 'Lead territory updated',
+        message: `${reassignLead.companyName} is now assigned to ${response.territoryName ?? response.territoryCode ?? 'the selected territory'}.`,
+        color: 'green',
+      });
+
+      setReassignLead(null);
+      setRefreshNonce((value) => value + 1);
+    } catch (error) {
+      notifications.show({
+        title: 'Territory reassignment failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingReassignment(false);
+    }
+  }
 
   if (!isHydrated || !auth) {
     return null;
@@ -432,9 +570,24 @@ export function TerritoryManagement({
                                 {lead.state ?? 'State missing'} · {formatRoutingTeam(lead.routingTeam)} · {lead.stage.replace(/_/g, ' ')}
                               </Text>
                             </div>
-                            <Badge color="orange" variant="light">
-                              Needs assignment
-                            </Badge>
+                            <Stack gap="xs" align="flex-end">
+                              <Badge color="orange" variant="light">
+                                Needs assignment
+                              </Badge>
+                              <Group gap="xs">
+                                <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="xs">
+                                  Open lead
+                                </Button>
+                                {canReassignTerritory ? (
+                                  <Button variant="light" size="xs" onClick={() => openReassignmentModal(lead)}>
+                                    Assign territory
+                                  </Button>
+                                ) : null}
+                                <Button variant="subtle" size="xs" onClick={() => setHistoryLead(lead)}>
+                                  History
+                                </Button>
+                              </Group>
+                            </Stack>
                           </Group>
                         </Paper>
                       ))}
@@ -714,6 +867,7 @@ export function TerritoryManagement({
                             <Table.Th>State</Table.Th>
                             <Table.Th>Routing Team</Table.Th>
                             <Table.Th>Stage</Table.Th>
+                            <Table.Th>Actions</Table.Th>
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -730,6 +884,21 @@ export function TerritoryManagement({
                               <Table.Td>{lead.state ?? 'Missing'}</Table.Td>
                               <Table.Td>{formatRoutingTeam(lead.routingTeam)}</Table.Td>
                               <Table.Td>{formatStageLabel(lead.stage)}</Table.Td>
+                              <Table.Td>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="compact-sm">
+                                    Open
+                                  </Button>
+                                  {canReassignTerritory ? (
+                                    <Button variant="light" size="compact-sm" onClick={() => openReassignmentModal(lead)}>
+                                      Reassign
+                                    </Button>
+                                  ) : null}
+                                  <Button variant="subtle" size="compact-sm" onClick={() => setHistoryLead(lead)}>
+                                    History
+                                  </Button>
+                                </Group>
+                              </Table.Td>
                             </Table.Tr>
                           ))}
                         </Table.Tbody>
@@ -743,9 +912,187 @@ export function TerritoryManagement({
                 </Stack>
               </Paper>
             </SimpleGrid>
+
+            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <div>
+                    <Title order={4}>Lead territory roster</Title>
+                    <Text size="sm" c="dimmed">
+                      Live assignment ledger for active pipeline leads, including manual override controls and history.
+                    </Text>
+                  </div>
+                  <Badge color="grape" variant="light">
+                    {territoryLeadRoster.length} active leads
+                  </Badge>
+                </Group>
+
+                <Table.ScrollContainer minWidth={980}>
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Lead</Table.Th>
+                        <Table.Th>State</Table.Th>
+                        <Table.Th>Territory</Table.Th>
+                        <Table.Th>Region</Table.Th>
+                        <Table.Th>Assignment Method</Table.Th>
+                        <Table.Th>Routing Team</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {territoryLeadRoster.slice(0, 18).map((lead) => (
+                        <Table.Tr key={lead.id}>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{lead.companyName}</Text>
+                              <Text size="xs" c="dimmed">
+                                {lead.sourceSiteName ?? lead.leadSourceName}
+                              </Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>{lead.state ?? 'Missing'}</Table.Td>
+                          <Table.Td>{lead.territoryName ?? lead.territoryCode ?? 'Unassigned'}</Table.Td>
+                          <Table.Td>{lead.regionName ?? 'Unassigned'}</Table.Td>
+                          <Table.Td>{formatAssignmentMethod(lead.territoryAssignmentMethod)}</Table.Td>
+                          <Table.Td>{formatRoutingTeam(lead.routingTeam)}</Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" wrap="nowrap">
+                              <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="compact-sm">
+                                Open
+                              </Button>
+                              {canReassignTerritory ? (
+                                <Button variant="light" size="compact-sm" onClick={() => openReassignmentModal(lead)}>
+                                  Override
+                                </Button>
+                              ) : null}
+                              <Button variant="subtle" size="compact-sm" onClick={() => setHistoryLead(lead)}>
+                                History
+                              </Button>
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              </Stack>
+            </Paper>
           </Stack>
         </Tabs.Panel>
       </Tabs>
+
+      <Modal
+        opened={Boolean(reassignLead)}
+        onClose={() => setReassignLead(null)}
+        title="Lead territory override"
+        centered
+        size="lg"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Route this lead to the correct territory using the live manual-override path. This writes assignment history
+            and updates the operational workspace immediately.
+          </Text>
+          <Paper withBorder radius="lg" p="md">
+            <Stack gap={4}>
+              <Text fw={700}>{reassignLead?.companyName}</Text>
+              <Text size="sm" c="dimmed">
+                {reassignLead?.state ?? 'State missing'} · {reassignLead ? formatRoutingTeam(reassignLead.routingTeam) : '—'}
+              </Text>
+            </Stack>
+          </Paper>
+          <Select
+            label="Territory"
+            placeholder="Select a territory"
+            data={territorySelectData}
+            value={selectedTerritoryId}
+            onChange={(value) => setSelectedTerritoryId(value ?? '')}
+            searchable
+          />
+          <Select
+            label="Reason"
+            data={TERRITORY_OVERRIDE_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            value={reassignReasonCode}
+            onChange={(value) => setReassignReasonCode(value ?? 'manual_override')}
+          />
+          <Textarea
+            label="Note"
+            placeholder="Add optional detail for the override history."
+            value={reassignReasonNote}
+            onChange={(event) => setReassignReasonNote(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setReassignLead(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                void handleLeadReassignment();
+              }}
+              loading={isSavingReassignment}
+              disabled={!selectedTerritoryId}
+            >
+              Save override
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(historyLead)}
+        onClose={() => setHistoryLead(null)}
+        title="Territory assignment history"
+        centered
+        size="lg"
+      >
+        <Stack gap="md">
+          <Paper withBorder radius="lg" p="md">
+            <Stack gap={4}>
+              <Text fw={700}>{historyLead?.companyName}</Text>
+              <Text size="sm" c="dimmed">
+                {historyLead?.territoryName ?? historyLead?.territoryCode ?? 'Unassigned'} · {historyLead?.state ?? 'State missing'}
+              </Text>
+            </Stack>
+          </Paper>
+
+          {isLoadingHistory ? (
+            <Group justify="center" py="lg">
+              <Loader size="sm" color="blue" />
+            </Group>
+          ) : historyError ? (
+            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+              {historyError}
+            </Alert>
+          ) : assignmentHistory.length > 0 ? (
+            <Timeline active={Math.max(assignmentHistory.length - 1, 0)} bulletSize={24} lineWidth={2}>
+              {assignmentHistory.map((item) => (
+                <Timeline.Item
+                  key={item.id}
+                  title={`${formatAssignmentMethod(item.assignmentMethod)} · ${formatDateLabel(item.changedAt)}`}
+                >
+                  <Text size="sm" fw={600}>
+                    {buildHistoryTransitionLabel(item)}
+                  </Text>
+                  <Text size="sm" c="dimmed" mt={4}>
+                    Changed by {item.changedByUserName ?? 'Pulse CRM'}{item.reasonCode ? ` · ${formatReasonCode(item.reasonCode)}` : ''}
+                  </Text>
+                  {item.reasonNote ? (
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {item.reasonNote}
+                    </Text>
+                  ) : null}
+                </Timeline.Item>
+              ))}
+            </Timeline>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No assignment history has been recorded for this lead yet.
+            </Text>
+          )}
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
@@ -797,4 +1144,32 @@ function formatRoutingTeam(value: LeadSummary['routingTeam']) {
 
 function formatStageLabel(value: LeadSummary['stage']) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatAssignmentMethod(value: LeadSummary['territoryAssignmentMethod'] | TerritoryAssignmentHistoryEntry['assignmentMethod'] | undefined) {
+  if (!value) {
+    return 'Unassigned';
+  }
+
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatReasonCode(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildHistoryTransitionLabel(item: TerritoryAssignmentHistoryEntry) {
+  const from = item.previousTerritoryCode ?? 'Unassigned';
+  const to = item.nextTerritoryCode ?? 'Unassigned';
+  return `${from} → ${to}`;
+}
+
+function formatDateLabel(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
 }

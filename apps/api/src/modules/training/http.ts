@@ -2,11 +2,18 @@ import { AuthorizationError } from '@pulse/auth';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  CancelTrainingSessionRequest,
+  CompleteTrainingFollowUpTaskRequest,
+  CompleteTrainingSessionRequest,
+  CreateTrainingFollowUpTaskRequest,
   CreateAccountTrainingProgramRequest,
   CreateTrainingCategoryRequest,
+  CreateTrainingSessionRequest,
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
   ListTrainingAccountsRequest,
+  ListTrainingSessionsRequest,
+  UpdateTrainingSessionScheduleRequest,
 } from '@pulse/contracts';
 import {
   badRequestResponse,
@@ -20,14 +27,22 @@ import {
 import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import {
+  cancelTrainingSession,
+  completeTrainingFollowUpTask,
+  completeTrainingSession,
   createAccountTrainingProgram,
+  createTrainingFollowUpTask,
   createTrainingCategory,
+  createTrainingSession,
   createTrainingTemplate,
   createTrainingType,
   getAccountTrainingHistory,
   listTrainingAccounts,
   listTrainingCatalog,
   listTrainingOverview,
+  listTrainingSessions,
+  listTrainingTrainers,
+  rescheduleTrainingSession,
 } from './service.js';
 
 export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
@@ -36,12 +51,20 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
   const isTrainingRoute =
     pathname === '/api/v1/training/overview'
     || pathname === '/api/v1/training/catalog'
+    || pathname === '/api/v1/training/trainers'
+    || pathname === '/api/v1/training/sessions'
     || pathname === '/api/v1/training/catalog/categories'
     || pathname === '/api/v1/training/catalog/types'
     || pathname === '/api/v1/training/catalog/templates'
     || pathname === '/api/v1/training/accounts'
     || /^\/api\/v1\/training\/accounts\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/training\/accounts\/[^/]+\/programs$/.test(pathname);
+    || /^\/api\/v1\/training\/accounts\/[^/]+\/programs$/.test(pathname)
+    || /^\/api\/v1\/training\/accounts\/[^/]+\/sessions$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/reschedule$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/complete$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/cancel$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/follow-up-tasks$/.test(pathname)
+    || /^\/api\/v1\/training\/follow-up-tasks\/[^/]+\/complete$/.test(pathname);
 
   if (!isTrainingRoute) {
     return false;
@@ -66,6 +89,54 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
         const response = await listTrainingCatalog(actor);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/trainers') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const response = await listTrainingTrainers(actor);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/sessions') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const query: ListTrainingSessionsRequest = {};
+        const accountId = url.searchParams.get('accountId')?.trim();
+        const trainerUserId = url.searchParams.get('trainerUserId')?.trim();
+        const status = url.searchParams.get('status')?.trim();
+        const includeVisits = parseBoolean(url.searchParams.get('includeVisits'));
+        const limit = parseInteger(url.searchParams.get('limit'));
+
+        if (accountId) {
+          query.accountId = accountId;
+        }
+        if (trainerUserId) {
+          query.trainerUserId = trainerUserId;
+        }
+        const normalizedStatus = status && ['all', 'scheduled', 'overdue', 'completed', 'cancelled', 'no_show'].includes(status)
+          ? (status as NonNullable<ListTrainingSessionsRequest['status']>)
+          : null;
+        if (normalizedStatus) {
+          query.status = normalizedStatus;
+        }
+        if (includeVisits !== undefined) {
+          query.includeVisits = includeVisits;
+        }
+        if (limit !== undefined) {
+          query.limit = limit;
+        }
+
+        const response = await listTrainingSessions(actor, query);
         return jsonResponse(res, 200, response);
       });
     }
@@ -175,6 +246,114 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
         const body = (await readJsonBody(req)) as CreateAccountTrainingProgramRequest;
         const response = await createAccountTrainingProgram(actor, accountId, body);
         return jsonResponse(res, 201, response);
+      });
+    }
+
+    const accountSessionsMatch = pathname.match(/^\/api\/v1\/training\/accounts\/([^/]+)\/sessions$/);
+    if (accountSessionsMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const accountId = accountSessionsMatch[1];
+      if (!accountId) {
+        return badRequestResponse(res, 'Account id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CreateTrainingSessionRequest;
+        const response = await createTrainingSession(actor, accountId, body);
+        return jsonResponse(res, 201, response);
+      });
+    }
+
+    const sessionRescheduleMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/reschedule$/);
+    if (sessionRescheduleMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionRescheduleMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as UpdateTrainingSessionScheduleRequest;
+        const response = await rescheduleTrainingSession(actor, sessionId, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    const sessionCompleteMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/complete$/);
+    if (sessionCompleteMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionCompleteMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CompleteTrainingSessionRequest;
+        const response = await completeTrainingSession(actor, sessionId, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    const sessionCancelMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/cancel$/);
+    if (sessionCancelMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionCancelMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CancelTrainingSessionRequest;
+        const response = await cancelTrainingSession(actor, sessionId, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    const sessionFollowUpMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/follow-up-tasks$/);
+    if (sessionFollowUpMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionFollowUpMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CreateTrainingFollowUpTaskRequest;
+        const response = await createTrainingFollowUpTask(actor, sessionId, body);
+        return jsonResponse(res, 201, response);
+      });
+    }
+
+    const followUpTaskCompleteMatch = pathname.match(/^\/api\/v1\/training\/follow-up-tasks\/([^/]+)\/complete$/);
+    if (followUpTaskCompleteMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const taskId = followUpTaskCompleteMatch[1];
+      if (!taskId) {
+        return badRequestResponse(res, 'Follow-up task id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CompleteTrainingFollowUpTaskRequest;
+        const response = await completeTrainingFollowUpTask(actor, taskId, body);
+        return jsonResponse(res, 200, response);
       });
     }
   } catch (error) {

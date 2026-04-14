@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -16,18 +17,29 @@ import {
   Text,
   Textarea,
   Title,
+  Tooltip,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { IconCalendarPlus, IconCheck, IconClockEdit, IconClipboardCheck } from '@tabler/icons-react';
 import type {
   AccountTrainingHistoryResponse,
   CreateAccountTrainingProgramRequest,
+  ListTrainingSessionsResponse,
   TrainingCatalogResponse,
+  TrainingSessionSummary,
+  TrainingTrainerSummary,
 } from '@pulse/contracts';
 import { canPerformAction } from '@/lib/access';
 import {
+  completeTrainingFollowUpTaskRecord,
   createAccountTrainingProgramRecord,
   fetchAccountTrainingHistory,
+  fetchTrainingSessions,
+  fetchTrainingTrainers,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { TrainingSessionExecutionModal } from './TrainingSessionExecutionModal';
+import { TrainingSessionSchedulerModal } from './TrainingSessionSchedulerModal';
 
 function formatDate(value?: string) {
   if (!value) {
@@ -67,14 +79,20 @@ export function CustomerTrainingHistory({
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
   const [history, setHistory] = useState<AccountTrainingHistoryResponse | null>(null);
+  const [sessions, setSessions] = useState<ListTrainingSessionsResponse | null>(null);
+  const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompletingTaskId, setIsCompletingTaskId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [programForm, setProgramForm] = useState<CreateAccountTrainingProgramRequest>({
     trainingTypeId: '',
     templateId: '',
     notes: '',
   });
+  const [schedulerSession, setSchedulerSession] = useState<TrainingSessionSummary | null>(null);
+  const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
+  const [executionSession, setExecutionSession] = useState<TrainingSessionSummary | null>(null);
 
   const canSchedule = auth ? canPerformAction(auth.identity.role, 'training.schedule') : false;
 
@@ -87,8 +105,19 @@ export function CustomerTrainingHistory({
     setErrorMessage(null);
 
     try {
-      const response = await fetchAccountTrainingHistory(apiBaseUrl, accessToken, accountId);
-      setHistory(response);
+      const [nextHistory, nextSessions, nextTrainers] = await Promise.all([
+        fetchAccountTrainingHistory(apiBaseUrl, accessToken, accountId),
+        fetchTrainingSessions(apiBaseUrl, accessToken, {
+          accountId,
+          includeVisits: true,
+          status: 'all',
+          limit: 50,
+        }),
+        fetchTrainingTrainers(apiBaseUrl, accessToken),
+      ]);
+      setHistory(nextHistory);
+      setSessions(nextSessions);
+      setTrainers(nextTrainers.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -111,6 +140,18 @@ export function CustomerTrainingHistory({
       value: entry.id,
       label: entry.title,
     }));
+
+  const programOptions = useMemo(
+    () => history?.programs ?? [],
+    [history],
+  );
+
+  const visibleSessions = useMemo(
+    () => sessions?.items ?? history?.recentSessions ?? [],
+    [history, sessions],
+  );
+
+  const scheduledSessions = visibleSessions.filter((session) => session.status === 'scheduled');
 
   const handleCreateProgram = async () => {
     if (!auth || !programForm.trainingTypeId) {
@@ -139,6 +180,28 @@ export function CustomerTrainingHistory({
     }
   };
 
+  const handleCompleteFollowUpTask = async (taskId: string) => {
+    if (!auth) {
+      return;
+    }
+
+    setIsCompletingTaskId(taskId);
+    setErrorMessage(null);
+    try {
+      await completeTrainingFollowUpTaskRecord(apiBaseUrl, accessToken, taskId, {});
+      notifications.show({
+        color: 'green',
+        title: 'Follow-up completed',
+        message: 'The training follow-up task was marked complete.',
+      });
+      await loadHistory();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCompletingTaskId(null);
+    }
+  };
+
   return (
     <Stack gap="md">
       <Paper withBorder radius="md" p="lg">
@@ -146,12 +209,25 @@ export function CustomerTrainingHistory({
           <Stack gap={4}>
             <Title order={3}>Training history for {accountName}</Title>
             <Text size="sm" c="dimmed">
-              Review overdue coverage, active programs, certification tracks, and recent customer-facing training activity.
+              Review overdue coverage, scheduled sessions, certification tracks, and follow-up tasks without leaving the approved customer workflow.
             </Text>
           </Stack>
-          <Badge color="blue" variant="light">
-            {history?.activeProgramCount ?? 0} active programs
-          </Badge>
+          <Group gap="xs">
+            <Badge color="blue" variant="light">
+              {history?.activeProgramCount ?? 0} active programs
+            </Badge>
+            {canSchedule ? (
+              <Button
+                leftSection={<IconCalendarPlus size={16} />}
+                onClick={() => {
+                  setSchedulerSession(null);
+                  setIsSchedulerOpen(true);
+                }}
+              >
+                Schedule Session
+              </Button>
+            ) : null}
+          </Group>
         </Group>
       </Paper>
 
@@ -167,7 +243,7 @@ export function CustomerTrainingHistory({
 
       {history ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Last training</Text>
               <Text fw={700} size="lg">{formatDate(history.lastTrainingAt)}</Text>
@@ -181,8 +257,12 @@ export function CustomerTrainingHistory({
               <Text fw={700} size="lg">{history.totalTrainingHours.toFixed(1)} hrs</Text>
             </Card>
             <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue programs</Text>
-              <Text fw={700} size="lg">{history.overdueProgramCount}</Text>
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Scheduled sessions</Text>
+              <Text fw={700} size="lg">{scheduledSessions.length}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
+              <Text fw={700} size="lg">{history.openFollowUpTasks.length}</Text>
             </Card>
           </SimpleGrid>
 
@@ -281,7 +361,19 @@ export function CustomerTrainingHistory({
 
           <Paper withBorder radius="md" p="lg">
             <Stack gap="sm">
-              <Title order={4}>Recent sessions</Title>
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Title order={4}>Sessions</Title>
+                  <Text size="sm" c="dimmed">
+                    Schedule, reschedule, complete, or cancel sessions from the real training workflow.
+                  </Text>
+                </Stack>
+                {history.openFollowUpTasks.length > 0 ? (
+                  <Badge color="orange" variant="light">
+                    {history.openFollowUpTasks.length} open follow-ups
+                  </Badge>
+                ) : null}
+              </Group>
               <Table striped highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
@@ -290,10 +382,11 @@ export function CustomerTrainingHistory({
                     <Table.Th>Status</Table.Th>
                     <Table.Th>When</Table.Th>
                     <Table.Th>Hours</Table.Th>
+                    {canSchedule ? <Table.Th>Actions</Table.Th> : null}
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {history.recentSessions.length > 0 ? history.recentSessions.map((session) => (
+                  {visibleSessions.length > 0 ? visibleSessions.map((session) => (
                     <Table.Tr key={session.id}>
                       <Table.Td>
                         <Stack gap={0}>
@@ -301,16 +394,56 @@ export function CustomerTrainingHistory({
                           <Text size="sm" c="dimmed">
                             {session.trainingTypeName ?? session.locationName ?? 'Training activity'}
                           </Text>
+                          {session.openFollowUpTaskCount > 0 ? (
+                            <Text size="xs" c="orange">
+                              {session.openFollowUpTaskCount} open follow-up task{session.openFollowUpTaskCount === 1 ? '' : 's'}
+                            </Text>
+                          ) : null}
                         </Stack>
                       </Table.Td>
                       <Table.Td>{session.activityKind.replace(/_/g, ' ')}</Table.Td>
-                      <Table.Td>{session.status.replace(/_/g, ' ')}</Table.Td>
+                      <Table.Td>
+                        <Badge color={session.isOverdue ? 'red' : session.status === 'completed' ? 'green' : 'blue'} variant="light">
+                          {session.status.replace(/_/g, ' ')}
+                        </Badge>
+                      </Table.Td>
                       <Table.Td>{formatDateTime(session.completedAt ?? session.scheduledAt)}</Table.Td>
                       <Table.Td>{session.countsTowardHours ? `${(session.durationMinutes / 60).toFixed(1)} hrs` : 'Visit only'}</Table.Td>
+                      {canSchedule ? (
+                        <Table.Td>
+                          {session.status === 'scheduled' ? (
+                            <Group gap={4} wrap="nowrap">
+                              <Tooltip label="Reschedule">
+                                <ActionIcon
+                                  variant="light"
+                                  color="blue"
+                                  onClick={() => {
+                                    setSchedulerSession(session);
+                                    setIsSchedulerOpen(true);
+                                  }}
+                                >
+                                  <IconClockEdit size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Complete / cancel">
+                                <ActionIcon
+                                  variant="light"
+                                  color="green"
+                                  onClick={() => setExecutionSession(session)}
+                                >
+                                  <IconClipboardCheck size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Group>
+                          ) : (
+                            <Text size="sm" c="dimmed">Logged</Text>
+                          )}
+                        </Table.Td>
+                      ) : null}
                     </Table.Tr>
                   )) : (
                     <Table.Tr>
-                      <Table.Td colSpan={5}>
+                      <Table.Td colSpan={canSchedule ? 6 : 5}>
                         <Text c="dimmed">No sessions have been logged for this account yet.</Text>
                       </Table.Td>
                     </Table.Tr>
@@ -319,6 +452,89 @@ export function CustomerTrainingHistory({
               </Table>
             </Stack>
           </Paper>
+
+          <Paper withBorder radius="md" p="lg">
+            <Stack gap="sm">
+              <Title order={4}>Open follow-up tasks</Title>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Task</Table.Th>
+                    <Table.Th>Owner</Table.Th>
+                    <Table.Th>Due</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    {canSchedule ? <Table.Th>Actions</Table.Th> : null}
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {history.openFollowUpTasks.length > 0 ? history.openFollowUpTasks.map((task) => (
+                    <Table.Tr key={task.id}>
+                      <Table.Td>
+                        <Stack gap={0}>
+                          <Text fw={600}>{task.title}</Text>
+                          <Text size="sm" c="dimmed">{task.description ?? 'No description'}</Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>{task.ownerName ?? 'Unassigned'}</Table.Td>
+                      <Table.Td>{formatDateTime(task.dueAt)}</Table.Td>
+                      <Table.Td>
+                        <Badge color="orange" variant="light">{task.status}</Badge>
+                      </Table.Td>
+                      {canSchedule ? (
+                        <Table.Td>
+                          <Button
+                            size="xs"
+                            variant="light"
+                            leftSection={<IconCheck size={14} />}
+                            loading={isCompletingTaskId === task.id}
+                            onClick={() => void handleCompleteFollowUpTask(task.id)}
+                          >
+                            Complete
+                          </Button>
+                        </Table.Td>
+                      ) : null}
+                    </Table.Tr>
+                  )) : (
+                    <Table.Tr>
+                      <Table.Td colSpan={canSchedule ? 5 : 4}>
+                        <Text c="dimmed">No open follow-up tasks for this account right now.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Stack>
+          </Paper>
+        </>
+      ) : null}
+
+      {canSchedule ? (
+        <>
+          <TrainingSessionSchedulerModal
+            opened={isSchedulerOpen}
+            onClose={() => {
+              setIsSchedulerOpen(false);
+              setSchedulerSession(null);
+            }}
+            apiBaseUrl={apiBaseUrl}
+            accessToken={accessToken}
+            accountId={accountId}
+            accountName={accountName}
+            catalog={catalog}
+            trainers={trainers}
+            existingSession={schedulerSession}
+            programOptions={programOptions}
+            onSaved={loadHistory}
+          />
+          <TrainingSessionExecutionModal
+            opened={Boolean(executionSession)}
+            onClose={() => setExecutionSession(null)}
+            apiBaseUrl={apiBaseUrl}
+            accessToken={accessToken}
+            session={executionSession}
+            trainers={trainers}
+            onSaved={loadHistory}
+          />
         </>
       ) : null}
     </Stack>

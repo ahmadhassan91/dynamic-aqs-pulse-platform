@@ -8,6 +8,7 @@ import {
   TrainingCatalogFamily,
   TrainingCategoryKind,
   TrainingDeliveryMode,
+  TrainingFollowUpTaskStatus,
   TrainingProofRequirement,
   TrainingSessionStatus,
   Prisma,
@@ -15,22 +16,34 @@ import {
 import type {
   AccountTrainingHistoryResponse,
   AccountTrainingProgramSummary,
+  CancelTrainingSessionRequest,
+  CompleteTrainingFollowUpTaskRequest,
+  CompleteTrainingSessionRequest,
+  CreateTrainingFollowUpTaskRequest,
   CreateAccountTrainingProgramRequest,
   CreateTrainingCategoryRequest,
+  CreateTrainingSessionRequest,
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
+  ListTrainingSessionsRequest,
+  ListTrainingSessionsResponse,
+  ListTrainingTrainersResponse,
   TrainingAccountSummary,
   TrainingCadencePolicySummary,
   TrainingCatalogResponse,
   TrainingCategoryKindKey,
   TrainingCategorySummary,
+  TrainingFollowUpTaskStatusKey,
+  TrainingFollowUpTaskSummary,
   TrainingOverviewResponse,
   TrainingProofRequirementKey,
   TrainingSessionSummary,
+  TrainingTrainerSummary,
   TrainingTemplateSummary,
   TrainingTypeSummary,
+  UpdateTrainingSessionScheduleRequest,
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -39,6 +52,8 @@ const TRAINING_CATEGORY_ENTITY = 'TRAINING_CATEGORY';
 const TRAINING_TYPE_ENTITY = 'TRAINING_TYPE';
 const TRAINING_TEMPLATE_ENTITY = 'TRAINING_TEMPLATE';
 const TRAINING_PROGRAM_ENTITY = 'ACCOUNT_TRAINING_PROGRAM';
+const TRAINING_SESSION_ENTITY = 'TRAINING_SESSION';
+const TRAINING_FOLLOW_UP_TASK_ENTITY = 'TRAINING_FOLLOW_UP_TASK';
 
 const DEFAULT_TRAINING_CATEGORIES = [
   {
@@ -464,14 +479,45 @@ const trainingProgramArgs = Prisma.validator<Prisma.AccountTrainingProgramDefaul
 
 const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>()({
   include: {
-    trainingType: true,
-    trainerUser: {
+    account: {
       select: {
         id: true,
         displayName: true,
       },
     },
+    program: {
+      select: {
+        id: true,
+        title: true,
+      },
+    },
+    trainingType: true,
+    trainerUser: {
+      select: {
+        id: true,
+        displayName: true,
+        roleCode: true,
+        email: true,
+      },
+    },
     location: true,
+    followUpTasks: {
+      include: {
+        ownerUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        createdByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+    },
   },
 });
 
@@ -504,6 +550,7 @@ const trainingAccountArgs = Prisma.validator<Prisma.AccountDefaultArgs>()({
 type TrainingProgramRecord = Prisma.AccountTrainingProgramGetPayload<typeof trainingProgramArgs>;
 type TrainingSessionRecord = Prisma.TrainingSessionGetPayload<typeof trainingSessionArgs>;
 type TrainingAccountRecord = Prisma.AccountGetPayload<typeof trainingAccountArgs>;
+type TrainingFollowUpTaskRecord = TrainingSessionRecord['followUpTasks'][number];
 type TrainingCategoryRecord = Prisma.TrainingCategoryGetPayload<{
   include: { _count: { select: { trainingTypes: true } } };
 }>;
@@ -516,6 +563,29 @@ type TrainingTemplateRecord = Prisma.TrainingTemplateGetPayload<{
 type TrainingCadencePolicyRecord = Prisma.TrainingCadencePolicyGetPayload<{
   include: { trainingType: true };
 }>;
+
+const trainingFollowUpTaskInclude = Prisma.validator<Prisma.TrainingFollowUpTaskDefaultArgs>()({
+  include: {
+    ownerUser: {
+      select: {
+        id: true,
+        displayName: true,
+      },
+    },
+    createdByUser: {
+      select: {
+        id: true,
+        displayName: true,
+      },
+    },
+  },
+}).include;
+
+const ELIGIBLE_TRAINER_ROLE_CODES = new Set([
+  'TRAINING_OPS',
+  'TERRITORY_MANAGER',
+  'REGIONAL_DIRECTOR',
+]);
 
 export async function ensureTrainingSeeded() {
   await prisma.$transaction(async (tx) => {
@@ -627,7 +697,7 @@ export async function ensureTrainingSeeded() {
 export async function listTrainingOverview(actor: AuthenticatedActor): Promise<TrainingOverviewResponse> {
   assertModuleAccess(actor.role, 'training');
 
-  const [totalAccountsTracked, activePrograms, completedSessions, scheduledSessions, overduePrograms, categoryCount, trainingTypeCount, templateCount, certificationTrackCount] = await Promise.all([
+  const [totalAccountsTracked, activePrograms, completedSessions, scheduledSessions, overduePrograms, openFollowUpTasks, categoryCount, trainingTypeCount, templateCount, certificationTrackCount] = await Promise.all([
     prisma.account.count({
       where: {
         isActive: true,
@@ -661,6 +731,11 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
             },
           },
         ],
+      },
+    }),
+    prisma.trainingFollowUpTask.count({
+      where: {
+        status: TrainingFollowUpTaskStatus.OPEN,
       },
     }),
     prisma.trainingCategory.count({
@@ -705,6 +780,7 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
     overduePrograms,
     completedSessions,
     scheduledSessions,
+    openFollowUpTasks,
     deliveredTrainingHours: roundHours(deliveredTrainingHours),
     categoryCount,
     trainingTypeCount,
@@ -1083,6 +1159,499 @@ export async function createAccountTrainingProgram(
   return toAccountTrainingProgramSummary(created);
 }
 
+export async function listTrainingTrainers(
+  actor: AuthenticatedActor,
+): Promise<ListTrainingTrainersResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const users = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      roleCode: {
+        in: [...ELIGIBLE_TRAINER_ROLE_CODES],
+      },
+      OR: [
+        { trainingTrainerProfile: null },
+        { trainingTrainerProfile: { isActive: true } },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    include: {
+      trainingTrainerProfile: true,
+    },
+  });
+
+  return {
+    items: users.map((user) => ({
+      userId: user.id,
+      displayName: user.displayName,
+      ...(user.email ? { email: user.email } : {}),
+      roleCode: user.roleCode,
+      ...(user.trainingTrainerProfile?.title ? { title: user.trainingTrainerProfile.title } : {}),
+      ...(user.trainingTrainerProfile?.notes ? { notes: user.trainingTrainerProfile.notes } : {}),
+      isActive: user.trainingTrainerProfile?.isActive ?? true,
+    })),
+  };
+}
+
+export async function listTrainingSessions(
+  actor: AuthenticatedActor,
+  query: ListTrainingSessionsRequest = {},
+): Promise<ListTrainingSessionsResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const status = query.status ?? 'all';
+  const sessions = await prisma.trainingSession.findMany({
+    where: {
+      ...(query.accountId ? { accountId: query.accountId } : {}),
+      ...(query.trainerUserId ? { trainerUserId: query.trainerUserId } : {}),
+      ...(query.includeVisits ? {} : { activityKind: TrainingActivityKind.TRAINING }),
+    },
+    orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
+    take: query.limit ?? 100,
+    include: trainingSessionArgs.include,
+  });
+
+  const items = sessions
+    .map(toTrainingSessionSummary)
+    .filter((session) => filterTrainingSessionSummary(session, status));
+
+  return {
+    items,
+    total: items.length,
+    overdueCount: items.filter((item) => item.isOverdue).length,
+    openFollowUpTaskCount: items.reduce((sum, item) => sum + item.openFollowUpTaskCount, 0),
+  };
+}
+
+export async function createTrainingSession(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: CreateTrainingSessionRequest,
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: {
+      assignedTmUser: true,
+      assignedRdUser: true,
+      locations: {
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      },
+    },
+  });
+  if (!account) {
+    throw new Error('Account not found');
+  }
+
+  const scheduledAt = parseIsoDate(input.scheduledAt, 'scheduledAt');
+  if (scheduledAt.getTime() < Date.now() - 60_000) {
+    throw new Error('scheduledAt must be in the future');
+  }
+  if (input.durationMinutes <= 0) {
+    throw new Error('durationMinutes must be greater than zero');
+  }
+
+  const trainer = await ensureAssignableTrainer(input.trainerUserId);
+
+  const program = input.programId
+    ? await prisma.accountTrainingProgram.findUnique({
+        where: { id: input.programId },
+        include: trainingProgramArgs.include,
+      })
+    : null;
+  if (input.programId && !program) {
+    throw new Error('Training program not found');
+  }
+  if (program && program.accountId !== accountId) {
+    throw new Error('Training program does not belong to the selected account');
+  }
+
+  const trainingType = input.trainingTypeId
+    ? await prisma.trainingType.findUnique({
+        where: { id: input.trainingTypeId },
+      })
+    : program?.trainingTypeId
+      ? await prisma.trainingType.findUnique({ where: { id: program.trainingTypeId } })
+      : null;
+
+  if (input.trainingTypeId && !trainingType) {
+    throw new Error('Training type not found');
+  }
+
+  const locationId = input.locationId ?? account.locations.find((entry) => entry.isPrimary)?.id;
+  if (locationId) {
+    const hasLocation = account.locations.some((entry) => entry.id === locationId);
+    if (!hasLocation) {
+      throw new Error('Training location does not belong to the selected account');
+    }
+  }
+
+  const activityKind = input.activityKind ? toTrainingActivityKind(input.activityKind) : TrainingActivityKind.TRAINING;
+  const title = input.title?.trim() || trainingType?.name || program?.title || 'Training Session';
+
+  const created = await prisma.$transaction(async (tx) => {
+    const session = await tx.trainingSession.create({
+      data: {
+        accountId,
+        ...(locationId ? { locationId } : {}),
+        ...(program ? { programId: program.id } : {}),
+        ...(trainingType ? { trainingTypeId: trainingType.id } : {}),
+        trainerUserId: trainer.id,
+        activityKind,
+        status: TrainingSessionStatus.SCHEDULED,
+        title,
+        scheduledAt,
+        durationMinutes: input.durationMinutes,
+        attendeeCount: input.attendeeCount ?? 0,
+        ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      },
+      include: trainingSessionArgs.include,
+    });
+
+    if (program && !program.startedAt) {
+      await tx.accountTrainingProgram.update({
+        where: { id: program.id },
+        data: {
+          startedAt: scheduledAt,
+          status: AccountTrainingProgramStatus.ACTIVE,
+        },
+      });
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: session.id,
+        afterData: {
+          accountId,
+          trainerUserId: trainer.id,
+          programId: program?.id,
+          trainingTypeCode: trainingType?.code,
+          scheduledAt: scheduledAt.toISOString(),
+          activityKind: activityKind.toLowerCase(),
+        },
+        metadata: trainingAuditMetadata(actor),
+      }),
+    });
+
+    return session;
+  });
+
+  return toTrainingSessionSummary(created);
+}
+
+export async function rescheduleTrainingSession(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: UpdateTrainingSessionScheduleRequest,
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status !== TrainingSessionStatus.SCHEDULED) {
+    throw new Error('Only scheduled training sessions can be rescheduled');
+  }
+
+  const scheduledAt = parseIsoDate(input.scheduledAt, 'scheduledAt');
+  if (scheduledAt.getTime() < Date.now() - 60_000) {
+    throw new Error('scheduledAt must be in the future');
+  }
+
+  const trainer = input.trainerUserId
+    ? await ensureAssignableTrainer(input.trainerUserId)
+    : null;
+
+  if (input.locationId) {
+    const location = await prisma.accountLocation.findFirst({
+      where: {
+        id: input.locationId,
+        accountId: session.accountId,
+      },
+      select: { id: true },
+    });
+    if (!location) {
+      throw new Error('Training location does not belong to the selected account');
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        scheduledAt,
+        ...(trainer ? { trainerUserId: trainer.id } : {}),
+        ...(input.locationId ? { locationId: input.locationId } : {}),
+        ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+        ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+        ...(input.attendeeCount !== undefined ? { attendeeCount: input.attendeeCount } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+      },
+      include: trainingSessionArgs.include,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: sessionId,
+        beforeData: {
+          scheduledAt: session.scheduledAt?.toISOString(),
+          trainerUserId: session.trainerUserId,
+        },
+        afterData: {
+          scheduledAt: next.scheduledAt?.toISOString(),
+          trainerUserId: next.trainerUserId,
+        },
+        metadata: trainingAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toTrainingSessionSummary(updated);
+}
+
+export async function completeTrainingSession(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: CompleteTrainingSessionRequest,
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status !== TrainingSessionStatus.SCHEDULED) {
+    throw new Error('Only scheduled training sessions can be completed');
+  }
+
+  const completedAt = input.completedAt ? parseIsoDate(input.completedAt, 'completedAt') : new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        status: TrainingSessionStatus.COMPLETED,
+        completedAt,
+        ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+        ...(input.attendeeCount !== undefined ? { attendeeCount: input.attendeeCount } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+        ...(input.completionSummary?.trim() ? { completionSummary: input.completionSummary.trim() } : {}),
+      },
+    });
+
+    if (session.programId) {
+      const program = await tx.accountTrainingProgram.findUnique({
+        where: { id: session.programId },
+      });
+
+      if (program) {
+        const nextDueAt = program.cadenceDays
+          ? addCadenceDays(completedAt, program.cadenceDays)
+          : null;
+        await tx.accountTrainingProgram.update({
+          where: { id: program.id },
+          data: {
+            lastCompletedAt: completedAt,
+            ...(program.cadenceDays
+              ? {
+                  nextDueAt,
+                  status: AccountTrainingProgramStatus.ACTIVE,
+                }
+              : {
+                  completedAt,
+                  nextDueAt: null,
+                  status: AccountTrainingProgramStatus.COMPLETE,
+                }),
+          },
+        });
+      }
+    }
+
+    if (input.createFollowUpTask) {
+      await createTrainingFollowUpTaskInTransaction(
+        tx,
+        actor,
+        {
+          id: sessionId,
+          accountId: session.accountId,
+          programId: session.programId,
+        },
+        input.createFollowUpTask,
+      );
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: sessionId,
+        beforeData: {
+          status: session.status.toLowerCase(),
+        },
+        afterData: {
+          status: TrainingSessionStatus.COMPLETED.toLowerCase(),
+          completedAt: completedAt.toISOString(),
+        },
+        metadata: trainingAuditMetadata(actor),
+      }),
+    });
+
+    return tx.trainingSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: trainingSessionArgs.include,
+    });
+  });
+
+  return toTrainingSessionSummary(updated);
+}
+
+export async function cancelTrainingSession(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: CancelTrainingSessionRequest,
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status !== TrainingSessionStatus.SCHEDULED) {
+    throw new Error('Only scheduled training sessions can be cancelled or marked no-show');
+  }
+
+  const status = toTrainingSessionStatus(input.status);
+  if (status !== TrainingSessionStatus.CANCELLED && status !== TrainingSessionStatus.NO_SHOW) {
+    throw new Error('Unsupported training session terminal status');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        status,
+        ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+      },
+      include: trainingSessionArgs.include,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: sessionId,
+        beforeData: {
+          status: session.status.toLowerCase(),
+        },
+        afterData: {
+          status: status.toLowerCase(),
+        },
+        metadata: trainingAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toTrainingSessionSummary(updated);
+}
+
+export async function createTrainingFollowUpTask(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: CreateTrainingFollowUpTaskRequest,
+): Promise<TrainingFollowUpTaskSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+
+  const created = await prisma.$transaction(async (tx) => {
+    const task = await createTrainingFollowUpTaskInTransaction(tx, actor, session, input);
+    return task;
+  });
+
+  return toTrainingFollowUpTaskSummary(created);
+}
+
+export async function completeTrainingFollowUpTask(
+  actor: AuthenticatedActor,
+  taskId: string,
+  input: CompleteTrainingFollowUpTaskRequest,
+): Promise<TrainingFollowUpTaskSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const task = await prisma.trainingFollowUpTask.findUnique({
+    where: { id: taskId },
+    include: trainingFollowUpTaskInclude,
+  });
+  if (!task) {
+    throw new Error('Training follow-up task not found');
+  }
+  if (task.status !== TrainingFollowUpTaskStatus.OPEN) {
+    throw new Error('Only open follow-up tasks can be completed');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.trainingFollowUpTask.update({
+      where: { id: taskId },
+      data: {
+        status: TrainingFollowUpTaskStatus.COMPLETED,
+        completedAt: new Date(),
+        ...(input.notes !== undefined ? { description: input.notes.trim() || null } : {}),
+      },
+      include: trainingFollowUpTaskInclude,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_FOLLOW_UP_TASK_ENTITY,
+        entityId: taskId,
+        beforeData: {
+          status: task.status.toLowerCase(),
+        },
+        afterData: {
+          status: TrainingFollowUpTaskStatus.COMPLETED.toLowerCase(),
+        },
+        metadata: trainingAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toTrainingFollowUpTaskSummary(updated);
+}
+
 function toTrainingCategorySummary(
   category: TrainingCategoryRecord,
 ): TrainingCategorySummary {
@@ -1206,6 +1775,11 @@ function toAccountTrainingHistory(
     ...summary,
     programs: account.trainingPrograms.map(toAccountTrainingProgramSummary),
     recentSessions: account.trainingSessions.slice(0, 12).map(toTrainingSessionSummary),
+    openFollowUpTasks: account.trainingSessions
+      .flatMap((session) => session.followUpTasks)
+      .filter((task) => task.status === TrainingFollowUpTaskStatus.OPEN)
+      .map(toTrainingFollowUpTaskSummary)
+      .slice(0, 12),
   };
 }
 
@@ -1244,12 +1818,15 @@ function toAccountTrainingProgramSummary(
 function toTrainingSessionSummary(
   session: TrainingSessionRecord,
 ): TrainingSessionSummary {
+  const openFollowUpTaskCount = session.followUpTasks.filter((task) => task.status === TrainingFollowUpTaskStatus.OPEN).length;
   return {
     id: session.id,
     accountId: session.accountId,
+    ...(session.account?.displayName ? { accountName: session.account.displayName } : {}),
     ...(session.locationId ? { locationId: session.locationId } : {}),
     ...(session.location?.name ? { locationName: session.location.name } : {}),
     ...(session.programId ? { programId: session.programId } : {}),
+    ...(session.program?.title ? { programTitle: session.program.title } : {}),
     ...(session.trainingTypeId ? { trainingTypeId: session.trainingTypeId } : {}),
     ...(session.trainingType?.code ? { trainingTypeCode: session.trainingType.code } : {}),
     ...(session.trainingType?.name ? { trainingTypeName: session.trainingType.name } : {}),
@@ -1263,9 +1840,34 @@ function toTrainingSessionSummary(
     durationMinutes: session.durationMinutes,
     attendeeCount: session.attendeeCount,
     ...(session.notes ? { notes: session.notes } : {}),
+    ...(session.completionSummary ? { completionSummary: session.completionSummary } : {}),
+    isOverdue: session.status === TrainingSessionStatus.SCHEDULED && Boolean(session.scheduledAt && session.scheduledAt.getTime() < Date.now()),
     countsTowardHours: session.trainingType?.countsTowardHours ?? false,
+    openFollowUpTaskCount,
+    followUpTasks: session.followUpTasks.map(toTrainingFollowUpTaskSummary),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
+  };
+}
+
+function toTrainingFollowUpTaskSummary(
+  task: TrainingFollowUpTaskRecord,
+): TrainingFollowUpTaskSummary {
+  return {
+    id: task.id,
+    sessionId: task.sessionId,
+    accountId: task.accountId,
+    title: task.title,
+    ...(task.description ? { description: task.description } : {}),
+    ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
+    status: toTrainingFollowUpTaskStatusKey(task.status),
+    ...(task.ownerUserId ? { ownerUserId: task.ownerUserId } : {}),
+    ...(task.ownerUser?.displayName ? { ownerName: task.ownerUser.displayName } : {}),
+    ...(task.createdByUserId ? { createdByUserId: task.createdByUserId } : {}),
+    ...(task.createdByUser?.displayName ? { createdByName: task.createdByUser.displayName } : {}),
+    ...(task.completedAt ? { completedAt: task.completedAt.toISOString() } : {}),
+    createdAt: task.createdAt.toISOString(),
+    updatedAt: task.updatedAt.toISOString(),
   };
 }
 
@@ -1283,6 +1885,16 @@ function filterTrainingAccountSummary(item: TrainingAccountSummary, status: List
     return item.activeProgramCount === 0;
   }
   return true;
+}
+
+function filterTrainingSessionSummary(item: TrainingSessionSummary, status: ListTrainingSessionsRequest['status']) {
+  if (!status || status === 'all') {
+    return true;
+  }
+  if (status === 'overdue') {
+    return item.isOverdue;
+  }
+  return item.status === status;
 }
 
 function isProgramActive(status: AccountTrainingProgramStatus) {
@@ -1345,6 +1957,19 @@ function roundHours(value: number) {
   return Math.round(value * 10) / 10;
 }
 
+function parseIsoDate(input: string, fieldName: string) {
+  const value = new Date(input);
+  if (Number.isNaN(value.getTime())) {
+    throw new Error(`${fieldName} must be a valid ISO date`);
+  }
+
+  return value;
+}
+
+function addCadenceDays(baseDate: Date, cadenceDays: number) {
+  return new Date(baseDate.getTime() + cadenceDays * 24 * 60 * 60 * 1000);
+}
+
 function toTrainingCategoryKind(input: TrainingCategoryKindKey) {
   const value = input.trim().toUpperCase();
   if (!Object.prototype.hasOwnProperty.call(TrainingCategoryKind, value)) {
@@ -1405,8 +2030,30 @@ function toTrainingSessionStatusKey(input: TrainingSessionStatus) {
   return input.toLowerCase() as TrainingSessionSummary['status'];
 }
 
+function toTrainingSessionStatus(input: CancelTrainingSessionRequest['status']) {
+  const value = input.trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(TrainingSessionStatus, value)) {
+    throw new Error(`Unsupported training session status: ${input}`);
+  }
+
+  return value as TrainingSessionStatus;
+}
+
 function toTrainingActivityKindKey(input: TrainingActivityKind) {
   return input.toLowerCase() as TrainingSessionSummary['activityKind'];
+}
+
+function toTrainingActivityKind(input: CreateTrainingSessionRequest['activityKind']) {
+  const value = (input ?? 'training').trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(TrainingActivityKind, value)) {
+    throw new Error(`Unsupported training activity kind: ${input}`);
+  }
+
+  return value as TrainingActivityKind;
+}
+
+function toTrainingFollowUpTaskStatusKey(input: TrainingFollowUpTaskStatus) {
+  return input.toLowerCase() as TrainingFollowUpTaskStatusKey;
 }
 
 function toAccountSegment(input: string) {
@@ -1420,6 +2067,79 @@ function toAccountSegment(input: string) {
 
 function toAccountSegmentKey(input: AccountSegment) {
   return input.toLowerCase();
+}
+
+async function ensureAssignableTrainer(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      trainingTrainerProfile: true,
+    },
+  });
+
+  if (!user || !user.isActive) {
+    throw new Error('Trainer not found');
+  }
+  if (!ELIGIBLE_TRAINER_ROLE_CODES.has(user.roleCode)) {
+    throw new Error('Selected user is not eligible to deliver training sessions');
+  }
+  if (user.trainingTrainerProfile && !user.trainingTrainerProfile.isActive) {
+    throw new Error('Selected trainer profile is inactive');
+  }
+
+  return user;
+}
+
+async function createTrainingFollowUpTaskInTransaction(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  session: Pick<TrainingSessionRecord, 'id' | 'accountId' | 'programId'>,
+  input: CreateTrainingFollowUpTaskRequest,
+) {
+  const title = input.title?.trim();
+  if (!title) {
+    throw new Error('Follow-up task title is required');
+  }
+
+  if (input.ownerUserId) {
+    const owner = await tx.user.findUnique({
+      where: { id: input.ownerUserId },
+    });
+    if (!owner || !owner.isActive) {
+      throw new Error('Follow-up task owner not found');
+    }
+  }
+
+  const task = await tx.trainingFollowUpTask.create({
+    data: {
+      sessionId: session.id,
+      accountId: session.accountId,
+      ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
+      createdByUserId: actor.userId,
+      title,
+      ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+      ...(input.dueAt ? { dueAt: parseIsoDate(input.dueAt, 'dueAt') } : {}),
+    },
+    include: trainingFollowUpTaskInclude,
+  });
+
+  await tx.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: TRAINING_FOLLOW_UP_TASK_ENTITY,
+      entityId: task.id,
+      afterData: {
+        sessionId: session.id,
+        accountId: session.accountId,
+        title: task.title,
+        ownerUserId: task.ownerUserId,
+      },
+      metadata: trainingAuditMetadata(actor),
+    }),
+  });
+
+  return task;
 }
 
 function trainingAuditMetadata(actor: AuthenticatedActor) {

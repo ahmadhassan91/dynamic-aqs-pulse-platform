@@ -68,6 +68,14 @@ export const TRAINING_ACTIVITY_KINDS = [
 
 export type TrainingActivityKindKey = (typeof TRAINING_ACTIVITY_KINDS)[number];
 
+export const TRAINING_FOLLOW_UP_TASK_STATUSES = [
+  'open',
+  'completed',
+  'cancelled',
+] as const;
+
+export type TrainingFollowUpTaskStatusKey = (typeof TRAINING_FOLLOW_UP_TASK_STATUSES)[number];
+
 export const LIST_TRAINING_ACCOUNT_STATUSES = [
   'all',
   'overdue',
@@ -76,6 +84,17 @@ export const LIST_TRAINING_ACCOUNT_STATUSES = [
 ] as const;
 
 export type ListTrainingAccountStatusKey = (typeof LIST_TRAINING_ACCOUNT_STATUSES)[number];
+
+export const LIST_TRAINING_SESSION_STATUSES = [
+  'all',
+  'scheduled',
+  'overdue',
+  'completed',
+  'cancelled',
+  'no_show',
+] as const;
+
+export type ListTrainingSessionStatusKey = (typeof LIST_TRAINING_SESSION_STATUSES)[number];
 
 export interface TrainingCategorySummary {
   id: string;
@@ -147,6 +166,7 @@ export interface TrainingOverviewResponse {
   overduePrograms: number;
   completedSessions: number;
   scheduledSessions: number;
+  openFollowUpTasks: number;
   deliveredTrainingHours: number;
   categoryCount: number;
   trainingTypeCount: number;
@@ -253,12 +273,41 @@ export interface AccountTrainingProgramSummary {
   updatedAt: string;
 }
 
+export interface TrainingTrainerSummary {
+  userId: string;
+  displayName: string;
+  email?: string;
+  roleCode: string;
+  title?: string;
+  notes?: string;
+  isActive: boolean;
+}
+
+export interface TrainingFollowUpTaskSummary {
+  id: string;
+  sessionId: string;
+  accountId: string;
+  title: string;
+  description?: string;
+  dueAt?: string;
+  status: TrainingFollowUpTaskStatusKey;
+  ownerUserId?: string;
+  ownerName?: string;
+  createdByUserId?: string;
+  createdByName?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;
+  accountName?: string;
   locationId?: string;
   locationName?: string;
   programId?: string;
+  programTitle?: string;
   trainingTypeId?: string;
   trainingTypeCode?: string;
   trainingTypeName?: string;
@@ -272,7 +321,11 @@ export interface TrainingSessionSummary {
   durationMinutes: number;
   attendeeCount: number;
   notes?: string;
+  completionSummary?: string;
+  isOverdue: boolean;
   countsTowardHours: boolean;
+  openFollowUpTaskCount: number;
+  followUpTasks: TrainingFollowUpTaskSummary[];
   createdAt: string;
   updatedAt: string;
 }
@@ -293,6 +346,7 @@ export interface AccountTrainingHistoryResponse {
   certificationTrackCount: number;
   programs: AccountTrainingProgramSummary[];
   recentSessions: TrainingSessionSummary[];
+  openFollowUpTasks: TrainingFollowUpTaskSummary[];
 }
 
 export interface CreateAccountTrainingProgramRequest {
@@ -303,5 +357,72 @@ export interface CreateAccountTrainingProgramRequest {
   cadenceDays?: number;
   isRequired?: boolean;
   targetSegment?: string;
+  notes?: string;
+}
+
+export interface ListTrainingTrainersResponse {
+  items: TrainingTrainerSummary[];
+}
+
+export interface ListTrainingSessionsRequest {
+  accountId?: string;
+  trainerUserId?: string;
+  status?: ListTrainingSessionStatusKey;
+  includeVisits?: boolean;
+  limit?: number;
+}
+
+export interface ListTrainingSessionsResponse {
+  items: TrainingSessionSummary[];
+  total: number;
+  overdueCount: number;
+  openFollowUpTaskCount: number;
+}
+
+export interface CreateTrainingSessionRequest {
+  programId?: string;
+  trainingTypeId?: string;
+  locationId?: string;
+  trainerUserId: string;
+  activityKind?: TrainingActivityKindKey;
+  title?: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  attendeeCount?: number;
+  notes?: string;
+}
+
+export interface UpdateTrainingSessionScheduleRequest {
+  trainerUserId?: string;
+  locationId?: string;
+  title?: string;
+  scheduledAt: string;
+  durationMinutes?: number;
+  attendeeCount?: number;
+  notes?: string;
+}
+
+export interface CreateTrainingFollowUpTaskRequest {
+  title: string;
+  description?: string;
+  dueAt?: string;
+  ownerUserId?: string;
+}
+
+export interface CompleteTrainingSessionRequest {
+  completedAt?: string;
+  durationMinutes?: number;
+  attendeeCount?: number;
+  notes?: string;
+  completionSummary?: string;
+  createFollowUpTask?: CreateTrainingFollowUpTaskRequest;
+}
+
+export interface CancelTrainingSessionRequest {
+  status: Extract<TrainingSessionStatusKey, 'cancelled' | 'no_show'>;
+  notes?: string;
+}
+
+export interface CompleteTrainingFollowUpTaskRequest {
   notes?: string;
 }

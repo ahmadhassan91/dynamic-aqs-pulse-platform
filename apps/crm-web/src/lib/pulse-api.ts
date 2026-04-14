@@ -105,9 +105,21 @@ import type {
   CreateTrainingTypeRequest,
   CreateTrainingTemplateRequest,
   CreateAccountTrainingProgramRequest,
+  CreateTrainingFollowUpTaskRequest,
+  CreateTrainingSessionRequest,
+  CompleteTrainingFollowUpTaskRequest,
   TrainingCategorySummary,
+  TrainingFollowUpTaskSummary,
   TrainingTypeSummary,
   TrainingTemplateSummary,
+  TrainingSessionSummary,
+  TrainingTrainerSummary,
+  ListTrainingSessionsRequest,
+  ListTrainingSessionsResponse,
+  ListTrainingTrainersResponse,
+  CompleteTrainingSessionRequest,
+  CancelTrainingSessionRequest,
+  UpdateTrainingSessionScheduleRequest,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
   WebsiteLeadSubmissionSummary,
@@ -453,6 +465,13 @@ export async function fetchTrainingCatalog(apiBaseUrl: string, accessToken: stri
   });
 }
 
+export async function fetchTrainingTrainers(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListTrainingTrainersResponse>(apiBaseUrl, '/api/v1/training/trainers', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function createTrainingCategoryRecord(
   apiBaseUrl: string,
   accessToken: string,
@@ -519,6 +538,39 @@ export async function fetchTrainingAccounts(
   });
 }
 
+export async function fetchTrainingSessions(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListTrainingSessionsRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.accountId) {
+    searchParams.set('accountId', query.accountId);
+  }
+  if (query.trainerUserId) {
+    searchParams.set('trainerUserId', query.trainerUserId);
+  }
+  if (query.status) {
+    searchParams.set('status', query.status);
+  }
+  if (query.includeVisits !== undefined) {
+    searchParams.set('includeVisits', String(query.includeVisits));
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/training/sessions?${searchParams.toString()}`
+    : '/api/v1/training/sessions';
+
+  return requestJson<ListTrainingSessionsResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function fetchAccountTrainingHistory(apiBaseUrl: string, accessToken: string, accountId: string) {
   return requestJson<AccountTrainingHistoryResponse>(apiBaseUrl, `/api/v1/training/accounts/${accountId}`, {
     method: 'GET',
@@ -533,6 +585,84 @@ export async function createAccountTrainingProgramRecord(
   input: CreateAccountTrainingProgramRequest,
 ) {
   return requestJson(apiBaseUrl, `/api/v1/training/accounts/${accountId}/programs`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createTrainingSessionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: CreateTrainingSessionRequest,
+) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/accounts/${accountId}/sessions`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function rescheduleTrainingSessionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: UpdateTrainingSessionScheduleRequest,
+) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/reschedule`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function completeTrainingSessionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: CompleteTrainingSessionRequest,
+) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function cancelTrainingSessionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: CancelTrainingSessionRequest,
+) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/cancel`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createTrainingFollowUpTaskRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: CreateTrainingFollowUpTaskRequest,
+) {
+  return requestJson<TrainingFollowUpTaskSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/follow-up-tasks`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function completeTrainingFollowUpTaskRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  taskId: string,
+  input: CompleteTrainingFollowUpTaskRequest = {},
+) {
+  return requestJson<TrainingFollowUpTaskSummary>(apiBaseUrl, `/api/v1/training/follow-up-tasks/${taskId}/complete`, {
     method: 'POST',
     accessToken,
     body: input,

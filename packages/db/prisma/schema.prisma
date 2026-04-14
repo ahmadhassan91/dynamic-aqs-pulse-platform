@@ -275,6 +275,12 @@ enum TrainingActivityKind {
   SITE_VISIT
 }
 
+enum TrainingFollowUpTaskStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
 enum WebsiteLeadSubmissionOutcome {
   CREATED_NEW_LEAD
   ATTACHED_TO_EXISTING_LEAD
@@ -485,6 +491,8 @@ model User {
   trainingProgramsOwnedTm     AccountTrainingProgram[] @relation("TrainingProgramOwnerTm")
   trainingProgramsOwnedRd     AccountTrainingProgram[] @relation("TrainingProgramOwnerRd")
   trainingSessionsDelivered   TrainingSession[] @relation("TrainingSessionTrainer")
+  trainingFollowUpTasksOwned  TrainingFollowUpTask[] @relation("TrainingFollowUpTaskOwner")
+  trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -1453,6 +1461,7 @@ model Account {
   classificationExceptions    ClassificationException[]
   trainingPrograms           AccountTrainingProgram[]
   trainingSessions           TrainingSession[]
+  trainingFollowUpTasks      TrainingFollowUpTask[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -1749,6 +1758,7 @@ model TrainingSession {
   durationMinutes   Int                    @default(0)
   attendeeCount     Int                    @default(0)
   notes             String?
+  completionSummary String?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
@@ -1757,6 +1767,7 @@ model TrainingSession {
   program           AccountTrainingProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
   trainingType      TrainingType?          @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
   trainerUser       User?                  @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
+  followUpTasks     TrainingFollowUpTask[]
 
   @@index([accountId])
   @@index([locationId])
@@ -1767,6 +1778,33 @@ model TrainingSession {
   @@index([status])
   @@index([scheduledAt])
   @@index([completedAt])
+}
+
+model TrainingFollowUpTask {
+  id                String                    @id @default(uuid()) @db.Uuid
+  sessionId         String                    @db.Uuid
+  accountId         String                    @db.Uuid
+  ownerUserId       String?                   @db.Uuid
+  createdByUserId   String?                   @db.Uuid
+  title             String
+  description       String?
+  dueAt             DateTime?
+  status            TrainingFollowUpTaskStatus @default(OPEN)
+  completedAt       DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  session           TrainingSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  account           Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ownerUser         User?                     @relation("TrainingFollowUpTaskOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdByUser     User?                     @relation("TrainingFollowUpTaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([accountId])
+  @@index([ownerUserId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([dueAt])
 }
 
 model AccountExtension {

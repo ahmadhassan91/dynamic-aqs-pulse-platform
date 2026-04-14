@@ -20,8 +20,16 @@ let createTrainingCategory;
 let createTrainingType;
 let createTrainingTemplate;
 let listTrainingAccounts;
+let listTrainingTrainers;
+let listTrainingSessions;
 let getAccountTrainingHistory;
 let createAccountTrainingProgram;
+let createTrainingSession;
+let rescheduleTrainingSession;
+let completeTrainingSession;
+let cancelTrainingSession;
+let createTrainingFollowUpTask;
+let completeTrainingFollowUpTask;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -38,8 +46,16 @@ test.before(async () => {
     createTrainingType,
     createTrainingTemplate,
     listTrainingAccounts,
+    listTrainingTrainers,
+    listTrainingSessions,
     getAccountTrainingHistory,
     createAccountTrainingProgram,
+    createTrainingSession,
+    rescheduleTrainingSession,
+    completeTrainingSession,
+    cancelTrainingSession,
+    createTrainingFollowUpTask,
+    completeTrainingFollowUpTask,
   } = await import('../dist/modules/training/service.js'));
 
   config = loadAppConfig(process.env);
@@ -81,12 +97,21 @@ function actorWithRole(actor, role) {
   };
 }
 
-async function createUser(roleCode, email, displayName) {
+async function createUser(roleCode, email, displayName, { trainerProfileActive } = {}) {
   return prisma.user.create({
     data: {
       email,
       displayName,
       roleCode,
+      ...(trainerProfileActive !== undefined
+        ? {
+            trainingTrainerProfile: {
+              create: {
+                isActive: trainerProfileActive,
+              },
+            },
+          }
+        : {}),
     },
   });
 }
@@ -302,4 +327,207 @@ test('training overview surfaces catalog and certification summary after seeding
   assert.equal(overview.certificationTrackCount, 2);
   assert.ok(catalog.categories.some((entry) => entry.code === 'certification'));
   assert.ok(catalog.trainingTypes.some((entry) => entry.code === 'product_installations'));
+});
+
+test('training trainer directory only returns assignable active trainer profiles', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const activeTrainer = await createUser('TERRITORY_MANAGER', 'active-trainer@pulse.local', 'Active Trainer', {
+    trainerProfileActive: true,
+  });
+  await createUser('TRAINING_OPS', 'inactive-trainer@pulse.local', 'Inactive Trainer', {
+    trainerProfileActive: false,
+  });
+  await createUser('EXECUTIVE', 'not-trainer@pulse.local', 'Not A Trainer');
+
+  const response = await listTrainingTrainers(actor);
+  assert.ok(response.items.some((entry) => entry.userId === activeTrainer.id));
+  assert.ok(!response.items.some((entry) => entry.displayName === 'Inactive Trainer'));
+  assert.ok(!response.items.some((entry) => entry.displayName === 'Not A Trainer'));
+});
+
+test('training sessions reject ineligible trainers and mismatched programs', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixtureA = await createTrainingAccountFixture(actor, 'session-a');
+  const fixtureB = await createTrainingAccountFixture(actor, 'session-b');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+  const executive = await createUser('EXECUTIVE', 'exec-session@pulse.local', 'Exec Session');
+
+  assert.ok(onboardingType);
+
+  const foreignProgram = await createAccountTrainingProgram(actorWithRole(actor, 'TRAINING_OPS'), fixtureB.account.id, {
+    trainingTypeId: onboardingType.id,
+  });
+
+  await assert.rejects(
+    () =>
+      createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixtureA.account.id, {
+        trainingTypeId: onboardingType.id,
+        trainerUserId: executive.id,
+        scheduledAt: '2026-06-01T10:00:00.000Z',
+        durationMinutes: 60,
+      }),
+    /not eligible/i,
+  );
+
+  await assert.rejects(
+    () =>
+      createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixtureA.account.id, {
+        programId: foreignProgram.id,
+        trainerUserId: fixtureA.tm.id,
+        scheduledAt: '2026-06-01T10:00:00.000Z',
+        durationMinutes: 60,
+      }),
+    /does not belong/i,
+  );
+});
+
+test('completing a training session advances cadence and creates follow-up tasks', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'complete');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(onboardingType);
+
+  const program = await createAccountTrainingProgram(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+  });
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    programId: program.id,
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-06-15T15:00:00.000Z',
+    durationMinutes: 90,
+    attendeeCount: 3,
+  });
+
+  const completed = await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    completedAt: '2026-06-15T16:30:00.000Z',
+    durationMinutes: 105,
+    attendeeCount: 4,
+    completionSummary: 'Account completed onboarding certification.',
+    createFollowUpTask: {
+      title: 'Send post-training recap',
+      dueAt: '2026-06-20T12:00:00.000Z',
+      ownerUserId: fixture.rd.id,
+    },
+  });
+
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.openFollowUpTaskCount, 1);
+  assert.equal(completed.followUpTasks[0]?.title, 'Send post-training recap');
+
+  const refreshedProgram = await prisma.accountTrainingProgram.findUnique({
+    where: { id: program.id },
+  });
+  assert.equal(refreshedProgram?.status, 'ACTIVE');
+  assert.ok(refreshedProgram?.lastCompletedAt);
+  assert.ok(refreshedProgram?.nextDueAt);
+});
+
+test('cancelled and no-show sessions remain out of completed program flow', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'cancel');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(onboardingType);
+
+  const program = await createAccountTrainingProgram(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+  });
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    programId: program.id,
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-06-10T15:00:00.000Z',
+    durationMinutes: 60,
+  });
+
+  const cancelled = await cancelTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    status: 'no_show',
+    notes: 'Dealer team was unavailable.',
+  });
+
+  assert.equal(cancelled.status, 'no_show');
+
+  const refreshedProgram = await prisma.accountTrainingProgram.findUnique({
+    where: { id: program.id },
+  });
+  assert.equal(refreshedProgram?.status, 'ACTIVE');
+  assert.equal(refreshedProgram?.completedAt, null);
+  assert.equal(refreshedProgram?.lastCompletedAt, null);
+});
+
+test('training follow-up tasks can be created independently and completed', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'follow-up');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(onboardingType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-07-01T13:00:00.000Z',
+    durationMinutes: 60,
+  });
+
+  const task = await createTrainingFollowUpTask(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    title: 'Confirm next territory visit',
+    ownerUserId: fixture.tm.id,
+  });
+
+  assert.equal(task.status, 'open');
+
+  const completedTask = await completeTrainingFollowUpTask(actorWithRole(actor, 'TRAINING_OPS'), task.id, {
+    notes: 'Visit confirmed with dealer team.',
+  });
+
+  assert.equal(completedTask.status, 'completed');
+  assert.ok(completedTask.completedAt);
+});
+
+test('training session listing supports overdue filtering', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'list');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(onboardingType);
+
+  await prisma.trainingSession.createMany({
+    data: [
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: onboardingType.id,
+        trainerUserId: fixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'SCHEDULED',
+        title: 'Overdue session',
+        scheduledAt: new Date('2025-01-01T10:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 2,
+      },
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: onboardingType.id,
+        trainerUserId: fixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'SCHEDULED',
+        title: 'Future session',
+        scheduledAt: new Date('2027-01-01T10:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 2,
+      },
+    ],
+  });
+
+  const overdueOnly = await listTrainingSessions(actor, {
+    accountId: fixture.account.id,
+    status: 'overdue',
+  });
+
+  assert.equal(overdueOnly.total, 1);
+  assert.equal(overdueOnly.items[0]?.title, 'Overdue session');
+  assert.equal(overdueOnly.overdueCount, 1);
 });

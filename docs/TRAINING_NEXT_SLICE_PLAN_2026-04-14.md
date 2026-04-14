@@ -24,7 +24,7 @@ Primary references:
 
 ## Current Status
 
-`Training Slice A: Catalog + Programs + Account History Shell` is now implemented in the production repo.
+`Training Slice A: Catalog + Programs + Account History Shell` and `Training Slice B: Scheduling + Session Execution` are now implemented in the production repo.
 
 Live baseline:
 
@@ -32,27 +32,27 @@ Live baseline:
 - certification seeds for `IAQ Certification Curriculum` and `Product Installations`
 - account-centric training programs with TM/RD ownership carry-forward
 - overdue detection and account training history reads
+- real training session scheduling, rescheduling, completion, cancellation/no-show, and follow-up task flows
 - prototype-aligned `/training` workspace plus customer-detail `Training` tab
-- dedicated module regression suite
+- dedicated module regression suite covering scheduling/execution edge cases
 
 ## Recommended Next Slice
 
-Build `Training Slice B: Scheduling + Session Execution`
+Build `Training Slice C: Mobile Execution + Certification`
 
-This is the highest-value next slice now because Slice A already gives us the stable catalog, cadence, and account-history foundation we needed before taking on scheduling, session outcomes, and mobile-ready execution flows.
+This is the highest-value next slice now because catalog, cadence, account history, session scheduling, trainer assignment, and follow-up execution are already live. The next meaningful value is field/mobile execution depth plus explicit certification lifecycle handling.
 
-## Slice B Scope
+## Slice C Scope
 
 ### Backend
 
-- `TrainingSession`
-- `TrainingSessionAttendee`
-- `TrainingSessionOutcome`
-- `TrainingSessionNote`
-- `TrainingFollowUpTask`
-- `TrainingTrainerProfile` expansion for real trainer assignment
-- account-scoped session-history read model
-- mobile-ready session status API surface
+- mobile-ready session execution payloads
+- check-in / check-out timestamps
+- required checkout notes
+- proof / attachment metadata hooks
+- attendee/certification outcome expansion
+- certification record issuance and status
+- overdue training exception read models
 
 ### Web
 
@@ -60,43 +60,30 @@ Use the same approved prototype shell and existing training/territory patterns.
 
 Ship:
 
-- training session create/update flow
-- trainer assignment workflow
-- account-level session timeline
-- basic calendar/list views inside Pulse
-- follow-up task visibility from the account training record
+- internal training execution controls that mirror the upcoming mobile flow
+- certification progress visibility
+- overdue / exception review surfaces
+- account training timeline depth
+- prep for later mobile parity without inventing a separate execution model
 
 ### Regression coverage
 
 Add a dedicated module suite for:
 
-- session scheduling and rescheduling
-- trainer assignment permissions
-- attendee/status transitions
-- site-visit versus formal-training session behavior
-- follow-up task generation
-- parked dependency boundary behavior when Outlook/provider sync is not connected
+- check-in / check-out transitions
+- required completion notes
+- certification award / non-award outcomes
+- overdue exception generation
+- mobile-safe execution without Outlook/provider sync
+- site visit versus formal training behavior under execution rules
 
-## Explicitly Out Of Scope For Slice B
+## Explicitly Out Of Scope For Slice C
 
 - live Outlook sync
 - Teams/WebEx meeting creation
 - certification-site import
-- mobile check-in/check-out execution
-- proof photo upload
-- certificate generation
+- full external-site coexistence implementation
 - contest ROI attribution
-
-## Slice C After That
-
-`Training Slice C: Mobile Execution + Certification`
-
-- mobile check-in/check-out
-- required checkout notes
-- voice note payload support
-- proof capture
-- certification lifecycle
-- overdue widget / exception reporting
 
 ## Slice D After That
 

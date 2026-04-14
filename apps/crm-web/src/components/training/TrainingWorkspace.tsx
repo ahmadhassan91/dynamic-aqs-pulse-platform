@@ -1,11 +1,14 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
   Card,
+  Checkbox,
   Divider,
   Group,
   Loader,
@@ -19,7 +22,9 @@ import {
   TextInput,
   Textarea,
   Title,
+  Tooltip,
 } from '@mantine/core';
+import { IconCalendarPlus, IconClipboardCheck, IconClockEdit } from '@tabler/icons-react';
 import { useSearchParams } from 'next/navigation';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -30,15 +35,23 @@ import {
   fetchTrainingAccounts,
   fetchTrainingCatalog,
   fetchTrainingOverview,
+  fetchTrainingSessions,
+  fetchTrainingTrainers,
 } from '@/lib/pulse-api';
 import type {
   CreateTrainingCategoryRequest,
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
   ListTrainingAccountStatusKey,
+  ListTrainingSessionsResponse,
+  ListTrainingSessionStatusKey,
   TrainingCatalogResponse,
   TrainingOverviewResponse,
+  TrainingSessionSummary,
+  TrainingTrainerSummary,
 } from '@pulse/contracts';
+import { TrainingSessionExecutionModal } from './TrainingSessionExecutionModal';
+import { TrainingSessionSchedulerModal } from './TrainingSessionSchedulerModal';
 
 type CatalogForms = {
   category: CreateTrainingCategoryRequest;
@@ -83,6 +96,20 @@ function formatDate(value?: string) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value?: string) {
+  if (!value) {
+    return 'Not scheduled';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 export function TrainingWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
@@ -92,8 +119,12 @@ export function TrainingWorkspace() {
   const [overview, setOverview] = useState<TrainingOverviewResponse | null>(null);
   const [catalog, setCatalog] = useState<TrainingCatalogResponse | null>(null);
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof fetchTrainingAccounts>> | null>(null);
+  const [sessions, setSessions] = useState<ListTrainingSessionsResponse | null>(null);
+  const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ListTrainingAccountStatusKey>('all');
+  const [sessionStatusFilter, setSessionStatusFilter] = useState<ListTrainingSessionStatusKey>('all');
+  const [includeVisits, setIncludeVisits] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -102,8 +133,15 @@ export function TrainingWorkspace() {
     trainingType: DEFAULT_TYPE_FORM,
     template: DEFAULT_TEMPLATE_FORM,
   });
+  const [schedulerContext, setSchedulerContext] = useState<{
+    accountId: string;
+    accountName: string;
+    existingSession?: TrainingSessionSummary | null;
+  } | null>(null);
+  const [executionSession, setExecutionSession] = useState<TrainingSessionSummary | null>(null);
 
   const canManageCatalog = auth ? canPerformAction(auth.identity.role, 'training.catalog_manage') : false;
+  const canSchedule = auth ? canPerformAction(auth.identity.role, 'training.schedule') : false;
 
   const loadWorkspace = useCallback(async () => {
     if (!auth) {
@@ -113,7 +151,7 @@ export function TrainingWorkspace() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [nextOverview, nextCatalog, nextAccounts] = await Promise.all([
+      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers] = await Promise.all([
         fetchTrainingOverview(apiBaseUrl, accessToken),
         fetchTrainingCatalog(apiBaseUrl, accessToken),
         fetchTrainingAccounts(apiBaseUrl, accessToken, {
@@ -121,17 +159,25 @@ export function TrainingWorkspace() {
           status: statusFilter,
           limit: 100,
         }),
+        fetchTrainingSessions(apiBaseUrl, accessToken, {
+          status: sessionStatusFilter,
+          includeVisits,
+          limit: 100,
+        }),
+        fetchTrainingTrainers(apiBaseUrl, accessToken),
       ]);
 
       setOverview(nextOverview);
       setCatalog(nextCatalog);
       setAccounts(nextAccounts);
+      setSessions(nextSessions);
+      setTrainers(nextTrainers.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, apiBaseUrl, auth, search, statusFilter]);
+  }, [accessToken, apiBaseUrl, auth, includeVisits, search, sessionStatusFilter, statusFilter]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -151,6 +197,8 @@ export function TrainingWorkspace() {
     () => (catalog?.trainingTypes ?? []).filter((entry) => entry.isCertificationTrack),
     [catalog],
   );
+
+  const sessionItems = sessions?.items ?? [];
 
   const handleCategoryCreate = async () => {
     if (!auth) {
@@ -216,7 +264,7 @@ export function TrainingWorkspace() {
           <Stack gap="xs">
             <Title order={1}>Training Management</Title>
             <Text size="sm" c="dimmed">
-              Manage the Dynamic AQS training catalog, account coverage, certification tracks, and overdue follow-up under the approved Pulse shell.
+              Manage the Dynamic AQS training catalog, account coverage, certification tracks, scheduled sessions, and follow-up work under the approved Pulse shell.
             </Text>
           </Stack>
           <Group gap="xs">
@@ -241,7 +289,7 @@ export function TrainingWorkspace() {
 
       {overview ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 6 }}>
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Accounts tracked</Text>
               <Text fw={700} size="xl">{overview.totalAccountsTracked}</Text>
@@ -255,8 +303,12 @@ export function TrainingWorkspace() {
               <Text fw={700} size="xl" {...(overview.overduePrograms > 0 ? { c: 'red' as const } : {})}>{overview.overduePrograms}</Text>
             </Card>
             <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Delivered hours</Text>
-              <Text fw={700} size="xl">{overview.deliveredTrainingHours.toFixed(1)}</Text>
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Scheduled sessions</Text>
+              <Text fw={700} size="xl">{overview.scheduledSessions}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
+              <Text fw={700} size="xl">{overview.openFollowUpTasks}</Text>
             </Card>
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Certification tracks</Text>
@@ -268,6 +320,7 @@ export function TrainingWorkspace() {
             <Tabs.List>
               <Tabs.Tab value="overview">Overview</Tabs.Tab>
               <Tabs.Tab value="accounts">Accounts &amp; Training</Tabs.Tab>
+              <Tabs.Tab value="sessions">Sessions</Tabs.Tab>
               <Tabs.Tab value="catalog">Catalog</Tabs.Tab>
             </Tabs.List>
 
@@ -291,16 +344,15 @@ export function TrainingWorkspace() {
                 </Paper>
                 <Paper withBorder radius="md" p="lg">
                   <Stack gap="sm">
-                    <Title order={4}>Catalog snapshot</Title>
+                    <Title order={4}>Session execution snapshot</Title>
                     <Text size="sm" c="dimmed">
-                      Training Slice A keeps scheduling/provider work parked and focuses on the catalog, account history, overdue coverage, and certification-ready structure.
+                      Slice B adds real scheduling, rescheduling, completion, no-show handling, and follow-up tasks while keeping Outlook/provider sync parked.
                     </Text>
                     <Divider />
-                    <Text size="sm">Categories: {overview.categoryCount}</Text>
-                    <Text size="sm">Training types: {overview.trainingTypeCount}</Text>
-                    <Text size="sm">Templates: {overview.templateCount}</Text>
-                    <Text size="sm">Scheduled sessions: {overview.scheduledSessions}</Text>
-                    <Text size="sm">Completed sessions: {overview.completedSessions}</Text>
+                    <Text size="sm">Scheduled sessions: {sessions?.total ?? 0}</Text>
+                    <Text size="sm">Overdue sessions: {sessions?.overdueCount ?? 0}</Text>
+                    <Text size="sm">Open follow-up tasks: {sessions?.openFollowUpTaskCount ?? 0}</Text>
+                    <Text size="sm">Available trainers: {trainers.filter((entry) => entry.isActive).length}</Text>
                   </Stack>
                 </Paper>
               </SimpleGrid>
@@ -338,6 +390,7 @@ export function TrainingWorkspace() {
                         <Table.Th>Next Due</Table.Th>
                         <Table.Th>Programs</Table.Th>
                         <Table.Th>Hours</Table.Th>
+                        <Table.Th>Actions</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -360,11 +413,141 @@ export function TrainingWorkspace() {
                             </Badge>
                           </Table.Td>
                           <Table.Td>{account.totalTrainingHours.toFixed(1)} hrs</Table.Td>
+                          <Table.Td>
+                            <Group gap={6} wrap="nowrap">
+                              <Button component={Link} href={`/customers/${account.accountId}?tab=training-history`} variant="default" size="xs">
+                                Open Account
+                              </Button>
+                              {canSchedule ? (
+                                <Button
+                                  size="xs"
+                                  leftSection={<IconCalendarPlus size={14} />}
+                                  onClick={() => setSchedulerContext({
+                                    accountId: account.accountId,
+                                    accountName: account.accountName,
+                                  })}
+                                >
+                                  Schedule
+                                </Button>
+                              ) : null}
+                            </Group>
+                          </Table.Td>
                         </Table.Tr>
                       )) : (
                         <Table.Tr>
-                          <Table.Td colSpan={6}>
+                          <Table.Td colSpan={8}>
                             <Text c="dimmed">No account training records match the current filters yet.</Text>
+                          </Table.Td>
+                        </Table.Tr>
+                      )}
+                    </Table.Tbody>
+                  </Table>
+                </Paper>
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="sessions" pt="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-end">
+                  <Group align="flex-end">
+                    <Select
+                      label="Session filter"
+                      value={sessionStatusFilter}
+                      onChange={(value) => setSessionStatusFilter((value as ListTrainingSessionStatusKey | null) ?? 'all')}
+                      data={[
+                        { value: 'all', label: 'All sessions' },
+                        { value: 'scheduled', label: 'Scheduled' },
+                        { value: 'overdue', label: 'Overdue' },
+                        { value: 'completed', label: 'Completed' },
+                        { value: 'cancelled', label: 'Cancelled' },
+                        { value: 'no_show', label: 'No show' },
+                      ]}
+                    />
+                    <Checkbox
+                      label="Include site visits"
+                      checked={includeVisits}
+                      onChange={(event) => setIncludeVisits(event.currentTarget.checked)}
+                      mb={6}
+                    />
+                  </Group>
+                  <Badge color={sessions?.overdueCount ? 'red' : 'blue'} variant="light">
+                    {sessions?.overdueCount ?? 0} overdue
+                  </Badge>
+                </Group>
+
+                <Paper withBorder radius="md" p="lg">
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Account</Table.Th>
+                        <Table.Th>Session</Table.Th>
+                        <Table.Th>Trainer</Table.Th>
+                        <Table.Th>Scheduled</Table.Th>
+                        <Table.Th>Status</Table.Th>
+                        <Table.Th>Follow-ups</Table.Th>
+                        {canSchedule ? <Table.Th>Actions</Table.Th> : null}
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {sessionItems.length > 0 ? sessionItems.map((session) => (
+                        <Table.Tr key={session.id}>
+                          <Table.Td>
+                            <Stack gap={0}>
+                              <Text fw={600}>{session.accountName ?? 'Account'}</Text>
+                              <Text size="sm" c="dimmed">{session.programTitle ?? session.trainingTypeName ?? 'Training session'}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={0}>
+                              <Text fw={600}>{session.title}</Text>
+                              <Text size="sm" c="dimmed">{session.activityKind.replace(/_/g, ' ')}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>{session.trainerName ?? 'Unassigned'}</Table.Td>
+                          <Table.Td>{formatDateTime(session.scheduledAt ?? session.completedAt)}</Table.Td>
+                          <Table.Td>
+                            <Badge color={session.isOverdue ? 'red' : session.status === 'completed' ? 'green' : 'blue'} variant="light">
+                              {session.status.replace(/_/g, ' ')}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>{session.openFollowUpTaskCount}</Table.Td>
+                          {canSchedule ? (
+                            <Table.Td>
+                              {session.status === 'scheduled' ? (
+                                <Group gap={4} wrap="nowrap">
+                                  <Tooltip label="Reschedule">
+                                    <ActionIcon
+                                      variant="light"
+                                      color="blue"
+                                      onClick={() => setSchedulerContext({
+                                        accountId: session.accountId,
+                                        accountName: session.accountName ?? 'Account',
+                                        existingSession: session,
+                                      })}
+                                    >
+                                      <IconClockEdit size={16} />
+                                    </ActionIcon>
+                                  </Tooltip>
+                                  <Tooltip label="Complete / cancel">
+                                    <ActionIcon
+                                      variant="light"
+                                      color="green"
+                                      onClick={() => setExecutionSession(session)}
+                                    >
+                                      <IconClipboardCheck size={16} />
+                                    </ActionIcon>
+                                  </Tooltip>
+                                </Group>
+                              ) : (
+                                <Text size="sm" c="dimmed">Logged</Text>
+                              )}
+                            </Table.Td>
+                          ) : null}
+                        </Table.Tr>
+                      )) : (
+                        <Table.Tr>
+                          <Table.Td colSpan={canSchedule ? 7 : 6}>
+                            <Text c="dimmed">No training sessions match the current filters yet.</Text>
                           </Table.Td>
                         </Table.Tr>
                       )}
@@ -537,34 +720,37 @@ export function TrainingWorkspace() {
                     </Stack>
                   </Paper>
                 </SimpleGrid>
-
-                <Paper withBorder radius="md" p="lg">
-                  <Stack gap="sm">
-                    <Title order={4}>Seeded categories</Title>
-                    <Table striped highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Name</Table.Th>
-                          <Table.Th>Kind</Table.Th>
-                          <Table.Th>Training Types</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {(catalog?.categories ?? []).map((category) => (
-                          <Table.Tr key={category.id}>
-                            <Table.Td>{category.name}</Table.Td>
-                            <Table.Td>{category.kind}</Table.Td>
-                            <Table.Td>{category.trainingTypeCount}</Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                  </Stack>
-                </Paper>
               </Stack>
             </Tabs.Panel>
           </Tabs>
         </>
+      ) : null}
+
+      {canSchedule && schedulerContext ? (
+        <TrainingSessionSchedulerModal
+          opened={Boolean(schedulerContext)}
+          onClose={() => setSchedulerContext(null)}
+          apiBaseUrl={apiBaseUrl}
+          accessToken={accessToken}
+          accountId={schedulerContext.accountId}
+          accountName={schedulerContext.accountName}
+          catalog={catalog}
+          trainers={trainers}
+          existingSession={schedulerContext.existingSession ?? null}
+          onSaved={loadWorkspace}
+        />
+      ) : null}
+
+      {canSchedule ? (
+        <TrainingSessionExecutionModal
+          opened={Boolean(executionSession)}
+          onClose={() => setExecutionSession(null)}
+          apiBaseUrl={apiBaseUrl}
+          accessToken={accessToken}
+          session={executionSession}
+          trainers={trainers}
+          onSaved={loadWorkspace}
+        />
       ) : null}
     </Stack>
   );

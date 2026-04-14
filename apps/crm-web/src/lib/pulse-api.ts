@@ -58,6 +58,8 @@ import type {
   ImportLeadFileResponse,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
+  ReviewLeadImportRequest,
+  ReviewLeadImportResponse,
   LeadTerritoryAssignmentSummary,
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
@@ -1277,6 +1279,18 @@ export async function importLeadFile(
   input: ImportLeadFileRequest,
 ) {
   return requestJson<ImportLeadFileResponse>(apiBaseUrl, '/api/v1/leads/import/file', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function reviewLeadImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: ReviewLeadImportRequest,
+) {
+  return requestJson<ReviewLeadImportResponse>(apiBaseUrl, '/api/v1/leads/import/review', {
     method: 'POST',
     accessToken,
     body: input,

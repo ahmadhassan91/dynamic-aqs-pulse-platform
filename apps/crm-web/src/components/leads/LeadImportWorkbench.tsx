@@ -24,10 +24,14 @@ import { IconAlertCircle, IconCheck, IconFileUpload, IconRefresh, IconUpload } f
 import type {
   ImportLeadFileResponse,
   LeadImportColumnMapping,
+  LeadImportDuplicateCandidate,
+  LeadImportDuplicateDecisionKey,
   LeadImportFilePreviewResponse,
+  LeadImportReviewRow,
   LeadImportTargetFieldKey,
   LeadRoutingPolicySummary,
   ReferenceValueSummary,
+  ReviewLeadImportResponse,
 } from '@pulse/contracts';
 import {
   fetchBusinessSegments,
@@ -35,6 +39,7 @@ import {
   fetchLeadSources,
   importLeadFile,
   previewLeadImport,
+  reviewLeadImport,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -69,10 +74,14 @@ export function LeadImportWorkbench() {
   const [mappings, setMappings] = useState<Record<string, LeadImportTargetFieldKey | ''>>({});
   const [importContext, setImportContext] = useState<ImportContextState>(EMPTY_IMPORT_CONTEXT);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [reviewResult, setReviewResult] = useState<ReviewLeadImportResponse | null>(null);
   const [importResult, setImportResult] = useState<ImportLeadFileResponse | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [rowDecisions, setRowDecisions] = useState<Record<number, { duplicateDecision: LeadImportDuplicateDecisionKey | ''; targetEntityId: string }>>({});
 
   useEffect(() => {
     if (!auth) {
@@ -126,6 +135,13 @@ export function LeadImportWorkbench() {
     [mappings],
   );
 
+  useEffect(() => {
+    setReviewResult(null);
+    setReviewError(null);
+    setImportResult(null);
+    setImportError(null);
+  }, [mappings, importContext, selectedSheet]);
+
   const requiredFieldsMissing = useMemo(() => {
     const mappedFields = new Set(
       Object.values(mappings).filter((value): value is LeadImportTargetFieldKey => value.length > 0),
@@ -153,10 +169,13 @@ export function LeadImportWorkbench() {
   async function handleFileSelected(selectedFile: File | null) {
     setFile(selectedFile);
     setPreview(null);
+    setReviewResult(null);
     setImportResult(null);
     setPreviewError(null);
+    setReviewError(null);
     setImportError(null);
     setMappings({});
+    setRowDecisions({});
     setSelectedSheet('');
 
     if (!selectedFile) {
@@ -190,7 +209,10 @@ export function LeadImportWorkbench() {
       });
 
       setPreview(response);
+      setReviewResult(null);
       setSelectedSheet(response.sheetName);
+      setReviewError(null);
+      setRowDecisions({});
       setMappings(
         Object.fromEntries(
           response.columns.map((column) => [column.sourceHeader, column.suggestedTargetField ?? '']),
@@ -214,7 +236,7 @@ export function LeadImportWorkbench() {
   }
 
   async function handleImportSubmit() {
-    if (!auth || !file || !fileContentBase64 || !preview) {
+    if (!auth || !file || !fileContentBase64 || !preview || !reviewResult) {
       return;
     }
 
@@ -244,6 +266,17 @@ export function LeadImportWorkbench() {
         ...(importContext.sourceSiteName.trim() ? { sourceSiteName: importContext.sourceSiteName.trim() } : {}),
         ...(importContext.sourceBrandTag.trim() ? { sourceBrandTag: importContext.sourceBrandTag.trim() } : {}),
         mappings: payloadMappings,
+        rowDecisions: reviewResult.rows
+          .filter((row: LeadImportReviewRow) => row.status === 'potential_duplicate')
+          .map((row: LeadImportReviewRow) => {
+            const decision = rowDecisions[row.rowNumber];
+
+            return {
+              rowNumber: row.rowNumber,
+              duplicateDecision: (decision?.duplicateDecision || 'create_new') as LeadImportDuplicateDecisionKey,
+              ...(decision?.targetEntityId ? { targetEntityId: decision.targetEntityId } : {}),
+            };
+          }),
       });
 
       setImportResult(response);
@@ -253,6 +286,67 @@ export function LeadImportWorkbench() {
       setIsImporting(false);
     }
   }
+
+  async function handleRunReview() {
+    if (!auth || !file || !fileContentBase64 || !preview) {
+      return;
+    }
+
+    const accessToken = auth.tokens.accessToken;
+    setReviewError(null);
+    setReviewResult(null);
+    setIsReviewLoading(true);
+
+    try {
+      const payloadMappings: LeadImportColumnMapping[] = preview.columns.map((column) => {
+        const selectedTarget = mappings[column.sourceHeader];
+
+        return {
+          sourceHeader: column.sourceHeader,
+          ...(selectedTarget ? { targetField: selectedTarget } : {}),
+        };
+      });
+
+      const response = await reviewLeadImport(apiBaseUrl, accessToken, {
+        fileName: file.name,
+        fileContentBase64,
+        ...(selectedSheet ? { sheetName: selectedSheet } : {}),
+        ...(importContext.batchName.trim() ? { batchName: importContext.batchName.trim() } : {}),
+        ...(importContext.businessSegmentCode ? { businessSegmentCode: importContext.businessSegmentCode } : {}),
+        ...(importContext.leadSourceCode ? { leadSourceCode: importContext.leadSourceCode } : {}),
+        ...(importContext.sourceSiteId.trim() ? { sourceSiteId: importContext.sourceSiteId.trim() } : {}),
+        ...(importContext.sourceSiteName.trim() ? { sourceSiteName: importContext.sourceSiteName.trim() } : {}),
+        ...(importContext.sourceBrandTag.trim() ? { sourceBrandTag: importContext.sourceBrandTag.trim() } : {}),
+        mappings: payloadMappings,
+      });
+
+      setReviewResult(response);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsReviewLoading(false);
+    }
+  }
+
+  const unresolvedDuplicateRows = useMemo(
+    () =>
+      (reviewResult?.rows ?? []).filter((reviewRow: LeadImportReviewRow) => {
+        if (reviewRow.status !== 'potential_duplicate') {
+          return false;
+        }
+
+        const decision = rowDecisions[reviewRow.rowNumber];
+        if (!decision?.duplicateDecision) {
+          return true;
+        }
+        if (decision.duplicateDecision === 'use_existing' && reviewRow.candidates.length > 1 && !decision.targetEntityId) {
+          return true;
+        }
+
+        return false;
+      }).length,
+    [reviewResult, rowDecisions],
+  );
 
   if (!isHydrated || !auth) {
     return null;
@@ -505,8 +599,124 @@ export function LeadImportWorkbench() {
           <Card withBorder radius="xl" p="lg" className="premium-action-card">
             <Stack gap="md">
               <Text c="dimmed" size="sm">
-                Send the mapped rows into the governed lead import pipeline once the headers and defaults look right.
+                Review duplicate and invalid rows before sending the mapped leads into the governed import pipeline.
               </Text>
+              <Group>
+                <Button
+                  variant="light"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={() => {
+                    void handleRunReview();
+                  }}
+                  loading={isReviewLoading}
+                  disabled={!preview || requiredFieldsMissing.length > 0 || mappedColumnCount === 0}
+                >
+                  Analyze import rows
+                </Button>
+              </Group>
+              {reviewError ? (
+                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                  {reviewError}
+                </Alert>
+              ) : null}
+              {reviewResult ? (
+                <SimpleGrid cols={{ base: 1, md: 4 }} spacing="md">
+                  <Card withBorder radius="xl" p="md" className="premium-stat-card">
+                    <Text size="sm" c="dimmed">Rows mapped</Text>
+                    <Title order={3}>{reviewResult.mappedRows}</Title>
+                  </Card>
+                  <Card withBorder radius="xl" p="md" className="premium-stat-card">
+                    <Text size="sm" c="dimmed">Rows ready</Text>
+                    <Title order={3}>{reviewResult.readyRowCount}</Title>
+                  </Card>
+                  <Card withBorder radius="xl" p="md" className="premium-stat-card">
+                    <Text size="sm" c="dimmed">Attention required</Text>
+                    <Title order={3}>{reviewResult.attentionRowCount}</Title>
+                  </Card>
+                  <Card withBorder radius="xl" p="md" className="premium-stat-card">
+                    <Text size="sm" c="dimmed">Unresolved duplicates</Text>
+                    <Title order={3}>{unresolvedDuplicateRows}</Title>
+                  </Card>
+                </SimpleGrid>
+              ) : null}
+              {reviewResult?.rows.length ? (
+                <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
+                  <Stack gap="md">
+                    <Title order={4}>Rows requiring attention</Title>
+                    {reviewResult.rows.map((row: LeadImportReviewRow) => (
+                      <Card key={row.rowNumber} withBorder radius="lg" p="md">
+                        <Stack gap="sm">
+                          <Group justify="space-between" align="flex-start">
+                            <Stack gap={2}>
+                              <Text fw={600}>Row {row.rowNumber}</Text>
+                              <Text size="sm" c="dimmed">{row.detail}</Text>
+                            </Stack>
+                            <Badge color={row.status === 'invalid' ? 'red' : 'yellow'} variant="light">
+                              {row.status === 'invalid' ? 'Invalid Row' : 'Potential Duplicate'}
+                            </Badge>
+                          </Group>
+                          {row.candidates.length ? (
+                            <Stack gap="xs">
+                              {row.candidates.map((candidate: LeadImportDuplicateCandidate) => (
+                                <Paper key={candidate.entityId} withBorder radius="md" p="sm">
+                                  <Text fw={600}>{candidate.title}</Text>
+                                  {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
+                                  {candidate.detail ? <Text size="sm" c="dimmed">{candidate.detail}</Text> : null}
+                                </Paper>
+                              ))}
+                              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
+                                <Select
+                                  label="Import decision"
+                                  value={rowDecisions[row.rowNumber]?.duplicateDecision ?? ''}
+                                  onChange={(value) =>
+                                    setRowDecisions((current) => ({
+                                      ...current,
+                                      [row.rowNumber]: {
+                                        duplicateDecision: ((value as LeadImportDuplicateDecisionKey | '') ?? ''),
+                                        targetEntityId: current[row.rowNumber]?.targetEntityId ?? '',
+                                      },
+                                    }))
+                                  }
+                                  data={[
+                                    { value: '', label: 'Select a decision' },
+                                    { value: 'create_new', label: 'Create a new lead anyway' },
+                                    { value: 'use_existing', label: 'Use existing record and skip this row' },
+                                  ]}
+                                  clearable={false}
+                                />
+                                <Select
+                                  label="Existing record"
+                                  value={rowDecisions[row.rowNumber]?.targetEntityId ?? ''}
+                                  onChange={(value) =>
+                                    setRowDecisions((current) => ({
+                                      ...current,
+                                      [row.rowNumber]: {
+                                        duplicateDecision: current[row.rowNumber]?.duplicateDecision ?? '',
+                                        targetEntityId: value ?? '',
+                                      },
+                                    }))
+                                  }
+                                  data={row.candidates.map((candidate: LeadImportDuplicateCandidate) => ({
+                                    value: candidate.entityId,
+                                    label: `${candidate.title} (${candidate.entityType})`,
+                                  }))}
+                                  disabled={(rowDecisions[row.rowNumber]?.duplicateDecision ?? '') !== 'use_existing'}
+                                  placeholder={row.candidates.length > 1 ? 'Select the existing record' : 'Optional for single candidate'}
+                                  clearable={row.candidates.length > 1}
+                                />
+                              </SimpleGrid>
+                            </Stack>
+                          ) : null}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                </Paper>
+              ) : reviewResult ? (
+                <Alert color="green" icon={<IconCheck size={16} />}>
+                  All mapped rows are ready for import. No duplicate or validation review is required.
+                </Alert>
+              ) : null}
               <Group>
                 <Button
                   leftSection={<IconUpload size={16} />}
@@ -514,7 +724,7 @@ export function LeadImportWorkbench() {
                     void handleImportSubmit();
                   }}
                   loading={isImporting}
-                  disabled={!preview || requiredFieldsMissing.length > 0 || mappedColumnCount === 0}
+                  disabled={!preview || !reviewResult || requiredFieldsMissing.length > 0 || mappedColumnCount === 0 || unresolvedDuplicateRows > 0}
                 >
                   Import {preview?.totalRows ?? 0} lead{preview?.totalRows === 1 ? '' : 's'}
                 </Button>

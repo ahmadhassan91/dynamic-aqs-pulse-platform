@@ -226,6 +226,21 @@ export const LEAD_IMPORT_TARGET_FIELDS = [
 
 export type LeadImportTargetFieldKey = (typeof LEAD_IMPORT_TARGET_FIELDS)[number];
 
+export const LEAD_IMPORT_REVIEW_ROW_STATUSES = [
+  'ready',
+  'potential_duplicate',
+  'invalid',
+] as const;
+
+export type LeadImportReviewRowStatusKey = (typeof LEAD_IMPORT_REVIEW_ROW_STATUSES)[number];
+
+export const LEAD_IMPORT_DUPLICATE_DECISIONS = [
+  'create_new',
+  'use_existing',
+] as const;
+
+export type LeadImportDuplicateDecisionKey = (typeof LEAD_IMPORT_DUPLICATE_DECISIONS)[number];
+
 export interface LeadSummary {
   id: string;
   companyName: string;
@@ -990,9 +1005,30 @@ export interface LeadImportFilePreviewResponse {
   previewRows: LeadImportPreviewRow[];
 }
 
+export interface LeadImportDuplicateCandidate {
+  entityType: 'lead' | 'account';
+  entityId: string;
+  title: string;
+  subtitle?: string;
+  detail?: string;
+}
+
+export interface LeadImportReviewRow {
+  rowNumber: number;
+  status: LeadImportReviewRowStatusKey;
+  detail: string;
+  candidates: LeadImportDuplicateCandidate[];
+}
+
 export interface LeadImportColumnMapping {
   sourceHeader: string;
   targetField?: LeadImportTargetFieldKey;
+}
+
+export interface LeadImportRowDecision {
+  rowNumber: number;
+  duplicateDecision: LeadImportDuplicateDecisionKey;
+  targetEntityId?: string;
 }
 
 export interface ImportLeadFileRequest extends Omit<ImportLeadsRequest, 'rows'> {
@@ -1000,6 +1036,17 @@ export interface ImportLeadFileRequest extends Omit<ImportLeadsRequest, 'rows'> 
   fileContentBase64: string;
   sheetName?: string;
   mappings: LeadImportColumnMapping[];
+  rowDecisions?: LeadImportRowDecision[];
+}
+
+export interface ReviewLeadImportRequest extends ImportLeadFileRequest {}
+
+export interface ReviewLeadImportResponse {
+  totalRows: number;
+  mappedRows: number;
+  readyRowCount: number;
+  attentionRowCount: number;
+  rows: LeadImportReviewRow[];
 }
 
 export interface LeadImportFileError {

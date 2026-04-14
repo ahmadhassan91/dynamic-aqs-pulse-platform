@@ -12,6 +12,7 @@ import type {
   ImportLeadFileRequest,
   LeadImportFilePreviewRequest,
   ImportLeadsRequest,
+  ReviewLeadImportRequest,
   ListLeadWorkflowQueueRequest,
   LogLeadInitialContactRequest,
   LeadRoutingTeamKey,
@@ -68,6 +69,7 @@ import {
   listWebsiteLeadSubmissions,
   listWebsiteFormLeads,
   previewLeadImport,
+  reviewLeadImport,
   resolveWebsiteLeadSubmission,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
@@ -114,6 +116,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || pathname === '/api/v1/leads/import'
     || pathname === '/api/v1/leads/import/file'
     || pathname === '/api/v1/leads/import/preview'
+    || pathname === '/api/v1/leads/import/review'
     || pathname === '/api/v1/leads/routing-policy'
     || matchesPath(pathname, '/api/v1/leads/:leadId')
     || matchesPath(pathname, '/api/v1/leads/:leadId/stage-transition')
@@ -421,6 +424,20 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       });
       const body = (await readJsonBody(req)) as ImportLeadFileRequest;
       const response = await importLeadFile(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/leads/import/review') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req)) as ReviewLeadImportRequest;
+      const response = await reviewLeadImport(actor, body);
       return jsonResponse(res, 200, response);
     }
 

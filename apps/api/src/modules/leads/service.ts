@@ -23,10 +23,12 @@ import type {
   CreateLeadRequest,
   ImportLeadFileRequest,
   ImportLeadFileResponse,
+  LeadImportDuplicateCandidate,
   ImportLeadRowInput,
   LeadImportFileError,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
+  LeadImportReviewRow,
   ImportLeadsRequest,
   ImportLeadsResponse,
   LeadLifecycleReasonCodeKey,
@@ -61,6 +63,8 @@ import type {
   ListWebsiteLeadSubmissionsResponse,
   ResolveWebsiteLeadSubmissionRequest,
   ScheduleLeadDiscoveryRequest,
+  ReviewLeadImportRequest,
+  ReviewLeadImportResponse,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
   UpdateLeadLifecycleRequest,
@@ -1562,34 +1566,147 @@ export async function previewLeadImport(actor: AuthenticatedActor, input: LeadIm
   return previewLeadImportFile(input);
 }
 
+export async function reviewLeadImport(
+  actor: AuthenticatedActor,
+  input: ReviewLeadImportRequest,
+): Promise<ReviewLeadImportResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const mapped = mapLeadImportFile(input);
+  const rows: LeadImportReviewRow[] = [];
+  let readyRowCount = 0;
+
+  for (const [index, row] of mapped.rows.entries()) {
+    const rowNumber = mapped.rowNumbers[index] ?? index + 2;
+
+    try {
+      const rowInput = buildImportLeadRowInput(input, row);
+      const normalized = normalizeLeadInput(
+        rowInput,
+        {
+          defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+          defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
+          leadCaptureMethod: LeadCaptureMethod.BULK_IMPORT,
+        },
+      );
+
+      const candidates = await findLeadImportDuplicateCandidates(prisma, normalized);
+      if (candidates.length > 0) {
+        rows.push({
+          rowNumber,
+          status: 'potential_duplicate',
+          detail: `Potential duplicate found across existing leads or customer accounts (${candidates.length} candidate${candidates.length === 1 ? '' : 's'}).`,
+          candidates,
+        });
+        continue;
+      }
+
+      readyRowCount += 1;
+    } catch (error) {
+      rows.push({
+        rowNumber,
+        status: 'invalid',
+        detail: error instanceof Error ? error.message : String(error),
+        candidates: [],
+      });
+    }
+  }
+
+  return {
+    totalRows: mapped.totalRows,
+    mappedRows: mapped.rows.length,
+    readyRowCount,
+    attentionRowCount: rows.length,
+    rows,
+  };
+}
+
 export async function importLeadFile(actor: AuthenticatedActor, input: ImportLeadFileRequest): Promise<ImportLeadFileResponse> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const mapped = mapLeadImportFile(input);
-  const imported = await importLeads(actor, {
-    ...(input.batchName !== undefined ? { batchName: input.batchName } : {}),
-    ...(input.businessSegmentCode !== undefined ? { businessSegmentCode: input.businessSegmentCode } : {}),
-    ...(input.leadSourceCode !== undefined ? { leadSourceCode: input.leadSourceCode } : {}),
-    ...(input.sourceSiteId !== undefined ? { sourceSiteId: input.sourceSiteId } : {}),
-    ...(input.sourceSiteName !== undefined ? { sourceSiteName: input.sourceSiteName } : {}),
-    ...(input.sourceBrandTag !== undefined ? { sourceBrandTag: input.sourceBrandTag } : {}),
-    rows: mapped.rows,
-  });
+  const items: LeadSummary[] = [];
+  const errors: LeadImportFileError[] = [];
+  let skippedByDecisionCount = 0;
+  const rowDecisions = new Map((input.rowDecisions ?? []).map((decision) => [decision.rowNumber, decision]));
 
-  const errors: LeadImportFileError[] = imported.errors.map((error) => ({
-    rowNumber: mapped.rowNumbers[error.rowIndex] ?? error.rowIndex + 2,
-    detail: error.detail,
-  }));
+  for (const [index, row] of mapped.rows.entries()) {
+    const rowNumber = mapped.rowNumbers[index] ?? index + 2;
+
+    try {
+      const rowInput = buildImportLeadRowInput(input, row);
+      const normalized = normalizeLeadInput(
+        rowInput,
+        {
+          defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+          defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
+          leadCaptureMethod: LeadCaptureMethod.BULK_IMPORT,
+        },
+      );
+
+      const candidates = await findLeadImportDuplicateCandidates(prisma, normalized);
+      if (candidates.length > 0) {
+        const decision = rowDecisions.get(rowNumber);
+        if (!decision) {
+          throw new Error('Potential duplicate found. Review this row and choose whether to create a new lead or use the existing record.');
+        }
+
+        if (decision.duplicateDecision === 'use_existing') {
+          if (decision.targetEntityId) {
+            const selectedCandidate = candidates.find((candidate) => candidate.entityId === decision.targetEntityId);
+            if (!selectedCandidate) {
+              throw new Error('Selected duplicate target is not valid for this import row.');
+            }
+          } else if (candidates.length > 1) {
+            throw new Error('Select which existing record to use before skipping this duplicate row.');
+          }
+
+          skippedByDecisionCount += 1;
+          continue;
+        }
+      }
+
+      const lead = await prisma.$transaction((tx) =>
+        createLeadRecord(
+          tx,
+          normalized,
+          {
+            actorUserId: actor.userId,
+            sessionId: actor.sessionId,
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            trigger: 'bulk_import',
+          },
+          {
+            sourceMetadata: {
+              batchName: optionalTrimmed(input.batchName),
+              rowIndex: index,
+            },
+          },
+        ),
+      );
+
+      items.push(toLeadSummary(lead));
+    } catch (error) {
+      errors.push({
+        rowNumber,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const batchName = optionalTrimmed(input.batchName);
 
   return {
-    ...(imported.batchName !== undefined ? { batchName: imported.batchName } : {}),
+    ...(batchName !== undefined ? { batchName } : {}),
     totalRows: mapped.totalRows,
     mappedRows: mapped.rows.length,
-    createdCount: imported.createdCount,
-    skippedCount: imported.skippedCount,
-    errorCount: imported.errorCount,
-    items: imported.items,
+    createdCount: items.length,
+    skippedCount: skippedByDecisionCount + errors.length,
+    errorCount: errors.length,
+    items,
     errors,
   };
 }
@@ -2122,11 +2239,107 @@ async function findWebsiteLeadDuplicate(
   tx: Prisma.TransactionClient,
   input: LeadInputSource,
 ): Promise<LeadWithRefs | null> {
+  const duplicateSignals = buildLeadDuplicateSignals(input);
+
+  if (duplicateSignals.length === 0) {
+    return null;
+  }
+
+  return tx.lead.findFirst({
+    where: {
+      AND: [
+        {
+          lifecycleStatus: LeadLifecycleStatus.ACTIVE,
+        },
+        {
+          stage: {
+            not: LeadStage.CUSTOMER_ACTIVE,
+          },
+        },
+        {
+          OR: duplicateSignals,
+        },
+      ],
+    },
+    orderBy: [
+      { updatedAt: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    include: LEAD_SUMMARY_INCLUDE,
+  });
+}
+
+async function findLeadImportDuplicateCandidates(
+  tx: Prisma.TransactionClient,
+  input: LeadInputSource,
+): Promise<LeadImportDuplicateCandidate[]> {
+  const leadSignals = buildLeadDuplicateSignals(input);
+  const accountSignals = buildAccountDuplicateSignals(input);
+
+  if (leadSignals.length === 0 && accountSignals.length === 0) {
+    return [];
+  }
+
+  const [leadMatches, accountMatches] = await Promise.all([
+    leadSignals.length > 0
+      ? tx.lead.findMany({
+          where: {
+            AND: [
+              {
+                stage: {
+                  not: LeadStage.CUSTOMER_ACTIVE,
+                },
+              },
+              {
+                OR: leadSignals,
+              },
+            ],
+          },
+          orderBy: [
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' },
+          ],
+          take: 5,
+          include: LEAD_SUMMARY_INCLUDE,
+        })
+      : Promise.resolve([]),
+    accountSignals.length > 0
+      ? tx.account.findMany({
+          where: {
+            OR: accountSignals,
+          },
+          orderBy: [
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' },
+          ],
+          take: 5,
+          include: {
+            contacts: {
+              where: {
+                isActive: true,
+              },
+              orderBy: [
+                { isPrimary: 'desc' },
+                { createdAt: 'asc' },
+              ],
+              take: 1,
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return [
+    ...leadMatches.map(toLeadImportDuplicateCandidate),
+    ...accountMatches.map(toAccountImportDuplicateCandidate),
+  ];
+}
+
+function buildLeadDuplicateSignals(input: LeadInputSource): Prisma.LeadWhereInput[] {
   const email = optionalTrimmed(asString(input.email))?.toLowerCase();
   const phone = optionalTrimmed(asString(input.phone));
   const companyName = optionalTrimmed(asString(input.companyName));
   const state = normalizeState(asString(input.state));
-
   const duplicateSignals: Prisma.LeadWhereInput[] = [];
 
   if (email) {
@@ -2156,32 +2369,100 @@ async function findWebsiteLeadDuplicate(
     });
   }
 
-  if (duplicateSignals.length === 0) {
-    return null;
+  return duplicateSignals;
+}
+
+function buildAccountDuplicateSignals(input: LeadInputSource): Prisma.AccountWhereInput[] {
+  const email = optionalTrimmed(asString(input.email))?.toLowerCase();
+  const phone = optionalTrimmed(asString(input.phone));
+  const companyName = optionalTrimmed(asString(input.companyName));
+  const duplicateSignals: Prisma.AccountWhereInput[] = [];
+
+  if (companyName) {
+    duplicateSignals.push({
+      displayName: {
+        equals: companyName,
+        mode: Prisma.QueryMode.insensitive,
+      },
+    });
+    duplicateSignals.push({
+      legalName: {
+        equals: companyName,
+        mode: Prisma.QueryMode.insensitive,
+      },
+    });
   }
 
-  return tx.lead.findFirst({
-    where: {
-      AND: [
-        {
-          lifecycleStatus: LeadLifecycleStatus.ACTIVE,
-        },
-        {
-          stage: {
-            not: LeadStage.CUSTOMER_ACTIVE,
+  if (email) {
+    duplicateSignals.push({
+      contacts: {
+        some: {
+          email: {
+            equals: email,
+            mode: Prisma.QueryMode.insensitive,
           },
         },
-        {
-          OR: duplicateSignals,
+      },
+    });
+  }
+
+  if (phone) {
+    duplicateSignals.push({
+      contacts: {
+        some: {
+          OR: [
+            { phone },
+            { mobilePhone: phone },
+          ],
         },
-      ],
-    },
-    orderBy: [
-      { updatedAt: 'desc' },
-      { createdAt: 'desc' },
-    ],
-    include: LEAD_SUMMARY_INCLUDE,
-  });
+      },
+    });
+  }
+
+  return duplicateSignals;
+}
+
+function toLeadImportDuplicateCandidate(lead: LeadWithRefs): LeadImportDuplicateCandidate {
+  return {
+    entityType: 'lead',
+    entityId: lead.id,
+    title: lead.companyName,
+    subtitle: `${lead.contactDisplayName} · ${toLeadStageKey(lead.stage)} · ${toLeadLifecycleStatusKey(lead.lifecycleStatus)}`,
+    detail: [lead.email, lead.phone, lead.state].filter(Boolean).join(' · '),
+  };
+}
+
+function toAccountImportDuplicateCandidate(
+  account: Prisma.AccountGetPayload<{
+    include: {
+      contacts: true;
+    };
+  }>,
+): LeadImportDuplicateCandidate {
+  const primaryContact = account.contacts[0];
+  return {
+    entityType: 'account',
+    entityId: account.id,
+    title: account.displayName,
+    subtitle: account.accountNumber ? `Account ${account.accountNumber}` : 'Existing customer account',
+    detail: [
+      account.legalName,
+      primaryContact ? `${primaryContact.firstName} ${primaryContact.lastName}`.trim() : null,
+      primaryContact?.email ?? null,
+      primaryContact?.phone ?? primaryContact?.mobilePhone ?? null,
+    ].filter(Boolean).join(' · '),
+  };
+}
+
+function buildImportLeadRowInput(input: ImportLeadFileRequest, row: ImportLeadRowInput): LeadInputSource {
+  return {
+    ...row,
+    ...(input.businessSegmentCode !== undefined ? { businessSegmentCode: input.businessSegmentCode } : {}),
+    ...(input.leadSourceCode !== undefined ? { leadSourceCode: input.leadSourceCode } : {}),
+    ...(input.sourceSiteId !== undefined ? { sourceSiteId: input.sourceSiteId } : {}),
+    ...(input.sourceSiteName !== undefined ? { sourceSiteName: input.sourceSiteName } : {}),
+    ...(input.sourceBrandTag !== undefined ? { sourceBrandTag: input.sourceBrandTag } : {}),
+  };
 }
 
 function resolveRoutingDecision(input: NormalizedLeadInput, policy: Prisma.LeadRoutingPolicyGetPayload<{}>): RoutingDecision {

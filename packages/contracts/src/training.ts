@@ -68,6 +68,49 @@ export const TRAINING_ACTIVITY_KINDS = [
 
 export type TrainingActivityKindKey = (typeof TRAINING_ACTIVITY_KINDS)[number];
 
+export const TRAINING_CERTIFICATION_OUTCOMES = [
+  'not_applicable',
+  'pending_decision',
+  'awarded',
+  'not_awarded',
+] as const;
+
+export type TrainingCertificationOutcomeKey = (typeof TRAINING_CERTIFICATION_OUTCOMES)[number];
+
+export const TRAINING_CERTIFICATION_STATUSES = [
+  'active',
+  'expired',
+  'revoked',
+] as const;
+
+export type TrainingCertificationStatusKey = (typeof TRAINING_CERTIFICATION_STATUSES)[number];
+
+export const TRAINING_EXECUTION_STATES = [
+  'scheduled',
+  'checked_in',
+  'completed',
+  'cancelled',
+  'no_show',
+] as const;
+
+export type TrainingExecutionStateKey = (typeof TRAINING_EXECUTION_STATES)[number];
+
+export const TRAINING_EXECUTION_EXCEPTION_TYPES = [
+  'session_overdue',
+  'proof_missing',
+  'certification_decision_pending',
+] as const;
+
+export type TrainingExecutionExceptionTypeKey = (typeof TRAINING_EXECUTION_EXCEPTION_TYPES)[number];
+
+export const TRAINING_EXECUTION_EXCEPTION_SEVERITIES = [
+  'high',
+  'medium',
+  'low',
+] as const;
+
+export type TrainingExecutionExceptionSeverityKey = (typeof TRAINING_EXECUTION_EXCEPTION_SEVERITIES)[number];
+
 export const TRAINING_FOLLOW_UP_TASK_STATUSES = [
   'open',
   'completed',
@@ -88,7 +131,9 @@ export type ListTrainingAccountStatusKey = (typeof LIST_TRAINING_ACCOUNT_STATUSE
 export const LIST_TRAINING_SESSION_STATUSES = [
   'all',
   'scheduled',
+  'checked_in',
   'overdue',
+  'exceptions',
   'completed',
   'cancelled',
   'no_show',
@@ -172,6 +217,9 @@ export interface TrainingOverviewResponse {
   trainingTypeCount: number;
   templateCount: number;
   certificationTrackCount: number;
+  activeCertificationCount: number;
+  pendingCertificationDecisionCount: number;
+  executionExceptionCount: number;
 }
 
 export interface TrainingCatalogResponse {
@@ -300,6 +348,38 @@ export interface TrainingFollowUpTaskSummary {
   updatedAt: string;
 }
 
+export interface TrainingCertificationSummary {
+  id: string;
+  accountId: string;
+  sessionId?: string;
+  programId?: string;
+  trainingTypeId?: string;
+  trainingTypeCode?: string;
+  trainingTypeName?: string;
+  certificationCode?: string;
+  title: string;
+  status: TrainingCertificationStatusKey;
+  awardedAt: string;
+  expiresAt?: string;
+  awardedByUserId?: string;
+  awardedByName?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrainingExecutionExceptionSummary {
+  type: TrainingExecutionExceptionTypeKey;
+  severity: TrainingExecutionExceptionSeverityKey;
+  sessionId: string;
+  accountId: string;
+  accountName?: string;
+  title: string;
+  detail: string;
+  scheduledAt?: string;
+  trainingTypeCode?: string;
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;
@@ -315,17 +395,27 @@ export interface TrainingSessionSummary {
   trainerName?: string;
   activityKind: TrainingActivityKindKey;
   status: TrainingSessionStatusKey;
+  executionState: TrainingExecutionStateKey;
+  certificationOutcome: TrainingCertificationOutcomeKey;
+  isCertificationTrack: boolean;
   title: string;
   scheduledAt?: string;
+  checkedInAt?: string;
+  checkedOutAt?: string;
   completedAt?: string;
   durationMinutes: number;
   attendeeCount: number;
   notes?: string;
+  checkoutNotes?: string;
+  proofNotes?: string;
+  proofAttachmentCount: number;
+  proofCapturedAt?: string;
   completionSummary?: string;
   isOverdue: boolean;
   countsTowardHours: boolean;
   openFollowUpTaskCount: number;
   followUpTasks: TrainingFollowUpTaskSummary[];
+  certifications: TrainingCertificationSummary[];
   createdAt: string;
   updatedAt: string;
 }
@@ -347,6 +437,8 @@ export interface AccountTrainingHistoryResponse {
   programs: AccountTrainingProgramSummary[];
   recentSessions: TrainingSessionSummary[];
   openFollowUpTasks: TrainingFollowUpTaskSummary[];
+  certifications: TrainingCertificationSummary[];
+  executionExceptions: TrainingExecutionExceptionSummary[];
 }
 
 export interface CreateAccountTrainingProgramRequest {
@@ -377,6 +469,12 @@ export interface ListTrainingSessionsResponse {
   total: number;
   overdueCount: number;
   openFollowUpTaskCount: number;
+  executionExceptions: TrainingExecutionExceptionSummary[];
+}
+
+export interface CheckInTrainingSessionRequest {
+  checkedInAt?: string;
+  notes?: string;
 }
 
 export interface CreateTrainingSessionRequest {
@@ -411,10 +509,19 @@ export interface CreateTrainingFollowUpTaskRequest {
 
 export interface CompleteTrainingSessionRequest {
   completedAt?: string;
+  checkedOutAt?: string;
   durationMinutes?: number;
   attendeeCount?: number;
   notes?: string;
+  checkoutNotes: string;
+  proofNotes?: string;
+  proofAttachmentCount?: number;
   completionSummary?: string;
+  certificationOutcome?: TrainingCertificationOutcomeKey;
+  certificationTitle?: string;
+  certificationCode?: string;
+  certificationExpiresAt?: string;
+  certificationNotes?: string;
   createFollowUpTask?: CreateTrainingFollowUpTaskRequest;
 }
 

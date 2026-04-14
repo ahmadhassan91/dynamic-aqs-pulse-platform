@@ -15,16 +15,18 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type {
+  TrainingCertificationOutcomeKey,
   TrainingSessionSummary,
   TrainingTrainerSummary,
   TrainingSessionStatusKey,
 } from '@pulse/contracts';
 import {
   cancelTrainingSessionRecord,
+  checkInTrainingSessionRecord,
   completeTrainingSessionRecord,
 } from '@/lib/pulse-api';
 
-type SessionActionMode = Extract<TrainingSessionStatusKey, 'completed' | 'cancelled' | 'no_show'>;
+type SessionActionMode = 'check_in' | Extract<TrainingSessionStatusKey, 'completed' | 'cancelled' | 'no_show'>;
 
 function toLocalDateTimeInput(value?: string) {
   if (!value) {
@@ -58,11 +60,20 @@ export function TrainingSessionExecutionModal({
   onSaved: () => Promise<void> | void;
 }) {
   const [mode, setMode] = useState<SessionActionMode>('completed');
+  const [checkedInAt, setCheckedInAt] = useState('');
   const [completedAt, setCompletedAt] = useState('');
   const [durationMinutes, setDurationMinutes] = useState<number | string>(60);
   const [attendeeCount, setAttendeeCount] = useState<number | string>(0);
   const [notes, setNotes] = useState('');
+  const [checkoutNotes, setCheckoutNotes] = useState('');
+  const [proofNotes, setProofNotes] = useState('');
+  const [proofAttachmentCount, setProofAttachmentCount] = useState<number | string>(0);
   const [completionSummary, setCompletionSummary] = useState('');
+  const [certificationOutcome, setCertificationOutcome] = useState<TrainingCertificationOutcomeKey>('not_applicable');
+  const [certificationTitle, setCertificationTitle] = useState('');
+  const [certificationCode, setCertificationCode] = useState('');
+  const [certificationExpiresAt, setCertificationExpiresAt] = useState('');
+  const [certificationNotes, setCertificationNotes] = useState('');
   const [createFollowUpTask, setCreateFollowUpTask] = useState(false);
   const [followUpTitle, setFollowUpTitle] = useState('');
   const [followUpDescription, setFollowUpDescription] = useState('');
@@ -77,12 +88,21 @@ export function TrainingSessionExecutionModal({
 
     const now = new Date();
     const offsetMs = now.getTimezoneOffset() * 60_000;
-    setMode('completed');
+    setMode(session.executionState === 'checked_in' ? 'completed' : 'check_in');
+    setCheckedInAt(toLocalDateTimeInput(session.checkedInAt ?? new Date(now.getTime() - offsetMs).toISOString()));
     setCompletedAt(new Date(now.getTime() - offsetMs).toISOString().slice(0, 16));
     setDurationMinutes(session.durationMinutes);
     setAttendeeCount(session.attendeeCount);
     setNotes(session.notes ?? '');
+    setCheckoutNotes(session.checkoutNotes ?? '');
+    setProofNotes(session.proofNotes ?? '');
+    setProofAttachmentCount(session.proofAttachmentCount);
     setCompletionSummary(session.completionSummary ?? '');
+    setCertificationOutcome(session.isCertificationTrack ? session.certificationOutcome : 'not_applicable');
+    setCertificationTitle(session.certifications[0]?.title ?? session.trainingTypeName ?? session.title);
+    setCertificationCode(session.certifications[0]?.certificationCode ?? '');
+    setCertificationExpiresAt(toLocalDateTimeInput(session.certifications[0]?.expiresAt));
+    setCertificationNotes(session.certifications[0]?.notes ?? '');
     setCreateFollowUpTask(false);
     setFollowUpTitle(`Follow-up for ${session.title}`);
     setFollowUpDescription('');
@@ -104,8 +124,10 @@ export function TrainingSessionExecutionModal({
     return null;
   }
 
-  const canSubmit = mode === 'completed'
-    ? Boolean(completedAt && Number(durationMinutes) > 0)
+  const canSubmit = mode === 'check_in'
+    ? Boolean(checkedInAt)
+    : mode === 'completed'
+    ? Boolean(completedAt && checkoutNotes.trim() && Number(durationMinutes) > 0)
       && (!createFollowUpTask || followUpTitle.trim())
     : true;
 
@@ -116,13 +138,36 @@ export function TrainingSessionExecutionModal({
 
     setIsSaving(true);
     try {
-      if (mode === 'completed') {
+      if (mode === 'check_in') {
+        await checkInTrainingSessionRecord(apiBaseUrl, accessToken, session.id, {
+          checkedInAt: fromLocalDateTimeInput(checkedInAt),
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+        });
+        notifications.show({
+          color: 'blue',
+          title: 'Session checked in',
+          message: `${session.title} is now checked in and ready for execution updates.`,
+        });
+      } else if (mode === 'completed') {
         await completeTrainingSessionRecord(apiBaseUrl, accessToken, session.id, {
           completedAt: fromLocalDateTimeInput(completedAt),
+          ...(checkedInAt ? { checkedOutAt: fromLocalDateTimeInput(completedAt) } : {}),
           durationMinutes: Number(durationMinutes),
           attendeeCount: Number(attendeeCount),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
+          checkoutNotes: checkoutNotes.trim(),
+          ...(proofNotes.trim() ? { proofNotes: proofNotes.trim() } : {}),
+          ...(Number(proofAttachmentCount) > 0 ? { proofAttachmentCount: Number(proofAttachmentCount) } : { proofAttachmentCount: 0 }),
           ...(completionSummary.trim() ? { completionSummary: completionSummary.trim() } : {}),
+          ...(session.isCertificationTrack
+            ? {
+                certificationOutcome,
+                ...(certificationTitle.trim() ? { certificationTitle: certificationTitle.trim() } : {}),
+                ...(certificationCode.trim() ? { certificationCode: certificationCode.trim() } : {}),
+                ...(certificationExpiresAt ? { certificationExpiresAt: fromLocalDateTimeInput(certificationExpiresAt) } : {}),
+                ...(certificationNotes.trim() ? { certificationNotes: certificationNotes.trim() } : {}),
+              }
+            : {}),
           ...(createFollowUpTask
             ? {
                 createFollowUpTask: {
@@ -174,12 +219,13 @@ export function TrainingSessionExecutionModal({
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Complete the training session, mark it as a no-show, or cancel it without leaving the approved Pulse training workflow.
+          Check in, complete, no-show, or cancel the session without leaving the approved Pulse training workflow.
         </Text>
 
         <Select
           label="Action"
           data={[
+            ...(session.executionState !== 'checked_in' ? [{ value: 'check_in', label: 'Check in session' }] : []),
             { value: 'completed', label: 'Complete session' },
             { value: 'cancelled', label: 'Cancel session' },
             { value: 'no_show', label: 'Mark as no-show' },
@@ -187,6 +233,15 @@ export function TrainingSessionExecutionModal({
           value={mode}
           onChange={(value) => setMode((value as SessionActionMode | null) ?? 'completed')}
         />
+
+        {mode === 'check_in' ? (
+          <TextInput
+            label="Checked in at"
+            type="datetime-local"
+            value={checkedInAt}
+            onChange={(event) => setCheckedInAt(event.currentTarget.value)}
+          />
+        ) : null}
 
         {mode === 'completed' ? (
           <>
@@ -224,11 +279,88 @@ export function TrainingSessionExecutionModal({
               value={completionSummary}
               onChange={(event) => setCompletionSummary(event.currentTarget.value)}
             />
+
+            <Textarea
+              label="Checkout notes"
+              description="Required for mobile-ready execution and audit history."
+              minRows={2}
+              value={checkoutNotes}
+              onChange={(event) => setCheckoutNotes(event.currentTarget.value)}
+            />
+
+            <Grid>
+              <Grid.Col span={6}>
+                <NumberInput
+                  label="Proof attachments"
+                  min={0}
+                  value={proofAttachmentCount}
+                  onChange={setProofAttachmentCount}
+                />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <TextInput
+                  label="Checked in at"
+                  type="datetime-local"
+                  value={checkedInAt}
+                  onChange={(event) => setCheckedInAt(event.currentTarget.value)}
+                />
+              </Grid.Col>
+            </Grid>
+
+            <Textarea
+              label="Proof notes"
+              minRows={2}
+              value={proofNotes}
+              onChange={(event) => setProofNotes(event.currentTarget.value)}
+            />
+
+            {session.isCertificationTrack ? (
+              <Stack gap="sm">
+                <Text size="sm" fw={600}>Certification outcome</Text>
+                <Select
+                  data={[
+                    { value: 'pending_decision', label: 'Pending decision' },
+                    { value: 'awarded', label: 'Awarded' },
+                    { value: 'not_awarded', label: 'Not awarded' },
+                  ]}
+                  value={certificationOutcome}
+                  onChange={(value) => setCertificationOutcome((value as TrainingCertificationOutcomeKey | null) ?? 'pending_decision')}
+                />
+                <Grid>
+                  <Grid.Col span={6}>
+                    <TextInput
+                      label="Certification title"
+                      value={certificationTitle}
+                      onChange={(event) => setCertificationTitle(event.currentTarget.value)}
+                    />
+                  </Grid.Col>
+                  <Grid.Col span={6}>
+                    <TextInput
+                      label="Certification code"
+                      value={certificationCode}
+                      onChange={(event) => setCertificationCode(event.currentTarget.value)}
+                    />
+                  </Grid.Col>
+                </Grid>
+                <TextInput
+                  label="Certification expires at"
+                  type="datetime-local"
+                  value={certificationExpiresAt}
+                  onChange={(event) => setCertificationExpiresAt(event.currentTarget.value)}
+                />
+                <Textarea
+                  label="Certification notes"
+                  minRows={2}
+                  value={certificationNotes}
+                  onChange={(event) => setCertificationNotes(event.currentTarget.value)}
+                />
+              </Stack>
+            ) : null}
           </>
         ) : null}
 
         <Textarea
-          label={mode === 'completed' ? 'Session notes' : 'Reason / notes'}
+          label={mode === 'completed' ? 'Session notes' : mode === 'check_in' ? 'Check-in notes' : 'Reason / notes'}
           minRows={3}
           value={notes}
           onChange={(event) => setNotes(event.currentTarget.value)}
@@ -282,7 +414,13 @@ export function TrainingSessionExecutionModal({
         ) : null}
 
         <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit}>
-          {mode === 'completed' ? 'Complete Session' : mode === 'no_show' ? 'Save No-show' : 'Cancel Session'}
+          {mode === 'check_in'
+            ? 'Check In'
+            : mode === 'completed'
+            ? 'Complete Session'
+            : mode === 'no_show'
+            ? 'Save No-show'
+            : 'Cancel Session'}
         </Button>
       </Stack>
     </Modal>

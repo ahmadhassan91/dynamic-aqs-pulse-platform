@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   CancelTrainingSessionRequest,
+  CheckInTrainingSessionRequest,
   CompleteTrainingFollowUpTaskRequest,
   CompleteTrainingSessionRequest,
   CreateTrainingFollowUpTaskRequest,
@@ -28,6 +29,7 @@ import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.
 import type { AuthenticatedActor } from '../auth/types.js';
 import {
   cancelTrainingSession,
+  checkInTrainingSession,
   completeTrainingFollowUpTask,
   completeTrainingSession,
   createAccountTrainingProgram,
@@ -60,6 +62,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
     || /^\/api\/v1\/training\/accounts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/training\/accounts\/[^/]+\/programs$/.test(pathname)
     || /^\/api\/v1\/training\/accounts\/[^/]+\/sessions$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/check-in$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/reschedule$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/complete$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/cancel$/.test(pathname)
@@ -123,7 +126,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
         if (trainerUserId) {
           query.trainerUserId = trainerUserId;
         }
-        const normalizedStatus = status && ['all', 'scheduled', 'overdue', 'completed', 'cancelled', 'no_show'].includes(status)
+        const normalizedStatus = status && ['all', 'scheduled', 'checked_in', 'overdue', 'exceptions', 'completed', 'cancelled', 'no_show'].includes(status)
           ? (status as NonNullable<ListTrainingSessionsRequest['status']>)
           : null;
         if (normalizedStatus) {
@@ -281,6 +284,24 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
         const body = (await readJsonBody(req)) as UpdateTrainingSessionScheduleRequest;
         const response = await rescheduleTrainingSession(actor, sessionId, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    const sessionCheckInMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/check-in$/);
+    if (sessionCheckInMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionCheckInMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as CheckInTrainingSessionRequest;
+        const response = await checkInTrainingSession(actor, sessionId, body);
         return jsonResponse(res, 200, response);
       });
     }

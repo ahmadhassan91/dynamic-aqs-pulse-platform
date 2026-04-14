@@ -26,6 +26,7 @@ let getAccountTrainingHistory;
 let createAccountTrainingProgram;
 let createTrainingSession;
 let rescheduleTrainingSession;
+let checkInTrainingSession;
 let completeTrainingSession;
 let cancelTrainingSession;
 let createTrainingFollowUpTask;
@@ -52,6 +53,7 @@ test.before(async () => {
     createAccountTrainingProgram,
     createTrainingSession,
     rescheduleTrainingSession,
+    checkInTrainingSession,
     completeTrainingSession,
     cancelTrainingSession,
     createTrainingFollowUpTask,
@@ -405,6 +407,7 @@ test('completing a training session advances cadence and creates follow-up tasks
     completedAt: '2026-06-15T16:30:00.000Z',
     durationMinutes: 105,
     attendeeCount: 4,
+    checkoutNotes: 'Dealer trainer wrapped up the field session and captured next steps.',
     completionSummary: 'Account completed onboarding certification.',
     createFollowUpTask: {
       title: 'Send post-training recap',
@@ -423,6 +426,144 @@ test('completing a training session advances cadence and creates follow-up tasks
   assert.equal(refreshedProgram?.status, 'ACTIVE');
   assert.ok(refreshedProgram?.lastCompletedAt);
   assert.ok(refreshedProgram?.nextDueAt);
+});
+
+test('training check-in is idempotent and supports the checked-in session filter', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'checkin');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(onboardingType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-07-01T13:00:00.000Z',
+    durationMinutes: 60,
+  });
+
+  const checkedIn = await checkInTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    checkedInAt: '2026-07-01T13:05:00.000Z',
+    notes: 'Trainer arrived on site.',
+  });
+  const idempotent = await checkInTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    checkedInAt: '2026-07-01T13:10:00.000Z',
+  });
+  const checkedInOnly = await listTrainingSessions(actor, {
+    accountId: fixture.account.id,
+    status: 'checked_in',
+  });
+
+  assert.equal(checkedIn.executionState, 'checked_in');
+  assert.equal(checkedIn.checkedInAt, '2026-07-01T13:05:00.000Z');
+  assert.equal(idempotent.checkedInAt, '2026-07-01T13:05:00.000Z');
+  assert.equal(checkedInOnly.total, 1);
+  assert.equal(checkedInOnly.items[0]?.id, scheduled.id);
+});
+
+test('certification-track completion can award a certification and persists proof metadata', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'cert-award');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'iaq_certification_curriculum' } });
+
+  assert.ok(certificationType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: certificationType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-07-10T15:00:00.000Z',
+    durationMinutes: 90,
+  });
+
+  const completed = await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    completedAt: '2026-07-10T16:45:00.000Z',
+    checkedOutAt: '2026-07-10T16:45:00.000Z',
+    attendeeCount: 3,
+    durationMinutes: 105,
+    checkoutNotes: 'Certification delivery finished and proof captured.',
+    proofNotes: 'Roster photo uploaded from trainer mobile flow.',
+    proofAttachmentCount: 2,
+    certificationOutcome: 'awarded',
+    certificationTitle: 'IAQ Certification Curriculum',
+    certificationCode: 'IAQ-2026-001',
+    certificationNotes: 'Passed with strong field demonstration.',
+  });
+  const history = await getAccountTrainingHistory(actor, fixture.account.id);
+
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.certificationOutcome, 'awarded');
+  assert.equal(completed.isCertificationTrack, true);
+  assert.equal(completed.proofAttachmentCount, 2);
+  assert.equal(completed.certifications.length, 1);
+  assert.equal(history.certifications.length, 1);
+  assert.equal(history.executionExceptions.length, 0);
+});
+
+test('training completion enforces checkout notes and surfaces pending certification decisions as exceptions', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'cert-pending');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'product_installations' } });
+
+  assert.ok(certificationType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: certificationType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-08-10T15:00:00.000Z',
+    durationMinutes: 90,
+  });
+
+  await assert.rejects(
+    () =>
+      completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+        completedAt: '2026-08-10T16:45:00.000Z',
+        durationMinutes: 105,
+      }),
+    /checkoutNotes/i,
+  );
+
+  await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    completedAt: '2026-08-10T16:45:00.000Z',
+    durationMinutes: 105,
+    checkoutNotes: 'Awaiting trainer review before certification decision.',
+  });
+
+  const exceptionSessions = await listTrainingSessions(actor, {
+    accountId: fixture.account.id,
+    status: 'exceptions',
+  });
+  const history = await getAccountTrainingHistory(actor, fixture.account.id);
+
+  assert.equal(exceptionSessions.total, 1);
+  assert.equal(exceptionSessions.items[0]?.certificationOutcome, 'pending_decision');
+  assert.ok(exceptionSessions.executionExceptions.some((entry) => entry.type === 'certification_decision_pending'));
+  assert.ok(history.executionExceptions.some((entry) => entry.type === 'certification_decision_pending'));
+});
+
+test('site visits cannot award certifications even for certification-track training types', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'visit-cert');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'product_installations' } });
+
+  assert.ok(certificationType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: certificationType.id,
+    trainerUserId: fixture.tm.id,
+    activityKind: 'site_visit',
+    scheduledAt: '2026-09-01T09:00:00.000Z',
+    durationMinutes: 60,
+  });
+
+  await assert.rejects(
+    () =>
+      completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+        completedAt: '2026-09-01T10:00:00.000Z',
+        checkoutNotes: 'Visit completed.',
+        certificationOutcome: 'awarded',
+      }),
+    /cannot award certifications/i,
+  );
 });
 
 test('cancelled and no-show sessions remain out of completed program flow', SERIAL, async () => {

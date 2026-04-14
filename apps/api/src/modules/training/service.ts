@@ -7,6 +7,8 @@ import {
   TrainingActivityKind,
   TrainingCatalogFamily,
   TrainingCategoryKind,
+  TrainingCertificationOutcome,
+  TrainingCertificationStatus,
   TrainingDeliveryMode,
   TrainingFollowUpTaskStatus,
   TrainingProofRequirement,
@@ -17,6 +19,7 @@ import type {
   AccountTrainingHistoryResponse,
   AccountTrainingProgramSummary,
   CancelTrainingSessionRequest,
+  CheckInTrainingSessionRequest,
   CompleteTrainingFollowUpTaskRequest,
   CompleteTrainingSessionRequest,
   CreateTrainingFollowUpTaskRequest,
@@ -35,8 +38,15 @@ import type {
   TrainingCatalogResponse,
   TrainingCategoryKindKey,
   TrainingCategorySummary,
+  TrainingCertificationOutcomeKey,
+  TrainingCertificationStatusKey,
+  TrainingCertificationSummary,
+  TrainingExecutionExceptionSeverityKey,
+  TrainingExecutionExceptionSummary,
+  TrainingExecutionExceptionTypeKey,
   TrainingFollowUpTaskStatusKey,
   TrainingFollowUpTaskSummary,
+  TrainingExecutionStateKey,
   TrainingOverviewResponse,
   TrainingProofRequirementKey,
   TrainingSessionSummary,
@@ -53,6 +63,7 @@ const TRAINING_TYPE_ENTITY = 'TRAINING_TYPE';
 const TRAINING_TEMPLATE_ENTITY = 'TRAINING_TEMPLATE';
 const TRAINING_PROGRAM_ENTITY = 'ACCOUNT_TRAINING_PROGRAM';
 const TRAINING_SESSION_ENTITY = 'TRAINING_SESSION';
+const TRAINING_CERTIFICATION_ENTITY = 'TRAINING_CERTIFICATION_RECORD';
 const TRAINING_FOLLOW_UP_TASK_ENTITY = 'TRAINING_FOLLOW_UP_TASK';
 
 const DEFAULT_TRAINING_CATEGORIES = [
@@ -489,6 +500,11 @@ const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>(
       select: {
         id: true,
         title: true,
+        template: {
+          select: {
+            proofRequirement: true,
+          },
+        },
       },
     },
     trainingType: true,
@@ -518,6 +534,18 @@ const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>(
       },
       orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
     },
+    certifications: {
+      include: {
+        trainingType: true,
+        awardedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+      orderBy: [{ awardedAt: 'desc' }, { createdAt: 'desc' }],
+    },
   },
 });
 
@@ -544,6 +572,18 @@ const trainingAccountArgs = Prisma.validator<Prisma.AccountDefaultArgs>()({
       include: trainingSessionArgs.include,
       orderBy: [{ completedAt: 'desc' }, { scheduledAt: 'desc' }, { createdAt: 'desc' }],
     },
+    trainingCertifications: {
+      include: {
+        trainingType: true,
+        awardedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+      orderBy: [{ awardedAt: 'desc' }, { createdAt: 'desc' }],
+    },
   },
 });
 
@@ -551,6 +591,7 @@ type TrainingProgramRecord = Prisma.AccountTrainingProgramGetPayload<typeof trai
 type TrainingSessionRecord = Prisma.TrainingSessionGetPayload<typeof trainingSessionArgs>;
 type TrainingAccountRecord = Prisma.AccountGetPayload<typeof trainingAccountArgs>;
 type TrainingFollowUpTaskRecord = TrainingSessionRecord['followUpTasks'][number];
+type TrainingCertificationRecord = TrainingSessionRecord['certifications'][number];
 type TrainingCategoryRecord = Prisma.TrainingCategoryGetPayload<{
   include: { _count: { select: { trainingTypes: true } } };
 }>;
@@ -697,7 +738,20 @@ export async function ensureTrainingSeeded() {
 export async function listTrainingOverview(actor: AuthenticatedActor): Promise<TrainingOverviewResponse> {
   assertModuleAccess(actor.role, 'training');
 
-  const [totalAccountsTracked, activePrograms, completedSessions, scheduledSessions, overduePrograms, openFollowUpTasks, categoryCount, trainingTypeCount, templateCount, certificationTrackCount] = await Promise.all([
+  const [
+    totalAccountsTracked,
+    activePrograms,
+    completedSessions,
+    scheduledSessions,
+    overduePrograms,
+    openFollowUpTasks,
+    categoryCount,
+    trainingTypeCount,
+    templateCount,
+    certificationTrackCount,
+    activeCertificationCount,
+    pendingCertificationDecisionCount,
+  ] = await Promise.all([
     prisma.account.count({
       where: {
         isActive: true,
@@ -753,6 +807,17 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
         isCertificationTrack: true,
       },
     }),
+    prisma.trainingCertificationRecord.count({
+      where: {
+        status: TrainingCertificationStatus.ACTIVE,
+      },
+    }),
+    prisma.trainingSession.count({
+      where: {
+        status: TrainingSessionStatus.COMPLETED,
+        certificationOutcome: TrainingCertificationOutcome.PENDING_DECISION,
+      },
+    }),
   ]);
 
   const completedHourSessions = await prisma.trainingSession.findMany({
@@ -786,6 +851,9 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
     trainingTypeCount,
     templateCount,
     certificationTrackCount,
+    activeCertificationCount,
+    pendingCertificationDecisionCount,
+    executionExceptionCount: overduePrograms + pendingCertificationDecisionCount,
   };
 }
 
@@ -1215,12 +1283,14 @@ export async function listTrainingSessions(
   const items = sessions
     .map(toTrainingSessionSummary)
     .filter((session) => filterTrainingSessionSummary(session, status));
+  const executionExceptions = buildTrainingExecutionExceptions(items);
 
   return {
     items,
     total: items.length,
     overdueCount: items.filter((item) => item.isOverdue).length,
     openFollowUpTaskCount: items.reduce((sum, item) => sum + item.openFollowUpTaskCount, 0),
+    executionExceptions,
   };
 }
 
@@ -1290,6 +1360,9 @@ export async function createTrainingSession(
 
   const activityKind = input.activityKind ? toTrainingActivityKind(input.activityKind) : TrainingActivityKind.TRAINING;
   const title = input.title?.trim() || trainingType?.name || program?.title || 'Training Session';
+  const certificationOutcome = trainingType?.isCertificationTrack
+    ? TrainingCertificationOutcome.PENDING_DECISION
+    : TrainingCertificationOutcome.NOT_APPLICABLE;
 
   const created = await prisma.$transaction(async (tx) => {
     const session = await tx.trainingSession.create({
@@ -1301,6 +1374,7 @@ export async function createTrainingSession(
         trainerUserId: trainer.id,
         activityKind,
         status: TrainingSessionStatus.SCHEDULED,
+        certificationOutcome,
         title,
         scheduledAt,
         durationMinutes: input.durationMinutes,
@@ -1333,6 +1407,7 @@ export async function createTrainingSession(
           trainingTypeCode: trainingType?.code,
           scheduledAt: scheduledAt.toISOString(),
           activityKind: activityKind.toLowerCase(),
+          certificationOutcome: certificationOutcome.toLowerCase(),
         },
         metadata: trainingAuditMetadata(actor),
       }),
@@ -1423,6 +1498,64 @@ export async function rescheduleTrainingSession(
   return toTrainingSessionSummary(updated);
 }
 
+export async function checkInTrainingSession(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: CheckInTrainingSessionRequest = {},
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status !== TrainingSessionStatus.SCHEDULED) {
+    throw new Error('Only scheduled training sessions can be checked in');
+  }
+  if (session.checkedInAt) {
+    return toTrainingSessionSummary(session);
+  }
+
+  const checkedInAt = input.checkedInAt ? parseIsoDate(input.checkedInAt, 'checkedInAt') : new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        checkedInAt,
+        ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+      },
+      include: trainingSessionArgs.include,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: sessionId,
+        beforeData: {
+          checkedInAt: session.checkedInAt?.toISOString(),
+        },
+        afterData: {
+          checkedInAt: checkedInAt.toISOString(),
+        },
+        metadata: {
+          ...trainingAuditMetadata(actor),
+          operation: 'check_in',
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toTrainingSessionSummary(updated);
+}
+
 export async function completeTrainingSession(
   actor: AuthenticatedActor,
   sessionId: string,
@@ -1442,16 +1575,42 @@ export async function completeTrainingSession(
   }
 
   const completedAt = input.completedAt ? parseIsoDate(input.completedAt, 'completedAt') : new Date();
+  const checkedOutAt = input.checkedOutAt ? parseIsoDate(input.checkedOutAt, 'checkedOutAt') : completedAt;
+  const checkoutNotes = input.checkoutNotes?.trim();
+  if (!checkoutNotes) {
+    throw new Error('checkoutNotes are required when completing a training session');
+  }
+  const checkedInAt = session.checkedInAt ?? session.scheduledAt ?? completedAt;
+  if (checkedOutAt.getTime() < checkedInAt.getTime()) {
+    throw new Error('checkedOutAt cannot be before check-in');
+  }
+
+  const proofAttachmentCount = input.proofAttachmentCount ?? 0;
+  if (proofAttachmentCount < 0) {
+    throw new Error('proofAttachmentCount cannot be negative');
+  }
+
+  const certificationOutcome = resolveTrainingCertificationOutcome(
+    session,
+    input.certificationOutcome,
+  );
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.trainingSession.update({
       where: { id: sessionId },
       data: {
         status: TrainingSessionStatus.COMPLETED,
+        checkedInAt,
+        checkedOutAt,
         completedAt,
         ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
         ...(input.attendeeCount !== undefined ? { attendeeCount: input.attendeeCount } : {}),
         ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+        checkoutNotes,
+        ...(input.proofNotes !== undefined ? { proofNotes: input.proofNotes.trim() || null } : {}),
+        proofAttachmentCount,
+        ...((input.proofNotes?.trim() || proofAttachmentCount > 0) ? { proofCapturedAt: checkedOutAt } : {}),
+        certificationOutcome,
         ...(input.completionSummary?.trim() ? { completionSummary: input.completionSummary.trim() } : {}),
       },
     });
@@ -1484,6 +1643,44 @@ export async function completeTrainingSession(
       }
     }
 
+    if (certificationOutcome === TrainingCertificationOutcome.AWARDED) {
+      const certificationTitle = input.certificationTitle?.trim()
+        || session.trainingType?.name
+        || session.title;
+
+      const certification = await tx.trainingCertificationRecord.create({
+        data: {
+          accountId: session.accountId,
+          sessionId,
+          ...(session.programId ? { programId: session.programId } : {}),
+          ...(session.trainingTypeId ? { trainingTypeId: session.trainingTypeId } : {}),
+          awardedByUserId: actor.userId,
+          ...(input.certificationCode?.trim() ? { certificationCode: input.certificationCode.trim() } : {}),
+          title: certificationTitle,
+          status: TrainingCertificationStatus.ACTIVE,
+          awardedAt: checkedOutAt,
+          ...(input.certificationExpiresAt ? { expiresAt: parseIsoDate(input.certificationExpiresAt, 'certificationExpiresAt') } : {}),
+          ...(input.certificationNotes?.trim() ? { notes: input.certificationNotes.trim() } : {}),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: TRAINING_CERTIFICATION_ENTITY,
+          entityId: certification.id,
+          afterData: {
+            accountId: session.accountId,
+            sessionId,
+            title: certification.title,
+            status: certification.status.toLowerCase(),
+          },
+          metadata: trainingAuditMetadata(actor),
+        }),
+      });
+    }
+
     if (input.createFollowUpTask) {
       await createTrainingFollowUpTaskInTransaction(
         tx,
@@ -1509,6 +1706,9 @@ export async function completeTrainingSession(
         afterData: {
           status: TrainingSessionStatus.COMPLETED.toLowerCase(),
           completedAt: completedAt.toISOString(),
+          checkedInAt: checkedInAt.toISOString(),
+          checkedOutAt: checkedOutAt.toISOString(),
+          certificationOutcome: certificationOutcome.toLowerCase(),
         },
         metadata: trainingAuditMetadata(actor),
       }),
@@ -1771,15 +1971,19 @@ function toAccountTrainingHistory(
   account: TrainingAccountRecord,
 ): AccountTrainingHistoryResponse {
   const summary = toTrainingAccountSummary(account);
+  const sessionSummaries = account.trainingSessions.map(toTrainingSessionSummary);
+  const recentSessions = sessionSummaries.slice(0, 12);
   return {
     ...summary,
     programs: account.trainingPrograms.map(toAccountTrainingProgramSummary),
-    recentSessions: account.trainingSessions.slice(0, 12).map(toTrainingSessionSummary),
+    recentSessions,
     openFollowUpTasks: account.trainingSessions
       .flatMap((session) => session.followUpTasks)
       .filter((task) => task.status === TrainingFollowUpTaskStatus.OPEN)
       .map(toTrainingFollowUpTaskSummary)
       .slice(0, 12),
+    certifications: account.trainingCertifications.map(toTrainingCertificationSummary),
+    executionExceptions: buildTrainingExecutionExceptions(sessionSummaries),
   };
 }
 
@@ -1834,19 +2038,53 @@ function toTrainingSessionSummary(
     ...(session.trainerUser?.displayName ? { trainerName: session.trainerUser.displayName } : {}),
     activityKind: toTrainingActivityKindKey(session.activityKind),
     status: toTrainingSessionStatusKey(session.status),
+    executionState: toTrainingExecutionStateKey(session),
+    certificationOutcome: toTrainingCertificationOutcomeKey(session.certificationOutcome),
+    isCertificationTrack: session.trainingType?.isCertificationTrack ?? false,
     title: session.title,
     ...(session.scheduledAt ? { scheduledAt: session.scheduledAt.toISOString() } : {}),
+    ...(session.checkedInAt ? { checkedInAt: session.checkedInAt.toISOString() } : {}),
+    ...(session.checkedOutAt ? { checkedOutAt: session.checkedOutAt.toISOString() } : {}),
     ...(session.completedAt ? { completedAt: session.completedAt.toISOString() } : {}),
     durationMinutes: session.durationMinutes,
     attendeeCount: session.attendeeCount,
     ...(session.notes ? { notes: session.notes } : {}),
+    ...(session.checkoutNotes ? { checkoutNotes: session.checkoutNotes } : {}),
+    ...(session.proofNotes ? { proofNotes: session.proofNotes } : {}),
+    proofAttachmentCount: session.proofAttachmentCount,
+    ...(session.proofCapturedAt ? { proofCapturedAt: session.proofCapturedAt.toISOString() } : {}),
     ...(session.completionSummary ? { completionSummary: session.completionSummary } : {}),
     isOverdue: session.status === TrainingSessionStatus.SCHEDULED && Boolean(session.scheduledAt && session.scheduledAt.getTime() < Date.now()),
     countsTowardHours: session.trainingType?.countsTowardHours ?? false,
     openFollowUpTaskCount,
     followUpTasks: session.followUpTasks.map(toTrainingFollowUpTaskSummary),
+    certifications: session.certifications.map(toTrainingCertificationSummary),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
+  };
+}
+
+function toTrainingCertificationSummary(
+  certification: TrainingCertificationRecord,
+): TrainingCertificationSummary {
+  return {
+    id: certification.id,
+    accountId: certification.accountId,
+    ...(certification.sessionId ? { sessionId: certification.sessionId } : {}),
+    ...(certification.programId ? { programId: certification.programId } : {}),
+    ...(certification.trainingTypeId ? { trainingTypeId: certification.trainingTypeId } : {}),
+    ...(certification.trainingType?.code ? { trainingTypeCode: certification.trainingType.code } : {}),
+    ...(certification.trainingType?.name ? { trainingTypeName: certification.trainingType.name } : {}),
+    ...(certification.certificationCode ? { certificationCode: certification.certificationCode } : {}),
+    title: certification.title,
+    status: toTrainingCertificationStatusKey(certification.status),
+    awardedAt: certification.awardedAt.toISOString(),
+    ...(certification.expiresAt ? { expiresAt: certification.expiresAt.toISOString() } : {}),
+    ...(certification.awardedByUserId ? { awardedByUserId: certification.awardedByUserId } : {}),
+    ...(certification.awardedByUser?.displayName ? { awardedByName: certification.awardedByUser.displayName } : {}),
+    ...(certification.notes ? { notes: certification.notes } : {}),
+    createdAt: certification.createdAt.toISOString(),
+    updatedAt: certification.updatedAt.toISOString(),
   };
 }
 
@@ -1891,8 +2129,14 @@ function filterTrainingSessionSummary(item: TrainingSessionSummary, status: List
   if (!status || status === 'all') {
     return true;
   }
+  if (status === 'checked_in') {
+    return item.executionState === 'checked_in';
+  }
   if (status === 'overdue') {
     return item.isOverdue;
+  }
+  if (status === 'exceptions') {
+    return hasTrainingExecutionException(item);
   }
   return item.status === status;
 }
@@ -2030,6 +2274,22 @@ function toTrainingSessionStatusKey(input: TrainingSessionStatus) {
   return input.toLowerCase() as TrainingSessionSummary['status'];
 }
 
+function toTrainingExecutionStateKey(session: Pick<TrainingSessionRecord, 'status' | 'checkedInAt'>): TrainingExecutionStateKey {
+  if (session.status === TrainingSessionStatus.SCHEDULED && session.checkedInAt) {
+    return 'checked_in';
+  }
+
+  return session.status.toLowerCase() as TrainingExecutionStateKey;
+}
+
+function toTrainingCertificationOutcomeKey(input: TrainingCertificationOutcome): TrainingCertificationOutcomeKey {
+  return input.toLowerCase() as TrainingCertificationOutcomeKey;
+}
+
+function toTrainingCertificationStatusKey(input: TrainingCertificationStatus): TrainingCertificationStatusKey {
+  return input.toLowerCase() as TrainingCertificationStatusKey;
+}
+
 function toTrainingSessionStatus(input: CancelTrainingSessionRequest['status']) {
   const value = input.trim().toUpperCase();
   if (!Object.prototype.hasOwnProperty.call(TrainingSessionStatus, value)) {
@@ -2054,6 +2314,94 @@ function toTrainingActivityKind(input: CreateTrainingSessionRequest['activityKin
 
 function toTrainingFollowUpTaskStatusKey(input: TrainingFollowUpTaskStatus) {
   return input.toLowerCase() as TrainingFollowUpTaskStatusKey;
+}
+
+function resolveTrainingCertificationOutcome(
+  session: TrainingSessionRecord,
+  requestedOutcome?: TrainingCertificationOutcomeKey,
+) {
+  const isCertificationTrack = session.trainingType?.isCertificationTrack ?? false;
+
+  if (!isCertificationTrack) {
+    if (requestedOutcome && requestedOutcome !== 'not_applicable') {
+      throw new Error('Certification outcomes can only be recorded for certification-track sessions');
+    }
+    return TrainingCertificationOutcome.NOT_APPLICABLE;
+  }
+
+  if (!requestedOutcome) {
+    return TrainingCertificationOutcome.PENDING_DECISION;
+  }
+
+  const normalized = requestedOutcome.trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(TrainingCertificationOutcome, normalized)) {
+    throw new Error(`Unsupported training certification outcome: ${requestedOutcome}`);
+  }
+
+  const outcome = normalized as TrainingCertificationOutcome;
+  if (session.activityKind !== TrainingActivityKind.TRAINING && outcome === TrainingCertificationOutcome.AWARDED) {
+    throw new Error('Site visits cannot award certifications');
+  }
+  if (outcome === TrainingCertificationOutcome.NOT_APPLICABLE) {
+    return TrainingCertificationOutcome.PENDING_DECISION;
+  }
+
+  return outcome;
+}
+
+function buildTrainingExecutionExceptions(items: TrainingSessionSummary[]): TrainingExecutionExceptionSummary[] {
+  return items.flatMap((item) => {
+    const exceptions: TrainingExecutionExceptionSummary[] = [];
+    const requiresProof = item.certificationOutcome === 'awarded';
+
+    if (item.isOverdue) {
+      exceptions.push({
+        type: 'session_overdue',
+        severity: 'high',
+        sessionId: item.id,
+        accountId: item.accountId,
+        ...(item.accountName ? { accountName: item.accountName } : {}),
+        title: item.title,
+        detail: 'Scheduled training session is overdue and still incomplete.',
+        ...(item.scheduledAt ? { scheduledAt: item.scheduledAt } : {}),
+        ...(item.trainingTypeCode ? { trainingTypeCode: item.trainingTypeCode } : {}),
+      });
+    }
+
+    if (item.status === 'completed' && requiresProof && item.proofAttachmentCount === 0 && !item.proofNotes?.trim()) {
+      exceptions.push({
+        type: 'proof_missing',
+        severity: 'medium',
+        sessionId: item.id,
+        accountId: item.accountId,
+        ...(item.accountName ? { accountName: item.accountName } : {}),
+        title: item.title,
+        detail: 'Certification completion is missing proof metadata or proof notes.',
+        ...(item.scheduledAt ? { scheduledAt: item.scheduledAt } : {}),
+        ...(item.trainingTypeCode ? { trainingTypeCode: item.trainingTypeCode } : {}),
+      });
+    }
+
+    if (item.status === 'completed' && item.certificationOutcome === 'pending_decision') {
+      exceptions.push({
+        type: 'certification_decision_pending',
+        severity: 'medium',
+        sessionId: item.id,
+        accountId: item.accountId,
+        ...(item.accountName ? { accountName: item.accountName } : {}),
+        title: item.title,
+        detail: 'Certification-track session was completed without a final certification decision.',
+        ...(item.scheduledAt ? { scheduledAt: item.scheduledAt } : {}),
+        ...(item.trainingTypeCode ? { trainingTypeCode: item.trainingTypeCode } : {}),
+      });
+    }
+
+    return exceptions;
+  });
+}
+
+function hasTrainingExecutionException(item: TrainingSessionSummary) {
+  return buildTrainingExecutionExceptions([item]).length > 0;
 }
 
 function toAccountSegment(input: string) {

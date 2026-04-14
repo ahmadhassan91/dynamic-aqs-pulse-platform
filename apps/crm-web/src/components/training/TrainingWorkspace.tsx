@@ -110,6 +110,25 @@ function formatDateTime(value?: string) {
   }).format(new Date(value));
 }
 
+function trainingStatusColor(session: TrainingSessionSummary) {
+  if (session.executionState === 'checked_in') {
+    return 'orange';
+  }
+  if (session.isOverdue) {
+    return 'red';
+  }
+  if (session.status === 'completed') {
+    return 'green';
+  }
+  if (session.status === 'cancelled') {
+    return 'gray';
+  }
+  if (session.status === 'no_show') {
+    return 'yellow';
+  }
+  return 'blue';
+}
+
 export function TrainingWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
@@ -289,7 +308,7 @@ export function TrainingWorkspace() {
 
       {overview ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 6 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Accounts tracked</Text>
               <Text fw={700} size="xl">{overview.totalAccountsTracked}</Text>
@@ -313,6 +332,30 @@ export function TrainingWorkspace() {
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Certification tracks</Text>
               <Text fw={700} size="xl">{overview.certificationTrackCount}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active certifications</Text>
+              <Text fw={700} size="xl">{overview.activeCertificationCount}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Pending certification decisions</Text>
+              <Text
+                fw={700}
+                size="xl"
+                {...(overview.pendingCertificationDecisionCount > 0 ? { c: 'orange' as const } : {})}
+              >
+                {overview.pendingCertificationDecisionCount}
+              </Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Execution exceptions</Text>
+              <Text
+                fw={700}
+                size="xl"
+                {...(overview.executionExceptionCount > 0 ? { c: 'red' as const } : {})}
+              >
+                {overview.executionExceptionCount}
+              </Text>
             </Card>
           </SimpleGrid>
 
@@ -352,6 +395,7 @@ export function TrainingWorkspace() {
                     <Text size="sm">Scheduled sessions: {sessions?.total ?? 0}</Text>
                     <Text size="sm">Overdue sessions: {sessions?.overdueCount ?? 0}</Text>
                     <Text size="sm">Open follow-up tasks: {sessions?.openFollowUpTaskCount ?? 0}</Text>
+                    <Text size="sm">Execution exceptions: {sessions?.executionExceptions.length ?? 0}</Text>
                     <Text size="sm">Available trainers: {trainers.filter((entry) => entry.isActive).length}</Text>
                   </Stack>
                 </Paper>
@@ -457,7 +501,9 @@ export function TrainingWorkspace() {
                       data={[
                         { value: 'all', label: 'All sessions' },
                         { value: 'scheduled', label: 'Scheduled' },
+                        { value: 'checked_in', label: 'Checked in' },
                         { value: 'overdue', label: 'Overdue' },
+                        { value: 'exceptions', label: 'Execution exceptions' },
                         { value: 'completed', label: 'Completed' },
                         { value: 'cancelled', label: 'Cancelled' },
                         { value: 'no_show', label: 'No show' },
@@ -506,9 +552,14 @@ export function TrainingWorkspace() {
                           <Table.Td>{session.trainerName ?? 'Unassigned'}</Table.Td>
                           <Table.Td>{formatDateTime(session.scheduledAt ?? session.completedAt)}</Table.Td>
                           <Table.Td>
-                            <Badge color={session.isOverdue ? 'red' : session.status === 'completed' ? 'green' : 'blue'} variant="light">
-                              {session.status.replace(/_/g, ' ')}
+                            <Badge color={trainingStatusColor(session)} variant="light">
+                              {session.executionState.replace(/_/g, ' ')}
                             </Badge>
+                            {session.isCertificationTrack ? (
+                              <Badge color="violet" variant="light" ml={6}>
+                                {session.certificationOutcome.replace(/_/g, ' ')}
+                              </Badge>
+                            ) : null}
                           </Table.Td>
                           <Table.Td>{session.openFollowUpTaskCount}</Table.Td>
                           {canSchedule ? (
@@ -554,6 +605,41 @@ export function TrainingWorkspace() {
                     </Table.Tbody>
                   </Table>
                 </Paper>
+
+                {sessions && sessions.executionExceptions.length > 0 ? (
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Execution exceptions</Title>
+                        <Badge color="red" variant="light">{sessions.executionExceptions.length}</Badge>
+                      </Group>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Session</Table.Th>
+                            <Table.Th>Issue</Table.Th>
+                            <Table.Th>Severity</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {sessions.executionExceptions.map((entry) => (
+                            <Table.Tr key={`${entry.sessionId}-${entry.type}`}>
+                              <Table.Td>{entry.accountName ?? 'Account'}</Table.Td>
+                              <Table.Td>{entry.title}</Table.Td>
+                              <Table.Td>{entry.detail}</Table.Td>
+                              <Table.Td>
+                                <Badge color={entry.severity === 'high' ? 'red' : 'orange'} variant="light">
+                                  {entry.severity}
+                                </Badge>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+                ) : null}
               </Stack>
             </Tabs.Panel>
 

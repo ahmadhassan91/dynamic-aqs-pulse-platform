@@ -102,6 +102,7 @@ import type {
   TrainingOverviewResponse,
   AccountTrainingHistoryResponse,
   CreateTrainingCategoryRequest,
+  CheckInTrainingSessionRequest,
   CreateTrainingTypeRequest,
   CreateTrainingTemplateRequest,
   CreateAccountTrainingProgramRequest,
@@ -598,6 +599,19 @@ export async function createTrainingSessionRecord(
   input: CreateTrainingSessionRequest,
 ) {
   return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/accounts/${accountId}/sessions`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function checkInTrainingSessionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: CheckInTrainingSessionRequest = {},
+) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/check-in`, {
     method: 'POST',
     accessToken,
     body: input,

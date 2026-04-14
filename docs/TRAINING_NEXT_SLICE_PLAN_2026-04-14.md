@@ -24,7 +24,7 @@ Primary references:
 
 ## Current Status
 
-`Training Slice A: Catalog + Programs + Account History Shell` and `Training Slice B: Scheduling + Session Execution` are now implemented in the production repo.
+`Training Slice A: Catalog + Programs + Account History Shell`, `Training Slice B: Scheduling + Session Execution`, and `Training Slice C: Mobile Execution + Certification` are now implemented in the production repo.
 
 Live baseline:
 
@@ -33,59 +33,18 @@ Live baseline:
 - account-centric training programs with TM/RD ownership carry-forward
 - overdue detection and account training history reads
 - real training session scheduling, rescheduling, completion, cancellation/no-show, and follow-up task flows
+- mobile-ready execution flow with explicit check-in, required checkout notes, proof metadata, and certification outcomes
+- account certification records plus execution exception read models
 - prototype-aligned `/training` workspace plus customer-detail `Training` tab
 - dedicated module regression suite covering scheduling/execution edge cases
 
 ## Recommended Next Slice
 
-Build `Training Slice C: Mobile Execution + Certification`
+Build `Training Slice D: Outlook Sync + External Coexistence`
 
-This is the highest-value next slice now because catalog, cadence, account history, session scheduling, trainer assignment, and follow-up execution are already live. The next meaningful value is field/mobile execution depth plus explicit certification lifecycle handling.
+This is the next training slice, but it should only begin when the external prerequisites are available. If Outlook/provider prerequisites remain parked, the next active engineering slice should move to another downstream module instead of forcing a blocked training integration.
 
-## Slice C Scope
-
-### Backend
-
-- mobile-ready session execution payloads
-- check-in / check-out timestamps
-- required checkout notes
-- proof / attachment metadata hooks
-- attendee/certification outcome expansion
-- certification record issuance and status
-- overdue training exception read models
-
-### Web
-
-Use the same approved prototype shell and existing training/territory patterns.
-
-Ship:
-
-- internal training execution controls that mirror the upcoming mobile flow
-- certification progress visibility
-- overdue / exception review surfaces
-- account training timeline depth
-- prep for later mobile parity without inventing a separate execution model
-
-### Regression coverage
-
-Add a dedicated module suite for:
-
-- check-in / check-out transitions
-- required completion notes
-- certification award / non-award outcomes
-- overdue exception generation
-- mobile-safe execution without Outlook/provider sync
-- site visit versus formal training behavior under execution rules
-
-## Explicitly Out Of Scope For Slice C
-
-- live Outlook sync
-- Teams/WebEx meeting creation
-- certification-site import
-- full external-site coexistence implementation
-- contest ROI attribution
-
-## Slice D After That
+## Slice D Scope
 
 `Training Slice D: Outlook Sync + External Coexistence`
 
@@ -93,6 +52,12 @@ Add a dedicated module suite for:
 - provider-specific meeting-link synchronization
 - external training-site coexistence or sync boundary
 - certification-site import decisions
+
+## Explicitly Out Of Scope For Slice D Until Prerequisites Arrive
+
+- hardcoded provider selection before Dynamic AQS confirms the calendar/meeting stack
+- replacing the current external training site outright
+- ROI/contest attribution modeling
 
 ## What We Still Need Later
 

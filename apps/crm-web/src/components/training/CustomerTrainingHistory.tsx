@@ -67,6 +67,25 @@ function formatDateTime(value?: string) {
   }).format(new Date(value));
 }
 
+function trainingStatusColor(session: TrainingSessionSummary) {
+  if (session.executionState === 'checked_in') {
+    return 'orange';
+  }
+  if (session.isOverdue) {
+    return 'red';
+  }
+  if (session.status === 'completed') {
+    return 'green';
+  }
+  if (session.status === 'cancelled') {
+    return 'gray';
+  }
+  if (session.status === 'no_show') {
+    return 'yellow';
+  }
+  return 'blue';
+}
+
 export function CustomerTrainingHistory({
   accountId,
   accountName,
@@ -243,7 +262,7 @@ export function CustomerTrainingHistory({
 
       {history ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Last training</Text>
               <Text fw={700} size="lg">{formatDate(history.lastTrainingAt)}</Text>
@@ -263,6 +282,20 @@ export function CustomerTrainingHistory({
             <Card withBorder radius="md" p="md">
               <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
               <Text fw={700} size="lg">{history.openFollowUpTasks.length}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active certifications</Text>
+              <Text fw={700} size="lg">{history.certifications.filter((entry) => entry.status === 'active').length}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Execution exceptions</Text>
+              <Text
+                fw={700}
+                size="lg"
+                {...(history.executionExceptions.length > 0 ? { c: 'red' as const } : {})}
+              >
+                {history.executionExceptions.length}
+              </Text>
             </Card>
           </SimpleGrid>
 
@@ -403,9 +436,14 @@ export function CustomerTrainingHistory({
                       </Table.Td>
                       <Table.Td>{session.activityKind.replace(/_/g, ' ')}</Table.Td>
                       <Table.Td>
-                        <Badge color={session.isOverdue ? 'red' : session.status === 'completed' ? 'green' : 'blue'} variant="light">
-                          {session.status.replace(/_/g, ' ')}
+                        <Badge color={trainingStatusColor(session)} variant="light">
+                          {session.executionState.replace(/_/g, ' ')}
                         </Badge>
+                        {session.isCertificationTrack ? (
+                          <Badge color="violet" variant="light" ml={6}>
+                            {session.certificationOutcome.replace(/_/g, ' ')}
+                          </Badge>
+                        ) : null}
                       </Table.Td>
                       <Table.Td>{formatDateTime(session.completedAt ?? session.scheduledAt)}</Table.Td>
                       <Table.Td>{session.countsTowardHours ? `${(session.durationMinutes / 60).toFixed(1)} hrs` : 'Visit only'}</Table.Td>
@@ -498,6 +536,93 @@ export function CustomerTrainingHistory({
                     <Table.Tr>
                       <Table.Td colSpan={canSchedule ? 5 : 4}>
                         <Text c="dimmed">No open follow-up tasks for this account right now.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Stack>
+          </Paper>
+
+          <Paper withBorder radius="md" p="lg">
+            <Stack gap="sm">
+              <Group justify="space-between">
+                <Title order={4}>Certifications</Title>
+                <Badge color="violet" variant="light">{history.certifications.length}</Badge>
+              </Group>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Certification</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Awarded</Table.Th>
+                    <Table.Th>Expires</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {history.certifications.length > 0 ? history.certifications.map((certification) => (
+                    <Table.Tr key={certification.id}>
+                      <Table.Td>
+                        <Stack gap={0}>
+                          <Text fw={600}>{certification.title}</Text>
+                          <Text size="sm" c="dimmed">
+                            {certification.trainingTypeName ?? certification.trainingTypeCode ?? 'Certification'}
+                          </Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={certification.status === 'active' ? 'green' : certification.status === 'expired' ? 'orange' : 'red'} variant="light">
+                          {certification.status.replace(/_/g, ' ')}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{formatDate(certification.awardedAt)}</Table.Td>
+                      <Table.Td>{formatDate(certification.expiresAt)}</Table.Td>
+                    </Table.Tr>
+                  )) : (
+                    <Table.Tr>
+                      <Table.Td colSpan={4}>
+                        <Text c="dimmed">No certifications have been recorded for this account yet.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Stack>
+          </Paper>
+
+          <Paper withBorder radius="md" p="lg">
+            <Stack gap="sm">
+              <Group justify="space-between">
+                <Title order={4}>Execution exceptions</Title>
+                <Badge color={history.executionExceptions.length > 0 ? 'red' : 'gray'} variant="light">
+                  {history.executionExceptions.length}
+                </Badge>
+              </Group>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Session</Table.Th>
+                    <Table.Th>Issue</Table.Th>
+                    <Table.Th>Severity</Table.Th>
+                    <Table.Th>Scheduled</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {history.executionExceptions.length > 0 ? history.executionExceptions.map((entry) => (
+                    <Table.Tr key={`${entry.sessionId}-${entry.type}`}>
+                      <Table.Td>{entry.title}</Table.Td>
+                      <Table.Td>{entry.detail}</Table.Td>
+                      <Table.Td>
+                        <Badge color={entry.severity === 'high' ? 'red' : 'orange'} variant="light">
+                          {entry.severity}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{formatDateTime(entry.scheduledAt)}</Table.Td>
+                    </Table.Tr>
+                  )) : (
+                    <Table.Tr>
+                      <Table.Td colSpan={4}>
+                        <Text c="dimmed">No execution exceptions are open for this account right now.</Text>
                       </Table.Td>
                     </Table.Tr>
                   )}

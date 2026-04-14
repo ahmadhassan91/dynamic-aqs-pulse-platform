@@ -270,6 +270,19 @@ enum TrainingSessionStatus {
   NO_SHOW
 }
 
+enum TrainingCertificationOutcome {
+  NOT_APPLICABLE
+  PENDING_DECISION
+  AWARDED
+  NOT_AWARDED
+}
+
+enum TrainingCertificationStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
 enum TrainingActivityKind {
   TRAINING
   SITE_VISIT
@@ -491,6 +504,7 @@ model User {
   trainingProgramsOwnedTm     AccountTrainingProgram[] @relation("TrainingProgramOwnerTm")
   trainingProgramsOwnedRd     AccountTrainingProgram[] @relation("TrainingProgramOwnerRd")
   trainingSessionsDelivered   TrainingSession[] @relation("TrainingSessionTrainer")
+  trainingCertificationsAwarded TrainingCertificationRecord[] @relation("TrainingCertificationAwardedBy")
   trainingFollowUpTasksOwned  TrainingFollowUpTask[] @relation("TrainingFollowUpTaskOwner")
   trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
 
@@ -1469,6 +1483,7 @@ model Account {
   trainingPrograms           AccountTrainingProgram[]
   trainingSessions           TrainingSession[]
   trainingFollowUpTasks      TrainingFollowUpTask[]
+  trainingCertifications     TrainingCertificationRecord[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -1647,6 +1662,7 @@ model TrainingType {
   cadencePolicies        TrainingCadencePolicy[]
   accountPrograms        AccountTrainingProgram[]
   sessions               TrainingSession[]
+  certificationRecords   TrainingCertificationRecord[]
 
   @@index([categoryId])
   @@index([family])
@@ -1738,6 +1754,7 @@ model AccountTrainingProgram {
   ownerTmUser       User?                        @relation("TrainingProgramOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
   ownerRdUser       User?                        @relation("TrainingProgramOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
   sessions          TrainingSession[]
+  certifications    TrainingCertificationRecord[]
 
   @@index([accountId])
   @@index([trainingTypeId])
@@ -1759,12 +1776,19 @@ model TrainingSession {
   trainerUserId     String?                @db.Uuid
   activityKind      TrainingActivityKind   @default(TRAINING)
   status            TrainingSessionStatus  @default(SCHEDULED)
+  certificationOutcome TrainingCertificationOutcome @default(NOT_APPLICABLE)
   title             String
   scheduledAt       DateTime?
+  checkedInAt       DateTime?
+  checkedOutAt      DateTime?
   completedAt       DateTime?
   durationMinutes   Int                    @default(0)
   attendeeCount     Int                    @default(0)
   notes             String?
+  checkoutNotes     String?
+  proofNotes        String?
+  proofAttachmentCount Int                 @default(0)
+  proofCapturedAt   DateTime?
   completionSummary String?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
@@ -1775,6 +1799,7 @@ model TrainingSession {
   trainingType      TrainingType?          @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
   trainerUser       User?                  @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
   followUpTasks     TrainingFollowUpTask[]
+  certifications    TrainingCertificationRecord[]
 
   @@index([accountId])
   @@index([locationId])
@@ -1783,9 +1808,44 @@ model TrainingSession {
   @@index([trainerUserId])
   @@index([activityKind])
   @@index([status])
+  @@index([certificationOutcome])
   @@index([scheduledAt])
+  @@index([checkedInAt])
+  @@index([checkedOutAt])
   @@index([completedAt])
   @@index([accountId, status, scheduledAt])
+}
+
+model TrainingCertificationRecord {
+  id                String                    @id @default(uuid()) @db.Uuid
+  accountId         String                    @db.Uuid
+  sessionId         String?                   @db.Uuid
+  programId         String?                   @db.Uuid
+  trainingTypeId    String?                   @db.Uuid
+  awardedByUserId   String?                   @db.Uuid
+  certificationCode String?
+  title             String
+  status            TrainingCertificationStatus @default(ACTIVE)
+  awardedAt         DateTime
+  expiresAt         DateTime?
+  notes             String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  account           Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  session           TrainingSession?          @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  program           AccountTrainingProgram?   @relation(fields: [programId], references: [id], onDelete: SetNull)
+  trainingType      TrainingType?             @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  awardedByUser     User?                     @relation("TrainingCertificationAwardedBy", fields: [awardedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([sessionId])
+  @@index([programId])
+  @@index([trainingTypeId])
+  @@index([awardedByUserId])
+  @@index([status])
+  @@index([awardedAt])
+  @@index([expiresAt])
 }
 
 model TrainingFollowUpTask {

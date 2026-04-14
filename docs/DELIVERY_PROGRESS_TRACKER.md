@@ -80,7 +80,7 @@ Use it to:
 | Wave 2 | Dealer Portal Replacement for Shopify | `Partial` | `In Progress` | Shared backend dealer portal kernel is now live for provisioning, dealer account status, and dealer session lifecycle; external branded dealer-facing routes are the next prototype-aligned slice. |
 | Wave 3 | Territory Management & Field Routing | `Mostly Ready` | `In Progress` | Territory kernel, state coverage, shipping-center alignment, lead assignment history, live lead override controls, named-owner override UX, and prototype-aligned `dashboard / map / list` workspace are now live; next depth is account/location propagation and richer operational reporting. |
 | Wave 3 | Mobile Field App | `Ready` | `Planned` | Prototype shell will be reused; auth/sync will be rebuilt underneath. |
-| Wave 3 | Training Management | `Mostly Ready` | `Planned` | Depends on territory, account, and calendar/integration boundaries. |
+| Wave 3 | Training Management | `Mostly Ready` | `Planned` | Discovery and structure pass are now documented: account-centric, territory-linked, segment-aware, mobile-first, provider-abstract, with initial certification tracks `IAQ Certification Curriculum` and `Product Installations`; next slice is catalog/templates + account training programs before Outlook/provider wiring. |
 | Wave 3 | Reports & Analytics | `Ready` | `Planned` | Semantic layer starts after governed APIs and audit-ready facts exist. |
 | Wave 3 | Executive Dashboard | `Partial` | `Planned` | Depends on reports/semantic layer, not before it. |
 | Wave 4 | Consignment Management | `Mostly Ready` | `Planned` | Requires warehouse/site master reconciliation and audit cadence logic. |
@@ -171,6 +171,7 @@ These are intentionally not being built yet, but they should stay visible so the
 | Prototype web/mobile rewiring to real account APIs | `Parked` | Backend contracts should stabilize before client rewiring starts | After first account/contact API review |
 | Maps / routing provider foundation | `Parked` | Planning is ready, but provider selection, billing ownership, and sample address packs are still pending from Dynamic AQS | Revisit when maps prerequisites are supplied |
 | Outlook calendar integration foundation | `Parked` | Planning is ready, but Microsoft 365 admin access, Graph app registration, and pilot-user calendars are still pending from Dynamic AQS | Revisit when Outlook/Graph prerequisites are supplied |
+| Training external-site coexistence decision | `Parked` | Discovery confirms the existing training/certification website still matters, but the Phase 1 boundary between Pulse and that site should stay abstract until the business decides whether it remains, syncs, or is retired | Revisit when training-site future state is ratified |
 
 ## How To Update This Tracker
 

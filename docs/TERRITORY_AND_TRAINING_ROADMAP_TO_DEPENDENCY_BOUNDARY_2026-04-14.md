@@ -25,11 +25,12 @@ Implemented already:
 - manual override
 - assignment history
 - backend-wired `/territories` and `/territory_map`
+- interactive territory map with state overlays, live account/lead pins, shipping-center
+  markers, and click-through into customer / lead detail
 
 Still missing relative to the approved prototype and PRD:
 
-- true interactive geographic map
-- richer map overlays and filters
+- deeper map overlays and filters beyond T1
 - account/location propagation
 - broader territory reporting
 - field-execution territory workflow depth
@@ -37,6 +38,9 @@ Still missing relative to the approved prototype and PRD:
 ### Roadmap
 
 #### Territory Slice T1: Map Parity
+
+Status:
+- **Done**
 
 Goal:
 - replace the current atlas-style map experience with a true interactive territory map
@@ -221,18 +225,17 @@ The next major blocker is provider connectivity, not core domain modeling.
 
 ## Recommended Active Sequencing
 
-1. `Territory Slice T1: Map Parity`
-2. `Territory Slice T2: Propagation And Ownership Maintenance`
-3. `Territory Slice T3: Reporting And Exception Views`
-4. `Training Slice D0: Reporting And Certification Ops` only if we want more
+1. `Territory Slice T2: Propagation And Ownership Maintenance`
+2. `Territory Slice T3: Reporting And Exception Views`
+3. `Training Slice D0: Reporting And Certification Ops` only if we want more
    provider-free training depth before Outlook prerequisites arrive
-5. `Training Slice D1` once Outlook/external training prerequisites are supplied
+4. `Training Slice D1` once Outlook/external training prerequisites are supplied
 
 ## Decisions Locked By This Note
 
 1. Territory should remain an active build track.
 2. Training is not the same level of incompleteness as Territory.
-3. The next best territory slice is **Map Parity**.
+3. Territory T1 is now complete; the next best territory slice is **T2 Propagation And Ownership Maintenance**.
 4. Training can optionally deepen reporting now, but its main next integration slice is
    provider-bound.
 5. We should complete Territory to its first real dependency blocker before treating the
@@ -241,6 +244,7 @@ The next major blocker is provider connectivity, not core domain modeling.
 ## Related References
 
 - [TERRITORY_REDISCOVERY_AND_DEPENDENCY_BOUNDARY_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TERRITORY_REDISCOVERY_AND_DEPENDENCY_BOUNDARY_2026-04-14.md)
+- [TERRITORY_SLICE_T1_MAP_PARITY_IMPLEMENTATION_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TERRITORY_SLICE_T1_MAP_PARITY_IMPLEMENTATION_2026-04-14.md)
 - [TRAINING_NEXT_SLICE_PLAN_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TRAINING_NEXT_SLICE_PLAN_2026-04-14.md)
 - [TRAINING_MODULE_STRUCTURE_AND_COMMERCIAL_READINESS_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TRAINING_MODULE_STRUCTURE_AND_COMMERCIAL_READINESS_2026-04-14.md)
 - [DELIVERY_PROGRESS_TRACKER.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/DELIVERY_PROGRESS_TRACKER.md)

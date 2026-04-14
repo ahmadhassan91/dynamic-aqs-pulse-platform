@@ -25,6 +25,7 @@ import {
   createRegion,
   createShippingCenter,
   createTerritory,
+  getTerritoryMapWorkspace,
   getTerritoryPolicy,
   listTerritoryAssignableUsers,
   listRegions,
@@ -163,6 +164,17 @@ export async function handleTerritoryRoutes(req: IncomingMessage, res: ServerRes
     }
 
     return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+  }
+
+  if (pathname === '/api/v1/territories/map') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+
+    return withTerritoryAuth(req, res, async (actor) => {
+      const response = await getTerritoryMapWorkspace(actor);
+      return jsonResponse(res, 200, response);
+    });
   }
 
   if (pathname === '/api/v1/territories/assignable-users') {

@@ -1,4 +1,5 @@
 import type { AuthRole } from './auth.js';
+import type { LeadLifecycleStatusKey, LeadStageKey } from './leads.js';
 
 export const TERRITORY_ASSIGNMENT_METHODS = [
   'default_state',
@@ -15,6 +16,20 @@ export const TERRITORY_ASSIGNMENT_ENTITY_TYPES = [
 ] as const;
 
 export type TerritoryAssignmentEntityTypeKey = (typeof TERRITORY_ASSIGNMENT_ENTITY_TYPES)[number];
+
+export const TERRITORY_MAP_PIN_RECORD_TYPES = [
+  'account',
+  'lead',
+] as const;
+
+export type TerritoryMapPinRecordTypeKey = (typeof TERRITORY_MAP_PIN_RECORD_TYPES)[number];
+
+export const TERRITORY_MAP_GEO_PRECISIONS = [
+  'city_state',
+  'state_fallback',
+] as const;
+
+export type TerritoryMapGeoPrecisionKey = (typeof TERRITORY_MAP_GEO_PRECISIONS)[number];
 
 export interface ShippingCenterSummary {
   id: string;
@@ -219,4 +234,74 @@ export interface LeadTerritoryAssignmentSummary {
   assignedRdName?: string;
   assignmentMethod?: TerritoryAssignmentMethodKey;
   assignedAt?: string;
+}
+
+export interface TerritoryMapCoverageEntrySummary {
+  territoryId: string;
+  territoryCode: string;
+  territoryName: string;
+  regionId: string;
+  regionCode: string;
+  regionName: string;
+  stateCode: string;
+  countryCode: string;
+  assignedTmUserId?: string;
+  assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  shippingCenterId?: string;
+  shippingCenterName?: string;
+}
+
+export interface TerritoryMapPinSummary {
+  id: string;
+  recordType: TerritoryMapPinRecordTypeKey;
+  recordId: string;
+  label: string;
+  status: 'active' | 'prospect' | 'inactive';
+  latitude: number;
+  longitude: number;
+  geoPrecision: TerritoryMapGeoPrecisionKey;
+  city?: string;
+  state?: string;
+  countryCode?: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  assignedTmUserId?: string;
+  assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  affinityGroupName?: string;
+  lifecycleStatus?: LeadLifecycleStatusKey;
+  stage?: LeadStageKey;
+  accountType?: string;
+  sourceLabel?: string;
+  lastTouchedAt?: string;
+}
+
+export interface TerritoryMapShippingCenterSummary extends ShippingCenterSummary {
+  latitude: number;
+  longitude: number;
+  geoPrecision: TerritoryMapGeoPrecisionKey;
+  servicedTerritoryCount: number;
+  activeLeadCount: number;
+  activeAccountCount: number;
+}
+
+export interface TerritoryMapWorkspaceResponse {
+  policy: TerritoryPolicySummary;
+  regions: RegionSummary[];
+  territories: TerritorySummary[];
+  coverageEntries: TerritoryMapCoverageEntrySummary[];
+  shippingCenters: TerritoryMapShippingCenterSummary[];
+  accountPins: TerritoryMapPinSummary[];
+  leadPins: TerritoryMapPinSummary[];
+  generatedAt: string;
 }

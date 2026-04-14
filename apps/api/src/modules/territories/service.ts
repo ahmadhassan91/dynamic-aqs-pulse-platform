@@ -1,6 +1,7 @@
 import { assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
 import {
   AuditAction,
+  LeadLifecycleStatus,
   LeadStage,
   LeadRoutingTeam,
   UserKind,
@@ -24,6 +25,11 @@ import type {
   ReplaceTerritoryCoverageRequest,
   ShippingCenterSummary,
   TerritoryAssignableUserSummary,
+  TerritoryMapCoverageEntrySummary,
+  TerritoryMapGeoPrecisionKey,
+  TerritoryMapPinSummary,
+  TerritoryMapShippingCenterSummary,
+  TerritoryMapWorkspaceResponse,
   TerritoryPolicySummary,
   TerritorySummary,
   UpdateRegionRequest,
@@ -477,6 +483,134 @@ export async function listTerritories(actor: AuthenticatedActor): Promise<ListTe
 
   return {
     items: items.map(toTerritorySummary),
+  };
+}
+
+export async function getTerritoryMapWorkspace(
+  actor: AuthenticatedActor,
+): Promise<TerritoryMapWorkspaceResponse> {
+  assertModuleAccess(actor.role, 'territories');
+
+  const [policy, regionItems, territoryItems, shippingCenterItems, leadItems, accountItems] = await Promise.all([
+    requireTerritoryPolicy(),
+    prisma.region.findMany({
+      orderBy: [{ name: 'asc' }],
+      include: {
+        directorUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        _count: {
+          select: {
+            territories: true,
+          },
+        },
+      },
+    }),
+    prisma.territory.findMany({
+      orderBy: [{ name: 'asc' }],
+      include: TERRITORY_INCLUDE,
+    }),
+    prisma.shippingCenter.findMany({
+      orderBy: [{ name: 'asc' }],
+    }),
+    prisma.lead.findMany({
+      where: {
+        lifecycleStatus: 'ACTIVE',
+        stage: {
+          not: LeadStage.CUSTOMER_ACTIVE,
+        },
+      },
+      orderBy: [{ companyName: 'asc' }],
+      include: LEAD_TERRITORY_INCLUDE,
+    }),
+    prisma.account.findMany({
+      where: {
+        isActive: true,
+      },
+      orderBy: [{ displayName: 'asc' }],
+      include: {
+        territory: {
+          include: {
+            region: true,
+          },
+        },
+        shippingCenter: true,
+        assignedTmUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        assignedRdUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        locations: {
+          where: {
+            isActive: true,
+          },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          take: 1,
+        },
+      },
+    }),
+  ]);
+
+  const territories = territoryItems.map(toTerritorySummary);
+  const regions = regionItems.map(toRegionSummary);
+  const coverageEntries = territoryItems.flatMap((territory) => toTerritoryMapCoverageEntries(territory));
+
+  const leadCountsByShippingCenter = new Map<string, number>();
+  const accountCountsByShippingCenter = new Map<string, number>();
+  const territoryCountsByShippingCenter = new Map<string, number>();
+
+  for (const lead of leadItems) {
+    if (lead.shippingCenterId) {
+      leadCountsByShippingCenter.set(
+        lead.shippingCenterId,
+        (leadCountsByShippingCenter.get(lead.shippingCenterId) ?? 0) + 1,
+      );
+    }
+  }
+
+  for (const account of accountItems) {
+    if (account.shippingCenterId) {
+      accountCountsByShippingCenter.set(
+        account.shippingCenterId,
+        (accountCountsByShippingCenter.get(account.shippingCenterId) ?? 0) + 1,
+      );
+    }
+  }
+
+  for (const territory of territoryItems) {
+    if (territory.shippingCenterId) {
+      territoryCountsByShippingCenter.set(
+        territory.shippingCenterId,
+        (territoryCountsByShippingCenter.get(territory.shippingCenterId) ?? 0) + 1,
+      );
+    }
+  }
+
+  return {
+    policy: toTerritoryPolicySummary(policy),
+    regions,
+    territories,
+    coverageEntries,
+    shippingCenters: shippingCenterItems.map((item) =>
+      toTerritoryMapShippingCenterSummary(item, {
+        servicedTerritoryCount: territoryCountsByShippingCenter.get(item.id) ?? 0,
+        activeLeadCount: leadCountsByShippingCenter.get(item.id) ?? 0,
+        activeAccountCount: accountCountsByShippingCenter.get(item.id) ?? 0,
+      }),
+    ),
+    accountPins: accountItems.map(toTerritoryMapAccountPin),
+    leadPins: leadItems.map(toTerritoryMapLeadPin),
+    generatedAt: new Date().toISOString(),
   };
 }
 
@@ -1391,6 +1525,229 @@ function toTerritorySummary(item: TerritoryWithRefs): TerritorySummary {
   };
 }
 
+function toTerritoryMapCoverageEntries(item: TerritoryWithRefs): TerritoryMapCoverageEntrySummary[] {
+  return item.stateCoverage.map((entry) => ({
+    territoryId: item.id,
+    territoryCode: item.code,
+    territoryName: item.name,
+    regionId: item.regionId,
+    regionCode: item.region.code,
+    regionName: item.region.name,
+    stateCode: entry.stateCode,
+    countryCode: entry.countryCode,
+    ...(item.managerUserId ? { assignedTmUserId: item.managerUserId } : {}),
+    ...(item.managerUser?.displayName ? { assignedTmName: item.managerUser.displayName } : {}),
+    ...(item.region.directorUserId ? { assignedRdUserId: item.region.directorUserId } : {}),
+    ...(item.region.directorUser?.displayName ? { assignedRdName: item.region.directorUser.displayName } : {}),
+    ...(item.shippingCenterId ? { shippingCenterId: item.shippingCenterId } : {}),
+    ...(item.shippingCenter?.name ? { shippingCenterName: item.shippingCenter.name } : {}),
+  }));
+}
+
+function toTerritoryMapShippingCenterSummary(
+  item: Prisma.ShippingCenterGetPayload<{}>,
+  counts: {
+    servicedTerritoryCount: number;
+    activeLeadCount: number;
+    activeAccountCount: number;
+  },
+): TerritoryMapShippingCenterSummary {
+  const coordinates = deriveApproximateCoordinates({
+    key: `shipping-center:${item.id}`,
+    ...(item.city ? { city: item.city } : {}),
+    ...(item.state ? { state: item.state } : {}),
+  });
+
+  return {
+    ...toShippingCenterSummary(item),
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+    geoPrecision: coordinates.geoPrecision,
+    servicedTerritoryCount: counts.servicedTerritoryCount,
+    activeLeadCount: counts.activeLeadCount,
+    activeAccountCount: counts.activeAccountCount,
+  };
+}
+
+function toTerritoryMapLeadPin(
+  lead: Prisma.LeadGetPayload<{ include: typeof LEAD_TERRITORY_INCLUDE }>,
+): TerritoryMapPinSummary {
+  const coordinates = deriveApproximateCoordinates({
+    key: `lead:${lead.id}`,
+    ...(lead.state ? { state: lead.state } : {}),
+  });
+
+  return {
+    id: `lead:${lead.id}`,
+    recordType: 'lead',
+    recordId: lead.id,
+    label: lead.companyName,
+    status: 'prospect',
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+    geoPrecision: coordinates.geoPrecision,
+    ...(lead.state ? { state: lead.state } : {}),
+    ...(lead.countryCode ? { countryCode: lead.countryCode } : {}),
+    ...(lead.territoryId ? { territoryId: lead.territoryId } : {}),
+    ...(lead.territory?.code ? { territoryCode: lead.territory.code } : {}),
+    ...(lead.territory?.name ? { territoryName: lead.territory.name } : {}),
+    ...(lead.territory?.regionId ? { regionId: lead.territory.regionId } : {}),
+    ...(lead.territory?.region.code ? { regionCode: lead.territory.region.code } : {}),
+    ...(lead.territory?.region.name ? { regionName: lead.territory.region.name } : {}),
+    ...(lead.assignedTmUserId ? { assignedTmUserId: lead.assignedTmUserId } : {}),
+    ...(lead.assignedTmUser?.displayName ? { assignedTmName: lead.assignedTmUser.displayName } : {}),
+    ...(lead.assignedRdUserId ? { assignedRdUserId: lead.assignedRdUserId } : {}),
+    ...(lead.assignedRdUser?.displayName ? { assignedRdName: lead.assignedRdUser.displayName } : {}),
+    ...(lead.shippingCenterId ? { shippingCenterId: lead.shippingCenterId } : {}),
+    ...(lead.shippingCenter?.code ? { shippingCenterCode: lead.shippingCenter.code } : {}),
+    ...(lead.shippingCenter?.name ? { shippingCenterName: lead.shippingCenter.name } : {}),
+    ...(lead.affinityGroupName ? { affinityGroupName: lead.affinityGroupName } : {}),
+    lifecycleStatus: normalizeLeadLifecycleStatusKey(lead.lifecycleStatus),
+    stage: normalizeLeadStageKey(lead.stage),
+    ...(lead.sourceDetail ? { sourceLabel: lead.sourceDetail } : {}),
+    lastTouchedAt: lead.updatedAt.toISOString(),
+  };
+}
+
+function toTerritoryMapAccountPin(
+  account: Prisma.AccountGetPayload<{
+    include: {
+      territory: {
+        include: {
+          region: true;
+        };
+      };
+      shippingCenter: true;
+      assignedTmUser: {
+        select: {
+          id: true;
+          displayName: true;
+        };
+      };
+      assignedRdUser: {
+        select: {
+          id: true;
+          displayName: true;
+        };
+      };
+      locations: true;
+    };
+  }>,
+): TerritoryMapPinSummary {
+  const primaryLocation = account.locations[0] ?? null;
+  const coordinates = deriveApproximateCoordinates({
+    key: `account:${account.id}`,
+    ...(primaryLocation?.city ? { city: primaryLocation.city } : {}),
+    ...(primaryLocation?.state ? { state: primaryLocation.state } : {}),
+  });
+
+  return {
+    id: `account:${account.id}`,
+    recordType: 'account',
+    recordId: account.id,
+    label: account.displayName,
+    status: account.isActive ? 'active' : 'inactive',
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+    geoPrecision: coordinates.geoPrecision,
+    ...(primaryLocation?.city ? { city: primaryLocation.city } : {}),
+    ...(primaryLocation?.state ? { state: primaryLocation.state } : {}),
+    ...(primaryLocation?.countryCode ? { countryCode: primaryLocation.countryCode } : {}),
+    ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+    ...(account.territory?.code ? { territoryCode: account.territory.code } : {}),
+    ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+    ...(account.territory?.regionId ? { regionId: account.territory.regionId } : {}),
+    ...(account.territory?.region.code ? { regionCode: account.territory.region.code } : {}),
+    ...(account.territory?.region.name ? { regionName: account.territory.region.name } : {}),
+    ...(account.assignedTmUserId ? { assignedTmUserId: account.assignedTmUserId } : {}),
+    ...(account.assignedTmUser?.displayName ? { assignedTmName: account.assignedTmUser.displayName } : {}),
+    ...(account.assignedRdUserId ? { assignedRdUserId: account.assignedRdUserId } : {}),
+    ...(account.assignedRdUser?.displayName ? { assignedRdName: account.assignedRdUser.displayName } : {}),
+    ...(account.shippingCenterId ? { shippingCenterId: account.shippingCenterId } : {}),
+    ...(account.shippingCenter?.code ? { shippingCenterCode: account.shippingCenter.code } : {}),
+    ...(account.shippingCenter?.name ? { shippingCenterName: account.shippingCenter.name } : {}),
+    ...(account.accountType ? { accountType: account.accountType } : {}),
+    lastTouchedAt: account.updatedAt.toISOString(),
+  };
+}
+
+const CITY_STATE_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
+  'atlanta,ga': { latitude: 33.749, longitude: -84.388 },
+  'chicago,il': { latitude: 41.8781, longitude: -87.6298 },
+  'columbus,oh': { latitude: 39.9612, longitude: -82.9988 },
+  'denver,co': { latitude: 39.7392, longitude: -104.9903 },
+  'fort lauderdale,fl': { latitude: 26.1224, longitude: -80.1373 },
+  'houston,tx': { latitude: 29.7604, longitude: -95.3698 },
+  'indianapolis,in': { latitude: 39.7684, longitude: -86.1581 },
+  'las vegas,nv': { latitude: 36.1699, longitude: -115.1398 },
+  'memphis,tn': { latitude: 35.1495, longitude: -90.049 },
+  'new braunfels,tx': { latitude: 29.703, longitude: -98.1245 },
+  'orlando,fl': { latitude: 28.5383, longitude: -81.3792 },
+  'princeton,nj': { latitude: 40.3573, longitude: -74.6672 },
+};
+
+const STATE_COORDINATES: Record<string, [number, number]> = {
+  AL: [-86.8, 32.8], AK: [-150.0, 64.0], AZ: [-111.9, 34.3], AR: [-92.4, 34.9], CA: [-119.4, 36.8],
+  CO: [-105.5, 39.0], CT: [-72.7, 41.6], DE: [-75.5, 39.1], FL: [-81.7, 27.8], GA: [-83.4, 32.6],
+  HI: [-157.5, 20.8], ID: [-114.4, 44.2], IL: [-89.3, 40.0], IN: [-86.1, 40.0], IA: [-93.5, 42.0],
+  KS: [-98.4, 38.5], KY: [-84.9, 37.5], LA: [-91.9, 31.2], ME: [-69.0, 45.2], MD: [-76.7, 39.0],
+  MA: [-71.8, 42.3], MI: [-84.7, 44.3], MN: [-94.3, 46.4], MS: [-89.7, 32.7], MO: [-92.6, 38.5],
+  MT: [-110.4, 46.9], NE: [-99.9, 41.5], NV: [-116.4, 38.5], NH: [-71.6, 43.7], NJ: [-74.7, 40.1],
+  NM: [-106.1, 34.4], NY: [-75.0, 43.0], NC: [-79.0, 35.5], ND: [-100.5, 47.5], OH: [-82.8, 40.4],
+  OK: [-97.5, 35.5], OR: [-120.5, 44.0], PA: [-77.8, 41.0], RI: [-71.5, 41.7], SC: [-80.9, 33.8],
+  SD: [-100.2, 44.4], TN: [-86.6, 35.8], TX: [-99.2, 31.0], UT: [-111.6, 39.3], VT: [-72.7, 44.1],
+  VA: [-78.7, 37.5], WA: [-120.7, 47.4], WV: [-80.6, 38.6], WI: [-89.6, 44.5], WY: [-107.6, 43.0],
+  DC: [-77.0, 38.9],
+};
+
+function deriveApproximateCoordinates(input: {
+  key: string;
+  city?: string;
+  state?: string;
+}): { latitude: number; longitude: number; geoPrecision: TerritoryMapGeoPrecisionKey } {
+  const normalizedState = normalizeStateCode(input.state) ?? undefined;
+  const normalizedCity = input.city?.trim().toLowerCase();
+
+  if (normalizedCity && normalizedState) {
+    const key = `${normalizedCity},${normalizedState.toLowerCase()}`;
+    const resolved = CITY_STATE_COORDINATES[key];
+    if (resolved) {
+      return {
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
+        geoPrecision: 'city_state',
+      };
+    }
+  }
+
+  const stateCenter = normalizedState ? STATE_COORDINATES[normalizedState] : undefined;
+  if (stateCenter) {
+    const hash = hashKey(input.key);
+    const lngOffset = ((hash % 9) - 4) * 0.28;
+    const latOffset = ((hash % 7) - 3) * 0.22;
+    return {
+      latitude: stateCenter[1] + latOffset,
+      longitude: stateCenter[0] + lngOffset,
+      geoPrecision: 'state_fallback',
+    };
+  }
+
+  return {
+    latitude: 39,
+    longitude: -96,
+    geoPrecision: 'state_fallback',
+  };
+}
+
+function hashKey(value: string) {
+  let hash = 0;
+  for (const char of value) {
+    hash = (hash << 5) - hash + char.charCodeAt(0);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
 function toLeadTerritoryAssignmentSummary(
   lead: Prisma.LeadGetPayload<{ include: typeof LEAD_TERRITORY_INCLUDE }>,
 ): LeadTerritoryAssignmentSummary {
@@ -1527,6 +1884,14 @@ function normalizeCountryCode(value: string | null | undefined, regionValue?: st
 
   const resolvedRegion = regionValue ? findLeadRegionOption(regionValue) : undefined;
   return resolvedRegion?.countryCode ?? 'US';
+}
+
+function normalizeLeadLifecycleStatusKey(value: LeadLifecycleStatus) {
+  return value.toLowerCase() as NonNullable<TerritoryMapPinSummary['lifecycleStatus']>;
+}
+
+function normalizeLeadStageKey(value: LeadStage) {
+  return value.toLowerCase() as NonNullable<TerritoryMapPinSummary['stage']>;
 }
 
 function requireText(value: string | null | undefined, field: string) {

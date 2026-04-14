@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ColorSchemeScript } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import './globals.css';
 import { AppProviders } from '@/components/providers/AppProviders';
 

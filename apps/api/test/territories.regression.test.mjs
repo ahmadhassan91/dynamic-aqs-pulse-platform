@@ -27,6 +27,7 @@ let listTerritoryAssignmentHistory;
 let listTerritoryAssignableUsers;
 let reassignLeadTerritory;
 let replaceTerritoryCoverage;
+let getTerritoryMapWorkspace;
 let updateTerritoryPolicy;
 const SERIAL = { concurrency: false };
 
@@ -52,6 +53,7 @@ test.before(async () => {
     listTerritoryAssignableUsers,
     reassignLeadTerritory,
     replaceTerritoryCoverage,
+    getTerritoryMapWorkspace,
     updateTerritoryPolicy,
   } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
@@ -167,7 +169,7 @@ test('territory routes are mounted on the server and default shipping centers ar
     const address = runtime.server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const [policyResponse, centersResponse] = await Promise.all([
+    const [policyResponse, centersResponse, mapResponse] = await Promise.all([
       fetch(`http://127.0.0.1:${port}/api/v1/territories/policy`, {
         headers: {
           authorization: `Bearer ${auth.tokens.accessToken}`,
@@ -178,19 +180,27 @@ test('territory routes are mounted on the server and default shipping centers ar
           authorization: `Bearer ${auth.tokens.accessToken}`,
         },
       }),
+      fetch(`http://127.0.0.1:${port}/api/v1/territories/map`, {
+        headers: {
+          authorization: `Bearer ${auth.tokens.accessToken}`,
+        },
+      }),
     ]);
 
     assert.equal(policyResponse.status, 200);
     assert.equal(centersResponse.status, 200);
+    assert.equal(mapResponse.status, 200);
 
     const policy = await policyResponse.json();
     const centers = await centersResponse.json();
+    const map = await mapResponse.json();
 
     assert.equal(policy.preHandoffTmVisibility, false);
     assert.ok(Array.isArray(centers.items));
     assert.ok(centers.items.some((item) => item.code === 'nj_princeton'));
     assert.ok(centers.items.some((item) => item.code === 'fl_southeast'));
     assert.ok(centers.items.some((item) => item.code === 'nv_nevada'));
+    assert.ok(Array.isArray(map.shippingCenters));
   } finally {
     await runtime.close();
   }
@@ -467,6 +477,63 @@ test('manual lead override can pin explicit TM and RD owners, then fall back to 
   assert.equal(history.items.length, 3);
   assert.equal(history.items[0].nextAssignedTmUserId, fixture.manager.id);
   assert.equal(history.items[1].nextAssignedTmUserId, alternateTm.id);
+});
+
+test('territory map workspace returns live coverage entries, account pins, lead pins, and unassigned fallback markers', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await seedTerritoryFixture(actor, {
+    suffix: 'map_workspace',
+    stateCode: 'TX',
+  });
+
+  const coveredLead = await createLead(actor, {
+    companyName: 'Territory Map Covered Lead',
+    serviceTechCount: 8,
+    state: 'TX',
+  });
+  const uncoveredLead = await createLead(actor, {
+    companyName: 'Territory Map Unassigned Lead',
+    serviceTechCount: 4,
+  });
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Territory Map Customer',
+      territoryId: fixture.territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: fixture.shippingCenter.id,
+      assignedTmUserId: fixture.manager.id,
+      assignedRdUserId: fixture.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Houston',
+          state: 'TX',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+
+  const workspace = await getTerritoryMapWorkspace(actor);
+
+  assert.ok(workspace.coverageEntries.some((entry) => entry.territoryId === fixture.territory.id && entry.stateCode === 'TX'));
+  assert.ok(workspace.leadPins.some((pin) => pin.recordId === coveredLead.id && pin.territoryId === fixture.territory.id));
+  assert.ok(workspace.leadPins.some((pin) => pin.recordId === uncoveredLead.id && !pin.territoryId));
+
+  const accountPin = workspace.accountPins.find((pin) => pin.recordId === account.id);
+  assert.ok(accountPin);
+  assert.equal(accountPin.city, 'Houston');
+  assert.equal(accountPin.state, 'TX');
+  assert.equal(accountPin.geoPrecision, 'city_state');
+
+  const shippingCenter = workspace.shippingCenters.find((center) => center.id === fixture.shippingCenter.id);
+  assert.ok(shippingCenter);
+  assert.equal(shippingCenter.servicedTerritoryCount, 1);
+  assert.ok(shippingCenter.activeLeadCount >= 1);
+  assert.ok(shippingCenter.activeAccountCount >= 1);
 });
 
 test('named owner overrides reject inactive users and wrong roles', SERIAL, async () => {

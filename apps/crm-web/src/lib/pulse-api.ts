@@ -95,6 +95,7 @@ import type {
   ListTerritoryAssignableUsersResponse,
   ListTerritoriesResponse,
   ListTerritoryAssignmentHistoryResponse,
+  TerritoryMapWorkspaceResponse,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
   TokenPair,
@@ -355,6 +356,13 @@ export async function fetchTerritoryAssignmentHistory(
       accessToken,
     },
   );
+}
+
+export async function fetchTerritoryMapWorkspace(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TerritoryMapWorkspaceResponse>(apiBaseUrl, '/api/v1/territories/map', {
+    method: 'GET',
+    accessToken,
+  });
 }
 
 export async function reassignLeadTerritory(

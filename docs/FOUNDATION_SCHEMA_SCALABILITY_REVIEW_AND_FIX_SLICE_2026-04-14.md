@@ -111,3 +111,18 @@ These are the most likely high-value additions:
 3. JSON usage stays allowed, but only with guardrails and targeted indexing.
 4. UUIDv7 is worth evaluating, but not as an unplanned blanket flip.
 5. Lead vertical partitioning is not approved yet; it stays a measured later option.
+
+## Implemented In The First Fix Slice
+
+The first low-risk implementation pass is now complete.
+
+What was actually shipped:
+
+- composite indexes for active lead, audit, onboarding, website-submission, and training session query paths
+- shared JSON payload-size guardrails at the service boundary
+
+What was intentionally deferred:
+
+- JSON GIN indexes, because the current codebase is not yet querying inside JSON enough to justify them
+- audit/event partitioning, because it deserves a deliberate operational/retention plan rather than being slipped in casually
+- UUIDv7 adoption and lead vertical partitioning, because both are broader foundation moves that should be handled as explicit later slices

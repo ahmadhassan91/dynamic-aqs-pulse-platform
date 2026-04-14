@@ -35,6 +35,7 @@ import type {
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 
 const CIS_PACKAGE_ENTITY_TYPE = 'CIS_PACKAGE';
@@ -1532,7 +1533,10 @@ function looksLikeEmail(value: string) {
 }
 
 function toJsonValue(value: Record<string, unknown>) {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  return toBoundedJsonValue(value, {
+    field: 'cis.metadata',
+    maxBytes: JSON_SIZE_LIMITS.cisMetadataBytes,
+  });
 }
 
 function setNullable<T>(value: T | undefined) {

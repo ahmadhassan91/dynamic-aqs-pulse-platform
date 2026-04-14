@@ -113,6 +113,22 @@ test('public website capture rejects lead types outside the configured form mode
   );
 });
 
+test('public website capture rejects oversized submission payloads before storing JSON blobs', SERIAL, async () => {
+  await assert.rejects(
+    () =>
+      captureWebsiteLead({
+        siteId: 'solace-air',
+        leadType: 'homeowner',
+        fullName: 'Payload Guard',
+        email: 'payload.guard@example.com',
+        phone: '555-111-9999',
+        state: 'TX',
+        message: 'x'.repeat(40_000),
+      }),
+    /websiteLeadSubmission\.payload exceeds max payload size/i,
+  );
+});
+
 test('duplicate website submissions attach to the existing lead instead of creating a second one', SERIAL, async () => {
   const firstLead = await captureWebsiteLead({
     siteId: 'solace-air',

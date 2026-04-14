@@ -1,4 +1,5 @@
 import { AuditAction, Prisma } from '@pulse/db';
+import { JSON_SIZE_LIMITS, toBoundedJsonValue } from './json.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -38,18 +39,23 @@ export function buildAuditEntryData(input: {
     data.correlationId = input.correlationId;
   }
   if (input.beforeData !== undefined) {
-    data.beforeData = toJsonValue(input.beforeData);
+    data.beforeData = toBoundedJsonValue(input.beforeData, {
+      field: 'beforeData',
+      maxBytes: JSON_SIZE_LIMITS.auditSnapshotBytes,
+    });
   }
   if (input.afterData !== undefined) {
-    data.afterData = toJsonValue(input.afterData);
+    data.afterData = toBoundedJsonValue(input.afterData, {
+      field: 'afterData',
+      maxBytes: JSON_SIZE_LIMITS.auditSnapshotBytes,
+    });
   }
   if (input.metadata !== undefined) {
-    data.metadata = toJsonValue(input.metadata);
+    data.metadata = toBoundedJsonValue(input.metadata, {
+      field: 'metadata',
+      maxBytes: JSON_SIZE_LIMITS.auditMetadataBytes,
+    });
   }
 
   return data;
-}
-
-function toJsonValue(value: JsonRecord): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }

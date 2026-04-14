@@ -704,6 +704,7 @@ model AuditEntry {
 
   @@index([actorUserId])
   @@index([entityType, entityId])
+  @@index([entityType, createdAt])
   @@index([action])
   @@index([requestId])
   @@index([correlationId])
@@ -1035,6 +1036,10 @@ model Lead {
   @@index([state])
   @@index([createdAt])
   @@index([initialContactDueAt])
+  @@index([territoryId, lifecycleStatus, createdAt])
+  @@index([assignedTmUserId, lifecycleStatus, createdAt])
+  @@index([leadCaptureMethod, lifecycleStatus, createdAt])
+  @@index([lifecycleStatus, stage, updatedAt, createdAt])
 }
 
 model WebsiteLeadSubmission {
@@ -1077,6 +1082,7 @@ model WebsiteLeadSubmission {
   @@index([reviewStatus])
   @@index([reviewedByUserId])
   @@index([email])
+  @@index([websiteLeadSiteId, reviewStatus, createdAt])
 }
 
 model LeadExtension {
@@ -1205,6 +1211,7 @@ model OnboardingChecklistItem {
   @@index([ownerRoleCode])
   @@index([ownerUserId])
   @@index([completedByUserId])
+  @@index([ownerUserId, status, dueAt])
 }
 
 model CisPackage {
@@ -1778,6 +1785,7 @@ model TrainingSession {
   @@index([status])
   @@index([scheduledAt])
   @@index([completedAt])
+  @@index([accountId, status, scheduledAt])
 }
 
 model TrainingFollowUpTask {

@@ -17,6 +17,7 @@ import type {
   StageMigrationRecordsRequest,
 } from './types.js';
 import { normalizeSnapshot } from './normalization.js';
+import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 
 export async function createMigrationRun(input: CreateMigrationRunRequest) {
   const sourceSystem = parseEnumValue(DataSourceSystem, input.sourceSystem, 'sourceSystem');
@@ -36,7 +37,10 @@ export async function createMigrationRun(input: CreateMigrationRunRequest) {
     data.notes = notes;
   }
   if (input.entityScope) {
-    data.entityScope = toJsonValue(input.entityScope, 'entityScope');
+    data.entityScope = toBoundedJsonValue(input.entityScope, {
+      field: 'entityScope',
+      maxBytes: JSON_SIZE_LIMITS.migrationRunScopeBytes,
+    });
   }
 
   return prisma.migrationRun.create({
@@ -227,7 +231,10 @@ export async function normalizeMigrationSnapshots(runId: string, input: Normaliz
         },
         data: {
           targetEntityType: normalized.targetEntityType,
-          normalizedPayload: toJsonValue(normalized.normalizedPayload, 'normalizedPayload'),
+          normalizedPayload: toBoundedJsonValue(normalized.normalizedPayload, {
+            field: 'normalizedPayload',
+            maxBytes: JSON_SIZE_LIMITS.migrationSnapshotNormalizedPayloadBytes,
+          }),
           normalizedAt: new Date(),
           status: SnapshotStatus.NORMALIZED,
           metadata: mergeSnapshotMetadata(snapshot.metadata, {
@@ -349,11 +356,17 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
   const payloadChecksum = optionalTrimmed(snapshot.payloadChecksum);
   const metadata = snapshot.metadata === undefined
     ? undefined
-    : toJsonValue(snapshot.metadata, 'snapshots[].metadata');
+    : toBoundedJsonValue(snapshot.metadata, {
+        field: 'snapshots[].metadata',
+        maxBytes: JSON_SIZE_LIMITS.migrationSnapshotMetadataBytes,
+      });
 
   const updateData: Prisma.SourceRecordSnapshotUncheckedUpdateInput = {
     migrationRunId: runId,
-    rawPayload: toJsonValue(snapshot.rawPayload, 'snapshots[].rawPayload'),
+    rawPayload: toBoundedJsonValue(snapshot.rawPayload, {
+      field: 'snapshots[].rawPayload',
+      maxBytes: JSON_SIZE_LIMITS.migrationSnapshotRawPayloadBytes,
+    }),
     updatedAt: new Date(),
   };
 
@@ -378,7 +391,10 @@ function upsertSourceSnapshot(runId: string, defaultSourceSystem: DataSourceSyst
     sourceSystem,
     entityType,
     externalId: snapshot.externalId,
-    rawPayload: toJsonValue(snapshot.rawPayload, 'snapshots[].rawPayload'),
+    rawPayload: toBoundedJsonValue(snapshot.rawPayload, {
+      field: 'snapshots[].rawPayload',
+      maxBytes: JSON_SIZE_LIMITS.migrationSnapshotRawPayloadBytes,
+    }),
     status: SnapshotStatus.CAPTURED,
   };
 
@@ -480,28 +496,19 @@ function optionalTrimmed(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
-function toJsonValue(value: unknown, field: string): Prisma.InputJsonValue {
-  try {
-    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-  } catch (error) {
-    throw new Error(
-      error instanceof Error
-        ? `Invalid ${field}: ${error.message}`
-        : `Invalid ${field}`,
-    );
-  }
-}
-
 function mergeSnapshotMetadata(currentMetadata: Prisma.JsonValue | null, patch: Record<string, unknown>) {
   const current = currentMetadata && typeof currentMetadata === 'object' && !Array.isArray(currentMetadata)
     ? currentMetadata as Record<string, unknown>
     : {};
 
-  return toJsonValue(
+  return toBoundedJsonValue(
     {
       ...current,
       ...patch,
     },
-    'metadata',
+    {
+      field: 'metadata',
+      maxBytes: JSON_SIZE_LIMITS.migrationSnapshotMetadataBytes,
+    },
   );
 }

@@ -82,6 +82,7 @@ import type {
 import { findLeadRegionOption } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
 import {
   syncLeadTerritoryAssignment,
@@ -1919,7 +1920,10 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
         ...(referralSource ? { referralSource } : {}),
         ...(referralDetail ? { referralDetail } : {}),
         ...(message ? { message } : {}),
-        payload: input as unknown as Prisma.InputJsonValue,
+        payload: toBoundedJsonValue(input, {
+          field: 'websiteLeadSubmission.payload',
+          maxBytes: JSON_SIZE_LIMITS.websiteLeadSubmissionPayloadBytes,
+        }),
       },
     });
 

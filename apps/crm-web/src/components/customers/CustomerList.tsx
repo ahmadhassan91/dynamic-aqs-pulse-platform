@@ -77,10 +77,10 @@ export function CustomerList() {
           <Stack gap={4}>
             <Title order={1}>Account Management</Title>
             <Text size="sm" c="dimmed">
-              Review converted customers, territory ownership, source lead lineage, and the mapped account/contact foundation.
+              Manage converted customers, territory ownership, source lead lineage, contacts, and locations from the live Pulse customer core.
             </Text>
           </Stack>
-          <Badge color="blue" variant="light">Read-Only Kernel</Badge>
+          <Badge color="green" variant="light">Live Customer Core</Badge>
         </Group>
       </Paper>
 

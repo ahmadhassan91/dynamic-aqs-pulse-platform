@@ -18,6 +18,9 @@ import type {
   AuthIdentity,
   AuthSession,
   AccountDetail,
+  AccountSummary,
+  AccountLocationSummary,
+  ContactSummary,
   DealerPortalAccountDetail,
   DealerPortalDashboardResponse,
   ProvisionDealerPortalUserRequest,
@@ -28,6 +31,11 @@ import type {
   UpdateDealerPortalUserStatusResponse,
   ListAccountsRequest,
   ListAccountsResponse,
+  CreateAccountLocationRequest,
+  CreateContactRequest,
+  UpdateAccountLocationRequest,
+  UpdateAccountRequest,
+  UpdateContactRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
   CisLinkIssueResponse,
@@ -459,6 +467,73 @@ export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string
   return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function updateAccountRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: UpdateAccountRequest,
+) {
+  return requestJson<AccountDetail | AccountSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createAccountContactRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: CreateContactRequest,
+) {
+  return requestJson<ContactSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/contacts`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAccountContactRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  contactId: string,
+  input: UpdateContactRequest,
+) {
+  return requestJson<ContactSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/contacts/${contactId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createAccountLocationRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: CreateAccountLocationRequest,
+) {
+  return requestJson<AccountLocationSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/locations`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAccountLocationRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  locationId: string,
+  input: UpdateAccountLocationRequest,
+) {
+  return requestJson<AccountLocationSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/locations/${locationId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
   });
 }
 

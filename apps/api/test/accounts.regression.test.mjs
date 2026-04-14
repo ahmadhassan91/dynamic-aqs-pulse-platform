@@ -15,6 +15,12 @@ let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
 let createLead;
+let createAccount;
+let updateAccount;
+let createAccountContact;
+let updateAccountContact;
+let createAccountLocation;
+let updateAccountLocation;
 let listAccounts;
 let getAccountDetail;
 
@@ -27,7 +33,16 @@ test.before(async () => {
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
-  ({ listAccounts, getAccountDetail } = await import('../dist/modules/accounts/service.js'));
+  ({
+    createAccount,
+    updateAccount,
+    createAccountContact,
+    updateAccountContact,
+    createAccountLocation,
+    updateAccountLocation,
+    listAccounts,
+    getAccountDetail,
+  } = await import('../dist/modules/accounts/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -159,4 +174,156 @@ test('accounts list and detail expose converted lead territory assignment contex
   assert.equal(detail.assignedRdName, actor.displayName);
   assert.equal(detail.contacts.length, 1);
   assert.equal(detail.locations.length, 1);
+});
+
+test('direct customer creation is reserved for super admin or migration workflows', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  await assert.rejects(
+    createAccount(
+      {
+        ...actor,
+        role: 'SALES_BD_REP',
+      },
+      {
+        displayName: 'Should Not Create',
+      },
+    ),
+    /reserved for bootstrap or migration workflows/i,
+  );
+
+  const created = await createAccount(actor, {
+    displayName: 'Migration Seed Account',
+    legalName: 'Migration Seed Account LLC',
+    accountType: 'Dealer',
+  });
+
+  assert.equal(created.displayName, 'Migration Seed Account');
+});
+
+test('account contact maintenance supports primary reassignment and soft deactivation', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Contact Maintenance Account',
+      legalName: 'Contact Maintenance Account LLC',
+    },
+  });
+
+  const primary = await createAccountContact(actor, account.id, {
+    firstName: 'Avery',
+    lastName: 'Primary',
+    email: 'avery@example.com',
+    roleCode: 'Primary',
+    isPrimary: true,
+  });
+
+  const secondary = await createAccountContact(actor, account.id, {
+    firstName: 'Jordan',
+    lastName: 'Backup',
+    email: 'jordan@example.com',
+    roleCode: 'Ordering',
+  });
+
+  await updateAccountContact(actor, account.id, secondary.id, {
+    isPrimary: true,
+    roleCode: 'Owner/GM',
+  });
+
+  let detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  const updatedPrimary = detail.contacts.find((contact) => contact.id === secondary.id);
+  const demotedPrimary = detail.contacts.find((contact) => contact.id === primary.id);
+  assert.equal(updatedPrimary?.isPrimary, true);
+  assert.equal(updatedPrimary?.roleCode, 'Owner/GM');
+  assert.equal(demotedPrimary?.isPrimary, false);
+
+  await updateAccountContact(actor, account.id, secondary.id, {
+    isActive: false,
+  });
+
+  detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  const reactivatedPrimary = detail.contacts.find((contact) => contact.id === primary.id);
+  const inactiveContact = detail.contacts.find((contact) => contact.id === secondary.id);
+  assert.equal(reactivatedPrimary?.isPrimary, true);
+  assert.equal(inactiveContact?.isActive, false);
+});
+
+test('account location maintenance supports primary switching and deactivation fallback', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Location Maintenance Account',
+      legalName: 'Location Maintenance Account LLC',
+    },
+  });
+
+  const primary = await createAccountLocation(actor, account.id, {
+    name: 'Dallas',
+    line1: '100 Main Street',
+    city: 'Dallas',
+    state: 'TX',
+    isPrimary: true,
+  });
+
+  const secondary = await createAccountLocation(actor, account.id, {
+    name: 'Fort Worth',
+    line1: '200 Commerce Street',
+    city: 'Fort Worth',
+    state: 'TX',
+  });
+
+  await updateAccountLocation(actor, account.id, secondary.id, {
+    isPrimary: true,
+    postalCode: '76102',
+  });
+
+  let detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  const nextPrimary = detail.locations.find((location) => location.id === secondary.id);
+  const oldPrimary = detail.locations.find((location) => location.id === primary.id);
+  assert.equal(nextPrimary?.isPrimary, true);
+  assert.equal(nextPrimary?.postalCode, '76102');
+  assert.equal(oldPrimary?.isPrimary, false);
+
+  await updateAccountLocation(actor, account.id, secondary.id, {
+    isActive: false,
+  });
+
+  detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  const fallbackPrimary = detail.locations.find((location) => location.id === primary.id);
+  const inactiveLocation = detail.locations.find((location) => location.id === secondary.id);
+  assert.equal(fallbackPrimary?.isPrimary, true);
+  assert.equal(inactiveLocation?.isActive, false);
+});
+
+test('account summary updates are editable through the governed maintenance path', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Editable Account',
+      legalName: 'Editable Account LLC',
+      accountType: 'Dealer',
+      isActive: true,
+    },
+  });
+
+  const updated = await updateAccount(actor, account.id, {
+    displayName: 'Editable Account Updated',
+    legalName: null,
+    accountType: 'Distributor',
+    isActive: false,
+  });
+
+  assert.equal(updated.displayName, 'Editable Account Updated');
+  assert.equal(updated.accountType, 'Distributor');
+  assert.equal(updated.isActive, false);
+
+  const detail = await getAccountDetail(actor, account.id);
+  assert.equal(detail?.legalName, undefined);
 });

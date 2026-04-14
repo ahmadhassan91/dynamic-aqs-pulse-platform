@@ -6,6 +6,9 @@ import type {
   CreateAccountLocationRequest,
   CreateContactRequest,
   ListAccountsRequest,
+  UpdateAccountLocationRequest,
+  UpdateAccountRequest,
+  UpdateContactRequest,
 } from '@pulse/contracts/accounts';
 import {
   badRequestResponse,
@@ -25,6 +28,9 @@ import {
   listAccountLocations,
   listAccountContacts,
   listAccounts,
+  updateAccount,
+  updateAccountContact,
+  updateAccountLocation,
 } from './service.js';
 
 export async function handleAccountRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
@@ -34,7 +40,9 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
     pathname === '/api/v1/accounts'
     || /^\/api\/v1\/accounts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/locations$/.test(pathname)
-    || /^\/api\/v1\/accounts\/[^/]+\/contacts$/.test(pathname);
+    || /^\/api\/v1\/accounts\/[^/]+\/locations\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/contacts$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/contacts\/[^/]+$/.test(pathname);
 
   if (!isAccountRoute) {
     return false;
@@ -86,20 +94,30 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         return false;
       }
 
-      if (method !== 'GET') {
-        return methodNotAllowedResponse(res, method, ['GET']);
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.view',
+        });
+        const response = await getAccountDetail(actor, accountId);
+        if (!response) {
+          return notFoundResponse(res, { entity: 'Account', id: accountId });
+        }
+
+        return jsonResponse(res, 200, response);
       }
 
-      const actor = await requireAuthenticatedActor(req, {
-        module: 'customers',
-        action: 'customer.view',
-      });
-      const response = await getAccountDetail(actor, accountId);
-      if (!response) {
-        return notFoundResponse(res, { entity: 'Account', id: accountId });
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.edit',
+        });
+        const body = (await readJsonBody(req)) as UpdateAccountRequest;
+        const response = await updateAccount(actor, accountId, body);
+        return jsonResponse(res, 200, response);
       }
 
-      return jsonResponse(res, 200, response);
+      return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
     }
 
     const contactsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/contacts$/);
@@ -135,6 +153,27 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
     }
 
+    const contactDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/contacts\/([^/]+)$/);
+    if (contactDetailMatch) {
+      const accountId = contactDetailMatch[1];
+      const contactId = contactDetailMatch[2];
+      if (!accountId || !contactId) {
+        return false;
+      }
+
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.edit',
+        });
+        const body = (await readJsonBody(req)) as UpdateContactRequest;
+        const response = await updateAccountContact(actor, accountId, contactId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['PATCH']);
+    }
+
     const locationsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/locations$/);
     if (locationsMatch) {
       const accountId = locationsMatch[1];
@@ -166,6 +205,27 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
       }
 
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const locationDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/locations\/([^/]+)$/);
+    if (locationDetailMatch) {
+      const accountId = locationDetailMatch[1];
+      const locationId = locationDetailMatch[2];
+      if (!accountId || !locationId) {
+        return false;
+      }
+
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.edit',
+        });
+        const body = (await readJsonBody(req)) as UpdateAccountLocationRequest;
+        const response = await updateAccountLocation(actor, accountId, locationId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['PATCH']);
     }
   } catch (error) {
     if (error instanceof AuthenticationError) {

@@ -1,20 +1,97 @@
 'use client';
 
 import Link from 'next/link';
-import { Badge, Button, Card, Grid, Group, List, Stack, Text, Title } from '@mantine/core';
+import { useMemo, useState } from 'react';
+import {
+  Badge,
+  Button,
+  Card,
+  Grid,
+  Group,
+  List,
+  Modal,
+  Select,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import type { AccountDetail } from '@pulse/contracts';
+import { updateAccountRecord } from '@/lib/pulse-api';
+import { usePulseSession } from '@/lib/pulse-session';
 
-export function CustomerOverview({ account }: { account: AccountDetail }) {
-  const activeLocations = account.locations.filter((location) => location.isActive);
+export function CustomerOverview(
+  { account, onUpdated, canEdit }: { account: AccountDetail; onUpdated: () => Promise<void> | void; canEdit: boolean },
+) {
+  const { auth, apiBaseUrl } = usePulseSession();
+  const [editOpened, setEditOpened] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [displayName, setDisplayName] = useState(account.displayName);
+  const [legalName, setLegalName] = useState(account.legalName ?? '');
+  const [accountType, setAccountType] = useState(account.accountType ?? '');
+  const [isActive, setIsActive] = useState(account.isActive);
+
+  const activeLocations = useMemo(
+    () => account.locations.filter((location) => location.isActive),
+    [account.locations],
+  );
   const primaryLocation = activeLocations.find((location) => location.isPrimary) ?? activeLocations[0];
+
+  async function handleSave() {
+    if (!auth) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await updateAccountRecord(apiBaseUrl, auth.tokens.accessToken, account.id, {
+        displayName,
+        legalName: legalName.trim() || null,
+        accountType: accountType.trim() || null,
+        isActive,
+      });
+      await onUpdated();
+      setEditOpened(false);
+      notifications.show({
+        title: 'Account updated',
+        message: `${displayName} has been updated in Pulse.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Account update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function openEdit() {
+    setDisplayName(account.displayName);
+    setLegalName(account.legalName ?? '');
+    setAccountType(account.accountType ?? '');
+    setIsActive(account.isActive);
+    setEditOpened(true);
+  }
 
   return (
     <Stack gap="lg">
       <Grid>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Card withBorder radius="md" p="lg">
-            <Stack gap="xs">
+            <Group justify="space-between" mb="md">
               <Title order={4}>Account Snapshot</Title>
+              {canEdit ? (
+                <Button size="xs" variant="light" onClick={openEdit}>
+                  Edit Account
+                </Button>
+              ) : null}
+            </Group>
+            <Stack gap="xs">
               <MetadataRow label="Display Name" value={account.displayName} />
               <MetadataRow label="Legal Name" value={account.legalName ?? 'Not provided'} />
               <MetadataRow label="Account Type" value={account.accountType ?? 'Not classified'} />
@@ -56,31 +133,48 @@ export function CustomerOverview({ account }: { account: AccountDetail }) {
         <List spacing="xs" size="sm">
           <List.Item>Customer activation now lives in Pulse from lead conversion through first-order confirmation.</List.Item>
           <List.Item>Account territory was carried from the lead routing decision so downstream views stay aligned.</List.Item>
-          <List.Item>Further ERP-driven order, pricing, and financial detail will layer here after the Acumatica boundary is wired.</List.Item>
+          <List.Item>Operational account fields can now be maintained here while ERP-backed financial detail stays read-only until the Acumatica boundary is wired.</List.Item>
         </List>
       </Card>
 
-      <Card withBorder radius="md" p="lg">
-        <Title order={4} mb="md">Locations</Title>
-        <Stack gap="sm">
-          {account.locations.length === 0 ? (
-            <Text size="sm" c="dimmed">No account locations have been created yet.</Text>
-          ) : account.locations.map((location) => (
-            <Card key={location.id} withBorder radius="md" p="md">
-              <Group justify="space-between" mb="xs">
-                <Text fw={600}>{location.name ?? location.locationCode ?? 'Location'}</Text>
-                <Group gap="xs">
-                  {location.isPrimary ? <Badge color="blue" variant="light">Primary</Badge> : null}
-                  <Badge color={location.isActive ? 'green' : 'gray'} variant="outline">
-                    {location.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </Group>
-              </Group>
-              <Text size="sm" c="dimmed">{formatLocation(location)}</Text>
-            </Card>
-          ))}
+      <Modal opened={editOpened} onClose={() => setEditOpened(false)} title="Edit Account" size="lg" centered>
+        <Stack gap="md">
+          <TextInput
+            label="Display Name"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.currentTarget.value)}
+            required
+          />
+          <TextInput
+            label="Legal Name"
+            value={legalName}
+            onChange={(event) => setLegalName(event.currentTarget.value)}
+          />
+          <Select
+            label="Account Type"
+            value={accountType}
+            onChange={(value) => setAccountType(value ?? '')}
+            data={[
+              { value: 'Dealer', label: 'Dealer' },
+              { value: 'Distributor', label: 'Distributor' },
+              { value: 'Contractor', label: 'Contractor' },
+              { value: 'Independent', label: 'Independent' },
+            ]}
+            clearable
+          />
+          <Switch
+            checked={isActive}
+            onChange={(event) => setIsActive(event.currentTarget.checked)}
+            label="Account is active"
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setEditOpened(false)}>Cancel</Button>
+            <Button onClick={() => void handleSave()} loading={isSaving} disabled={!displayName.trim()}>
+              Save Account
+            </Button>
+          </Group>
         </Stack>
-      </Card>
+      </Modal>
     </Stack>
   );
 }

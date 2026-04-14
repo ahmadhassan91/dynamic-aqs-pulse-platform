@@ -10,6 +10,9 @@ import type {
   CreateContactRequest,
   ListAccountsRequest,
   ListAccountsResponse,
+  UpdateAccountLocationRequest,
+  UpdateAccountRequest,
+  UpdateContactRequest,
 } from '@pulse/contracts/accounts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -86,6 +89,10 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.create');
 
+  if (actor.role !== 'SUPER_ADMIN') {
+    throw new Error('Direct customer creation is reserved for bootstrap or migration workflows. Convert from lead on first order instead.');
+  }
+
   const displayName = input.displayName?.trim();
   if (!displayName) {
     throw new Error('displayName is required');
@@ -134,6 +141,138 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
   });
 
   return toAccountSummary(account);
+}
+
+export async function updateAccount(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: UpdateAccountRequest,
+): Promise<AccountSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.edit');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: {
+      territory: {
+        include: {
+          region: true,
+        },
+      },
+      shippingCenter: true,
+      assignedTmUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      assignedRdUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      _count: {
+        select: {
+          contacts: true,
+          locations: true,
+        },
+      },
+    },
+  });
+
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+
+  const data: Prisma.AccountUpdateInput = {};
+
+  if (input.displayName !== undefined) {
+    const displayName = input.displayName.trim();
+    if (!displayName) {
+      throw new Error('displayName cannot be empty');
+    }
+    data.displayName = displayName;
+  }
+
+  if (input.legalName !== undefined) {
+    data.legalName = normalizeNullableText(input.legalName);
+  }
+
+  if (input.accountType !== undefined) {
+    data.accountType = normalizeNullableText(input.accountType);
+  }
+
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return toAccountSummary(account);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.account.update({
+      where: { id: accountId },
+      data,
+      include: {
+        territory: {
+          include: {
+            region: true,
+          },
+        },
+        shippingCenter: true,
+        assignedTmUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        assignedRdUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        _count: {
+          select: {
+            contacts: true,
+            locations: true,
+          },
+        },
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: ACCOUNT_ENTITY_TYPE,
+        entityId: next.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+        },
+        beforeData: {
+          displayName: account.displayName,
+          legalName: account.legalName,
+          accountType: account.accountType,
+          isActive: account.isActive,
+        },
+        afterData: {
+          displayName: next.displayName,
+          legalName: next.legalName,
+          accountType: next.accountType,
+          isActive: next.isActive,
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toAccountSummary(updated);
 }
 
 export async function getAccountDetail(actor: AuthenticatedActor, accountId: string): Promise<AccountDetail | null> {
@@ -342,6 +481,123 @@ export async function createAccountLocation(
   return toAccountLocationSummary(location);
 }
 
+export async function updateAccountLocation(
+  actor: AuthenticatedActor,
+  accountId: string,
+  locationId: string,
+  input: UpdateAccountLocationRequest,
+): Promise<AccountLocationSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.edit');
+
+  const location = await prisma.accountLocation.findFirst({
+    where: {
+      id: locationId,
+      accountId,
+    },
+  });
+  if (!location) {
+    throw new Error(`Location not found: ${locationId}`);
+  }
+
+  const data: Prisma.AccountLocationUpdateInput = {};
+
+  if (input.locationCode !== undefined) {
+    data.locationCode = normalizeNullableText(input.locationCode);
+  }
+  if (input.name !== undefined) {
+    data.name = normalizeNullableText(input.name);
+  }
+  if (input.line1 !== undefined) {
+    data.line1 = normalizeNullableText(input.line1);
+  }
+  if (input.line2 !== undefined) {
+    data.line2 = normalizeNullableText(input.line2);
+  }
+  if (input.city !== undefined) {
+    data.city = normalizeNullableText(input.city);
+  }
+  if (input.state !== undefined) {
+    data.state = normalizeNullableText(input.state);
+  }
+  if (input.postalCode !== undefined) {
+    data.postalCode = normalizeNullableText(input.postalCode);
+  }
+  if (input.countryCode !== undefined) {
+    const countryCode = normalizeNullableText(input.countryCode)?.toUpperCase();
+    data.countryCode = countryCode ?? null;
+  }
+  if (input.isPrimary !== undefined) {
+    data.isPrimary = input.isPrimary;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return toAccountLocationSummary(location);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const shouldBecomePrimary = input.isPrimary === true;
+    if (shouldBecomePrimary) {
+      await tx.accountLocation.updateMany({
+        where: {
+          accountId,
+          isPrimary: true,
+          NOT: { id: locationId },
+        },
+        data: {
+          isPrimary: false,
+        },
+      });
+    }
+
+    const next = await tx.accountLocation.update({
+      where: { id: locationId },
+      data,
+    });
+
+    if ((location.isPrimary && next.isActive === false) || (location.isPrimary && input.isPrimary === false)) {
+      await ensurePrimaryActiveLocation(tx, accountId, locationId);
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: LOCATION_ENTITY_TYPE,
+        entityId: next.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+        },
+        beforeData: {
+          name: location.name,
+          locationCode: location.locationCode,
+          city: location.city,
+          state: location.state,
+          isPrimary: location.isPrimary,
+          isActive: location.isActive,
+        },
+        afterData: {
+          name: next.name,
+          locationCode: next.locationCode,
+          city: next.city,
+          state: next.state,
+          isPrimary: next.isPrimary,
+          isActive: next.isActive,
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toAccountLocationSummary(updated);
+}
+
 export async function createAccountContact(
   actor: AuthenticatedActor,
   accountId: string,
@@ -358,7 +614,14 @@ export async function createAccountContact(
 
   const account = await prisma.account.findUnique({
     where: { id: accountId },
-    select: { id: true },
+    select: {
+      id: true,
+      _count: {
+        select: {
+          contacts: true,
+        },
+      },
+    },
   });
   if (!account) {
     throw new Error(`Account not found: ${accountId}`);
@@ -378,7 +641,7 @@ export async function createAccountContact(
     }
   }
 
-  const isPrimary = input.isPrimary ?? false;
+  const isPrimary = input.isPrimary ?? account._count.contacts === 0;
   const isActive = input.isActive ?? true;
   const title = optionalTrimmed(input.title);
   const email = optionalTrimmed(input.email)?.toLowerCase();
@@ -440,6 +703,143 @@ export async function createAccountContact(
   });
 
   return toContactSummary(contact);
+}
+
+export async function updateAccountContact(
+  actor: AuthenticatedActor,
+  accountId: string,
+  contactId: string,
+  input: UpdateContactRequest,
+): Promise<ContactSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.edit');
+
+  const contact = await prisma.contact.findFirst({
+    where: {
+      id: contactId,
+      accountId,
+    },
+  });
+  if (!contact) {
+    throw new Error(`Contact not found: ${contactId}`);
+  }
+
+  if (input.locationId !== undefined && input.locationId !== null) {
+    const location = await prisma.accountLocation.findFirst({
+      where: {
+        id: input.locationId,
+        accountId,
+      },
+      select: { id: true },
+    });
+    if (!location) {
+      throw new Error('locationId does not belong to this account');
+    }
+  }
+
+  const data: Prisma.ContactUpdateInput = {};
+
+  if (input.firstName !== undefined) {
+    const firstName = input.firstName.trim();
+    if (!firstName) {
+      throw new Error('firstName cannot be empty');
+    }
+    data.firstName = firstName;
+  }
+  if (input.lastName !== undefined) {
+    const lastName = input.lastName.trim();
+    if (!lastName) {
+      throw new Error('lastName cannot be empty');
+    }
+    data.lastName = lastName;
+  }
+  if (input.title !== undefined) {
+    data.title = normalizeNullableText(input.title);
+  }
+  if (input.email !== undefined) {
+    const email = normalizeNullableText(input.email)?.toLowerCase();
+    data.email = email ?? null;
+  }
+  if (input.phone !== undefined) {
+    data.phone = normalizeNullableText(input.phone);
+  }
+  if (input.mobilePhone !== undefined) {
+    data.mobilePhone = normalizeNullableText(input.mobilePhone);
+  }
+  if (input.roleCode !== undefined) {
+    data.roleCode = normalizeNullableText(input.roleCode);
+  }
+  if (input.locationId !== undefined) {
+    data.location = input.locationId ? { connect: { id: input.locationId } } : { disconnect: true };
+  }
+  if (input.isPrimary !== undefined) {
+    data.isPrimary = input.isPrimary;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return toContactSummary(contact);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (input.isPrimary === true) {
+      await tx.contact.updateMany({
+        where: {
+          accountId,
+          isPrimary: true,
+          NOT: { id: contactId },
+        },
+        data: {
+          isPrimary: false,
+        },
+      });
+    }
+
+    const next = await tx.contact.update({
+      where: { id: contactId },
+      data,
+    });
+
+    if ((contact.isPrimary && next.isActive === false) || (contact.isPrimary && input.isPrimary === false)) {
+      await ensurePrimaryActiveContact(tx, accountId, contactId);
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: CONTACT_ENTITY_TYPE,
+        entityId: next.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+        },
+        beforeData: {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          roleCode: contact.roleCode,
+          isPrimary: contact.isPrimary,
+          isActive: contact.isActive,
+        },
+        afterData: {
+          firstName: next.firstName,
+          lastName: next.lastName,
+          email: next.email,
+          roleCode: next.roleCode,
+          isPrimary: next.isPrimary,
+          isActive: next.isActive,
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toContactSummary(updated);
 }
 
 function toAccountSummary(account: {
@@ -654,4 +1054,71 @@ function normalizeLimit(limit: number | undefined) {
 function optionalTrimmed(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeNullableText(value: string | null | undefined) {
+  if (value === null) {
+    return null;
+  }
+
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function ensurePrimaryActiveLocation(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  excludedLocationId: string,
+) {
+  const fallback = await tx.accountLocation.findFirst({
+    where: {
+      accountId,
+      isActive: true,
+      NOT: { id: excludedLocationId },
+    },
+    orderBy: [
+      { createdAt: 'asc' },
+    ],
+    select: { id: true },
+  });
+
+  if (!fallback) {
+    return;
+  }
+
+  await tx.accountLocation.update({
+    where: { id: fallback.id },
+    data: {
+      isPrimary: true,
+    },
+  });
+}
+
+async function ensurePrimaryActiveContact(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  excludedContactId: string,
+) {
+  const fallback = await tx.contact.findFirst({
+    where: {
+      accountId,
+      isActive: true,
+      NOT: { id: excludedContactId },
+    },
+    orderBy: [
+      { createdAt: 'asc' },
+    ],
+    select: { id: true },
+  });
+
+  if (!fallback) {
+    return;
+  }
+
+  await tx.contact.update({
+    where: { id: fallback.id },
+    data: {
+      isPrimary: true,
+    },
+  });
 }

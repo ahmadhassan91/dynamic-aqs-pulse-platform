@@ -13,6 +13,7 @@ Purpose:
 Module maps:
 - [Users, Roles, Permissions](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/USERS_ROLES_PERMISSIONS_REQUIREMENTS_MAP_2026-04-15.md)
 - [Leads](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/LEADS_REQUIREMENTS_MAP_2026-04-15.md)
+- [Accounts / Contacts](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/ACCOUNTS_CONTACTS_REQUIREMENTS_MAP_2026-04-15.md)
 - [Territory](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/TERRITORY_REQUIREMENTS_MAP_2026-04-15.md)
 - [Training](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/TRAINING_REQUIREMENTS_MAP_2026-04-15.md)
 
@@ -29,10 +30,10 @@ Current summary:
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Users / Roles / Permissions | 5 | 4 | 1 | 1 | 1 |
 | Leads | 8 | 5 | 1 | 1 | 0 |
+| Accounts / Contacts | 6 | 8 | 2 | 0 | 0 |
 | Territory | 6 | 5 | 0 | 1 | 0 |
 | Training | 7 | 4 | 0 | 0 | 1 |
 
 Use this folder together with:
 - `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/traceability`
 - `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/DELIVERY_PROGRESS_TRACKER.md`
-

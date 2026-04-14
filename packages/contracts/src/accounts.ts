@@ -83,6 +83,13 @@ export interface CreateAccountRequest {
   isActive?: boolean;
 }
 
+export interface UpdateAccountRequest {
+  displayName?: string;
+  legalName?: string | null;
+  accountType?: string | null;
+  isActive?: boolean;
+}
+
 export interface CreateContactRequest {
   firstName: string;
   lastName: string;
@@ -96,6 +103,19 @@ export interface CreateContactRequest {
   isActive?: boolean;
 }
 
+export interface UpdateContactRequest {
+  firstName?: string;
+  lastName?: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  mobilePhone?: string | null;
+  roleCode?: string | null;
+  locationId?: string | null;
+  isPrimary?: boolean;
+  isActive?: boolean;
+}
+
 export interface CreateAccountLocationRequest {
   locationCode?: string;
   name?: string;
@@ -105,6 +125,19 @@ export interface CreateAccountLocationRequest {
   state?: string;
   postalCode?: string;
   countryCode?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
+}
+
+export interface UpdateAccountLocationRequest {
+  locationCode?: string | null;
+  name?: string | null;
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  countryCode?: string | null;
   isPrimary?: boolean;
   isActive?: boolean;
 }

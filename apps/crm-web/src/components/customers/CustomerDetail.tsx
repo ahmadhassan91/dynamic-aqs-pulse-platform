@@ -9,9 +9,10 @@ import { fetchAccountDetail, fetchTrainingCatalog } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CustomerDealerPortalAccess } from './CustomerDealerPortalAccess';
 import { CustomerContacts } from './CustomerContacts';
+import { CustomerLocations } from './CustomerLocations';
 import { CustomerOverview } from './CustomerOverview';
 import { CustomerTrainingHistory } from '@/components/training/CustomerTrainingHistory';
-import { canAccessModule } from '@/lib/access';
+import { canAccessModule, canPerformAction } from '@/lib/access';
 
 export function CustomerDetail({ accountId }: { accountId: string }) {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
@@ -22,6 +23,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const canViewTraining = auth ? canAccessModule(auth.identity.role, 'training') : false;
+  const canEditCustomer = auth ? canPerformAction(auth.identity.role, 'customer.edit') : false;
   const requestedTab = searchParams.get('tab');
   const defaultTab = requestedTab === 'training-history' && canViewTraining ? 'training' : 'overview';
 
@@ -139,14 +141,18 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
           <Tabs.List>
             <Tabs.Tab value="overview">Profile</Tabs.Tab>
             <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
+            <Tabs.Tab value="locations">Locations</Tabs.Tab>
             {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
             <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
           </Tabs.List>
           <Tabs.Panel value="overview" pt="md">
-            <CustomerOverview account={account} />
+            <CustomerOverview account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
           </Tabs.Panel>
           <Tabs.Panel value="contacts" pt="md">
-            <CustomerContacts account={account} />
+            <CustomerContacts account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
+          </Tabs.Panel>
+          <Tabs.Panel value="locations" pt="md">
+            <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
           </Tabs.Panel>
           {canViewTraining ? (
             <Tabs.Panel value="training" pt="md">

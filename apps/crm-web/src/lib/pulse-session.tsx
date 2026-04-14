@@ -16,6 +16,11 @@ type AuthBundle = {
   tokens: TokenPair;
 };
 
+type StoredSession = {
+  version: 1;
+  tokens: TokenPair;
+};
+
 type PulseSessionContextValue = {
   apiBaseUrl: string;
   auth: AuthBundle | null;
@@ -50,36 +55,52 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const storedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (storedSettings) {
-      try {
-        const parsed = JSON.parse(storedSettings) as Partial<{ email: string; rememberMe: boolean }>;
-        if (parsed.email) {
-          setEmail(parsed.email);
+    let cancelled = false;
+
+    async function hydrateSession() {
+      const storedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (storedSettings) {
+        try {
+          const parsed = JSON.parse(storedSettings) as Partial<{ email: string; rememberMe: boolean }>;
+          if (parsed.email) {
+            setEmail(parsed.email);
+          }
+          if (typeof parsed.rememberMe === 'boolean') {
+            setRememberMe(parsed.rememberMe);
+          }
+        } catch {
+          // Ignore invalid settings.
         }
-        if (typeof parsed.rememberMe === 'boolean') {
-          setRememberMe(parsed.rememberMe);
+      }
+
+      const storedSession = readStoredSession(window);
+      if (storedSession) {
+        try {
+          const restoredAuth = await restoreAuthBundle(apiBaseUrl, storedSession.tokens);
+          if (!cancelled) {
+            setAuth(restoredAuth);
+            setAuthError(null);
+          }
+        } catch {
+          clearStoredSession(window);
+          if (!cancelled) {
+            setAuth(null);
+            setAuthError('Your previous Pulse session expired. Please sign in again.');
+          }
         }
-      } catch {
-        // Ignore invalid settings.
+      }
+
+      if (!cancelled) {
+        setIsHydrated(true);
       }
     }
 
-    const storedSession = window.localStorage.getItem(PERSISTED_SESSION_STORAGE_KEY)
-      ?? window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (storedSession) {
-      try {
-        const parsed = JSON.parse(storedSession) as AuthBundle;
-        if (parsed?.tokens?.accessToken) {
-          setAuth(parsed);
-        }
-      } catch {
-        // Ignore invalid session data.
-      }
-    }
+    void hydrateSession();
 
-    setIsHydrated(true);
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
 
   useEffect(() => {
     if (!isHydrated || typeof window === 'undefined') {
@@ -106,71 +127,72 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const storedSession = toStoredSession(auth.tokens);
+
     if (rememberMe) {
-      window.localStorage.setItem(PERSISTED_SESSION_STORAGE_KEY, JSON.stringify(auth));
+      window.localStorage.setItem(PERSISTED_SESSION_STORAGE_KEY, JSON.stringify(storedSession));
       window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
       return;
     }
 
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(auth));
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(storedSession));
     window.localStorage.removeItem(PERSISTED_SESSION_STORAGE_KEY);
   }, [auth, isHydrated, rememberMe]);
 
   useEffect(() => {
-    const accessToken = auth?.tokens.accessToken;
-    const refreshToken = auth?.tokens.refreshToken;
-
-    if (!accessToken || !refreshToken) {
+    if (typeof window === 'undefined') {
       return;
     }
 
-    const validatedAccessToken = accessToken;
+    const accessTokenExpiresAt = auth?.tokens.accessTokenExpiresAt;
+    const refreshToken = auth?.tokens.refreshToken;
+
+    if (!accessTokenExpiresAt || !refreshToken) {
+      return;
+    }
+
     const validatedRefreshToken = refreshToken;
 
     let cancelled = false;
+    let timerId: number | undefined;
 
-    async function validateSession() {
+    async function refreshActiveSession() {
       try {
-        const response = await fetchCurrentSession(apiBaseUrl, validatedAccessToken);
-        if (!cancelled && response) {
-          setAuth((current) =>
-            current
-              ? {
-                  ...current,
-                  identity: response.identity,
-                  session: response.session,
-                }
-              : current,
-          );
+        const refreshed = await refreshPulseSession(apiBaseUrl, validatedRefreshToken);
+        if (!cancelled) {
+          setAuth(refreshed);
           setAuthError(null);
         }
       } catch {
-        try {
-          const refreshed = await refreshPulseSession(apiBaseUrl, validatedRefreshToken);
-          if (!cancelled) {
-            setAuth(refreshed);
-            setAuthError(null);
-          }
-        } catch {
-          if (!cancelled) {
-            setAuth(null);
-          }
+        clearStoredSession(window);
+        if (!cancelled) {
+          setAuth(null);
+          setAuthError('Your Pulse session expired. Please sign in again.');
         }
       }
     }
 
-    void validateSession();
+    const refreshDelay = getRefreshDelay(accessTokenExpiresAt);
+    if (refreshDelay <= 0) {
+      void refreshActiveSession();
+    } else {
+      timerId = window.setTimeout(() => {
+        void refreshActiveSession();
+      }, refreshDelay);
+    }
 
     return () => {
       cancelled = true;
+      if (timerId !== undefined) {
+        window.clearTimeout(timerId);
+      }
     };
-  }, [apiBaseUrl, auth?.tokens.accessToken, auth?.tokens.refreshToken]);
+  }, [apiBaseUrl, auth?.tokens.accessTokenExpiresAt, auth?.tokens.refreshToken]);
 
   const loginWithCredentials = useCallback(async (input: { email: string; password: string; rememberMe?: boolean }) => {
     const response = await loginToPulse(apiBaseUrl, {
       email: input.email,
       password: input.password,
-      ...(input.rememberMe !== undefined ? { rememberMe: input.rememberMe } : {}),
     });
 
     setRememberMe(Boolean(input.rememberMe));
@@ -211,7 +233,6 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
 
     setAuth(null);
     setPassword('');
-    setRememberMe(false);
     setAuthError(null);
   }, [apiBaseUrl, auth]);
 
@@ -245,4 +266,62 @@ export function usePulseSession() {
   }
 
   return context;
+}
+
+function toStoredSession(tokens: TokenPair): StoredSession {
+  return {
+    version: 1,
+    tokens,
+  };
+}
+
+function readStoredSession(storageWindow: Window): StoredSession | null {
+  const rawStoredSession = storageWindow.localStorage.getItem(PERSISTED_SESSION_STORAGE_KEY)
+    ?? storageWindow.sessionStorage.getItem(SESSION_STORAGE_KEY);
+
+  if (!rawStoredSession) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawStoredSession) as Partial<StoredSession & AuthBundle>;
+    if (parsed.tokens?.accessToken && parsed.tokens.refreshToken) {
+      return toStoredSession(parsed.tokens);
+    }
+  } catch {
+    // Ignore invalid session data.
+  }
+
+  return null;
+}
+
+function clearStoredSession(storageWindow: Window) {
+  storageWindow.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  storageWindow.localStorage.removeItem(PERSISTED_SESSION_STORAGE_KEY);
+}
+
+async function restoreAuthBundle(apiBaseUrl: string, tokens: TokenPair): Promise<AuthBundle> {
+  try {
+    const currentSession = await fetchCurrentSession(apiBaseUrl, tokens.accessToken);
+    if (currentSession) {
+      return {
+        identity: currentSession.identity,
+        session: currentSession.session,
+        tokens,
+      };
+    }
+  } catch {
+    // Fall through to refresh when the access token is no longer accepted.
+  }
+
+  return refreshPulseSession(apiBaseUrl, tokens.refreshToken);
+}
+
+function getRefreshDelay(accessTokenExpiresAt: string) {
+  const expiresAt = Date.parse(accessTokenExpiresAt);
+  if (Number.isNaN(expiresAt)) {
+    return 0;
+  }
+
+  return Math.max(expiresAt - Date.now() - 60_000, 0);
 }

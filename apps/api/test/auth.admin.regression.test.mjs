@@ -238,4 +238,64 @@ test('auth and admin regression suite', async () => {
     () => authenticateAccessToken(refreshed.tokens.accessToken),
     /Session has been revoked/i,
   );
+
+  await assert.rejects(
+    () =>
+      refreshSession(config, {
+        refreshToken: refreshed.tokens.refreshToken,
+      }),
+    /Session has been revoked/i,
+  );
+});
+
+test('inactive users lose both access-token and refresh-token validity', async () => {
+  const { actor } = await createAdminActor();
+
+  const createdUser = await createAdminUser(actor, {
+    email: 'field.ops@dynamicaqs.com',
+    firstName: 'Field',
+    lastName: 'Ops',
+    role: 'ADMIN_CSR_OPS',
+    isActive: true,
+    password: 'FieldOps!123',
+  });
+
+  const activeAuth = await loginWithPassword(
+    config,
+    {
+      email: createdUser.user.email,
+      password: 'FieldOps!123',
+    },
+    {},
+  );
+
+  await updateAdminUser(actor, createdUser.user.id, {
+    isActive: false,
+  });
+
+  await assert.rejects(
+    () => authenticateAccessToken(activeAuth.tokens.accessToken),
+    /User is inactive/i,
+  );
+
+  await assert.rejects(
+    () =>
+      refreshSession(config, {
+        refreshToken: activeAuth.tokens.refreshToken,
+      }),
+    /User is inactive/i,
+  );
+
+  await assert.rejects(
+    () =>
+      loginWithPassword(
+        config,
+        {
+          email: createdUser.user.email,
+          password: 'FieldOps!123',
+        },
+        {},
+      ),
+    /User is inactive/i,
+  );
 });

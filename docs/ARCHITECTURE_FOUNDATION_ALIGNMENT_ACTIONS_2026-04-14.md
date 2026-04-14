@@ -93,6 +93,25 @@ Still pending from the broader alignment agenda:
 - deeper `leads` internal splits for workflow/history and lifecycle helpers
 - broader test/bootstrap harness cleanup
 
+## Second Implementation Pass Completed
+
+The second concrete alignment pass is now shipped.
+
+Implemented:
+
+- explicit alpha auth/session transport note
+- token-only browser persistence in `crm-web`
+- server-authoritative session rehydration through `/auth/me`
+- proactive refresh scheduling from access-token expiry
+- extra auth regressions for refresh-token revocation and inactive-user session invalidation
+
+Still pending from the broader alignment agenda:
+
+- final BFF / httpOnly-cookie transport hardening
+- additional handler standardization across other modules
+- deeper `leads` internal splits for workflow/history and lifecycle helpers
+- broader test/bootstrap harness cleanup
+
 ## What Is Not A Current Concern
 
 These are not foundation blockers right now:

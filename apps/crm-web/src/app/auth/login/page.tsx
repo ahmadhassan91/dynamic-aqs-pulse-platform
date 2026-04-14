@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [nextPath, setNextPath] = useState<string | null>(null);
   const router = useRouter();
-  const { auth, email, loginWithCredentials, rememberMe } = usePulseSession();
+  const { auth, authError, email, loginWithCredentials, rememberMe } = usePulseSession();
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -39,7 +39,7 @@ export default function LoginPage() {
         initialEmail={email}
         initialRememberMe={rememberMe}
         loading={loading}
-        error={error}
+        error={error ?? authError}
         onSubmit={async (values) => {
           setLoading(true);
           setError(null);

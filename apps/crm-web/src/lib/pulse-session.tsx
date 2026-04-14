@@ -2,7 +2,7 @@
 
 import type { FormEvent, ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { AuthIdentity, AuthSession, TokenPair } from '@pulse/contracts';
+import type { AuthIdentity, AuthRole, AuthSession, TokenPair } from '@pulse/contracts';
 import { fetchCurrentSession, loginToPulse, logoutFromPulse, refreshPulseSession } from '@/lib/pulse-api';
 
 const SETTINGS_STORAGE_KEY = 'pulse.crm-web.settings';
@@ -31,7 +31,13 @@ type PulseSessionContextValue = {
   password: string;
   rememberMe: boolean;
   login: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  loginWithCredentials: (input: { email: string; password: string; rememberMe?: boolean }) => Promise<AuthBundle>;
+  loginWithCredentials: (input: {
+    email: string;
+    password: string;
+    rememberMe?: boolean;
+    expectedRole?: AuthRole;
+    roleErrorMessage?: string;
+  }) => Promise<AuthBundle>;
   logout: () => Promise<void>;
   setEmail: (value: string) => void;
   setPassword: (value: string) => void;
@@ -189,11 +195,30 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
     };
   }, [apiBaseUrl, auth?.tokens.accessTokenExpiresAt, auth?.tokens.refreshToken]);
 
-  const loginWithCredentials = useCallback(async (input: { email: string; password: string; rememberMe?: boolean }) => {
+  const loginWithCredentials = useCallback(async (input: {
+    email: string;
+    password: string;
+    rememberMe?: boolean;
+    expectedRole?: AuthRole;
+    roleErrorMessage?: string;
+  }) => {
     const response = await loginToPulse(apiBaseUrl, {
       email: input.email,
       password: input.password,
     });
+
+    if (input.expectedRole && response.identity.role !== input.expectedRole) {
+      try {
+        await logoutFromPulse(apiBaseUrl, response.tokens.accessToken);
+      } catch {
+        // Ignore logout failures when rejecting a mismatched role sign-in.
+      }
+
+      throw new Error(
+        input.roleErrorMessage
+        ?? `This account does not have access to the ${input.expectedRole.toLowerCase()} workspace.`,
+      );
+    }
 
     setRememberMe(Boolean(input.rememberMe));
     setAuth(response);

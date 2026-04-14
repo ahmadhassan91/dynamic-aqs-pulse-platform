@@ -47,6 +47,7 @@ export type WorkspaceLandingTarget = {
 };
 
 const WORKSPACE_LANDING_TARGETS: readonly WorkspaceLandingTarget[] = [
+  { href: '/dealer/dashboard', label: 'Dealer Dashboard', module: 'dealer_portal' },
   { href: '/leads', label: 'Lead Pipeline', module: 'leads' },
   { href: '/leads/import', label: 'Bulk Intake', module: 'leads', action: 'lead.intake_manage' },
   { href: '/leads/forms', label: 'Website Forms', module: 'leads' },

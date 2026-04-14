@@ -1315,8 +1315,14 @@ export async function createLead(actor: AuthenticatedActor, input: CreateLeadReq
     leadCaptureMethod: LeadCaptureMethod.MANUAL_ENTRY,
   });
 
+  const normalizedManualLead = {
+    ...normalized,
+    affinityGroupName: normalized.affinityGroupName ?? 'Independent',
+    ownershipGroupName: normalized.ownershipGroupName ?? 'Independent',
+  };
+
   const lead = await prisma.$transaction((tx) =>
-    createLeadRecord(tx, normalized, {
+    createLeadRecord(tx, normalizedManualLead, {
       actorUserId: actor.userId,
       sessionId: actor.sessionId,
       actorRole: actor.role,

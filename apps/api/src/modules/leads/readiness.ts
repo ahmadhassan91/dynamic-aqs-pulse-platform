@@ -109,9 +109,11 @@ const CHECKLIST_TEMPLATE: readonly ChecklistTemplateItem[] = [
   { code: 'price_class_assigned', label: 'Price class assigned', ownerRoleCode: 'FINANCE', sortOrder: 50 },
   { code: 'portal_access_granted', label: 'Portal access granted', ownerRoleCode: 'ADMIN_CSR_OPS', sortOrder: 60 },
   { code: 'welcome_email_sent', label: 'Welcome email sent', ownerRoleCode: 'ADMIN_CSR_OPS', sortOrder: 70 },
-  { code: 'training_session_1_scheduled', label: 'Training session 1 scheduled', ownerRoleCode: 'TRAINING_OPS', sortOrder: 80 },
-  { code: 'account_readiness_verified', label: 'Account readiness verified', ownerRoleCode: 'ADMIN_CSR_OPS', sortOrder: 90 },
-  { code: 'consignment_interest_captured', label: 'Consignment interest captured', ownerRoleCode: 'SALES_BD_REP', required: false, sortOrder: 100 },
+  { code: 'training_session_1_scheduled', label: 'Training session 1 completed', ownerRoleCode: 'TRAINING_OPS', sortOrder: 80 },
+  { code: 'training_session_2_completed', label: 'Training session 2 completed', ownerRoleCode: 'TRAINING_OPS', sortOrder: 90 },
+  { code: 'training_session_3_completed', label: 'Training session 3 completed', ownerRoleCode: 'TRAINING_OPS', sortOrder: 100 },
+  { code: 'account_readiness_verified', label: 'Account readiness verified', ownerRoleCode: 'ADMIN_CSR_OPS', sortOrder: 110 },
+  { code: 'consignment_interest_captured', label: 'Consignment interest captured', ownerRoleCode: 'SALES_BD_REP', required: false, sortOrder: 120 },
 ] as const;
 
 export async function getLeadReadiness(actor: AuthenticatedActor, leadId: string): Promise<LeadReadinessDetail | null> {

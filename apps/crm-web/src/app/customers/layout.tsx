@@ -4,7 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 
 export default function CustomersLayout({ children }: { children: ReactNode }) {
   return (
-    <ProtectedWorkspace requiredModule="customers">
+    <ProtectedWorkspace requiredModule="customers" requiredAction="customer.view">
       <AppLayout>
         <div className="residential-content-container">
           {children}

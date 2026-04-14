@@ -36,6 +36,8 @@ const MANUAL_REQUIRED_CODES = new Set([
   'ownership_group_validated',
   'welcome_email_sent',
   'training_session_1_scheduled',
+  'training_session_2_completed',
+  'training_session_3_completed',
   'account_readiness_verified',
 ]);
 
@@ -253,8 +255,8 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
   const conditionalFirst = await generateLeadReadinessChecklist(actor, conditionalFixture.lead.id);
   const conditionalSecond = await generateLeadReadinessChecklist(actor, conditionalFixture.lead.id);
 
-  assert.equal(conditionalFirst.items.length, 10);
-  assert.equal(conditionalSecond.items.length, 10);
+  assert.equal(conditionalFirst.items.length, 12);
+  assert.equal(conditionalSecond.items.length, 12);
   assert.ok(conditionalSecond.blockers.some((blocker) => blocker.includes('Finance approval is conditional')));
 
   const conditionalChecklistCount = await prisma.onboardingChecklist.count({
@@ -268,7 +270,7 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
     },
   });
   assert.equal(conditionalChecklistCount, 1);
-  assert.equal(conditionalItemCount, 10);
+  assert.equal(conditionalItemCount, 12);
 
   const readyFixture = await createFinanceReviewedLead(actor, 'approved');
   const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({

@@ -67,6 +67,8 @@ type LeadCreateFormState = {
   email: string;
   phone: string;
   state: string;
+  affinityGroupName: string;
+  ownershipGroupName: string;
   sourceCampaign: string;
   leadRating: string;
   leadSourceCode: string;
@@ -98,6 +100,8 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
   email: '',
   phone: '',
   state: '',
+  affinityGroupName: '',
+  ownershipGroupName: '',
   sourceCampaign: '',
   leadRating: '',
   leadSourceCode: 'manual_entry',
@@ -281,8 +285,14 @@ export function LeadWorkspace({
   }, [leads]);
 
   async function handleCreateLead() {
-    if (!auth || !createLeadForm.companyName.trim() || !createLeadForm.serviceTechCount) {
-      setCreateLeadError('Company name and service tech count are required.');
+    if (
+      !auth
+      || !createLeadForm.companyName.trim()
+      || !createLeadForm.serviceTechCount
+      || !createLeadForm.email.trim()
+      || !createLeadForm.phone.trim()
+    ) {
+      setCreateLeadError('Company name, email, phone, and service tech count are required.');
       return;
     }
 
@@ -300,6 +310,12 @@ export function LeadWorkspace({
         ...(createLeadForm.email.trim() ? { email: createLeadForm.email.trim() } : {}),
         ...(createLeadForm.phone.trim() ? { phone: createLeadForm.phone.trim() } : {}),
         ...(createLeadForm.state.trim() ? { state: createLeadForm.state.trim() } : {}),
+        ...(createLeadForm.affinityGroupName.trim()
+          ? { affinityGroupName: createLeadForm.affinityGroupName.trim() }
+          : {}),
+        ...(createLeadForm.ownershipGroupName.trim()
+          ? { ownershipGroupName: createLeadForm.ownershipGroupName.trim() }
+          : {}),
         ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
         ...(createLeadForm.sourceCampaign ? { sourceCampaign: createLeadForm.sourceCampaign } : {}),
         ...(createLeadForm.leadRating ? { leadRating: createLeadForm.leadRating } : {}),
@@ -739,11 +755,13 @@ export function LeadWorkspace({
               type="email"
               value={createLeadForm.email ?? ''}
               onChange={(event) => setCreateLeadForm((current) => ({ ...current, email: event.currentTarget.value }))}
+              required
             />
             <TextInput
               label="Phone"
               value={createLeadForm.phone ?? ''}
               onChange={(event) => setCreateLeadForm((current) => ({ ...current, phone: event.currentTarget.value }))}
+              required
             />
             <Select
               searchable
@@ -775,6 +793,18 @@ export function LeadWorkspace({
               value={createLeadForm.leadRating || null}
               onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadRating: value ?? '' }))}
               data={leadRatingOptions}
+            />
+            <TextInput
+              label="Affinity group / franchise"
+              placeholder="AireServ, One Hour, Independent..."
+              value={createLeadForm.affinityGroupName ?? ''}
+              onChange={(event) => setCreateLeadForm((current) => ({ ...current, affinityGroupName: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Ownership / private equity group"
+              placeholder="Parent company or Independent..."
+              value={createLeadForm.ownershipGroupName ?? ''}
+              onChange={(event) => setCreateLeadForm((current) => ({ ...current, ownershipGroupName: event.currentTarget.value }))}
             />
             <NumberInput
               label="Service tech count"

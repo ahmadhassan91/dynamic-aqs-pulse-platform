@@ -35,7 +35,7 @@ trap cleanup EXIT INT TERM
 node "$ROOT_DIR/scripts/run-with-env.mjs" pnpm --filter @pulse/api start &
 API_PID=$!
 
-node "$ROOT_DIR/scripts/run-with-env.mjs" pnpm --filter @pulse/crm-web dev -- --port "$WEB_PORT" &
+node "$ROOT_DIR/scripts/run-with-env.mjs" pnpm --filter @pulse/crm-web exec next dev --port "$WEB_PORT" &
 WEB_PID=$!
 
 wait "$API_PID" "$WEB_PID"

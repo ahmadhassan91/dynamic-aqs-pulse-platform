@@ -35,6 +35,7 @@ Use it to:
 | Workstream | Status | Current Position | Next Step | Evidence |
 | --- | --- | --- | --- | --- |
 | Monorepo platform bootstrap | `Done` | Production monorepo is established and pushed | Continue feature slices inside the new repo | `README.md`, `turbo.json`, `pnpm-workspace.yaml` |
+| Traceability mirror + E2E baseline | `Done` | Roadmap registers, source-of-truth documents, and release workbooks are now mirrored into the implementation repo, and the first browser-level end-to-end baseline is green across internal auth/navigation, the public website lead form, public CIS, and dealer portal | Expand browser coverage only where routes are already settled and backend-wired | `docs/traceability/`, `docs/TRACEABILITY_AND_E2E_BASELINE_2026-04-14.md`, `apps/crm-web/e2e/` |
 | PostgreSQL + Prisma core schema | `Done` | Core CRM schema and migration pipeline foundation are in place | Extend schema for auth/session and domain modules | `packages/db/prisma/schema.prisma` |
 | Queue and worker runtime | `Done` | `pg-boss` queue and worker bootstrap are live | Add domain jobs after auth/audit foundation | `apps/api/src/queue/` |
 | Migration raw snapshot staging | `Done` | Guarded rehearsal/cutover evidence pipeline is implemented | Build normalization/import workers on top | `apps/api/src/modules/migrations/` |

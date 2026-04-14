@@ -15,6 +15,7 @@
     "./accounts": "./dist/accounts.js",
     "./dealer-portal": "./dist/dealer-portal.js",
     "./cis": "./dist/cis.js",
+    "./lead-options": "./dist/lead-options.js",
     "./leads": "./dist/leads.js",
     "./reference": "./dist/reference.js",
     "./territories": "./dist/territories.js",

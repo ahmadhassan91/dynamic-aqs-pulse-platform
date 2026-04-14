@@ -23,12 +23,11 @@ import {
 import { IconAlertCircle, IconCheck, IconMail } from '@tabler/icons-react';
 import {
   type CaptureWebsiteLeadRequest,
-  findLeadRegionOption,
-  LEAD_REGION_OPTIONS,
   type PublicWebsiteLeadSite,
   type WebsiteLeadCustomerStatusKey,
   type WebsiteLeadTypeKey,
 } from '@pulse/contracts';
+import { APP_LEAD_REGION_OPTIONS, findAppLeadRegionOption } from '@/lib/lead-form-options';
 import { fetchPublicWebsiteLeadSite, submitPublicWebsiteLead } from '@/lib/pulse-api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PULSE_API_BASE_URL ?? 'http://localhost:4000';
@@ -55,22 +54,12 @@ const referralSourceOptions = [
   'Existing customer',
 ];
 
-const leadRegionSelectData = [
-  {
-    group: 'United States',
-    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'United States').map((option) => ({
-      value: option.value,
-      label: `${option.label} (${option.value})`,
-    })),
-  },
-  {
-    group: 'Canada',
-    items: LEAD_REGION_OPTIONS.filter((option) => option.group === 'Canada').map((option) => ({
-      value: option.value,
-      label: `${option.label} (${option.value})`,
-    })),
-  },
-];
+const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
+
+const leadRegionSelectData = leadRegionOptions.map((option) => ({
+  value: option.value,
+  label: `${option.label} (${option.value})`,
+}));
 
 type Props = {
   siteId: string;
@@ -203,7 +192,7 @@ export function PublicWebsiteLeadCaptureForm({
 
     try {
       const submissionMessage = buildSubmissionMessage(formState);
-      const regionOption = findLeadRegionOption(formState.state);
+      const regionOption = findAppLeadRegionOption(formState.state);
       const payload: CaptureWebsiteLeadRequest = {
         siteId: site.siteId,
         leadType: resolvedLeadType,

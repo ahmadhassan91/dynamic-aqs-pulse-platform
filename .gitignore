@@ -25,6 +25,9 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .playwright-cli/
+playwright-report/
+test-results/
+output/
 
 # editor / system
 .DS_Store
@@ -40,3 +43,4 @@ ios/
 # prisma / db
 prisma/dev.db
 prisma/dev.db-journal
+apps/crm-web/e2e/.generated-fixtures.json

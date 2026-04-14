@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start": "next start",
     "lint": "eslint . --max-warnings=0",
-    "test": "echo \"CRM web test scaffold pending\"",
+    "test": "pnpm run test:e2e",
+    "test:e2e": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/db build && pnpm --dir ../.. --filter @pulse/api build && NEXT_PUBLIC_PULSE_API_BASE_URL=http://127.0.0.1:4100 NEXT_PUBLIC_PULSE_WEB_BASE_URL=http://127.0.0.1:3101 pnpm run build && node e2e/prepare-e2e.mjs && playwright test -c e2e/playwright.config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf .next out tsconfig.tsbuildinfo"
   },
@@ -22,6 +24,7 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.13",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

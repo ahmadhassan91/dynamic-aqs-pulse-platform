@@ -12,7 +12,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import type { AdminUserSummary, AuthRole } from '@pulse/contracts';
-import { AUTH_ROLES } from '@pulse/contracts';
+import { AUTH_ROLES } from '@pulse/contracts/auth';
 
 type UserFormValues = {
   email: string;
@@ -22,6 +22,8 @@ type UserFormValues = {
   isActive: boolean;
   password: string;
 };
+
+const authRoleCatalog = AUTH_ROLES ?? [];
 
 export function UserFormModal({
   opened,
@@ -93,7 +95,7 @@ export function UserFormModal({
 
           <Select
             label="Role"
-            data={AUTH_ROLES.map((role) => ({ value: role, label: role.replace(/_/g, ' ') }))}
+            data={authRoleCatalog.map((role) => ({ value: role, label: role.replace(/_/g, ' ') }))}
             value={values.role}
             onChange={(value) => setValues((current) => ({ ...current, role: (value as AuthRole) || current.role }))}
             required

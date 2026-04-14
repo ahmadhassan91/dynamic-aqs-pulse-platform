@@ -46,7 +46,7 @@ import type {
   ListAdminUsersResponse,
   UpdateAdminUserRequest,
 } from '@pulse/contracts';
-import { AUTH_ROLES } from '@pulse/contracts';
+import { AUTH_ROLES } from '@pulse/contracts/auth';
 import {
   createAdminUser as createAdminUserRequest,
   fetchAdminActivity,
@@ -63,6 +63,8 @@ import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
 
 type AdminTab = 'overview' | 'users' | 'roles' | 'activity';
+
+const authRoleCatalog = AUTH_ROLES ?? [];
 
 export function AdminWorkspace({
   initialTab = 'overview',
@@ -279,7 +281,7 @@ export function AdminWorkspace({
   const totalPages = usersResponse ? Math.max(1, Math.ceil(usersResponse.total / usersResponse.limit)) : 1;
 
   const roleOptions = useMemo(
-    () => AUTH_ROLES.map((role) => ({ value: role, label: role.replace(/_/g, ' ') })),
+    () => authRoleCatalog.map((entry) => ({ value: entry, label: entry.replace(/_/g, ' ') })),
     [],
   );
 
@@ -554,7 +556,7 @@ export function AdminWorkspace({
                 <AdminMetricCard title="Active Users" value={String(overview?.activeUsers ?? 0)} color="blue" icon={IconUsers} />
                 <AdminMetricCard title="Pending Users" value={String(overview?.pendingUsers ?? 0)} color="yellow" icon={IconUsers} />
                 <AdminMetricCard title="Active Sessions" value={String(overview?.activeSessions ?? 0)} color="green" icon={IconActivity} />
-                <AdminMetricCard title="Role Profiles" value={String(rolesCatalog?.roles.length ?? AUTH_ROLES.length)} color="violet" icon={IconShield} />
+                <AdminMetricCard title="Role Profiles" value={String(rolesCatalog?.roles.length ?? authRoleCatalog.length)} color="violet" icon={IconShield} />
               </SimpleGrid>
 
               <Paper shadow="sm" p="md">

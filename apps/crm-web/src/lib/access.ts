@@ -47,7 +47,6 @@ export type WorkspaceLandingTarget = {
 };
 
 const WORKSPACE_LANDING_TARGETS: readonly WorkspaceLandingTarget[] = [
-  { href: '/dealer/dashboard', label: 'Dealer Dashboard', module: 'dealer_portal' },
   { href: '/leads', label: 'Lead Pipeline', module: 'leads' },
   { href: '/leads/import', label: 'Bulk Intake', module: 'leads', action: 'lead.intake_manage' },
   { href: '/leads/forms', label: 'Website Forms', module: 'leads' },
@@ -59,6 +58,7 @@ const WORKSPACE_LANDING_TARGETS: readonly WorkspaceLandingTarget[] = [
   { href: '/admin/users', label: 'User Management', module: 'admin', action: 'admin.user_view' },
   { href: '/admin/roles', label: 'Roles & Permissions', module: 'admin', action: 'admin.role_view' },
   { href: '/admin/activity', label: 'Activity Monitor', module: 'admin', action: 'admin.audit_view' },
+  { href: '/dealer/dashboard', label: 'Dealer Dashboard', module: 'dealer_portal' },
 ] as const;
 
 const ROLE_ALIASES: Record<string, AuthRole> = {

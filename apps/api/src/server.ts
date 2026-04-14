@@ -7,6 +7,7 @@ import { handleAdminRoutes } from './modules/admin/http.js';
 import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
+import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
 import { ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded } from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
@@ -207,6 +208,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const cisRouteHandled = await handleCisRoutes(req, res, url, ctx.config);
   if (cisRouteHandled !== false) {
+    return;
+  }
+
+  const dealerPortalRouteHandled = await handleDealerPortalRoutes(req, res, url);
+  if (dealerPortalRouteHandled !== false) {
     return;
   }
 

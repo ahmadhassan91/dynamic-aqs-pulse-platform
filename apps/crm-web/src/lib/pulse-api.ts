@@ -18,6 +18,14 @@ import type {
   AuthIdentity,
   AuthSession,
   AccountDetail,
+  DealerPortalAccountDetail,
+  DealerPortalDashboardResponse,
+  ProvisionDealerPortalUserRequest,
+  ProvisionDealerPortalUserResponse,
+  ResetDealerPortalUserPasswordRequest,
+  ResetDealerPortalUserPasswordResponse,
+  UpdateDealerPortalUserStatusRequest,
+  UpdateDealerPortalUserStatusResponse,
   ListAccountsRequest,
   ListAccountsResponse,
   CisFinanceDecisionRequest,
@@ -414,6 +422,71 @@ export async function fetchAccounts(
 
 export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string, accountId: string) {
   return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchDealerPortalAccountDetail(apiBaseUrl: string, accessToken: string, accountId: string) {
+  return requestJson<DealerPortalAccountDetail>(apiBaseUrl, `/api/v1/dealer-portal/accounts/${accountId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function provisionDealerPortalUser(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: ProvisionDealerPortalUserRequest,
+) {
+  return requestJson<ProvisionDealerPortalUserResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/accounts/${accountId}/users`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function updateDealerPortalUserStatus(
+  apiBaseUrl: string,
+  accessToken: string,
+  portalUserId: string,
+  input: UpdateDealerPortalUserStatusRequest,
+) {
+  return requestJson<UpdateDealerPortalUserStatusResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/users/${portalUserId}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function resetDealerPortalUserPassword(
+  apiBaseUrl: string,
+  accessToken: string,
+  portalUserId: string,
+  input: ResetDealerPortalUserPasswordRequest = {},
+) {
+  return requestJson<ResetDealerPortalUserPasswordResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/users/${portalUserId}/reset-password`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function fetchDealerPortalDashboard(apiBaseUrl: string, accessToken: string) {
+  return requestJson<DealerPortalDashboardResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/dashboard', {
     method: 'GET',
     accessToken,
   });

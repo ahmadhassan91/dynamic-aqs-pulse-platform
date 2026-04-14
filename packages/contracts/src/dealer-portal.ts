@@ -1,0 +1,125 @@
+export const DEALER_PORTAL_PROVISIONING_STATUSES = [
+  'not_started',
+  'ready_to_provision',
+  'active',
+  'suspended',
+  'deactivated',
+] as const;
+
+export type DealerPortalProvisioningStatusKey =
+  (typeof DEALER_PORTAL_PROVISIONING_STATUSES)[number];
+
+export const DEALER_PORTAL_USER_STATUSES = [
+  'active',
+  'suspended',
+  'deactivated',
+] as const;
+
+export type DealerPortalUserStatusKey =
+  (typeof DEALER_PORTAL_USER_STATUSES)[number];
+
+export interface DealerPortalUserSummary {
+  id: string;
+  userId: string;
+  accountId: string;
+  contactId?: string;
+  email: string;
+  displayName: string;
+  title?: string;
+  status: DealerPortalUserStatusKey;
+  isPrimaryOwner: boolean;
+  isActive: boolean;
+  lastLoginAt?: string;
+  activatedAt?: string;
+  suspendedAt?: string;
+  deactivatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DealerPortalAccountSummary {
+  accountId: string;
+  accountDisplayName: string;
+  accountNumber?: string;
+  status: DealerPortalProvisioningStatusKey;
+  notes?: string;
+  sourceLeadId?: string;
+  portalEligibilityStatus?: 'unassessed' | 'blocked' | 'ready' | 'provisioned';
+  territoryName?: string;
+  regionName?: string;
+  shippingCenterName?: string;
+  assignedTmName?: string;
+  assignedTmEmail?: string;
+  assignedRdName?: string;
+  assignedRdEmail?: string;
+  activePortalUsers: number;
+  totalPortalUsers: number;
+  createdAt: string;
+  updatedAt: string;
+  provisionedAt?: string;
+}
+
+export interface DealerPortalAccountDetail extends DealerPortalAccountSummary {
+  users: DealerPortalUserSummary[];
+}
+
+export interface ProvisionDealerPortalUserRequest {
+  contactId?: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  email?: string;
+  password?: string;
+  isPrimaryOwner?: boolean;
+  notes?: string;
+}
+
+export interface ProvisionDealerPortalUserResponse {
+  portalAccount: DealerPortalAccountDetail;
+  user: DealerPortalUserSummary;
+  temporaryPassword: string;
+  createdContactId?: string;
+}
+
+export interface UpdateDealerPortalUserStatusRequest {
+  status: DealerPortalUserStatusKey;
+  notes?: string;
+}
+
+export interface UpdateDealerPortalUserStatusResponse {
+  portalAccount: DealerPortalAccountDetail;
+  user: DealerPortalUserSummary;
+}
+
+export interface ResetDealerPortalUserPasswordRequest {
+  password?: string;
+}
+
+export interface ResetDealerPortalUserPasswordResponse {
+  userId: string;
+  email: string;
+  temporaryPassword: string;
+  resetAt: string;
+}
+
+export interface DealerPortalDashboardResponse {
+  portalAccount: DealerPortalAccountSummary;
+  currentUser: DealerPortalUserSummary;
+  companyUsers: DealerPortalUserSummary[];
+  contacts: Array<{
+    id: string;
+    displayName: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    isPrimary: boolean;
+  }>;
+  locations: Array<{
+    id: string;
+    name: string;
+    city?: string;
+    state?: string;
+    countryCode?: string;
+    isPrimary: boolean;
+  }>;
+}

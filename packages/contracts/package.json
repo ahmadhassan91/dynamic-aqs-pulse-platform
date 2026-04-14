@@ -13,6 +13,7 @@
     "./admin": "./dist/admin.js",
     "./auth": "./dist/auth.js",
     "./accounts": "./dist/accounts.js",
+    "./dealer-portal": "./dist/dealer-portal.js",
     "./cis": "./dist/cis.js",
     "./leads": "./dist/leads.js",
     "./reference": "./dist/reference.js",

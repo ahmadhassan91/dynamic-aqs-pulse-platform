@@ -6,6 +6,7 @@ import { Alert, Anchor, Breadcrumbs, Button, Card, Group, Loader, Paper, Stack, 
 import type { AccountDetail as AccountDetailRecord } from '@pulse/contracts';
 import { fetchAccountDetail } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { CustomerDealerPortalAccess } from './CustomerDealerPortalAccess';
 import { CustomerContacts } from './CustomerContacts';
 import { CustomerOverview } from './CustomerOverview';
 
@@ -16,6 +17,23 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const reloadAccount = async () => {
+    if (!auth) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const next = await fetchAccountDetail(apiBaseUrl, accessToken, accountId);
+      setAccount(next);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!auth) {
       setAccount(null);
@@ -25,7 +43,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
 
     let cancelled = false;
 
-    async function loadAccount() {
+    void (async () => {
       setIsLoading(true);
       setErrorMessage(null);
       try {
@@ -42,9 +60,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
           setIsLoading(false);
         }
       }
-    }
-
-    void loadAccount();
+    })();
 
     return () => {
       cancelled = true;
@@ -111,12 +127,16 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
           <Tabs.List>
             <Tabs.Tab value="overview">Profile</Tabs.Tab>
             <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
+            <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
           </Tabs.List>
           <Tabs.Panel value="overview" pt="md">
             <CustomerOverview account={account} />
           </Tabs.Panel>
           <Tabs.Panel value="contacts" pt="md">
             <CustomerContacts account={account} />
+          </Tabs.Panel>
+          <Tabs.Panel value="portal" pt="md">
+            <CustomerDealerPortalAccess account={account} onProvisioned={() => void reloadAccount()} />
           </Tabs.Panel>
         </Tabs>
       ) : null}

@@ -299,6 +299,20 @@ enum PortalEligibilityStatus {
   PROVISIONED
 }
 
+enum DealerPortalProvisioningStatus {
+  NOT_STARTED
+  READY_TO_PROVISION
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum DealerPortalUserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
 enum CisPackageStatus {
   NOT_SENT
   LINK_SENT
@@ -408,6 +422,8 @@ model User {
   territoryOverridesAssignedRd TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
   territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
   websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
+  dealerPortalMembership      DealerPortalUser?
+  dealerPortalUsersCreated    DealerPortalUser[] @relation("DealerPortalUserCreatedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -1369,6 +1385,8 @@ model Account {
   assignedRdUser             User?                   @relation("AccountAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
   locations                  AccountLocation[]
   contacts                   Contact[]
+  dealerPortalAccount        DealerPortalAccount?
+  dealerPortalUsers          DealerPortalUser[]
   extension                  AccountExtension?
   segmentAssignments         AccountSegmentAssignment[]
   classificationExceptions    ClassificationException[]
@@ -1456,12 +1474,56 @@ model Contact {
 
   account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   location         AccountLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  dealerPortalUsers DealerPortalUser[]
   extension        ContactExtension?
 
   @@index([accountId])
   @@index([locationId])
   @@index([email])
   @@index([isPrimary])
+}
+
+model DealerPortalAccount {
+  accountId         String                         @id @db.Uuid
+  status            DealerPortalProvisioningStatus @default(NOT_STARTED)
+  notes             String?
+  provisionedAt     DateTime?
+  suspendedAt       DateTime?
+  deactivatedAt     DateTime?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  account           Account                        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([provisionedAt])
+}
+
+model DealerPortalUser {
+  id                String                 @id @default(uuid()) @db.Uuid
+  accountId         String                 @db.Uuid
+  contactId         String?                @db.Uuid
+  userId            String                 @unique @db.Uuid
+  createdByUserId   String?                @db.Uuid
+  status            DealerPortalUserStatus @default(ACTIVE)
+  isPrimaryOwner    Boolean                @default(false)
+  notes             String?
+  activatedAt       DateTime?
+  suspendedAt       DateTime?
+  deactivatedAt     DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  account           Account                @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact           Contact?               @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser     User?                  @relation("DealerPortalUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([contactId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([isPrimaryOwner])
 }
 
 model AccountExtension {

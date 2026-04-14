@@ -83,6 +83,7 @@ import {
   asString,
   optionalTrimmed,
   requiredTrimmed,
+  toWebsiteLeadSiteFormConfig,
 } from './shared.js';
 import {
   syncLeadTerritoryAssignment,
@@ -1351,6 +1352,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
 
   const leadType = toWebsiteLeadTypeEnum(input.leadType);
   assertWebsiteLeadTypeAllowed(site.formType, leadType);
+  const siteFormConfig = toWebsiteLeadSiteFormConfig(site);
 
   const resolvedName = resolvePublicWebsiteContactName(input);
   const companyName = resolveWebsiteLeadCompanyName(input, leadType, resolvedName.contactDisplayName, site.siteName);
@@ -1367,6 +1369,13 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
   const postalCode = optionalTrimmed(input.postalCode);
   const customerStatus = normalizeOptionalWebsiteCustomerStatus(input.customerStatus);
   const marketingConsent = typeof input.marketingConsent === 'boolean' ? input.marketingConsent : undefined;
+
+  validateWebsiteSubmissionMetadata({
+    leadType,
+    inquiryTopic,
+    referralSource,
+    siteFormConfig,
+  });
 
   const normalizedInput: LeadInputSource = {
     companyName,
@@ -3956,6 +3965,31 @@ function assertWebsiteLeadTypeAllowed(formType: WebsiteLeadFormType, leadType: W
   }
 
   throw new Error('This website form is not configured for the selected lead type');
+}
+
+function validateWebsiteSubmissionMetadata(input: {
+  leadType: WebsiteLeadType;
+  inquiryTopic: string | undefined;
+  referralSource: string | undefined;
+  siteFormConfig: {
+    homeownerInquiryOptions: string[];
+    contractorInquiryOptions: string[];
+    referralSourceOptions: string[];
+  };
+}) {
+  if (input.inquiryTopic) {
+    const allowedInquiryTopics = input.leadType === WebsiteLeadType.HOMEOWNER
+      ? input.siteFormConfig.homeownerInquiryOptions
+      : input.siteFormConfig.contractorInquiryOptions;
+
+    if (!allowedInquiryTopics.includes(input.inquiryTopic)) {
+      throw new Error('Inquiry topic is not configured for this website form');
+    }
+  }
+
+  if (input.referralSource && !input.siteFormConfig.referralSourceOptions.includes(input.referralSource)) {
+    throw new Error('Referral source is not configured for this website form');
+  }
 }
 
 function buildWebsiteCaptureNotes(input: CaptureWebsiteLeadRequest) {

@@ -891,6 +891,21 @@ model WebsiteLeadSite {
   formType               WebsiteLeadFormType
   isActive               Boolean                          @default(true)
   notes                  String?
+  headline               String?
+  subheadline            String?
+  submitButtonLabel      String?                          @default("Submit")
+  successTitle           String?
+  successMessage         String?
+  homeownerInquiryLabel  String?
+  contractorInquiryLabel String?
+  messageLabel           String?
+  referralSourceLabel    String?
+  referralDetailLabel    String?
+  marketingConsentLabel  String?
+  customerStatusLabel    String?
+  homeownerInquiryOptions String[]                        @default([])
+  contractorInquiryOptions String[]                       @default([])
+  referralSourceOptions  String[]                         @default([])
   createdAt              DateTime                         @default(now())
   updatedAt              DateTime                         @updatedAt
 

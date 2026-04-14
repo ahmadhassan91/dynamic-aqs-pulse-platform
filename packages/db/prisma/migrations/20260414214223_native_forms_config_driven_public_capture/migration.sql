@@ -1,0 +1,16 @@
+-- AlterTable
+ALTER TABLE "WebsiteLeadSite" ADD COLUMN     "contractorInquiryLabel" TEXT,
+ADD COLUMN     "contractorInquiryOptions" TEXT[] DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN     "customerStatusLabel" TEXT,
+ADD COLUMN     "headline" TEXT,
+ADD COLUMN     "homeownerInquiryLabel" TEXT,
+ADD COLUMN     "homeownerInquiryOptions" TEXT[] DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN     "marketingConsentLabel" TEXT,
+ADD COLUMN     "messageLabel" TEXT,
+ADD COLUMN     "referralDetailLabel" TEXT,
+ADD COLUMN     "referralSourceLabel" TEXT,
+ADD COLUMN     "referralSourceOptions" TEXT[] DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN     "subheadline" TEXT,
+ADD COLUMN     "submitButtonLabel" TEXT DEFAULT 'Submit',
+ADD COLUMN     "successMessage" TEXT,
+ADD COLUMN     "successTitle" TEXT;

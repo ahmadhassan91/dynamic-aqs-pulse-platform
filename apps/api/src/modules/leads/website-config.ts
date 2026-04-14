@@ -14,6 +14,7 @@ import type {
   PublicWebsiteLeadSite,
   UpdateWebsiteLeadNotificationRecipientRequest,
   UpdateWebsiteLeadSiteRequest,
+  WebsiteLeadSiteFormConfig,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
 } from '@pulse/contracts';
@@ -21,12 +22,14 @@ import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   addDays,
+  buildDefaultWebsiteLeadSiteFormConfig,
   normalizeEmailAddress,
   optionalTrimmed,
   requiredTrimmed,
   toWebsiteLeadFormTypeEnum,
   toWebsiteLeadFormTypeKey,
   toWebsiteLeadNotificationRecipientSummary,
+  toWebsiteLeadSiteFormConfig,
   toWebsiteLeadSiteSummary,
 } from './shared.js';
 import {
@@ -34,9 +37,91 @@ import {
   WEBSITE_LEAD_SITE_SEEDS,
 } from './website-forms-seed.js';
 
+function normalizeWebsiteLeadOptionList(
+  values: string[] | undefined,
+  fieldName: string,
+  fallback: string[],
+) {
+  if (values === undefined) {
+    return fallback;
+  }
+
+  const normalized = [...new Set(values
+    .map((value) => optionalTrimmed(value))
+    .filter((value): value is string => value !== undefined))];
+
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} must contain at least one option`);
+  }
+
+  return normalized;
+}
+
+function normalizeWebsiteLeadSiteFormConfigInput(
+  siteName: string,
+  formType: ReturnType<typeof toWebsiteLeadFormTypeKey>,
+  input: Partial<WebsiteLeadSiteFormConfig> | undefined,
+  fallback?: WebsiteLeadSiteFormConfig,
+) {
+  const defaults = fallback ?? buildDefaultWebsiteLeadSiteFormConfig(siteName, formType);
+
+  return {
+    headline: optionalTrimmed(input?.headline) ?? defaults.headline,
+    subheadline: optionalTrimmed(input?.subheadline) ?? defaults.subheadline,
+    submitButtonLabel: optionalTrimmed(input?.submitButtonLabel) ?? defaults.submitButtonLabel,
+    successTitle: optionalTrimmed(input?.successTitle) ?? defaults.successTitle,
+    successMessage: optionalTrimmed(input?.successMessage) ?? defaults.successMessage,
+    homeownerInquiryLabel: optionalTrimmed(input?.homeownerInquiryLabel) ?? defaults.homeownerInquiryLabel,
+    contractorInquiryLabel: optionalTrimmed(input?.contractorInquiryLabel) ?? defaults.contractorInquiryLabel,
+    messageLabel: optionalTrimmed(input?.messageLabel) ?? defaults.messageLabel,
+    referralSourceLabel: optionalTrimmed(input?.referralSourceLabel) ?? defaults.referralSourceLabel,
+    referralDetailLabel: optionalTrimmed(input?.referralDetailLabel) ?? defaults.referralDetailLabel,
+    marketingConsentLabel: optionalTrimmed(input?.marketingConsentLabel) ?? defaults.marketingConsentLabel,
+    customerStatusLabel: optionalTrimmed(input?.customerStatusLabel) ?? defaults.customerStatusLabel,
+    homeownerInquiryOptions: normalizeWebsiteLeadOptionList(
+      input?.homeownerInquiryOptions,
+      'formConfig.homeownerInquiryOptions',
+      defaults.homeownerInquiryOptions,
+    ),
+    contractorInquiryOptions: normalizeWebsiteLeadOptionList(
+      input?.contractorInquiryOptions,
+      'formConfig.contractorInquiryOptions',
+      defaults.contractorInquiryOptions,
+    ),
+    referralSourceOptions: normalizeWebsiteLeadOptionList(
+      input?.referralSourceOptions,
+      'formConfig.referralSourceOptions',
+      defaults.referralSourceOptions,
+    ),
+  };
+}
+
+function toWebsiteLeadSiteFormConfigUpdateData(config: WebsiteLeadSiteFormConfig) {
+  return {
+    headline: config.headline,
+    subheadline: config.subheadline,
+    submitButtonLabel: config.submitButtonLabel,
+    successTitle: config.successTitle,
+    successMessage: config.successMessage,
+    homeownerInquiryLabel: config.homeownerInquiryLabel,
+    contractorInquiryLabel: config.contractorInquiryLabel,
+    messageLabel: config.messageLabel,
+    referralSourceLabel: config.referralSourceLabel,
+    referralDetailLabel: config.referralDetailLabel,
+    marketingConsentLabel: config.marketingConsentLabel,
+    customerStatusLabel: config.customerStatusLabel,
+    homeownerInquiryOptions: config.homeownerInquiryOptions,
+    contractorInquiryOptions: config.contractorInquiryOptions,
+    referralSourceOptions: config.referralSourceOptions,
+  };
+}
+
 export async function ensureWebsiteLeadConfigSeeded() {
   await prisma.$transaction(async (tx) => {
     for (const site of WEBSITE_LEAD_SITE_SEEDS) {
+      const normalizedFormType = toWebsiteLeadFormTypeKey(site.formType);
+      const formConfig = normalizeWebsiteLeadSiteFormConfigInput(site.siteName, normalizedFormType, undefined);
+
       await tx.websiteLeadSite.upsert({
         where: {
           siteId: site.siteId,
@@ -46,6 +131,7 @@ export async function ensureWebsiteLeadConfigSeeded() {
           url: site.url,
           brandTag: site.brandTag,
           formType: site.formType,
+          ...toWebsiteLeadSiteFormConfigUpdateData(formConfig),
         },
         create: {
           siteId: site.siteId,
@@ -54,6 +140,7 @@ export async function ensureWebsiteLeadConfigSeeded() {
           brandTag: site.brandTag,
           formType: site.formType,
           isActive: site.isActive,
+          ...toWebsiteLeadSiteFormConfigUpdateData(formConfig),
         },
       });
     }
@@ -202,6 +289,7 @@ export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<L
         formType: toWebsiteLeadFormTypeKey(site.formType),
         isActive: site.isActive,
         ...(site.notes ? { notes: site.notes } : {}),
+        formConfig: toWebsiteLeadSiteFormConfig(site),
         submissionsLast30Days: submission?.recent ?? 0,
         linkedLeadsTotal: leadMetric.total,
         activePipelineLeads: leadMetric.active,
@@ -228,6 +316,7 @@ export async function createWebsiteLeadSite(
   const brandTag = requiredTrimmed(input.brandTag, 'brandTag').toUpperCase();
   const formType = toWebsiteLeadFormTypeEnum(input.formType);
   const notes = optionalTrimmed(input.notes);
+  const formConfig = normalizeWebsiteLeadSiteFormConfigInput(siteName, input.formType, input.formConfig);
 
   const site = await prisma.websiteLeadSite.create({
     data: {
@@ -238,6 +327,7 @@ export async function createWebsiteLeadSite(
       formType,
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       ...(notes ? { notes } : {}),
+      ...toWebsiteLeadSiteFormConfigUpdateData(formConfig),
     },
   });
 
@@ -253,6 +343,7 @@ export async function createWebsiteLeadSite(
         brandTag: site.brandTag,
         formType: input.formType,
         isActive: site.isActive,
+        formConfig,
       },
       metadata: {
         actorRole: actor.role,
@@ -282,17 +373,31 @@ export async function updateWebsiteLeadSite(
     throw new Error('Website lead site not found');
   }
 
+  const nextSiteName = input.siteName !== undefined
+    ? requiredTrimmed(input.siteName, 'siteName')
+    : existing.siteName;
+  const nextFormType = input.formType !== undefined
+    ? input.formType
+    : toWebsiteLeadFormTypeKey(existing.formType);
+  const mergedFormConfig = normalizeWebsiteLeadSiteFormConfigInput(
+    nextSiteName,
+    nextFormType,
+    input.formConfig,
+    toWebsiteLeadSiteFormConfig(existing),
+  );
+
   const updated = await prisma.websiteLeadSite.update({
     where: {
       id: siteRecordId,
     },
     data: {
-      ...(input.siteName !== undefined ? { siteName: requiredTrimmed(input.siteName, 'siteName') } : {}),
+      ...(input.siteName !== undefined ? { siteName: nextSiteName } : {}),
       ...(input.url !== undefined ? { url: requiredTrimmed(input.url, 'url') } : {}),
       ...(input.brandTag !== undefined ? { brandTag: requiredTrimmed(input.brandTag, 'brandTag').toUpperCase() } : {}),
       ...(input.formType !== undefined ? { formType: toWebsiteLeadFormTypeEnum(input.formType) } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       ...(input.notes !== undefined ? { notes: optionalTrimmed(input.notes) ?? null } : {}),
+      ...(input.formConfig !== undefined ? toWebsiteLeadSiteFormConfigUpdateData(mergedFormConfig) : {}),
     },
   });
 
@@ -309,6 +414,7 @@ export async function updateWebsiteLeadSite(
         formType: toWebsiteLeadFormTypeKey(existing.formType),
         isActive: existing.isActive,
         notes: existing.notes,
+        formConfig: toWebsiteLeadSiteFormConfig(existing),
       },
       afterData: {
         siteName: updated.siteName,
@@ -317,6 +423,7 @@ export async function updateWebsiteLeadSite(
         formType: toWebsiteLeadFormTypeKey(updated.formType),
         isActive: updated.isActive,
         notes: updated.notes,
+        formConfig: toWebsiteLeadSiteFormConfig(updated),
       },
       metadata: {
         actorRole: actor.role,
@@ -487,5 +594,6 @@ export async function getPublicWebsiteLeadSite(siteId: string): Promise<PublicWe
     url: site.url,
     brandTag: site.brandTag,
     formType: toWebsiteLeadFormTypeKey(site.formType),
+    formConfig: toWebsiteLeadSiteFormConfig(site),
   };
 }

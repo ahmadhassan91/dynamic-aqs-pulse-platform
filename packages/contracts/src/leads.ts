@@ -484,6 +484,24 @@ export interface ResolveWebsiteLeadSubmissionRequest {
   reviewNote?: string;
 }
 
+export interface WebsiteLeadSiteFormConfig {
+  headline: string;
+  subheadline: string;
+  submitButtonLabel: string;
+  successTitle: string;
+  successMessage: string;
+  homeownerInquiryLabel: string;
+  contractorInquiryLabel: string;
+  messageLabel: string;
+  referralSourceLabel: string;
+  referralDetailLabel: string;
+  marketingConsentLabel: string;
+  customerStatusLabel: string;
+  homeownerInquiryOptions: string[];
+  contractorInquiryOptions: string[];
+  referralSourceOptions: string[];
+}
+
 export interface WebsiteLeadSiteSummary {
   id: string;
   siteId: string;
@@ -493,6 +511,7 @@ export interface WebsiteLeadSiteSummary {
   formType: WebsiteLeadFormTypeKey;
   isActive: boolean;
   notes?: string;
+  formConfig: WebsiteLeadSiteFormConfig;
   submissionsLast30Days: number;
   linkedLeadsTotal: number;
   activePipelineLeads: number;
@@ -511,6 +530,7 @@ export interface CreateWebsiteLeadSiteRequest {
   formType: WebsiteLeadFormTypeKey;
   isActive?: boolean;
   notes?: string;
+  formConfig?: Partial<WebsiteLeadSiteFormConfig>;
 }
 
 export interface UpdateWebsiteLeadSiteRequest {
@@ -520,6 +540,7 @@ export interface UpdateWebsiteLeadSiteRequest {
   formType?: WebsiteLeadFormTypeKey;
   isActive?: boolean;
   notes?: string;
+  formConfig?: Partial<WebsiteLeadSiteFormConfig>;
 }
 
 export interface ListWebsiteLeadSitesResponse {
@@ -564,6 +585,7 @@ export interface PublicWebsiteLeadSite {
   url: string;
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
+  formConfig: WebsiteLeadSiteFormConfig;
 }
 
 export interface ListWebsiteFormLeadsResponse {

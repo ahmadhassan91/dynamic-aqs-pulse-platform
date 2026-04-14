@@ -84,6 +84,29 @@ async function createAdminActor() {
   return actor;
 }
 
+async function configureSolaceAirContractorForm(
+  actor,
+  {
+    contractorInquiryOptions = [
+      'Product, pricing, or availability',
+      'Training and onboarding',
+      'Existing account support',
+    ],
+    referralSourceOptions = ['Dealer referral', 'Search engine', 'Existing customer'],
+  } = {},
+) {
+  const siteList = await listWebsiteLeadSites(actor);
+  const targetSite = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(targetSite, 'expected seeded solace-air site');
+
+  await updateWebsiteLeadSite(actor, targetSite.id, {
+    formConfig: {
+      contractorInquiryOptions,
+      referralSourceOptions,
+    },
+  });
+}
+
 test('seeded website sites expose active public form configuration', SERIAL, async () => {
   const actor = await createAdminActor();
   const siteList = await listWebsiteLeadSites(actor);
@@ -94,8 +117,40 @@ test('seeded website sites expose active public form configuration', SERIAL, asy
   const solaceAir = await getPublicWebsiteLeadSite('solace-air');
   assert.equal(solaceAir.siteId, 'solace-air');
   assert.equal(solaceAir.formType, 'both');
+  assert.equal(solaceAir.formConfig.headline, 'Contact an IAQ Professional');
+  assert.equal(solaceAir.formConfig.homeownerInquiryOptions.length, 4);
+  assert.equal(solaceAir.formConfig.contractorInquiryOptions.length, 4);
+  assert.equal(solaceAir.formConfig.referralSourceOptions.length, 5);
 
   await assert.rejects(() => getPublicWebsiteLeadSite('eco-air'), /not available/i);
+});
+
+test('website site config updates flow through admin APIs into the public hosted form', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const siteList = await listWebsiteLeadSites(actor);
+  const targetSite = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(targetSite, 'expected seeded solace-air site');
+
+  const updated = await updateWebsiteLeadSite(actor, targetSite.id, {
+    formConfig: {
+      headline: 'Talk to the SolaceAir team',
+      subheadline: 'Custom homeowner + contractor intake for SolaceAir',
+      successTitle: 'SolaceAir request submitted',
+      successMessage: 'Pulse routed this branded-site request into the live residential workflow.',
+      homeownerInquiryOptions: ['Mold concerns', 'Allergy relief'],
+      contractorInquiryOptions: ['Training and onboarding', 'Dealer pricing'],
+      referralSourceOptions: ['Dealer referral', 'Trade show'],
+    },
+  });
+
+  assert.equal(updated.formConfig.headline, 'Talk to the SolaceAir team');
+  assert.deepEqual(updated.formConfig.homeownerInquiryOptions, ['Mold concerns', 'Allergy relief']);
+
+  const publicSite = await getPublicWebsiteLeadSite('solace-air');
+  assert.equal(publicSite.formConfig.headline, 'Talk to the SolaceAir team');
+  assert.equal(publicSite.formConfig.successTitle, 'SolaceAir request submitted');
+  assert.deepEqual(publicSite.formConfig.contractorInquiryOptions, ['Training and onboarding', 'Dealer pricing']);
+  assert.deepEqual(publicSite.formConfig.referralSourceOptions, ['Dealer referral', 'Trade show']);
 });
 
 test('public website capture rejects lead types outside the configured form mode', SERIAL, async () => {
@@ -111,6 +166,116 @@ test('public website capture rejects lead types outside the configured form mode
       }),
     /not configured for the selected lead type/i,
   );
+});
+
+test('public website capture rejects inquiry and referral values that are not configured for the site form', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const siteList = await listWebsiteLeadSites(actor);
+  const targetSite = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(targetSite, 'expected seeded solace-air site');
+
+  await updateWebsiteLeadSite(actor, targetSite.id, {
+    formConfig: {
+      homeownerInquiryOptions: ['Mold concerns'],
+      contractorInquiryOptions: ['Dealer pricing'],
+      referralSourceOptions: ['Dealer referral'],
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      captureWebsiteLead({
+        siteId: 'solace-air',
+        leadType: 'homeowner',
+        fullName: 'Harper Vale',
+        email: 'harper.vale@example.com',
+        phone: '555-000-1234',
+        state: 'TX',
+        inquiryTopic: 'Improve indoor air quality',
+      }),
+    /Inquiry topic is not configured/i,
+  );
+
+  await assert.rejects(
+    () =>
+      captureWebsiteLead({
+        siteId: 'solace-air',
+        leadType: 'contractor',
+        fullName: 'Jordan Bell',
+        companyName: 'Bell Comfort',
+        email: 'jordan@bellcomfort.com',
+        phone: '555-000-5678',
+        state: 'TX',
+        serviceTechCount: 4,
+        inquiryTopic: 'Dealer pricing',
+        referralSource: 'Trade show',
+      }),
+    /Referral source is not configured/i,
+  );
+});
+
+test('meeting-backed homeowner and contractor website form use cases persist branded metadata into Pulse', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const siteList = await listWebsiteLeadSites(actor);
+  const targetSite = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(targetSite, 'expected seeded solace-air site');
+
+  await updateWebsiteLeadSite(actor, targetSite.id, {
+    formConfig: {
+      homeownerInquiryOptions: ['Allergy relief'],
+      contractorInquiryOptions: ['Training and onboarding'],
+      referralSourceOptions: ['Dealer referral'],
+    },
+  });
+
+  const homeownerLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'homeowner',
+    fullName: 'Taylor Homeowner',
+    email: 'taylor.homeowner@example.com',
+    phone: '555-333-0001',
+    streetAddress: '10 Oak Street',
+    city: 'Dallas',
+    state: 'TX',
+    postalCode: '75001',
+    inquiryTopic: 'Allergy relief',
+    marketingConsent: true,
+    message: 'Need a healthier indoor air setup.',
+  });
+
+  const contractorLead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Casey Contractor',
+    companyName: 'Casey Comfort',
+    email: 'casey.contractor@example.com',
+    phone: '555-333-0002',
+    streetAddress: '55 Main Street',
+    city: 'Austin',
+    state: 'TX',
+    postalCode: '78701',
+    serviceTechCount: 6,
+    customerStatus: 'existing_customer',
+    inquiryTopic: 'Training and onboarding',
+    referralSource: 'Dealer referral',
+    referralDetail: 'Michelle Hogan',
+    message: 'Interested in onboarding the install team.',
+  });
+
+  const homeownerExtension = await prisma.leadExtension.findUniqueOrThrow({
+    where: { leadId: homeownerLead.id },
+  });
+  assert.equal(homeownerExtension.sourceMetadata.captureChannel, 'branded_website');
+  assert.equal(homeownerExtension.sourceMetadata.inquiryTopic, 'Allergy relief');
+  assert.equal(homeownerExtension.sourceMetadata.marketingConsent, true);
+  assert.equal(homeownerExtension.sourceMetadata.submittedAddress.city, 'Dallas');
+
+  const contractorSubmission = await prisma.websiteLeadSubmission.findFirstOrThrow({
+    where: { linkedLeadId: contractorLead.id },
+  });
+  assert.equal(contractorSubmission.referralSource, 'Dealer referral');
+  assert.equal(contractorSubmission.referralDetail, 'Michelle Hogan');
+  assert.equal(contractorSubmission.inquiryTopic, 'Training and onboarding');
 });
 
 test('public website capture rejects oversized submission payloads before storing JSON blobs', SERIAL, async () => {
@@ -130,6 +295,9 @@ test('public website capture rejects oversized submission payloads before storin
 });
 
 test('duplicate website submissions attach to the existing lead instead of creating a second one', SERIAL, async () => {
+  const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const firstLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -139,8 +307,8 @@ test('duplicate website submissions attach to the existing lead instead of creat
     phone: '555-333-4444',
     state: 'TX',
     serviceTechCount: 4,
-    inquiryTopic: 'IAQ evaluation',
-    referralSource: 'Trade show',
+    inquiryTopic: 'Product, pricing, or availability',
+    referralSource: 'Dealer referral',
     message: 'Interested in indoor air quality add-ons.',
   });
 
@@ -153,8 +321,8 @@ test('duplicate website submissions attach to the existing lead instead of creat
     phone: '555-333-4444',
     state: 'TX',
     serviceTechCount: 5,
-    inquiryTopic: 'Follow-up request',
-    referralSource: 'Trade show',
+    inquiryTopic: 'Existing account support',
+    referralSource: 'Existing customer',
     message: 'Submitting again after talking with the team.',
   });
 
@@ -186,6 +354,8 @@ test('duplicate website submissions attach to the existing lead instead of creat
 
 test('repeat-submission review lists duplicate website submissions newest first', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const firstLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -195,8 +365,8 @@ test('repeat-submission review lists duplicate website submissions newest first'
     phone: '555-100-2000',
     state: 'TX',
     serviceTechCount: 4,
-    inquiryTopic: 'Filter program',
-    referralSource: 'Website',
+    inquiryTopic: 'Product, pricing, or availability',
+    referralSource: 'Search engine',
   });
 
   await captureWebsiteLead({
@@ -208,8 +378,8 @@ test('repeat-submission review lists duplicate website submissions newest first'
     phone: '555-100-2000',
     state: 'TX',
     serviceTechCount: 5,
-    inquiryTopic: 'Training help',
-    referralSource: 'Website',
+    inquiryTopic: 'Training and onboarding',
+    referralSource: 'Search engine',
   });
 
   await captureWebsiteLead({
@@ -221,8 +391,8 @@ test('repeat-submission review lists duplicate website submissions newest first'
     phone: '555-100-2000',
     state: 'TX',
     serviceTechCount: 6,
-    inquiryTopic: 'Second follow-up',
-    referralSource: 'Trade show',
+    inquiryTopic: 'Existing account support',
+    referralSource: 'Dealer referral',
   });
 
   const duplicates = await listWebsiteLeadSubmissions(actor, {
@@ -237,13 +407,15 @@ test('repeat-submission review lists duplicate website submissions newest first'
   assert.equal(duplicates.summary.uniqueLinkedLeadCount, 1);
   assert.equal(duplicates.items[0].linkedLeadId, firstLead.id);
   assert.equal(duplicates.items[0].reviewStatus, 'pending_review');
-  assert.equal(duplicates.items[0].inquiryTopic, 'Second follow-up');
+  assert.equal(duplicates.items[0].inquiryTopic, 'Existing account support');
   assert.equal(duplicates.items[1].reviewStatus, 'pending_review');
-  assert.equal(duplicates.items[1].inquiryTopic, 'Training help');
+  assert.equal(duplicates.items[1].inquiryTopic, 'Training and onboarding');
 });
 
 test('duplicate review can confirm an existing lead and safely handle repeated confirmation', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const lead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -264,7 +436,7 @@ test('duplicate review can confirm an existing lead and safely handle repeated c
     phone: '555-901-0000',
     state: 'TX',
     serviceTechCount: 5,
-    inquiryTopic: 'Second request',
+    inquiryTopic: 'Existing account support',
   });
 
   const before = await listWebsiteLeadSubmissions(actor, {
@@ -300,6 +472,8 @@ test('duplicate review can confirm an existing lead and safely handle repeated c
 
 test('duplicate review can create a fresh lead from an immutable website submission snapshot', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const originalLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -313,7 +487,7 @@ test('duplicate review can create a fresh lead from an immutable website submiss
     postalCode: 'M5H 2N2',
     customerStatus: 'existing_customer',
     serviceTechCount: 4,
-    inquiryTopic: 'Initial request',
+    inquiryTopic: 'Product, pricing, or availability',
   });
 
   await captureWebsiteLead({
@@ -329,7 +503,7 @@ test('duplicate review can create a fresh lead from an immutable website submiss
     postalCode: 'M5H 2N2',
     customerStatus: 'existing_customer',
     serviceTechCount: 7,
-    inquiryTopic: 'Create a second tracked lead',
+    inquiryTopic: 'Training and onboarding',
   });
 
   const before = await listWebsiteLeadSubmissions(actor, {
@@ -356,7 +530,7 @@ test('duplicate review can create a fresh lead from an immutable website submiss
   });
   assert.deepEqual(createdLeadExtension.sourceMetadata, {
     captureChannel: 'branded_website',
-    inquiryTopic: 'Create a second tracked lead',
+    inquiryTopic: 'Training and onboarding',
     customerStatus: 'existing_customer',
     submittedAddress: {
       line1: '44 King Street',
@@ -378,6 +552,8 @@ test('duplicate review can create a fresh lead from an immutable website submiss
 
 test('duplicate review can relink a repeat submission to another active in-flight lead', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const originalLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -409,7 +585,7 @@ test('duplicate review can relink a repeat submission to another active in-fligh
     phone: '555-903-0000',
     state: 'TX',
     serviceTechCount: 5,
-    inquiryTopic: 'Route this to the later in-flight lead',
+    inquiryTopic: 'Existing account support',
   });
 
   const before = await listWebsiteLeadSubmissions(actor, {
@@ -454,6 +630,8 @@ test('duplicate review can relink a repeat submission to another active in-fligh
 
 test('duplicate review rejects relink targets that are already customer-active', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const originalLead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -655,6 +833,8 @@ test('website-form lead lists keep parked and closed records out of the active i
 
 test('website lead submission review keeps duplicate history visible after a linked lead is archived', SERIAL, async () => {
   const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
   const lead = await captureWebsiteLead({
     siteId: 'solace-air',
     leadType: 'contractor',
@@ -664,7 +844,7 @@ test('website lead submission review keeps duplicate history visible after a lin
     phone: '555-888-0000',
     state: 'TX',
     serviceTechCount: 4,
-    inquiryTopic: 'First request',
+    inquiryTopic: 'Product, pricing, or availability',
   });
 
   await captureWebsiteLead({
@@ -676,7 +856,7 @@ test('website lead submission review keeps duplicate history visible after a lin
     phone: '555-888-0000',
     state: 'TX',
     serviceTechCount: 5,
-    inquiryTopic: 'Duplicate follow-up',
+    inquiryTopic: 'Existing account support',
   });
 
   await prisma.lead.update({

@@ -41,6 +41,7 @@ import {
   IconHistory,
   IconMail,
   IconPlus,
+  IconPencil,
   IconRepeat,
   IconUsers,
   IconWorld,
@@ -52,6 +53,7 @@ import type {
   LeadSummary,
   LeadStageKey,
   ResolveWebsiteLeadSubmissionRequest,
+  WebsiteLeadSiteFormConfig,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
@@ -96,6 +98,21 @@ type SiteDraft = {
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
   notes: string;
+  headline: string;
+  subheadline: string;
+  submitButtonLabel: string;
+  successTitle: string;
+  successMessage: string;
+  homeownerInquiryLabel: string;
+  contractorInquiryLabel: string;
+  messageLabel: string;
+  referralSourceLabel: string;
+  referralDetailLabel: string;
+  marketingConsentLabel: string;
+  customerStatusLabel: string;
+  homeownerInquiryOptions: string;
+  contractorInquiryOptions: string;
+  referralSourceOptions: string;
 };
 
 type RecipientDraft = {
@@ -128,6 +145,37 @@ const initialSiteDraft: SiteDraft = {
   brandTag: '',
   formType: 'both',
   notes: '',
+  headline: 'Contact an IAQ Professional',
+  subheadline: 'Protect your Indoor Space',
+  submitButtonLabel: 'Submit',
+  successTitle: 'Thanks, we’ve received your request.',
+  successMessage: 'Your submission has been routed into Pulse CRM and the intake team will follow up from there.',
+  homeownerInquiryLabel: 'For Homeowners: How can we help?',
+  contractorInquiryLabel: 'For HVAC Contractors, I am inquiring about:',
+  messageLabel: 'Please provide a brief summary of your request:',
+  referralSourceLabel: 'How did you hear about us?',
+  referralDetailLabel: 'Who can we thank for referring you?',
+  marketingConsentLabel: 'I agree to receive other communications from Dynamic AQS.',
+  customerStatusLabel: 'Please select customer type:',
+  homeownerInquiryOptions: [
+    'Improve indoor air quality',
+    'Address odors or allergies',
+    'Whole-home IAQ consultation',
+    'Service or support request',
+  ].join('\n'),
+  contractorInquiryOptions: [
+    'Become a contractor partner',
+    'Product, pricing, or availability',
+    'Training and onboarding',
+    'Existing account support',
+  ].join('\n'),
+  referralSourceOptions: [
+    'Search engine',
+    'Dealer referral',
+    'Social media',
+    'Affinity group',
+    'Existing customer',
+  ].join('\n'),
 };
 
 const initialRecipientDraft: RecipientDraft = {
@@ -153,6 +201,67 @@ const initialFlowPolicyDraft: FlowPolicyDraft = {
   notes: '',
 };
 
+function formatWebsiteLeadOptionsText(options: string[]) {
+  return options.join('\n');
+}
+
+function parseWebsiteLeadOptionsText(value: string) {
+  return [...new Set(value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0))];
+}
+
+function toSiteDraft(site?: WebsiteLeadSiteSummary): SiteDraft {
+  if (!site) {
+    return initialSiteDraft;
+  }
+
+  return {
+    siteId: site.siteId,
+    siteName: site.siteName,
+    url: site.url,
+    brandTag: site.brandTag,
+    formType: site.formType,
+    notes: site.notes ?? '',
+    headline: site.formConfig.headline,
+    subheadline: site.formConfig.subheadline,
+    submitButtonLabel: site.formConfig.submitButtonLabel,
+    successTitle: site.formConfig.successTitle,
+    successMessage: site.formConfig.successMessage,
+    homeownerInquiryLabel: site.formConfig.homeownerInquiryLabel,
+    contractorInquiryLabel: site.formConfig.contractorInquiryLabel,
+    messageLabel: site.formConfig.messageLabel,
+    referralSourceLabel: site.formConfig.referralSourceLabel,
+    referralDetailLabel: site.formConfig.referralDetailLabel,
+    marketingConsentLabel: site.formConfig.marketingConsentLabel,
+    customerStatusLabel: site.formConfig.customerStatusLabel,
+    homeownerInquiryOptions: formatWebsiteLeadOptionsText(site.formConfig.homeownerInquiryOptions),
+    contractorInquiryOptions: formatWebsiteLeadOptionsText(site.formConfig.contractorInquiryOptions),
+    referralSourceOptions: formatWebsiteLeadOptionsText(site.formConfig.referralSourceOptions),
+  };
+}
+
+function toSiteFormConfigPayload(draft: SiteDraft): Partial<WebsiteLeadSiteFormConfig> {
+  return {
+    headline: draft.headline,
+    subheadline: draft.subheadline,
+    submitButtonLabel: draft.submitButtonLabel,
+    successTitle: draft.successTitle,
+    successMessage: draft.successMessage,
+    homeownerInquiryLabel: draft.homeownerInquiryLabel,
+    contractorInquiryLabel: draft.contractorInquiryLabel,
+    messageLabel: draft.messageLabel,
+    referralSourceLabel: draft.referralSourceLabel,
+    referralDetailLabel: draft.referralDetailLabel,
+    marketingConsentLabel: draft.marketingConsentLabel,
+    customerStatusLabel: draft.customerStatusLabel,
+    homeownerInquiryOptions: parseWebsiteLeadOptionsText(draft.homeownerInquiryOptions),
+    contractorInquiryOptions: parseWebsiteLeadOptionsText(draft.contractorInquiryOptions),
+    referralSourceOptions: parseWebsiteLeadOptionsText(draft.referralSourceOptions),
+  };
+}
+
 export function LeadWebsiteFormsWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
@@ -168,6 +277,7 @@ export function LeadWebsiteFormsWorkspace() {
   const [embedSite, setEmbedSite] = useState<WebsiteLeadSiteSummary | null>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<WebsiteLeadSubmissionSummary | null>(null);
   const [siteDraft, setSiteDraft] = useState<SiteDraft>(initialSiteDraft);
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
   const [recipientDraft, setRecipientDraft] = useState<RecipientDraft>(initialRecipientDraft);
   const [flowPolicyDraft, setFlowPolicyDraft] = useState<FlowPolicyDraft>(initialFlowPolicyDraft);
   const [siteModalOpen, setSiteModalOpen] = useState(false);
@@ -342,6 +452,18 @@ export function LeadWebsiteFormsWorkspace() {
     setPreviewSite(site);
   };
 
+  const openCreateSiteModal = () => {
+    setEditingSiteId(null);
+    setSiteDraft(initialSiteDraft);
+    setSiteModalOpen(true);
+  };
+
+  const openEditSiteModal = (site: WebsiteLeadSiteSummary) => {
+    setEditingSiteId(site.id);
+    setSiteDraft(toSiteDraft(site));
+    setSiteModalOpen(true);
+  };
+
   function applyResolvedSubmission(updatedSubmission: WebsiteLeadSubmissionSummary) {
     setDuplicateSubmissions((current) => current.map((submission) => (
       submission.id === updatedSubmission.id ? updatedSubmission : submission
@@ -469,7 +591,7 @@ export function LeadWebsiteFormsWorkspace() {
     }
   }
 
-  async function handleCreateSite() {
+  async function handleSaveSite() {
     setIsSavingSite(true);
     try {
       const payload = {
@@ -479,20 +601,46 @@ export function LeadWebsiteFormsWorkspace() {
         brandTag: siteDraft.brandTag,
         formType: siteDraft.formType,
         ...(siteDraft.notes.trim() ? { notes: siteDraft.notes.trim() } : {}),
+        formConfig: toSiteFormConfigPayload(siteDraft),
       };
-      const created = await createWebsiteLeadSite(apiBaseUrl, accessToken, payload);
 
-      setSites((current) => [...current, created].sort((left, right) => left.siteName.localeCompare(right.siteName)));
+      const saved = editingSiteId
+        ? await updateWebsiteLeadSite(apiBaseUrl, accessToken, editingSiteId, payload)
+        : await createWebsiteLeadSite(apiBaseUrl, accessToken, payload);
+
+      setSites((current) => {
+        if (editingSiteId) {
+          return current
+            .map((entry) => (
+              entry.id === editingSiteId
+                ? {
+                    ...entry,
+                    ...saved,
+                    submissionsLast30Days: entry.submissionsLast30Days,
+                    linkedLeadsTotal: entry.linkedLeadsTotal,
+                    activePipelineLeads: entry.activePipelineLeads,
+                    convertedLeads: entry.convertedLeads,
+                    conversionRate: entry.conversionRate,
+                    ...(entry.recentSubmissionAt ? { recentSubmissionAt: entry.recentSubmissionAt } : {}),
+                  }
+                : entry
+            ))
+            .sort((left, right) => left.siteName.localeCompare(right.siteName));
+        }
+
+        return [...current, saved].sort((left, right) => left.siteName.localeCompare(right.siteName));
+      });
       setSiteDraft(initialSiteDraft);
+      setEditingSiteId(null);
       setSiteModalOpen(false);
       notifications.show({
-        title: 'Website added',
-        message: `${created.siteName} is now configured for Pulse-native capture.`,
+        title: editingSiteId ? 'Website updated' : 'Website added',
+        message: `${saved.siteName} is now configured for Pulse-native capture.`,
         color: 'green',
       });
     } catch (error) {
       notifications.show({
-        title: 'Website creation failed',
+        title: editingSiteId ? 'Website update failed' : 'Website creation failed',
         message: error instanceof Error ? error.message : String(error),
         color: 'red',
       });
@@ -598,7 +746,7 @@ export function LeadWebsiteFormsWorkspace() {
               <Badge color="grape" variant="light">{activeRecipientCount} Active Alert Recipients</Badge>
             </Group>
           </Stack>
-          <Button leftSection={<IconPlus size={16} />} onClick={() => setSiteModalOpen(true)}>
+          <Button leftSection={<IconPlus size={16} />} onClick={openCreateSiteModal}>
             Add Website
           </Button>
         </Group>
@@ -697,13 +845,18 @@ export function LeadWebsiteFormsWorkspace() {
                         {site.conversionRate}%
                       </Badge>
                     </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Tooltip label="Preview form">
-                          <ActionIcon variant="subtle" color="blue" onClick={() => openPreview(site)}>
-                            <IconEye size={16} />
-                          </ActionIcon>
-                        </Tooltip>
+                      <Table.Td>
+                        <Group gap="xs">
+                          <Tooltip label="Edit website form configuration">
+                            <ActionIcon variant="subtle" color="grape" onClick={() => openEditSiteModal(site)}>
+                              <IconPencil size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="Preview form">
+                            <ActionIcon variant="subtle" color="blue" onClick={() => openPreview(site)}>
+                              <IconEye size={16} />
+                            </ActionIcon>
+                          </Tooltip>
                         <Tooltip label="Get embed code">
                           <ActionIcon variant="subtle" color="teal" onClick={() => setEmbedSite(site)}>
                             <IconCode size={16} />
@@ -1320,20 +1473,32 @@ export function LeadWebsiteFormsWorkspace() {
         ) : null}
       </Modal>
 
-      <Modal opened={siteModalOpen} onClose={() => setSiteModalOpen(false)} title="Add Website" size="lg">
+      <Modal
+        opened={siteModalOpen}
+        onClose={() => {
+          setSiteModalOpen(false);
+          setEditingSiteId(null);
+          setSiteDraft(initialSiteDraft);
+        }}
+        title={editingSiteId ? 'Edit Website Form' : 'Add Website'}
+        size="xl"
+      >
         <Stack gap="md">
-          <TextInput
-            label="Site ID"
-            value={siteDraft.siteId}
-            onChange={(event) => setSiteDraft((current) => ({ ...current, siteId: event.currentTarget.value }))}
-            placeholder="solace-air"
-          />
-          <TextInput
-            label="Site Name"
-            value={siteDraft.siteName}
-            onChange={(event) => setSiteDraft((current) => ({ ...current, siteName: event.currentTarget.value }))}
-            placeholder="SolaceAir.com"
-          />
+          <Group grow>
+            <TextInput
+              label="Site ID"
+              value={siteDraft.siteId}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, siteId: event.currentTarget.value }))}
+              placeholder="solace-air"
+              disabled={editingSiteId !== null}
+            />
+            <TextInput
+              label="Site Name"
+              value={siteDraft.siteName}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, siteName: event.currentTarget.value }))}
+              placeholder="SolaceAir.com"
+            />
+          </Group>
           <TextInput
             label="Website URL"
             value={siteDraft.url}
@@ -1358,6 +1523,99 @@ export function LeadWebsiteFormsWorkspace() {
               ]}
             />
           </Group>
+          <TextInput
+            label="Headline"
+            value={siteDraft.headline}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, headline: event.currentTarget.value }))}
+            placeholder="Contact an IAQ Professional"
+          />
+          <Textarea
+            label="Subheadline"
+            value={siteDraft.subheadline}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, subheadline: event.currentTarget.value }))}
+            minRows={2}
+            placeholder="Protect your Indoor Space"
+          />
+          <Group grow>
+            <TextInput
+              label="Submit button label"
+              value={siteDraft.submitButtonLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, submitButtonLabel: event.currentTarget.value }))}
+              placeholder="Submit"
+            />
+            <TextInput
+              label="Success title"
+              value={siteDraft.successTitle}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, successTitle: event.currentTarget.value }))}
+              placeholder="Thanks, we’ve received your request."
+            />
+          </Group>
+          <Textarea
+            label="Success message"
+            value={siteDraft.successMessage}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, successMessage: event.currentTarget.value }))}
+            minRows={2}
+          />
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <TextInput
+              label="Homeowner inquiry label"
+              value={siteDraft.homeownerInquiryLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, homeownerInquiryLabel: event.currentTarget.value }))}
+            />
+            <Textarea
+              label="Homeowner inquiry options"
+              description="One option per line"
+              value={siteDraft.homeownerInquiryOptions}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, homeownerInquiryOptions: event.currentTarget.value }))}
+              minRows={4}
+            />
+            <TextInput
+              label="Contractor inquiry label"
+              value={siteDraft.contractorInquiryLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, contractorInquiryLabel: event.currentTarget.value }))}
+            />
+            <Textarea
+              label="Contractor inquiry options"
+              description="One option per line"
+              value={siteDraft.contractorInquiryOptions}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, contractorInquiryOptions: event.currentTarget.value }))}
+              minRows={4}
+            />
+            <TextInput
+              label="Referral source label"
+              value={siteDraft.referralSourceLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, referralSourceLabel: event.currentTarget.value }))}
+            />
+            <Textarea
+              label="Referral source options"
+              description="One option per line"
+              value={siteDraft.referralSourceOptions}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, referralSourceOptions: event.currentTarget.value }))}
+              minRows={4}
+            />
+          </SimpleGrid>
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <TextInput
+              label="Message label"
+              value={siteDraft.messageLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, messageLabel: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Referral detail label"
+              value={siteDraft.referralDetailLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, referralDetailLabel: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Marketing consent label"
+              value={siteDraft.marketingConsentLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, marketingConsentLabel: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Customer status label"
+              value={siteDraft.customerStatusLabel}
+              onChange={(event) => setSiteDraft((current) => ({ ...current, customerStatusLabel: event.currentTarget.value }))}
+            />
+          </SimpleGrid>
           <Textarea
             label="Notes"
             value={siteDraft.notes}
@@ -1365,8 +1623,19 @@ export function LeadWebsiteFormsWorkspace() {
             minRows={3}
           />
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => setSiteModalOpen(false)}>Cancel</Button>
-            <Button onClick={() => void handleCreateSite()} loading={isSavingSite}>Create Website</Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                setSiteModalOpen(false);
+                setEditingSiteId(null);
+                setSiteDraft(initialSiteDraft);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSaveSite()} loading={isSavingSite}>
+              {editingSiteId ? 'Save Website' : 'Create Website'}
+            </Button>
           </Group>
         </Stack>
       </Modal>
@@ -1415,6 +1684,7 @@ function toPublicWebsiteLeadSite(site: WebsiteLeadSiteSummary) {
     url: site.url,
     brandTag: site.brandTag,
     formType: site.formType,
+    formConfig: site.formConfig,
   };
 }
 

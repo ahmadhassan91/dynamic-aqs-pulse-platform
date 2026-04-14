@@ -32,28 +32,6 @@ import { fetchPublicWebsiteLeadSite, submitPublicWebsiteLead } from '@/lib/pulse
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PULSE_API_BASE_URL ?? 'http://localhost:4000';
 
-const homeownerInquiryOptions = [
-  'Improve indoor air quality',
-  'Address odors or allergies',
-  'Whole-home IAQ consultation',
-  'Service or support request',
-];
-
-const contractorInquiryOptions = [
-  'Become a contractor partner',
-  'Product, pricing, or availability',
-  'Training and onboarding',
-  'Existing account support',
-];
-
-const referralSourceOptions = [
-  'Search engine',
-  'Dealer referral',
-  'Social media',
-  'Affinity group',
-  'Existing customer',
-];
-
 const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
 
 const leadRegionSelectData = leadRegionOptions.map((option) => ({
@@ -266,9 +244,9 @@ export function PublicWebsiteLeadCaptureForm({
       <Paper withBorder radius="lg" p="xl">
         <Stack gap="md" align="center">
           <Badge color="green" variant="light">Submitted to Pulse CRM</Badge>
-          <Title order={2} ta="center">Thanks, we’ve received your request.</Title>
+          <Title order={2} ta="center">{site.formConfig.successTitle}</Title>
           <Text ta="center" c="dimmed">
-            Your submission for {site.siteName} has been routed into the Pulse CRM workflow and the intake team will follow up from there.
+            {site.formConfig.successMessage}
           </Text>
           <Group gap="xs">
             <IconCheck size={16} />
@@ -289,8 +267,8 @@ export function PublicWebsiteLeadCaptureForm({
 
       <Stack gap="md">
         <Stack gap={4} align="center">
-          <Title order={2} ta="center">Contact an IAQ Professional</Title>
-          <Text ta="center" fw={700} size="lg">Protect your Indoor Space</Text>
+          <Title order={2} ta="center">{site.formConfig.headline}</Title>
+          <Text ta="center" fw={700} size="lg">{site.formConfig.subheadline}</Text>
           <Text ta="center" c="dimmed">{site.siteName}</Text>
           <Badge color="blue" variant="light">{site.brandTag}</Badge>
         </Stack>
@@ -322,7 +300,7 @@ export function PublicWebsiteLeadCaptureForm({
 
               {resolvedLeadType === 'contractor' ? (
                 <>
-                  <Text size="sm" c="dimmed">Please select customer type:</Text>
+                  <Text size="sm" c="dimmed">{site.formConfig.customerStatusLabel}</Text>
                   <SegmentedControl
                     fullWidth
                     value={formState.customerStatus}
@@ -426,15 +404,15 @@ export function PublicWebsiteLeadCaptureForm({
               </Grid>
 
               <Select
-                label={resolvedLeadType === 'homeowner' ? 'For Homeowners: How can we help?' : 'For HVAC Contractors, I am inquiring about:'}
+                label={resolvedLeadType === 'homeowner' ? site.formConfig.homeownerInquiryLabel : site.formConfig.contractorInquiryLabel}
                 required
                 value={formState.inquiryTopic}
                 onChange={(value) => setFormState((current) => ({ ...current, inquiryTopic: value ?? '' }))}
-                data={resolvedLeadType === 'homeowner' ? homeownerInquiryOptions : contractorInquiryOptions}
+                data={resolvedLeadType === 'homeowner' ? site.formConfig.homeownerInquiryOptions : site.formConfig.contractorInquiryOptions}
               />
 
               <Textarea
-                label="Please provide a brief summary of your request:"
+                label={site.formConfig.messageLabel}
                 minRows={4}
                 value={formState.message}
                 onChange={(event) => setFormState((current) => ({ ...current, message: event.currentTarget.value }))}
@@ -443,20 +421,20 @@ export function PublicWebsiteLeadCaptureForm({
               {resolvedLeadType === 'contractor' ? (
                 <>
                   <Select
-                    label="How did you hear about us?"
+                    label={site.formConfig.referralSourceLabel}
                     value={formState.referralSource}
                     onChange={(value) => setFormState((current) => ({ ...current, referralSource: value ?? '' }))}
-                    data={referralSourceOptions}
+                    data={site.formConfig.referralSourceOptions}
                   />
                   <TextInput
-                    label="Who can we thank for referring you?"
+                    label={site.formConfig.referralDetailLabel}
                     value={formState.referralDetail}
                     onChange={(event) => setFormState((current) => ({ ...current, referralDetail: event.currentTarget.value }))}
                   />
                 </>
               ) : (
                 <Checkbox
-                  label="I agree to receive other communications from Dynamic AQS."
+                  label={site.formConfig.marketingConsentLabel}
                   checked={formState.consent}
                   onChange={(event) => setFormState((current) => ({ ...current, consent: event.currentTarget.checked }))}
                 />
@@ -469,7 +447,7 @@ export function PublicWebsiteLeadCaptureForm({
                 disabled={isPreview}
                 leftSection={<IconMail size={16} />}
               >
-                {isPreview ? 'Preview Only' : 'Submit'}
+                {isPreview ? 'Preview Only' : site.formConfig.submitButtonLabel}
               </Button>
               <Text size="xs" c="dimmed" ta="center">Powered by Pulse CRM</Text>
             </Stack>

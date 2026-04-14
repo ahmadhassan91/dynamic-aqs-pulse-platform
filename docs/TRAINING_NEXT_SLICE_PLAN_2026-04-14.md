@@ -40,24 +40,37 @@ Live baseline:
 
 ## Recommended Next Slice
 
-Build `Training Slice D: Outlook Sync + External Coexistence`
+If provider prerequisites are available:
 
-This is the next training slice, but it should only begin when the external prerequisites are available. If Outlook/provider prerequisites remain parked, the next active engineering slice should move to another downstream module instead of forcing a blocked training integration.
+- build `Training Slice D1: Outlook Sync + External Coexistence`
 
-## Slice D Scope
+If provider prerequisites are still parked:
 
-`Training Slice D: Outlook Sync + External Coexistence`
+- build `Training Slice D0: Reporting + Certification Ops`
+
+This keeps training moving without forcing a blocked provider integration.
+
+## Slice D1 Scope
+
+`Training Slice D1: Outlook Sync + External Coexistence`
 
 - Microsoft Graph / Outlook reflection
 - provider-specific meeting-link synchronization
 - external training-site coexistence or sync boundary
 - certification-site import decisions
 
-## Explicitly Out Of Scope For Slice D Until Prerequisites Arrive
+## Explicitly Out Of Scope For Slice D1 Until Prerequisites Arrive
 
 - hardcoded provider selection before Dynamic AQS confirms the calendar/meeting stack
 - replacing the current external training site outright
 - ROI/contest attribution modeling
+
+## Optional Provider-Free Depth Before D1
+
+- training overdue dashboard depth
+- certification expiry / recertification queue
+- richer TM / RD / leadership training exception views
+- deeper account/territory training reporting
 
 ## What We Still Need Later
 

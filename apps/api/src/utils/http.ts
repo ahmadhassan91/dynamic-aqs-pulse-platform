@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { URL } from 'node:url';
 
 export function jsonResponse(res: ServerResponse, statusCode: number, body: unknown) {
   const payload = JSON.stringify(body);
@@ -86,6 +87,54 @@ export async function readJsonBody(req: IncomingMessage, maxBytes = 1_000_000): 
   } catch (error) {
     throw new Error(error instanceof Error ? `Invalid JSON body: ${error.message}` : 'Invalid JSON body');
   }
+}
+
+export function matchPath(pathname: string, pattern: string): Record<string, string> | null {
+  const actualParts = pathname.split('/').filter(Boolean);
+  const patternParts = pattern.split('/').filter(Boolean);
+
+  if (actualParts.length !== patternParts.length) {
+    return null;
+  }
+
+  const params: Record<string, string> = {};
+
+  for (const [index, patternPart] of patternParts.entries()) {
+    const actualPart = actualParts[index];
+    if (!actualPart) {
+      return null;
+    }
+
+    if (patternPart.startsWith(':')) {
+      params[patternPart.slice(1)] = actualPart;
+      continue;
+    }
+
+    if (patternPart !== actualPart) {
+      return null;
+    }
+  }
+
+  return params;
+}
+
+export function matchesPath(pathname: string, pattern: string) {
+  return matchPath(pathname, pattern) !== null;
+}
+
+export function readTrimmedQuery(url: URL, key: string) {
+  const value = url.searchParams.get(key)?.trim();
+  return value ? value : undefined;
+}
+
+export function readIntegerQuery(url: URL, key: string) {
+  const value = url.searchParams.get(key);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }
 
 function asObject(value: unknown): Record<string, unknown> {

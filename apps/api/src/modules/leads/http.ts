@@ -38,9 +38,13 @@ import {
   badRequestResponse,
   forbiddenResponse,
   jsonResponse,
+  matchPath,
+  matchesPath,
   methodNotAllowedResponse,
   notFoundResponse,
+  readIntegerQuery,
   readJsonBody,
+  readTrimmedQuery,
   unauthorizedResponse,
 } from '../../utils/http.js';
 import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
@@ -96,13 +100,13 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     pathname === '/api/leads/capture'
     || pathname === '/api/v1/leads/capture'
     || pathname === '/api/v1/public/leads/capture'
-    || /^\/api\/v1\/public\/website-sites\/[^/]+$/.test(pathname);
+    || matchesPath(pathname, '/api/v1/public/website-sites/:siteId');
 
   const internalLeadRoute =
     pathname === '/api/v1/leads'
     || pathname === '/api/v1/leads/website-forms'
     || pathname === '/api/v1/leads/website-submissions'
-    || /^\/api\/v1\/leads\/website-submissions\/[^/]+\/resolve$/.test(pathname)
+    || matchesPath(pathname, '/api/v1/leads/website-submissions/:submissionId/resolve')
     || pathname === '/api/v1/leads/website-sites'
     || pathname === '/api/v1/leads/website-notification-recipients'
     || pathname === '/api/v1/leads/workflow-queue'
@@ -111,25 +115,25 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || pathname === '/api/v1/leads/import/file'
     || pathname === '/api/v1/leads/import/preview'
     || pathname === '/api/v1/leads/routing-policy'
-    || /^\/api\/v1\/leads\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/stage-transition$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/lifecycle$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/log-initial-contact$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/discovery\/schedule$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/discovery\/complete$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/discovery\/skip$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/readiness$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/readiness\/blockers$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/readiness\/checklist\/generate$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/readiness\/items\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/contacts$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/contacts\/import-from-cis$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/contacts\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/conversion-prep$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/conversion-prep\/validate$/.test(pathname)
-    || /^\/api\/v1\/leads\/[^/]+\/convert-on-first-order$/.test(pathname)
-    || /^\/api\/v1\/leads\/website-sites\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/leads\/website-notification-recipients\/[^/]+$/.test(pathname);
+    || matchesPath(pathname, '/api/v1/leads/:leadId')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/stage-transition')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/lifecycle')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/log-initial-contact')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/schedule')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/complete')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/skip')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/readiness')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/readiness/blockers')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/readiness/checklist/generate')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/readiness/items/:itemId')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/contacts')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/contacts/import-from-cis')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/contacts/:contactId')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/conversion-prep')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/conversion-prep/validate')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/convert-on-first-order')
+    || matchesPath(pathname, '/api/v1/leads/website-sites/:siteRecordId')
+    || matchesPath(pathname, '/api/v1/leads/website-notification-recipients/:recipientId');
 
   if (!publicCaptureRoute && !internalLeadRoute) {
     return false;
@@ -145,12 +149,13 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         return true;
       }
 
-      if (/^\/api\/v1\/public\/website-sites\/[^/]+$/.test(pathname)) {
+      const publicWebsiteSiteMatch = matchPath(pathname, '/api/v1/public/website-sites/:siteId');
+      if (publicWebsiteSiteMatch) {
         if (method !== 'GET') {
           return methodNotAllowedResponse(res, method, ['GET', 'OPTIONS']);
         }
 
-        const siteId = pathname.split('/').pop();
+        const siteId = publicWebsiteSiteMatch.siteId;
         if (!siteId) {
           return badRequestResponse(res, 'siteId is required');
         }
@@ -174,12 +179,12 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
           module: 'leads',
           action: 'lead.view',
         });
-        const search = url.searchParams.get('search')?.trim();
-        const stage = url.searchParams.get('stage');
-        const lifecycleStatus = url.searchParams.get('lifecycleStatus');
-        const routingTeam = url.searchParams.get('routingTeam');
-        const leadSourceCode = url.searchParams.get('leadSourceCode')?.trim();
-        const limit = parseInteger(url.searchParams.get('limit'));
+        const search = readTrimmedQuery(url, 'search');
+        const stage = readTrimmedQuery(url, 'stage');
+        const lifecycleStatus = readTrimmedQuery(url, 'lifecycleStatus');
+        const routingTeam = readTrimmedQuery(url, 'routingTeam');
+        const leadSourceCode = readTrimmedQuery(url, 'leadSourceCode');
+        const limit = readIntegerQuery(url, 'limit');
         const query: ListLeadsRequest = {
           ...(search ? { search } : {}),
           ...(stage ? { stage: stage as LeadStageKey } : {}),
@@ -215,11 +220,11 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.view',
       });
-      const search = url.searchParams.get('search')?.trim();
-      const stage = url.searchParams.get('stage');
-      const lifecycleStatus = url.searchParams.get('lifecycleStatus');
-      const sourceSiteId = url.searchParams.get('sourceSiteId')?.trim();
-      const limit = parseInteger(url.searchParams.get('limit'));
+      const search = readTrimmedQuery(url, 'search');
+      const stage = readTrimmedQuery(url, 'stage');
+      const lifecycleStatus = readTrimmedQuery(url, 'lifecycleStatus');
+      const sourceSiteId = readTrimmedQuery(url, 'sourceSiteId');
+      const limit = readIntegerQuery(url, 'limit');
       const query: ListWebsiteFormLeadsRequest = {
         ...(search ? { search } : {}),
         ...(stage ? { stage: stage as LeadStageKey } : {}),
@@ -241,10 +246,10 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.view',
       });
-      const search = url.searchParams.get('search')?.trim();
-      const sourceSiteId = url.searchParams.get('sourceSiteId')?.trim();
-      const outcome = url.searchParams.get('outcome');
-      const limit = parseInteger(url.searchParams.get('limit'));
+      const search = readTrimmedQuery(url, 'search');
+      const sourceSiteId = readTrimmedQuery(url, 'sourceSiteId');
+      const outcome = readTrimmedQuery(url, 'outcome');
+      const limit = readIntegerQuery(url, 'limit');
       const query: ListWebsiteLeadSubmissionsRequest = {};
 
       if (search) {
@@ -264,7 +269,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    if (/^\/api\/v1\/leads\/website-submissions\/[^/]+\/resolve$/.test(pathname)) {
+    const resolveSubmissionMatch = matchPath(pathname, '/api/v1/leads/website-submissions/:submissionId/resolve');
+    if (resolveSubmissionMatch) {
       if (method !== 'POST') {
         return methodNotAllowedResponse(res, method, ['POST']);
       }
@@ -273,7 +279,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.intake_manage',
       });
-      const submissionId = pathname.split('/').filter(Boolean).at(-2);
+      const submissionId = resolveSubmissionMatch.submissionId;
       if (!submissionId) {
         return badRequestResponse(res, 'Submission id is required');
       }
@@ -338,8 +344,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.view',
       });
-      const search = url.searchParams.get('search')?.trim();
-      const limit = parseInteger(url.searchParams.get('limit'));
+      const search = readTrimmedQuery(url, 'search');
+      const limit = readIntegerQuery(url, 'limit');
       const query: ListLeadHistoryFeedRequest = {};
       if (search) {
         query.search = search;
@@ -361,10 +367,10 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.view',
       });
-      const search = url.searchParams.get('search')?.trim();
-      const routingTeam = url.searchParams.get('routingTeam');
-      const view = url.searchParams.get('view');
-      const limit = parseInteger(url.searchParams.get('limit'));
+      const search = readTrimmedQuery(url, 'search');
+      const routingTeam = readTrimmedQuery(url, 'routingTeam');
+      const view = readTrimmedQuery(url, 'view');
+      const limit = readIntegerQuery(url, 'limit');
       const query: ListLeadWorkflowQueueRequest = {
         ...(search ? { search } : {}),
         ...(routingTeam ? { routingTeam: routingTeam as LeadRoutingTeamKey } : {}),
@@ -441,7 +447,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
     }
 
-    if (pathname.startsWith('/api/v1/leads/website-sites/')) {
+    const websiteSiteMatch = matchPath(pathname, '/api/v1/leads/website-sites/:siteRecordId');
+    if (websiteSiteMatch) {
       if (method !== 'PATCH') {
         return methodNotAllowedResponse(res, method, ['PATCH']);
       }
@@ -450,7 +457,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.intake_manage',
       });
-      const siteId = pathname.split('/').pop();
+      const siteId = websiteSiteMatch.siteRecordId;
       if (!siteId) {
         return badRequestResponse(res, 'Website site id is required');
       }
@@ -459,7 +466,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    if (pathname.startsWith('/api/v1/leads/website-notification-recipients/')) {
+    const websiteRecipientMatch = matchPath(pathname, '/api/v1/leads/website-notification-recipients/:recipientId');
+    if (websiteRecipientMatch) {
       if (method !== 'PATCH') {
         return methodNotAllowedResponse(res, method, ['PATCH']);
       }
@@ -468,7 +476,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         module: 'leads',
         action: 'lead.intake_manage',
       });
-      const recipientId = pathname.split('/').pop();
+      const recipientId = websiteRecipientMatch.recipientId;
       if (!recipientId) {
         return badRequestResponse(res, 'Website notification recipient id is required');
       }
@@ -477,9 +485,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const stageTransitionMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/stage-transition$/);
+    const stageTransitionMatch = matchPath(pathname, '/api/v1/leads/:leadId/stage-transition');
     if (stageTransitionMatch) {
-      const leadId = stageTransitionMatch[1];
+      const leadId = stageTransitionMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -497,9 +505,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const lifecycleMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/lifecycle$/);
+    const lifecycleMatch = matchPath(pathname, '/api/v1/leads/:leadId/lifecycle');
     if (lifecycleMatch) {
-      const leadId = lifecycleMatch[1];
+      const leadId = lifecycleMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -517,9 +525,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const logInitialContactMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/log-initial-contact$/);
+    const logInitialContactMatch = matchPath(pathname, '/api/v1/leads/:leadId/log-initial-contact');
     if (logInitialContactMatch) {
-      const leadId = logInitialContactMatch[1];
+      const leadId = logInitialContactMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -537,9 +545,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const scheduleDiscoveryMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/discovery\/schedule$/);
+    const scheduleDiscoveryMatch = matchPath(pathname, '/api/v1/leads/:leadId/discovery/schedule');
     if (scheduleDiscoveryMatch) {
-      const leadId = scheduleDiscoveryMatch[1];
+      const leadId = scheduleDiscoveryMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -557,9 +565,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const completeDiscoveryMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/discovery\/complete$/);
+    const completeDiscoveryMatch = matchPath(pathname, '/api/v1/leads/:leadId/discovery/complete');
     if (completeDiscoveryMatch) {
-      const leadId = completeDiscoveryMatch[1];
+      const leadId = completeDiscoveryMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -577,9 +585,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const skipDiscoveryMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/discovery\/skip$/);
+    const skipDiscoveryMatch = matchPath(pathname, '/api/v1/leads/:leadId/discovery/skip');
     if (skipDiscoveryMatch) {
-      const leadId = skipDiscoveryMatch[1];
+      const leadId = skipDiscoveryMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -597,9 +605,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const readinessMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/readiness$/);
+    const readinessMatch = matchPath(pathname, '/api/v1/leads/:leadId/readiness');
     if (readinessMatch) {
-      const leadId = readinessMatch[1];
+      const leadId = readinessMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -619,9 +627,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return methodNotAllowedResponse(res, method, ['GET']);
     }
 
-    const readinessBlockersMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/readiness\/blockers$/);
+    const readinessBlockersMatch = matchPath(pathname, '/api/v1/leads/:leadId/readiness/blockers');
     if (readinessBlockersMatch) {
-      const leadId = readinessBlockersMatch[1];
+      const leadId = readinessBlockersMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -641,9 +649,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const generateChecklistMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/readiness\/checklist\/generate$/);
+    const generateChecklistMatch = matchPath(pathname, '/api/v1/leads/:leadId/readiness/checklist/generate');
     if (generateChecklistMatch) {
-      const leadId = generateChecklistMatch[1];
+      const leadId = generateChecklistMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -660,10 +668,10 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const readinessItemMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/readiness\/items\/([^/]+)$/);
+    const readinessItemMatch = matchPath(pathname, '/api/v1/leads/:leadId/readiness/items/:itemId');
     if (readinessItemMatch) {
-      const leadId = readinessItemMatch[1];
-      const itemId = readinessItemMatch[2];
+      const leadId = readinessItemMatch.leadId;
+      const itemId = readinessItemMatch.itemId;
       if (!leadId || !itemId) {
         return false;
       }
@@ -681,9 +689,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const leadContactsMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/contacts$/);
+    const leadContactsMatch = matchPath(pathname, '/api/v1/leads/:leadId/contacts');
     if (leadContactsMatch) {
-      const leadId = leadContactsMatch[1];
+      const leadId = leadContactsMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -713,9 +721,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
     }
 
-    const importLeadContactsMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/contacts\/import-from-cis$/);
+    const importLeadContactsMatch = matchPath(pathname, '/api/v1/leads/:leadId/contacts/import-from-cis');
     if (importLeadContactsMatch) {
-      const leadId = importLeadContactsMatch[1];
+      const leadId = importLeadContactsMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -732,10 +740,10 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const leadContactMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/contacts\/([^/]+)$/);
+    const leadContactMatch = matchPath(pathname, '/api/v1/leads/:leadId/contacts/:contactId');
     if (leadContactMatch) {
-      const leadId = leadContactMatch[1];
-      const contactId = leadContactMatch[2];
+      const leadId = leadContactMatch.leadId;
+      const contactId = leadContactMatch.contactId;
       if (!leadId || !contactId) {
         return false;
       }
@@ -753,9 +761,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const conversionPrepMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/conversion-prep$/);
+    const conversionPrepMatch = matchPath(pathname, '/api/v1/leads/:leadId/conversion-prep');
     if (conversionPrepMatch) {
-      const leadId = conversionPrepMatch[1];
+      const leadId = conversionPrepMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -785,9 +793,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
     }
 
-    const validateConversionPrepMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/conversion-prep\/validate$/);
+    const validateConversionPrepMatch = matchPath(pathname, '/api/v1/leads/:leadId/conversion-prep/validate');
     if (validateConversionPrepMatch) {
-      const leadId = validateConversionPrepMatch[1];
+      const leadId = validateConversionPrepMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -804,9 +812,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const convertOnFirstOrderMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/convert-on-first-order$/);
+    const convertOnFirstOrderMatch = matchPath(pathname, '/api/v1/leads/:leadId/convert-on-first-order');
     if (convertOnFirstOrderMatch) {
-      const leadId = convertOnFirstOrderMatch[1];
+      const leadId = convertOnFirstOrderMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -824,9 +832,9 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       return jsonResponse(res, 200, response);
     }
 
-    const leadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)$/);
+    const leadMatch = matchPath(pathname, '/api/v1/leads/:leadId');
     if (leadMatch) {
-      const leadId = leadMatch[1];
+      const leadId = leadMatch.leadId;
       if (!leadId) {
         return false;
       }
@@ -865,15 +873,6 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
   }
 
   return false;
-}
-
-function parseInteger(value: string | null) {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : undefined;
 }
 
 function applyPublicCaptureCors(res: ServerResponse) {

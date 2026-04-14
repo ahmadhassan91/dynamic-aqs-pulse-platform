@@ -76,6 +76,23 @@ Build a short foundation-alignment slice after the current domain slice pressure
 4. Regression harness cleanup
 5. Doc reconciliation pass for active modules
 
+## First Implementation Pass Completed
+
+The first concrete alignment pass is now shipped.
+
+Implemented:
+
+- shared HTTP route/query helpers for path matching and query parsing
+- lead-route adoption of those helpers instead of repeated inline regex matching
+- first internal `leads` extraction via `website-config.ts`
+- shared lead helper extraction via `shared.ts`
+
+Still pending from the broader alignment agenda:
+
+- additional handler standardization across other modules
+- deeper `leads` internal splits for workflow/history and lifecycle helpers
+- broader test/bootstrap harness cleanup
+
 ## What Is Not A Current Concern
 
 These are not foundation blockers right now:

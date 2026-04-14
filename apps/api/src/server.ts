@@ -15,6 +15,8 @@ import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
 import { handleTerritoryRoutes } from './modules/territories/http.js';
 import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
+import { handleTrainingRoutes } from './modules/training/http.js';
+import { ensureTrainingSeeded } from './modules/training/service.js';
 import { SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
 import type { QueueJobEnvelope, QueueManager } from './queue/contracts.js';
@@ -69,6 +71,7 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   await ensureLeadRoutingPolicySeeded();
   await ensureWebsiteLeadConfigSeeded();
   await ensureTerritoryPolicySeeded();
+  await ensureTrainingSeeded();
 
   try {
     await workers.start();
@@ -233,6 +236,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const territoryRouteHandled = await handleTerritoryRoutes(req, res, url);
   if (territoryRouteHandled !== false) {
+    return;
+  }
+
+  const trainingRouteHandled = await handleTrainingRoutes(req, res, url);
+  if (trainingRouteHandled !== false) {
     return;
   }
 

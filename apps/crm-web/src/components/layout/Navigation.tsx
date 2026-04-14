@@ -9,6 +9,7 @@ import {
   IconChevronRight,
   IconHome,
   IconMapPin,
+  IconSchool,
   IconShield,
   IconUserPlus,
   type TablerIcon,
@@ -126,6 +127,16 @@ export function Navigation() {
       icon: IconBuildingStore,
       links: [
         { label: 'All Accounts', link: '/customers' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'training')) {
+    navItems.push({
+      label: 'Training',
+      icon: IconSchool,
+      links: [
+        { label: 'Training Dashboard', link: '/training' },
       ],
     });
   }

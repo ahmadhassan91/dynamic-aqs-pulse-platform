@@ -7,3 +7,4 @@ export * from './leads.js';
 export * from './lead-options.js';
 export * from './reference.js';
 export * from './territories.js';
+export * from './training.js';

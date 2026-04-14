@@ -20,25 +20,39 @@ Primary references:
 
 - [TRAINING_MODULE_STRUCTURE_AND_COMMERCIAL_READINESS_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TRAINING_MODULE_STRUCTURE_AND_COMMERCIAL_READINESS_2026-04-14.md)
 - [TRAINING_DISCOVERY_VALIDATION_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TRAINING_DISCOVERY_VALIDATION_2026-04-14.md)
+- [TRAINING_SLICE_A_IMPLEMENTATION_2026-04-14.md](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TRAINING_SLICE_A_IMPLEMENTATION_2026-04-14.md)
+
+## Current Status
+
+`Training Slice A: Catalog + Programs + Account History Shell` is now implemented in the production repo.
+
+Live baseline:
+
+- seeded training catalog with governed categories, types, templates, and cadence policies
+- certification seeds for `IAQ Certification Curriculum` and `Product Installations`
+- account-centric training programs with TM/RD ownership carry-forward
+- overdue detection and account training history reads
+- prototype-aligned `/training` workspace plus customer-detail `Training` tab
+- dedicated module regression suite
 
 ## Recommended Next Slice
 
-Build `Training Slice A: Catalog + Programs + Account History Shell`
+Build `Training Slice B: Scheduling + Session Execution`
 
-This is the highest-value next slice because it gives us the stable foundation for later scheduling, mobile execution, and certification without taking an unnecessary dependency on Outlook/Teams/WebEx decisions.
+This is the highest-value next slice now because Slice A already gives us the stable catalog, cadence, and account-history foundation we needed before taking on scheduling, session outcomes, and mobile-ready execution flows.
 
-## Slice A Scope
+## Slice B Scope
 
 ### Backend
 
-- `TrainingCategory`
-- `TrainingType`
-- `TrainingTemplate`
-- `TrainerProfile`
-- `TrainingCadencePolicy`
-- `AccountTrainingProgram`
-- `AccountTrainingRequirement`
-- `TrainingSummaryReadModel` or equivalent account-scoped query layer
+- `TrainingSession`
+- `TrainingSessionAttendee`
+- `TrainingSessionOutcome`
+- `TrainingSessionNote`
+- `TrainingFollowUpTask`
+- `TrainingTrainerProfile` expansion for real trainer assignment
+- account-scoped session-history read model
+- mobile-ready session status API surface
 
 ### Web
 
@@ -46,23 +60,24 @@ Use the same approved prototype shell and existing training/territory patterns.
 
 Ship:
 
-- training catalog admin view
-- account training history tab
-- account training program summary
-- overdue / due-soon indicators at account level
+- training session create/update flow
+- trainer assignment workflow
+- account-level session timeline
+- basic calendar/list views inside Pulse
+- follow-up task visibility from the account training record
 
 ### Regression coverage
 
 Add a dedicated module suite for:
 
-- category/type/template seeding
-- custom presentation allowance
-- segment-aware filtering
-- overdue calculation from cadence policy
-- account training history reads
-- site-visit vs training distinction
+- session scheduling and rescheduling
+- trainer assignment permissions
+- attendee/status transitions
+- site-visit versus formal-training session behavior
+- follow-up task generation
+- parked dependency boundary behavior when Outlook/provider sync is not connected
 
-## Explicitly Out Of Scope For Slice A
+## Explicitly Out Of Scope For Slice B
 
 - live Outlook sync
 - Teams/WebEx meeting creation
@@ -71,18 +86,6 @@ Add a dedicated module suite for:
 - proof photo upload
 - certificate generation
 - contest ROI attribution
-
-## Slice B After That
-
-`Training Slice B: Scheduling + Session Execution`
-
-- `TrainingSession`
-- `TrainingSessionAttendee`
-- `TrainingSessionOutcome`
-- `TrainingSessionNote`
-- `TrainingFollowUpTask`
-- basic calendar views in Pulse
-- mobile-ready APIs for agenda and session status
 
 ## Slice C After That
 
@@ -94,6 +97,15 @@ Add a dedicated module suite for:
 - proof capture
 - certification lifecycle
 - overdue widget / exception reporting
+
+## Slice D After That
+
+`Training Slice D: Outlook Sync + External Coexistence`
+
+- Microsoft Graph / Outlook reflection
+- provider-specific meeting-link synchronization
+- external training-site coexistence or sync boundary
+- certification-site import decisions
 
 ## What We Still Need Later
 

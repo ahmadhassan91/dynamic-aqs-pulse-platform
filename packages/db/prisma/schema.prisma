@@ -219,6 +219,62 @@ enum WebsiteLeadType {
   CONTRACTOR
 }
 
+enum TrainingCategoryKind {
+  ONBOARDING
+  PRODUCT
+  TECHNICAL
+  SALES
+  COMPLIANCE
+  CERTIFICATION
+  CUSTOM
+  VISIT
+}
+
+enum TrainingCatalogFamily {
+  VISIT_FOLLOW_UP
+  PROGRAM_FOUNDATION
+  SALES_COMMUNICATION
+  TECHNICAL_PRODUCT
+  MANAGEMENT
+  CUSTOM
+}
+
+enum TrainingDeliveryMode {
+  VISIT
+  ON_SITE
+  VIRTUAL
+  PHONE
+  HYBRID
+  CUSTOM
+}
+
+enum TrainingProofRequirement {
+  NOTES_ONLY
+  ATTENDANCE_AND_NOTES
+  PHOTO_OPTIONAL
+  CERTIFICATE_REQUIRED
+}
+
+enum AccountTrainingProgramStatus {
+  NOT_STARTED
+  ACTIVE
+  COMPLETE
+  OVERDUE
+  ARCHIVED
+}
+
+enum TrainingSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum TrainingActivityKind {
+  TRAINING
+  SITE_VISIT
+}
+
 enum WebsiteLeadSubmissionOutcome {
   CREATED_NEW_LEAD
   ATTACHED_TO_EXISTING_LEAD
@@ -424,6 +480,11 @@ model User {
   websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
   dealerPortalMembership      DealerPortalUser?
   dealerPortalUsersCreated    DealerPortalUser[] @relation("DealerPortalUserCreatedBy")
+  trainingTrainerProfile      TrainingTrainerProfile?
+  trainingProgramsCreated     AccountTrainingProgram[] @relation("TrainingProgramCreatedBy")
+  trainingProgramsOwnedTm     AccountTrainingProgram[] @relation("TrainingProgramOwnerTm")
+  trainingProgramsOwnedRd     AccountTrainingProgram[] @relation("TrainingProgramOwnerRd")
+  trainingSessionsDelivered   TrainingSession[] @relation("TrainingSessionTrainer")
 
   @@index([roleCode])
   @@index([userType])
@@ -1390,6 +1451,8 @@ model Account {
   extension                  AccountExtension?
   segmentAssignments         AccountSegmentAssignment[]
   classificationExceptions    ClassificationException[]
+  trainingPrograms           AccountTrainingProgram[]
+  trainingSessions           TrainingSession[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -1450,6 +1513,7 @@ model AccountLocation {
   account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   contacts         Contact[]
   extension        AccountLocationExtension?
+  trainingSessions TrainingSession[]
 
   @@index([accountId])
   @@index([isPrimary])
@@ -1524,6 +1588,185 @@ model DealerPortalUser {
   @@index([createdByUserId])
   @@index([status])
   @@index([isPrimaryOwner])
+}
+
+model TrainingCategory {
+  id               String               @id @default(uuid()) @db.Uuid
+  kind             TrainingCategoryKind
+  code             String               @unique
+  name             String
+  description      String?
+  sortOrder        Int                  @default(100)
+  isActive         Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  trainingTypes    TrainingType[]
+
+  @@index([kind])
+  @@index([sortOrder])
+  @@index([isActive])
+}
+
+model TrainingType {
+  id                     String                @id @default(uuid()) @db.Uuid
+  categoryId             String                @db.Uuid
+  code                   String                @unique
+  name                   String
+  description            String?
+  family                 TrainingCatalogFamily
+  deliveryMode           TrainingDeliveryMode
+  defaultDurationMinutes Int
+  countsTowardHours      Boolean               @default(true)
+  isCustomerFacing       Boolean               @default(true)
+  isCertificationTrack   Boolean               @default(false)
+  targetSegment          AccountSegment?
+  sortOrder              Int                   @default(100)
+  isActive               Boolean               @default(true)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  category               TrainingCategory      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  templates              TrainingTemplate[]
+  cadencePolicies        TrainingCadencePolicy[]
+  accountPrograms        AccountTrainingProgram[]
+  sessions               TrainingSession[]
+
+  @@index([categoryId])
+  @@index([family])
+  @@index([deliveryMode])
+  @@index([targetSegment])
+  @@index([sortOrder])
+  @@index([isActive])
+}
+
+model TrainingTemplate {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  trainingTypeId       String                   @db.Uuid
+  code                 String                   @unique
+  title                String
+  description          String?
+  prerequisiteSummary  String?
+  materialsSummary     String?
+  proofRequirement     TrainingProofRequirement @default(ATTENDANCE_AND_NOTES)
+  isActive             Boolean                  @default(true)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  trainingType         TrainingType             @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
+  accountPrograms      AccountTrainingProgram[]
+
+  @@index([trainingTypeId])
+  @@index([proofRequirement])
+  @@index([isActive])
+}
+
+model TrainingCadencePolicy {
+  id                String       @id @default(uuid()) @db.Uuid
+  trainingTypeId    String       @db.Uuid
+  segmentScope      AccountSegment?
+  cadenceDays       Int
+  isRequired        Boolean      @default(false)
+  appliesToAllAccounts Boolean   @default(true)
+  isActive          Boolean      @default(true)
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  trainingType      TrainingType @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
+
+  @@index([trainingTypeId])
+  @@index([segmentScope])
+  @@index([isRequired])
+  @@index([isActive])
+  @@unique([trainingTypeId, segmentScope])
+}
+
+model TrainingTrainerProfile {
+  userId            String     @id @db.Uuid
+  title             String?
+  notes             String?
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccountTrainingProgram {
+  id                String                       @id @default(uuid()) @db.Uuid
+  accountId         String                       @db.Uuid
+  trainingTypeId    String?                      @db.Uuid
+  templateId        String?                      @db.Uuid
+  createdByUserId   String?                      @db.Uuid
+  ownerTmUserId     String?                      @db.Uuid
+  ownerRdUserId     String?                      @db.Uuid
+  title             String
+  description       String?
+  status            AccountTrainingProgramStatus @default(ACTIVE)
+  cadenceDays       Int?
+  isRequired        Boolean                      @default(false)
+  targetSegment     AccountSegment?
+  nextDueAt         DateTime?
+  lastCompletedAt   DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  notes             String?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+
+  account           Account                      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  trainingType      TrainingType?                @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  template          TrainingTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdByUser     User?                        @relation("TrainingProgramCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  ownerTmUser       User?                        @relation("TrainingProgramOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
+  ownerRdUser       User?                        @relation("TrainingProgramOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
+  sessions          TrainingSession[]
+
+  @@index([accountId])
+  @@index([trainingTypeId])
+  @@index([templateId])
+  @@index([createdByUserId])
+  @@index([ownerTmUserId])
+  @@index([ownerRdUserId])
+  @@index([status])
+  @@index([targetSegment])
+  @@index([nextDueAt])
+}
+
+model TrainingSession {
+  id                String                 @id @default(uuid()) @db.Uuid
+  accountId         String                 @db.Uuid
+  locationId        String?                @db.Uuid
+  programId         String?                @db.Uuid
+  trainingTypeId    String?                @db.Uuid
+  trainerUserId     String?                @db.Uuid
+  activityKind      TrainingActivityKind   @default(TRAINING)
+  status            TrainingSessionStatus  @default(SCHEDULED)
+  title             String
+  scheduledAt       DateTime?
+  completedAt       DateTime?
+  durationMinutes   Int                    @default(0)
+  attendeeCount     Int                    @default(0)
+  notes             String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  account           Account                @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location          AccountLocation?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  program           AccountTrainingProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  trainingType      TrainingType?          @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  trainerUser       User?                  @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([locationId])
+  @@index([programId])
+  @@index([trainingTypeId])
+  @@index([trainerUserId])
+  @@index([activityKind])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([completedAt])
 }
 
 model AccountExtension {

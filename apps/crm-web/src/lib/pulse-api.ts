@@ -95,7 +95,19 @@ import type {
   ListTerritoryAssignableUsersResponse,
   ListTerritoriesResponse,
   ListTerritoryAssignmentHistoryResponse,
+  ListTrainingAccountsRequest,
+  ListTrainingAccountsResponse,
   TokenPair,
+  TrainingCatalogResponse,
+  TrainingOverviewResponse,
+  AccountTrainingHistoryResponse,
+  CreateTrainingCategoryRequest,
+  CreateTrainingTypeRequest,
+  CreateTrainingTemplateRequest,
+  CreateAccountTrainingProgramRequest,
+  TrainingCategorySummary,
+  TrainingTypeSummary,
+  TrainingTemplateSummary,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
   WebsiteLeadSubmissionSummary,
@@ -424,6 +436,106 @@ export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string
   return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function fetchTrainingOverview(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TrainingOverviewResponse>(apiBaseUrl, '/api/v1/training/overview', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTrainingCatalog(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TrainingCatalogResponse>(apiBaseUrl, '/api/v1/training/catalog', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createTrainingCategoryRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateTrainingCategoryRequest,
+) {
+  return requestJson<TrainingCategorySummary>(apiBaseUrl, '/api/v1/training/catalog/categories', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createTrainingTypeRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateTrainingTypeRequest,
+) {
+  return requestJson<TrainingTypeSummary>(apiBaseUrl, '/api/v1/training/catalog/types', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createTrainingTemplateRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateTrainingTemplateRequest,
+) {
+  return requestJson<TrainingTemplateSummary>(apiBaseUrl, '/api/v1/training/catalog/templates', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchTrainingAccounts(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListTrainingAccountsRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.search) {
+    searchParams.set('search', query.search);
+  }
+  if (query.status) {
+    searchParams.set('status', query.status);
+  }
+  if (query.includeInactive !== undefined) {
+    searchParams.set('includeInactive', String(query.includeInactive));
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/training/accounts?${searchParams.toString()}`
+    : '/api/v1/training/accounts';
+
+  return requestJson<ListTrainingAccountsResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAccountTrainingHistory(apiBaseUrl: string, accessToken: string, accountId: string) {
+  return requestJson<AccountTrainingHistoryResponse>(apiBaseUrl, `/api/v1/training/accounts/${accountId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createAccountTrainingProgramRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: CreateAccountTrainingProgramRequest,
+) {
+  return requestJson(apiBaseUrl, `/api/v1/training/accounts/${accountId}/programs`, {
+    method: 'POST',
+    accessToken,
+    body: input,
   });
 }
 

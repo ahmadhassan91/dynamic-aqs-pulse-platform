@@ -56,16 +56,32 @@ This repo now has the first production foundation in place:
 
 ```bash
 pnpm install
-pnpm build
+cp .env.example .env
 createdb pulse_platform_dev
-PORT=4000 \
-DATABASE_URL=postgresql://$USER@localhost:5432/pulse_platform_dev \
-PG_BOSS_CONNECTION_STRING=postgresql://$USER@localhost:5432/pulse_platform_dev \
-ACUMATICA_BASE_URL=https://example.acumatica.local \
+pnpm db:migrate
+pnpm --filter @pulse/api build
 pnpm --filter @pulse/api start
 ```
 
-For local bootstrapping, copy `.env.example` into your preferred env file and replace placeholder values as real infrastructure becomes available.
+For local bootstrapping, copy `.env.example` into `.env` and replace at least:
+
+```bash
+DATABASE_URL=postgresql://$USER@localhost:5432/pulse_platform_dev
+PG_BOSS_CONNECTION_STRING=postgresql://$USER@localhost:5432/pulse_platform_dev
+```
+
+Convenience commands now available from repo root:
+
+```bash
+pnpm db:generate
+pnpm db:migrate
+pnpm bootstrap:local
+pnpm dev:api
+pnpm dev:web
+pnpm start:local
+```
+
+`pnpm start:local` will bootstrap the database, build the backend, then start both API and web together.
 
 Useful endpoints once the API is running:
 - `GET /api/v1/health/live`

@@ -12,11 +12,16 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "clean": "turbo run clean && rm -rf .turbo"
+    "clean": "turbo run clean && rm -rf .turbo",
+    "db:generate": "node ./scripts/run-with-env.mjs pnpm --filter @pulse/db generate",
+    "db:migrate": "node ./scripts/run-with-env.mjs pnpm --filter @pulse/db migrate:dev",
+    "dev:api": "node ./scripts/run-with-env.mjs pnpm --filter @pulse/contracts build && node ./scripts/run-with-env.mjs pnpm --filter @pulse/db build && node ./scripts/run-with-env.mjs pnpm --filter @pulse/api build && node ./scripts/run-with-env.mjs pnpm --filter @pulse/api start",
+    "dev:web": "node ./scripts/run-with-env.mjs pnpm --filter @pulse/crm-web dev",
+    "bootstrap:local": "./scripts/bootstrap-local.sh",
+    "start:local": "./scripts/start-local.sh"
   },
   "devDependencies": {
     "turbo": "^2.0.14",
     "typescript": "^5.8.3"
   }
 }
-

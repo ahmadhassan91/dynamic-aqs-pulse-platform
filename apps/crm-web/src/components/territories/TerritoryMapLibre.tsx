@@ -685,25 +685,30 @@ export function TerritoryMapLibre({
       <Paper
         withBorder
         radius="lg"
-        p="sm"
+        p={isOverlayExpanded ? 'sm' : 'xs'}
         shadow="sm"
         style={{
           position: 'absolute',
-          top: 16,
+          bottom: 16,
           right: 16,
-          width: isOverlayExpanded ? 300 : 220,
+          width: isOverlayExpanded ? 300 : 'auto',
+          minWidth: isOverlayExpanded ? 300 : 190,
+          maxWidth: 300,
           backdropFilter: 'blur(10px)',
           background: 'rgba(255,255,255,0.94)',
+          zIndex: 2,
         }}
       >
         <Stack gap="xs">
           <Group justify="space-between" align="center">
-            <Stack gap={0}>
-              <Text fw={700}>Live coverage focus</Text>
-              <Text size="xs" c="dimmed">
-                {pins.length} mapped records
+            <Group gap="xs" align="center">
+              <Text fw={700} size="sm">
+                Coverage
               </Text>
-            </Stack>
+              <Text size="xs" c="dimmed">
+                {pins.length} records
+              </Text>
+            </Group>
             <ActionIcon
               variant="subtle"
               color="gray"
@@ -715,14 +720,20 @@ export function TerritoryMapLibre({
             </ActionIcon>
           </Group>
 
-          <Text size="sm" c="dimmed">
-            {hoveredState
-              ? `${hoveredState.stateName} · ${hoveredState.territoryName}`
-              : 'Hover a covered state to inspect TM, RD, and shipping alignment.'}
-          </Text>
+          {hoveredState ? (
+            <Text size="xs" c="dimmed" lineClamp={1}>
+              {hoveredState.stateName} · {hoveredState.territoryName}
+            </Text>
+          ) : null}
 
           <Collapse in={isOverlayExpanded}>
             <Stack gap="xs">
+              <Text size="sm" c="dimmed">
+                {hoveredState
+                  ? 'Current hovered state ownership'
+                  : 'Hover a covered state to inspect TM, RD, and shipping alignment.'}
+              </Text>
+
               {hoveredState ? (
                 <Stack gap={4}>
                   <Text size="sm" fw={700}>

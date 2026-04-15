@@ -1,4 +1,5 @@
 export * from './auth.js';
+export * from './calendar.js';
 export * from './admin.js';
 export * from './accounts.js';
 export * from './dealer-portal.js';

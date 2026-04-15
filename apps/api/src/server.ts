@@ -6,6 +6,7 @@ import type { AppConfig } from './config.js';
 import { handleAdminRoutes } from './modules/admin/http.js';
 import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
+import { handleCalendarRoutes } from './modules/calendar/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
@@ -211,6 +212,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const cisRouteHandled = await handleCisRoutes(req, res, url, ctx.config);
   if (cisRouteHandled !== false) {
+    return;
+  }
+
+  const calendarRouteHandled = await handleCalendarRoutes(req, res, url);
+  if (calendarRouteHandled !== false) {
     return;
   }
 

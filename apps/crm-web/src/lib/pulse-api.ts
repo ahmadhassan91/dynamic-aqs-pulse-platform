@@ -17,6 +17,8 @@ import type {
   UpdateAdminUserResponse,
   AuthIdentity,
   AuthSession,
+  CalendarWorkspaceRequest,
+  CalendarWorkspaceResponse,
   AccountDetail,
   AccountSummary,
   AccountLocationSummary,
@@ -174,6 +176,22 @@ export async function refreshPulseSession(apiBaseUrl: string, refreshToken: stri
 
 export async function fetchCurrentSession(apiBaseUrl: string, accessToken: string) {
   return requestJsonMaybeNotFound<{ identity: AuthIdentity; session: AuthSession }>(apiBaseUrl, '/api/v1/auth/me', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchCalendarWorkspace(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: CalendarWorkspaceRequest,
+) {
+  const searchParams = new URLSearchParams({
+    startDate: query.startDate,
+    endDate: query.endDate,
+  });
+
+  return requestJson<CalendarWorkspaceResponse>(apiBaseUrl, `/api/v1/calendar/workspace?${searchParams.toString()}`, {
     method: 'GET',
     accessToken,
   });

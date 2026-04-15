@@ -12,6 +12,7 @@
     ".": "./dist/index.js",
     "./admin": "./dist/admin.js",
     "./auth": "./dist/auth.js",
+    "./calendar": "./dist/calendar.js",
     "./accounts": "./dist/accounts.js",
     "./dealer-portal": "./dist/dealer-portal.js",
     "./cis": "./dist/cis.js",

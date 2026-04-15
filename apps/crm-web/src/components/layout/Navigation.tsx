@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Box, Collapse, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
 import {
   IconBuildingStore,
+  IconCalendar,
   IconChevronRight,
   IconHome,
   IconMapPin,
@@ -96,6 +97,9 @@ export function Navigation() {
 
   if (!role || canAccessModule(role, 'leads')) {
     navItems.push({ label: 'Home', icon: IconHome, link: '/leads' });
+    if (!role || canAccessModule(role, 'calendar')) {
+      navItems.push({ label: 'Calendar', icon: IconCalendar, link: '/calendar' });
+    }
     navItems.push({
       label: 'Lead Management',
       icon: IconUserPlus,
@@ -108,6 +112,10 @@ export function Navigation() {
         { label: 'Analytics', link: '/leads/analytics' },
       ],
     });
+  }
+
+  if (role && !canAccessModule(role, 'leads') && canAccessModule(role, 'calendar')) {
+    navItems.push({ label: 'Calendar', icon: IconCalendar, link: '/calendar' });
   }
 
   if (role && canAccessModule(role, 'territories')) {

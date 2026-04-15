@@ -19,6 +19,10 @@ import type {
   AuthSession,
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
+  CalendarOutlookConnectionSummary,
+  StartCalendarOutlookConnectionResponse,
+  SyncCalendarOutlookEventRequest,
+  SyncCalendarOutlookEventResponse,
   AccountDetail,
   AccountSummary,
   AccountLocationSummary,
@@ -194,6 +198,33 @@ export async function fetchCalendarWorkspace(
   return requestJson<CalendarWorkspaceResponse>(apiBaseUrl, `/api/v1/calendar/workspace?${searchParams.toString()}`, {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function startCalendarOutlookConnection(apiBaseUrl: string, accessToken: string) {
+  return requestJson<StartCalendarOutlookConnectionResponse>(apiBaseUrl, '/api/v1/calendar/outlook/connect', {
+    method: 'POST',
+    accessToken,
+    body: {},
+  });
+}
+
+export async function disconnectCalendarOutlookConnection(apiBaseUrl: string, accessToken: string) {
+  return requestJson<CalendarOutlookConnectionSummary>(apiBaseUrl, '/api/v1/calendar/outlook/connection', {
+    method: 'DELETE',
+    accessToken,
+  });
+}
+
+export async function syncCalendarOutlookEvent(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: SyncCalendarOutlookEventRequest,
+) {
+  return requestJson<SyncCalendarOutlookEventResponse>(apiBaseUrl, '/api/v1/calendar/outlook/events/sync', {
+    method: 'POST',
+    accessToken,
+    body: input,
   });
 }
 
@@ -1484,7 +1515,7 @@ async function requestJson<TResponse>(
   apiBaseUrl: string,
   pathname: string,
   options: {
-    method: 'GET' | 'POST' | 'PATCH';
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
     accessToken?: string;
     body?: unknown;
   },
@@ -1510,7 +1541,7 @@ async function requestJsonMaybeNotFound<TResponse>(
   apiBaseUrl: string,
   pathname: string,
   options: {
-    method: 'GET' | 'POST' | 'PATCH';
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
     accessToken?: string;
     body?: unknown;
   },

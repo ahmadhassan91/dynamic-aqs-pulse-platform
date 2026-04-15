@@ -215,7 +215,7 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
-  const calendarRouteHandled = await handleCalendarRoutes(req, res, url);
+  const calendarRouteHandled = await handleCalendarRoutes(req, res, url, ctx.config);
   if (calendarRouteHandled !== false) {
     return;
   }

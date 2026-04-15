@@ -163,6 +163,10 @@ enum SessionAuthMethod {
   SERVICE
 }
 
+enum CalendarConnectionProvider {
+  OUTLOOK
+}
+
 enum LeadStage {
   NEW
   DISCOVERY_SCHEDULED
@@ -536,6 +540,8 @@ model User {
   trainingCertificationsAwarded TrainingCertificationRecord[] @relation("TrainingCertificationAwardedBy")
   trainingFollowUpTasksOwned  TrainingFollowUpTask[] @relation("TrainingFollowUpTaskOwner")
   trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
+  calendarConnections         CalendarConnection[]
+  calendarAuthStates          CalendarConnectionAuthState[]
 
   @@index([roleCode])
   @@index([userType])
@@ -727,6 +733,68 @@ model Session {
   @@index([expiresAt])
   @@index([refreshExpiresAt])
   @@index([revokedAt])
+}
+
+model CalendarConnection {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  userId                String                     @db.Uuid
+  provider              CalendarConnectionProvider
+  providerSubject       String
+  providerEmail         String?
+  scope                 String
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String
+  accessTokenExpiresAt  DateTime
+  isActive              Boolean                    @default(true)
+  lastSyncedAt          DateTime?
+  lastSyncError         String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bindings              CalendarEventBinding[]
+
+  @@unique([userId, provider])
+  @@unique([provider, providerSubject])
+  @@index([provider])
+  @@index([providerEmail])
+  @@index([isActive])
+}
+
+model CalendarConnectionAuthState {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  userId                String                     @db.Uuid
+  provider              CalendarConnectionProvider
+  stateHash             String                     @unique
+  expiresAt             DateTime
+  usedAt                DateTime?
+  createdAt             DateTime                   @default(now())
+
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider, expiresAt])
+  @@index([expiresAt])
+}
+
+model CalendarEventBinding {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  connectionId          String                     @db.Uuid
+  provider              CalendarConnectionProvider
+  sourceModule          String
+  sourceRecordId        String
+  eventType             String
+  externalEventId       String
+  externalWebLink       String?
+  lastSyncedAt          DateTime                   @default(now())
+  lastSyncError         String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  connection            CalendarConnection         @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, sourceModule, sourceRecordId, eventType])
+  @@index([connectionId, lastSyncedAt])
+  @@index([sourceModule, sourceRecordId, eventType])
 }
 
 model AuditEntry {

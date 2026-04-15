@@ -175,6 +175,7 @@ test('calendar workspace route returns centralized discovery and training events
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.summary.totalEvents, 2);
+    assert.equal(payload.outlookConnection.isConfigured, false);
     assert.equal(payload.summary.discoveryCallCount, 1);
     assert.equal(payload.summary.virtualTrainingCount, 1);
     assert.equal(payload.items[0].eventType, 'discovery_call');
@@ -211,9 +212,10 @@ test('calendar workspace classifies completed site visits separately from traini
   const workspace = await getCalendarWorkspace(actor, {
     startDate: '2026-07-01T00:00:00.000Z',
     endDate: '2026-07-31T23:59:59.999Z',
-  });
+  }, config);
 
   assert.equal(workspace.summary.onSiteVisitCount, 1);
+  assert.equal(workspace.outlookConnection.isConfigured, false);
   assert.equal(workspace.summary.completedCount, 1);
   assert.equal(workspace.items[0]?.eventType, 'on_site_visit');
   assert.equal(workspace.items[0]?.status, 'completed');

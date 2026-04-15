@@ -53,6 +53,18 @@ export type AppAuthConfig = {
   bootstrapAdmin: AppAuthBootstrapConfig;
 };
 
+export type AppOutlookCalendarConfig = {
+  enabled: boolean;
+  tenantId?: string | undefined;
+  clientId?: string | undefined;
+  clientSecret?: string | undefined;
+  redirectUri?: string | undefined;
+  scopes: string[];
+  authBaseUrl: string;
+  graphBaseUrl: string;
+  encryptionKey?: string | undefined;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -69,6 +81,7 @@ export type AppConfig = {
   queue: AppQueueConfig;
   migration: AppMigrationConfig;
   auth: AppAuthConfig;
+  outlookCalendar: AppOutlookCalendarConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -76,6 +89,12 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const appName = env.APP_NAME?.trim() || 'pulse-api';
   const appVersion = env.APP_VERSION?.trim() || '0.1.0';
   const databaseUrl = requireString(env.DATABASE_URL, 'DATABASE_URL');
+  const outlookTenantId = optionalString(env.MICROSOFT_ENTRA_TENANT_ID);
+  const outlookClientId = optionalString(env.MICROSOFT_ENTRA_CLIENT_ID);
+  const outlookClientSecret = optionalString(env.MICROSOFT_ENTRA_CLIENT_SECRET);
+  const outlookRedirectUri = optionalString(env.MICROSOFT_GRAPH_REDIRECT_URI);
+  const outlookEncryptionKey = optionalString(env.APP_ENCRYPTION_KEY);
+  const outlookScopes = parseScopes(env.MICROSOFT_GRAPH_SCOPES);
 
   return {
     app: {
@@ -128,6 +147,23 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         role: env.AUTH_BOOTSTRAP_ADMIN_ROLE?.trim() || 'SUPER_ADMIN',
       },
     },
+    outlookCalendar: {
+      enabled: Boolean(
+        outlookTenantId
+          && outlookClientId
+          && outlookClientSecret
+          && outlookRedirectUri
+          && outlookEncryptionKey,
+      ),
+      tenantId: outlookTenantId,
+      clientId: outlookClientId,
+      clientSecret: outlookClientSecret,
+      redirectUri: outlookRedirectUri,
+      scopes: outlookScopes,
+      authBaseUrl: env.MICROSOFT_ENTRA_AUTH_BASE_URL?.trim() || 'https://login.microsoftonline.com',
+      graphBaseUrl: env.MICROSOFT_GRAPH_API_BASE_URL?.trim() || 'https://graph.microsoft.com/v1.0',
+      encryptionKey: outlookEncryptionKey,
+    },
   };
 }
 
@@ -158,4 +194,16 @@ function requireString(value: string | undefined, key: string): string {
 function optionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function parseScopes(value: string | undefined) {
+  const raw = value?.trim();
+  if (!raw) {
+    return ['openid', 'profile', 'email', 'offline_access', 'User.Read', 'Calendars.ReadWrite'];
+  }
+
+  return raw
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }

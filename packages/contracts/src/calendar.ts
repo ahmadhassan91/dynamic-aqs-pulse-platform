@@ -43,6 +43,46 @@ export interface CalendarEventSummary {
   regionName?: string;
   locationName?: string;
   notes?: string;
+  outlookSync?: CalendarOutlookEventSyncSummary;
+}
+
+export interface CalendarOutlookConnectionSummary {
+  provider: 'outlook';
+  isConfigured: boolean;
+  isConnected: boolean;
+  connectionEmail?: string;
+  connectedAt?: string;
+  accessTokenExpiresAt?: string;
+  lastSyncedAt?: string;
+  lastSyncError?: string;
+}
+
+export interface CalendarOutlookEventSyncSummary {
+  syncedAt?: string;
+  externalWebLink?: string;
+  lastSyncError?: string;
+}
+
+export interface StartCalendarOutlookConnectionResponse {
+  provider: 'outlook';
+  authorizationUrl: string;
+  expiresAt: string;
+}
+
+export interface SyncCalendarOutlookEventRequest {
+  sourceModule: 'leads' | 'training';
+  sourceRecordId: string;
+  eventType: CalendarEventTypeKey;
+}
+
+export interface SyncCalendarOutlookEventResponse {
+  provider: 'outlook';
+  sourceModule: 'leads' | 'training';
+  sourceRecordId: string;
+  eventType: CalendarEventTypeKey;
+  externalEventId: string;
+  externalWebLink?: string;
+  syncedAt: string;
 }
 
 export interface CalendarOverviewSummary {
@@ -62,5 +102,6 @@ export interface CalendarWorkspaceResponse {
   rangeStart: string;
   rangeEnd: string;
   summary: CalendarOverviewSummary;
+  outlookConnection: CalendarOutlookConnectionSummary;
   items: CalendarEventSummary[];
 }

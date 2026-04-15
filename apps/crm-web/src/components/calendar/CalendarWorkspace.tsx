@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -27,8 +28,11 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClock,
+  IconExternalLink,
+  IconLink,
   IconMapPin,
   IconPhoneCall,
+  IconRefresh,
   IconSchool,
   IconTruckDelivery,
 } from '@tabler/icons-react';
@@ -37,7 +41,12 @@ import type {
   CalendarEventTypeKey,
   CalendarWorkspaceResponse,
 } from '@pulse/contracts';
-import { fetchCalendarWorkspace } from '@/lib/pulse-api';
+import {
+  disconnectCalendarOutlookConnection,
+  fetchCalendarWorkspace,
+  startCalendarOutlookConnection,
+  syncCalendarOutlookEvent,
+} from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type CalendarViewMode = 'month' | 'week' | 'list';
@@ -225,6 +234,7 @@ function filterEventItem(item: CalendarEventSummary, filter: CalendarFilterMode)
 
 export function CalendarWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
+  const searchParams = useSearchParams();
   const accessToken = auth?.tokens.accessToken ?? '';
   const [view, setView] = useState<CalendarViewMode>('month');
   const [filter, setFilter] = useState<CalendarFilterMode>('all');
@@ -232,7 +242,11 @@ export function CalendarWorkspace() {
   const [workspace, setWorkspace] = useState<CalendarWorkspaceResponse | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
+  const [isDisconnectingOutlook, setIsDisconnectingOutlook] = useState(false);
+  const [isSyncingOutlookEvent, setIsSyncingOutlookEvent] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
 
   const range = useMemo(() => resolveRange(anchorDate, view), [anchorDate, view]);
 
@@ -266,6 +280,25 @@ export function CalendarWorkspace() {
     void loadWorkspace();
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    const status = searchParams.get('outlook');
+    if (!status || typeof window === 'undefined') {
+      return;
+    }
+
+    const detail = searchParams.get('outlookMessage');
+    if (status === 'connected') {
+      setOutlookMessage('Outlook calendar connected successfully.');
+    } else {
+      setOutlookMessage(detail ?? 'Outlook calendar connection did not complete.');
+    }
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete('outlook');
+    nextUrl.searchParams.delete('outlookMessage');
+    window.history.replaceState({}, '', nextUrl.toString());
+  }, [searchParams]);
+
   const filteredItems = useMemo(
     () => (workspace?.items ?? []).filter((item) => filterEventItem(item, filter)),
     [filter, workspace?.items],
@@ -275,6 +308,7 @@ export function CalendarWorkspace() {
     () => filteredItems.find((item) => item.id === selectedEventId) ?? filteredItems[0] ?? null,
     [filteredItems, selectedEventId],
   );
+  const outlookConnection = workspace?.outlookConnection;
 
   const itemsByDay = useMemo(() => {
     const buckets = new Map<string, CalendarEventSummary[]>();
@@ -306,6 +340,68 @@ export function CalendarWorkspace() {
 
     return `${formatDate(range.start)} - ${formatDate(range.end)}`;
   }, [anchorDate, range.end, range.start, view]);
+
+  const handleStartOutlookConnect = useCallback(async () => {
+    if (!auth) {
+      return;
+    }
+
+    setIsConnectingOutlook(true);
+    setErrorMessage(null);
+    try {
+      const response = await startCalendarOutlookConnection(apiBaseUrl, accessToken);
+      window.location.assign(response.authorizationUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsConnectingOutlook(false);
+    }
+  }, [accessToken, apiBaseUrl, auth]);
+
+  const handleDisconnectOutlook = useCallback(async () => {
+    if (!auth) {
+      return;
+    }
+
+    setIsDisconnectingOutlook(true);
+    setErrorMessage(null);
+    try {
+      await disconnectCalendarOutlookConnection(apiBaseUrl, accessToken);
+      setOutlookMessage('Outlook calendar disconnected.');
+      await loadWorkspace();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDisconnectingOutlook(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadWorkspace]);
+
+  const handleSyncSelectedEvent = useCallback(async () => {
+    if (!auth || !selectedEvent) {
+      return;
+    }
+
+    if (selectedEvent.sourceModule !== 'leads' && selectedEvent.sourceModule !== 'training') {
+      setErrorMessage('This calendar event family is not sync-enabled yet.');
+      return;
+    }
+
+    setIsSyncingOutlookEvent(true);
+    setErrorMessage(null);
+    try {
+      await syncCalendarOutlookEvent(apiBaseUrl, accessToken, {
+        sourceModule: selectedEvent.sourceModule,
+        sourceRecordId: selectedEvent.sourceRecordId,
+        eventType: selectedEvent.eventType,
+      });
+      setOutlookMessage('Selected event synced to Outlook.');
+      await loadWorkspace();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSyncingOutlookEvent(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadWorkspace, selectedEvent]);
 
   return (
     <Stack gap="lg">
@@ -406,9 +502,61 @@ export function CalendarWorkspace() {
             the owning workflow so history, ownership, and reporting stay consistent.
           </Alert>
 
+          <Paper withBorder radius="lg" p="md">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Text fw={700}>Outlook calendar sync</Text>
+                <Text size="sm" c="dimmed" maw={760}>
+                  Connect your Outlook mailbox so the centralized Pulse calendar can reflect discovery and training
+                  events into your working calendar without making Outlook the source of truth.
+                </Text>
+                {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
+                  <Text size="sm" c="dimmed">
+                    Connected mailbox: {outlookConnection.connectionEmail}
+                  </Text>
+                ) : null}
+              </Stack>
+              <Group gap="xs">
+                {!outlookConnection?.isConfigured ? (
+                  <Badge color="yellow" variant="light">
+                    Not configured
+                  </Badge>
+                ) : outlookConnection.isConnected ? (
+                  <>
+                    <Badge color="green" variant="light">
+                      Connected
+                    </Badge>
+                    <Button
+                      variant="light"
+                      color="gray"
+                      loading={isDisconnectingOutlook}
+                      onClick={() => void handleDisconnectOutlook()}
+                    >
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    leftSection={<IconLink size={16} />}
+                    loading={isConnectingOutlook}
+                    onClick={() => void handleStartOutlookConnect()}
+                  >
+                    Connect Outlook
+                  </Button>
+                )}
+              </Group>
+            </Group>
+          </Paper>
+
           {errorMessage ? (
             <Alert color="red" icon={<IconAlertCircle size={16} />}>
               {errorMessage}
+            </Alert>
+          ) : null}
+
+          {outlookMessage ? (
+            <Alert color="green" icon={<IconCalendarEvent size={16} />}>
+              {outlookMessage}
             </Alert>
           ) : null}
         </Stack>
@@ -673,6 +821,68 @@ export function CalendarWorkspace() {
                   ) : null}
 
                   <Divider />
+
+                  {outlookConnection?.isConfigured ? (
+                    <>
+                      <Stack gap="xs">
+                        <Text fw={600} size="sm">Outlook sync</Text>
+                        {outlookConnection.isConnected ? (
+                          <>
+                            <Group gap="xs">
+                              <Button
+                                leftSection={<IconRefresh size={16} />}
+                                loading={isSyncingOutlookEvent}
+                                onClick={() => void handleSyncSelectedEvent()}
+                              >
+                                {selectedEvent.outlookSync?.syncedAt ? 'Update in Outlook' : 'Sync to Outlook'}
+                              </Button>
+                              {selectedEvent.outlookSync?.externalWebLink ? (
+                                <Button
+                                  component="a"
+                                  href={selectedEvent.outlookSync.externalWebLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  variant="light"
+                                  leftSection={<IconExternalLink size={16} />}
+                                >
+                                  Open in Outlook
+                                </Button>
+                              ) : null}
+                            </Group>
+                            {selectedEvent.outlookSync?.syncedAt ? (
+                              <Text size="sm" c="dimmed">
+                                Last synced: {formatDateTime(selectedEvent.outlookSync.syncedAt)}
+                              </Text>
+                            ) : (
+                              <Text size="sm" c="dimmed">
+                                This event has not been pushed to Outlook yet.
+                              </Text>
+                            )}
+                            {selectedEvent.outlookSync?.lastSyncError ? (
+                              <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                                {selectedEvent.outlookSync.lastSyncError}
+                              </Alert>
+                            ) : null}
+                          </>
+                        ) : (
+                          <Group justify="space-between" align="center">
+                            <Text size="sm" c="dimmed">
+                              Connect Outlook to sync this event into your working calendar.
+                            </Text>
+                            <Button
+                              variant="light"
+                              leftSection={<IconLink size={16} />}
+                              loading={isConnectingOutlook}
+                              onClick={() => void handleStartOutlookConnect()}
+                            >
+                              Connect Outlook
+                            </Button>
+                          </Group>
+                        )}
+                      </Stack>
+                      <Divider />
+                    </>
+                  ) : null}
 
                   <Button component={Link} href={selectedEvent.sourcePath} rightSection={<IconArrowRight size={16} />}>
                     Open source record

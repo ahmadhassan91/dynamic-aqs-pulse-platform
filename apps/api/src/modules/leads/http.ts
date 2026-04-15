@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   CaptureWebsiteLeadRequest,
+  CommitLeadImportRunRequest,
   CompleteLeadDiscoveryRequest,
   ConvertLeadOnFirstOrderRequest,
   CreateWebsiteLeadNotificationRecipientRequest,
@@ -55,6 +56,7 @@ import {
   createLead,
   createWebsiteLeadNotificationRecipient,
   createWebsiteLeadSite,
+  getLeadImportRun,
   getLeadDetail,
   getPublicWebsiteLeadSite,
   importLeadFile,
@@ -70,6 +72,7 @@ import {
   listWebsiteFormLeads,
   previewLeadImport,
   reviewLeadImport,
+  commitLeadImportRun,
   resolveWebsiteLeadSubmission,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
@@ -117,6 +120,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || pathname === '/api/v1/leads/import/file'
     || pathname === '/api/v1/leads/import/preview'
     || pathname === '/api/v1/leads/import/review'
+    || matchesPath(pathname, '/api/v1/leads/import/runs/:runId')
+    || matchesPath(pathname, '/api/v1/leads/import/runs/:runId/commit')
     || pathname === '/api/v1/leads/routing-policy'
     || matchesPath(pathname, '/api/v1/leads/:leadId')
     || matchesPath(pathname, '/api/v1/leads/:leadId/stage-transition')
@@ -438,6 +443,41 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       });
       const body = (await readJsonBody(req)) as ReviewLeadImportRequest;
       const response = await reviewLeadImport(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const importRunMatch = matchPath(pathname, '/api/v1/leads/import/runs/:runId');
+    if (importRunMatch) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+      if (!importRunMatch.runId) {
+        return badRequestResponse(res, 'runId is required');
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const response = await getLeadImportRun(actor, importRunMatch.runId);
+      return jsonResponse(res, 200, response);
+    }
+
+    const importRunCommitMatch = matchPath(pathname, '/api/v1/leads/import/runs/:runId/commit');
+    if (importRunCommitMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+      if (!importRunCommitMatch.runId) {
+        return badRequestResponse(res, 'runId is required');
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req)) as CommitLeadImportRunRequest;
+      const response = await commitLeadImportRun(actor, importRunCommitMatch.runId, body);
       return jsonResponse(res, 200, response);
     }
 

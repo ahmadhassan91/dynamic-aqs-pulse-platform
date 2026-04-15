@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Alert, Anchor, Breadcrumbs, Button, Card, Group, Loader, Paper, Stack, Tabs, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Loader, Paper, Stack, Tabs, Text, Title } from '@mantine/core';
 import type { AccountDetail as AccountDetailRecord, TrainingCatalogResponse } from '@pulse/contracts';
 import { fetchAccountDetail, fetchTrainingCatalog } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -110,6 +110,14 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
             <Text size="sm" c="dimmed">
               View the converted customer profile, territory ownership, source lead connection, and the first mapped contacts.
             </Text>
+            {account ? (
+              <Group gap="xs">
+                <Badge color={account.lifecycleStatus === 'active' ? 'green' : account.lifecycleStatus === 'at_risk' ? 'yellow' : account.lifecycleStatus === 'inactive' ? 'gray' : 'red'} variant="light">
+                  {account.lifecycleStatus === 'at_risk' ? 'At Risk' : account.lifecycleStatus.charAt(0).toUpperCase() + account.lifecycleStatus.slice(1)}
+                </Badge>
+                {!account.isActive ? <Badge color="gray" variant="outline">Record Inactive</Badge> : null}
+              </Group>
+            ) : null}
           </Stack>
           <Group gap="xs">
             <Button component={Link} href="/customers" variant="default">

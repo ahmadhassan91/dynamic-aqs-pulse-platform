@@ -17,6 +17,8 @@ let authenticateAccessToken;
 let createLead;
 let reviewLeadImport;
 let importLeadFile;
+let getLeadImportRun;
+let commitLeadImportRun;
 
 const SERIAL = { concurrency: false };
 
@@ -31,6 +33,8 @@ test.before(async () => {
     createLead,
     reviewLeadImport,
     importLeadFile,
+    getLeadImportRun,
+    commitLeadImportRun,
   } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
@@ -125,9 +129,14 @@ test('lead import review flags duplicate rows against leads and accounts', SERIA
     mappings: buildMappings(),
   });
 
+  assert.ok(review.runId);
   assert.equal(review.totalRows, 3);
   assert.equal(review.readyRowCount, 1);
   assert.equal(review.attentionRowCount, 2);
+
+  const persisted = await getLeadImportRun(actor, review.runId);
+  assert.equal(persisted.runId, review.runId);
+  assert.equal(persisted.rows.length, review.rows.length);
 
   const leadDuplicate = review.rows.find((row) => row.rowNumber === 2);
   const accountDuplicate = review.rows.find((row) => row.rowNumber === 3);
@@ -226,4 +235,44 @@ test('lead import honors use-existing and create-new duplicate decisions', SERIA
   assert.equal(imported.createdCount, 1);
   assert.equal(imported.skippedCount, 1);
   assert.equal(imported.items[0]?.companyName, 'Legacy Comfort Group');
+  assert.ok(imported.skippedRows.some((row) => row.rowNumber === 2));
+});
+
+test('lead import review flags within-file duplicates and allows skip decisions through persisted runs', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const csv = [
+    'Company,Email,Phone,State,Service Tech Count',
+    'Fresh Comfort,new@example.com,555-777-8888,TX,1',
+    'Fresh Comfort,new@example.com,555-777-8888,TX,1',
+  ].join('\n');
+
+  const review = await reviewLeadImport(actor, {
+    fileName: 'lead-import.csv',
+    fileContentBase64: toBase64(csv),
+    mappings: buildMappings(),
+  });
+
+  assert.equal(review.readyRowCount, 1);
+  assert.equal(review.attentionRowCount, 1);
+  assert.ok(review.rows[0]?.candidates.some((candidate) => candidate.entityType === 'import_row'));
+
+  const committed = await commitLeadImportRun(actor, review.runId, {
+    rowDecisions: [
+      {
+        rowNumber: 3,
+        duplicateDecision: 'skip',
+      },
+    ],
+  });
+
+  assert.equal(committed.createdCount, 1);
+  assert.equal(committed.skippedCount, 1);
+  assert.equal(committed.errorCount, 0);
+  assert.ok(committed.skippedRows.some((row) => row.rowNumber === 3 && row.decision === 'skip'));
+
+  const committedAgain = await commitLeadImportRun(actor, review.runId, {});
+  assert.equal(committedAgain.createdCount, 1);
+  assert.equal(committedAgain.skippedCount, 1);
+  assert.equal(committedAgain.errorCount, 0);
 });

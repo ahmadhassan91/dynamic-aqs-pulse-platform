@@ -22,6 +22,7 @@ import type {
 import type { AuthRequestContext, AuthResponse, AuthenticatedActor } from './types.js';
 
 const SESSION_ENTITY_TYPE = 'SESSION';
+let bootstrapAdminSeedPromise: Promise<void> | null = null;
 
 export async function loginWithPassword(
   config: AppConfig,
@@ -238,6 +239,18 @@ export async function logoutCurrentSession(accessToken: string, ctx: AuthRequest
 }
 
 export async function ensureBootstrapAdminSeeded(config: AppConfig) {
+  if (bootstrapAdminSeedPromise) {
+    return bootstrapAdminSeedPromise;
+  }
+
+  bootstrapAdminSeedPromise = ensureBootstrapAdminSeededInternal(config).finally(() => {
+    bootstrapAdminSeedPromise = null;
+  });
+
+  return bootstrapAdminSeedPromise;
+}
+
+async function ensureBootstrapAdminSeededInternal(config: AppConfig) {
   const bootstrap = config.auth.bootstrapAdmin;
   const email = normalizeEmail(bootstrap.email);
   const password = bootstrap.password?.trim();

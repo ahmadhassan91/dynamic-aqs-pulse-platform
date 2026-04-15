@@ -1,7 +1,8 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AuditAction, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
+import { AccountLifecycleStatus, AuditAction, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
+  AccountLifecycleStatusKey,
   AccountLocationSummary,
   AccountSummary,
   ContactSummary,
@@ -10,6 +11,7 @@ import type {
   CreateContactRequest,
   ListAccountsRequest,
   ListAccountsResponse,
+  UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
   UpdateAccountRequest,
   UpdateContactRequest,
@@ -28,10 +30,14 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
   const limit = normalizeLimit(query.limit);
   const search = query.search?.trim();
   const includeInactive = query.includeInactive ?? false;
+  const lifecycleStatus = query.lifecycleStatus ? toAccountLifecycleStatusEnum(query.lifecycleStatus) : undefined;
 
   const where: Prisma.AccountWhereInput = {};
   if (!includeInactive) {
     where.isActive = true;
+  }
+  if (lifecycleStatus) {
+    where.lifecycleStatus = lifecycleStatus;
   }
   if (search) {
     where.OR = [
@@ -101,6 +107,7 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
   const legalName = optionalTrimmed(input.legalName);
   const accountType = optionalTrimmed(input.accountType);
   const isActive = input.isActive ?? true;
+  const lifecycleStatus = isActive ? AccountLifecycleStatus.ACTIVE : AccountLifecycleStatus.INACTIVE;
 
   const account = await prisma.$transaction(async (tx) => {
     const created = await tx.account.create({
@@ -108,6 +115,8 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
         displayName,
         ...(legalName !== undefined ? { legalName } : {}),
         ...(accountType !== undefined ? { accountType } : {}),
+        lifecycleStatus,
+        lifecycleStatusChangedAt: new Date(),
         isActive,
       },
     });
@@ -127,6 +136,7 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
           displayName: created.displayName,
           legalName: created.legalName,
           accountType: created.accountType,
+          lifecycleStatus: created.lifecycleStatus,
           isActive: created.isActive,
         },
       }),
@@ -258,12 +268,136 @@ export async function updateAccount(
           displayName: account.displayName,
           legalName: account.legalName,
           accountType: account.accountType,
+          lifecycleStatus: account.lifecycleStatus,
+          lifecycleReasonNote: account.lifecycleReasonNote,
           isActive: account.isActive,
         },
         afterData: {
           displayName: next.displayName,
           legalName: next.legalName,
           accountType: next.accountType,
+          lifecycleStatus: next.lifecycleStatus,
+          lifecycleReasonNote: next.lifecycleReasonNote,
+          isActive: next.isActive,
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toAccountSummary(updated);
+}
+
+export async function updateAccountLifecycle(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: UpdateAccountLifecycleRequest,
+): Promise<AccountSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.edit');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: {
+      territory: {
+        include: {
+          region: true,
+        },
+      },
+      shippingCenter: true,
+      assignedTmUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      assignedRdUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      _count: {
+        select: {
+          contacts: true,
+          locations: true,
+        },
+      },
+    },
+  });
+
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+
+  const nextLifecycleStatus = toAccountLifecycleStatusEnum(input.lifecycleStatus);
+  validateAccountLifecycleTransition(account.lifecycleStatus, nextLifecycleStatus);
+
+  const lifecycleReasonNote = normalizeNullableText(input.lifecycleReasonNote);
+  if (nextLifecycleStatus === AccountLifecycleStatus.CHURNED && !lifecycleReasonNote) {
+    throw new Error('A lifecycle note is required before an account can be marked as churned');
+  }
+
+  const nextIsActive = nextLifecycleStatus === AccountLifecycleStatus.ACTIVE || nextLifecycleStatus === AccountLifecycleStatus.AT_RISK;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.account.update({
+      where: { id: accountId },
+      data: {
+        lifecycleStatus: nextLifecycleStatus,
+        lifecycleStatusChangedAt: new Date(),
+        lifecycleReasonNote,
+        isActive: nextIsActive,
+      },
+      include: {
+        territory: {
+          include: {
+            region: true,
+          },
+        },
+        shippingCenter: true,
+        assignedTmUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        assignedRdUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        _count: {
+          select: {
+            contacts: true,
+            locations: true,
+          },
+        },
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: ACCOUNT_ENTITY_TYPE,
+        entityId: next.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          workflow: 'account_lifecycle',
+        },
+        beforeData: {
+          lifecycleStatus: account.lifecycleStatus,
+          lifecycleReasonNote: account.lifecycleReasonNote,
+          isActive: account.isActive,
+        },
+        afterData: {
+          lifecycleStatus: next.lifecycleStatus,
+          lifecycleReasonNote: next.lifecycleReasonNote,
           isActive: next.isActive,
         },
       }),
@@ -855,6 +989,11 @@ function toAccountSummary(account: {
   shippingCenterId?: string | null;
   assignedTmUserId?: string | null;
   assignedRdUserId?: string | null;
+  lifecycleStatus: AccountLifecycleStatus;
+  lifecycleStatusChangedAt?: Date | null;
+  lifecycleReasonNote?: string | null;
+  lastOrderAt?: Date | null;
+  lastEngagementAt?: Date | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -889,6 +1028,7 @@ function toAccountSummary(account: {
   const summary: AccountSummary = {
     id: account.id,
     displayName: account.displayName,
+    lifecycleStatus: toAccountLifecycleStatusKey(account.lifecycleStatus),
     isActive: account.isActive,
     contactCount: account._count.contacts,
     locationCount: account._count.locations,
@@ -943,8 +1083,63 @@ function toAccountSummary(account: {
   if (account.territoryAssignedAt) {
     summary.territoryAssignedAt = account.territoryAssignedAt.toISOString();
   }
+  if (account.lifecycleStatusChangedAt) {
+    summary.lifecycleStatusChangedAt = account.lifecycleStatusChangedAt.toISOString();
+  }
+  if (account.lifecycleReasonNote) {
+    summary.lifecycleReasonNote = account.lifecycleReasonNote;
+  }
+  if (account.lastOrderAt) {
+    summary.lastOrderAt = account.lastOrderAt.toISOString();
+  }
+  if (account.lastEngagementAt) {
+    summary.lastEngagementAt = account.lastEngagementAt.toISOString();
+  }
 
   return summary;
+}
+
+function toAccountLifecycleStatusEnum(value: AccountLifecycleStatusKey) {
+  switch (value) {
+    case 'active':
+      return AccountLifecycleStatus.ACTIVE;
+    case 'at_risk':
+      return AccountLifecycleStatus.AT_RISK;
+    case 'inactive':
+      return AccountLifecycleStatus.INACTIVE;
+    case 'churned':
+      return AccountLifecycleStatus.CHURNED;
+  }
+}
+
+function toAccountLifecycleStatusKey(value: AccountLifecycleStatus) {
+  switch (value) {
+    case AccountLifecycleStatus.ACTIVE:
+      return 'active';
+    case AccountLifecycleStatus.AT_RISK:
+      return 'at_risk';
+    case AccountLifecycleStatus.INACTIVE:
+      return 'inactive';
+    case AccountLifecycleStatus.CHURNED:
+      return 'churned';
+  }
+}
+
+function validateAccountLifecycleTransition(current: AccountLifecycleStatus, next: AccountLifecycleStatus) {
+  if (current === next) {
+    return;
+  }
+
+  const allowedTransitions: Record<AccountLifecycleStatus, AccountLifecycleStatus[]> = {
+    [AccountLifecycleStatus.ACTIVE]: [AccountLifecycleStatus.AT_RISK, AccountLifecycleStatus.INACTIVE],
+    [AccountLifecycleStatus.AT_RISK]: [AccountLifecycleStatus.ACTIVE, AccountLifecycleStatus.INACTIVE],
+    [AccountLifecycleStatus.INACTIVE]: [AccountLifecycleStatus.ACTIVE, AccountLifecycleStatus.CHURNED],
+    [AccountLifecycleStatus.CHURNED]: [AccountLifecycleStatus.ACTIVE],
+  };
+
+  if (!allowedTransitions[current].includes(next)) {
+    throw new Error(`Lifecycle transition is not allowed: ${toAccountLifecycleStatusKey(current)} -> ${toAccountLifecycleStatusKey(next)}`);
+  }
 }
 
 function toTerritoryAssignmentMethodKey(value: TerritoryAssignmentMethod) {

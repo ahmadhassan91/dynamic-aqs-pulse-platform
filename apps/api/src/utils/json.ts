@@ -11,6 +11,10 @@ export const JSON_SIZE_LIMITS = {
   migrationSnapshotMetadataBytes: 32 * 1024,
   websiteLeadSubmissionPayloadBytes: 32 * 1024,
   cisMetadataBytes: 16 * 1024,
+  leadImportRunMappingsBytes: 16 * 1024,
+  leadImportRunRowSourceValuesBytes: 24 * 1024,
+  leadImportRunRowPayloadBytes: 24 * 1024,
+  leadImportRunRowCandidatesBytes: 24 * 1024,
 } as const;
 
 export function toBoundedJsonValue(

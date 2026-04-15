@@ -5,6 +5,9 @@ import {
   LeadCaptureMethod,
   LeadConsignmentEntryTiming,
   LeadConsignmentInterestStatus,
+  LeadImportDuplicateDecision,
+  LeadImportRunRowStatus,
+  LeadImportRunStatus,
   LeadLifecycleStatus,
   LeadRoutingBasis,
   LeadRoutingTeam,
@@ -20,15 +23,19 @@ import {
 import type {
   CaptureWebsiteLeadRequest,
   CompleteLeadDiscoveryRequest,
+  CommitLeadImportRunRequest,
   CreateLeadRequest,
   ImportLeadFileRequest,
   ImportLeadFileResponse,
   LeadImportDuplicateCandidate,
+  LeadImportDuplicateDecisionKey,
   ImportLeadRowInput,
   LeadImportFileError,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
+  LeadImportPreviewRow,
   LeadImportReviewRow,
+  LeadImportRunDetail,
   ImportLeadsRequest,
   ImportLeadsResponse,
   LeadLifecycleReasonCodeKey,
@@ -75,6 +82,7 @@ import type {
   TerritoryAssignmentMethodKey,
 } from '@pulse/contracts';
 import { findLeadRegionOption } from '@pulse/contracts';
+import { createHash } from 'node:crypto';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
@@ -1575,6 +1583,27 @@ export async function previewLeadImport(actor: AuthenticatedActor, input: LeadIm
   return previewLeadImportFile(input);
 }
 
+const LEAD_IMPORT_RUN_INCLUDE = {
+  rows: {
+    orderBy: {
+      rowNumber: 'asc',
+    },
+  },
+} satisfies Prisma.LeadImportRunInclude;
+
+type LeadImportRunWithRows = Prisma.LeadImportRunGetPayload<{
+  include: typeof LEAD_IMPORT_RUN_INCLUDE;
+}>;
+
+type LeadImportReviewComputationRow = {
+  rowNumber: number;
+  status: LeadImportRunRowStatus;
+  detail: string;
+  candidates: LeadImportDuplicateCandidate[];
+  sourceValues: Record<string, string>;
+  mappedPayload?: LeadInputSource;
+};
+
 export async function reviewLeadImport(
   actor: AuthenticatedActor,
   input: ReviewLeadImportRequest,
@@ -1583,11 +1612,13 @@ export async function reviewLeadImport(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const mapped = mapLeadImportFile(input);
-  const rows: LeadImportReviewRow[] = [];
+  const reviewRows: LeadImportReviewComputationRow[] = [];
   let readyRowCount = 0;
+  const withinFileSignals = new Map<string, LeadImportDuplicateCandidate[]>();
 
   for (const [index, row] of mapped.rows.entries()) {
     const rowNumber = mapped.rowNumbers[index] ?? index + 2;
+    const sourceValues = mapped.sourceRows[index]?.values ?? {};
 
     try {
       const rowInput = buildImportLeadRowInput(input, row);
@@ -1600,85 +1631,244 @@ export async function reviewLeadImport(
         },
       );
 
-      const candidates = await findLeadImportDuplicateCandidates(prisma, normalized);
+      const candidates = [
+        ...buildWithinFileDuplicateCandidates(withinFileSignals, normalized),
+        ...(await findLeadImportDuplicateCandidates(prisma, normalized)),
+      ];
+      registerWithinFileDuplicateSignals(withinFileSignals, rowNumber, normalized, sourceValues);
+
       if (candidates.length > 0) {
-        rows.push({
+        reviewRows.push({
           rowNumber,
-          status: 'potential_duplicate',
-          detail: `Potential duplicate found across existing leads or customer accounts (${candidates.length} candidate${candidates.length === 1 ? '' : 's'}).`,
+          status: LeadImportRunRowStatus.POTENTIAL_DUPLICATE,
+          detail: buildLeadImportDuplicateDetail(candidates),
           candidates,
+          sourceValues,
+          mappedPayload: rowInput,
         });
         continue;
       }
 
       readyRowCount += 1;
-    } catch (error) {
-      rows.push({
+      reviewRows.push({
         rowNumber,
-        status: 'invalid',
+        status: LeadImportRunRowStatus.READY,
+        detail: 'Row is ready for import.',
+        candidates: [],
+        sourceValues,
+        mappedPayload: rowInput,
+      });
+    } catch (error) {
+      reviewRows.push({
+        rowNumber,
+        status: LeadImportRunRowStatus.INVALID,
         detail: error instanceof Error ? error.message : String(error),
         candidates: [],
+        sourceValues,
       });
     }
   }
 
-  return {
-    totalRows: mapped.totalRows,
-    mappedRows: mapped.rows.length,
-    readyRowCount,
-    attentionRowCount: rows.length,
-    rows,
-  };
+  const batchName = optionalTrimmed(input.batchName);
+  const createdAt = new Date();
+  const run = await prisma.leadImportRun.create({
+    data: {
+      ...(actor.userId ? { createdByUserId: actor.userId } : {}),
+      fileName: mapped.fileName,
+      fileFormat: mapped.format,
+      fileDigest: buildLeadImportFileDigest(input.fileName, input.fileContentBase64, input.sheetName),
+      sheetName: mapped.sheetName,
+      ...(batchName ? { batchName } : {}),
+      ...(input.businessSegmentCode ? { businessSegmentCode: input.businessSegmentCode } : {}),
+      ...(input.leadSourceCode ? { leadSourceCode: input.leadSourceCode } : {}),
+      ...(input.sourceSiteId ? { sourceSiteId: input.sourceSiteId } : {}),
+      ...(input.sourceSiteName ? { sourceSiteName: input.sourceSiteName } : {}),
+      ...(input.sourceBrandTag ? { sourceBrandTag: input.sourceBrandTag } : {}),
+      mappings: toBoundedJsonValue(input.mappings, {
+        field: 'leadImportRun.mappings',
+        maxBytes: JSON_SIZE_LIMITS.leadImportRunMappingsBytes,
+      }),
+      totalRows: mapped.totalRows,
+      mappedRows: mapped.rows.length,
+      readyRowCount,
+      attentionRowCount: reviewRows.filter((row) => row.status !== LeadImportRunRowStatus.READY).length,
+      createdAt,
+      rows: {
+        create: reviewRows.map((row) => ({
+          rowNumber: row.rowNumber,
+          status: row.status,
+          detail: row.detail,
+          ...(Object.keys(row.sourceValues).length > 0
+            ? {
+                sourceValues: toBoundedJsonValue(row.sourceValues, {
+                  field: `leadImportRunRow.sourceValues[row ${row.rowNumber}]`,
+                  maxBytes: JSON_SIZE_LIMITS.leadImportRunRowSourceValuesBytes,
+                }),
+              }
+            : {}),
+          ...(row.mappedPayload
+            ? {
+                mappedPayload: toBoundedJsonValue(row.mappedPayload, {
+                  field: `leadImportRunRow.mappedPayload[row ${row.rowNumber}]`,
+                  maxBytes: JSON_SIZE_LIMITS.leadImportRunRowPayloadBytes,
+                }),
+              }
+            : {}),
+          ...(row.candidates.length > 0
+            ? {
+                duplicateCandidates: toBoundedJsonValue(row.candidates, {
+                  field: `leadImportRunRow.duplicateCandidates[row ${row.rowNumber}]`,
+                  maxBytes: JSON_SIZE_LIMITS.leadImportRunRowCandidatesBytes,
+                }),
+              }
+            : {}),
+        })),
+      },
+    },
+    include: LEAD_IMPORT_RUN_INCLUDE,
+  });
+
+  return toLeadImportRunDetail(run);
 }
 
 export async function importLeadFile(actor: AuthenticatedActor, input: ImportLeadFileRequest): Promise<ImportLeadFileResponse> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.intake_manage');
 
-  const mapped = mapLeadImportFile(input);
-  const items: LeadSummary[] = [];
-  const errors: LeadImportFileError[] = [];
-  let skippedByDecisionCount = 0;
-  const rowDecisions = new Map((input.rowDecisions ?? []).map((decision) => [decision.rowNumber, decision]));
+  const review = await reviewLeadImport(actor, input);
+  const rowDecisionMap = new Map((input.rowDecisions ?? []).map((decision) => [decision.rowNumber, decision]));
+  const unresolvedDuplicateRows = review.rows.filter((row) => row.status === 'potential_duplicate' && !rowDecisionMap.has(row.rowNumber));
 
-  for (const [index, row] of mapped.rows.entries()) {
-    const rowNumber = mapped.rowNumbers[index] ?? index + 2;
+  for (const row of unresolvedDuplicateRows) {
+    await prisma.leadImportRunRow.updateMany({
+      where: {
+        runId: review.runId,
+        rowNumber: row.rowNumber,
+        status: LeadImportRunRowStatus.POTENTIAL_DUPLICATE,
+      },
+      data: {
+        status: LeadImportRunRowStatus.FAILED,
+        detail: 'Potential duplicate found. Review this row and choose whether to create a new lead, use the existing record, or skip the row.',
+      },
+    });
+  }
 
-    try {
-      const rowInput = buildImportLeadRowInput(input, row);
-      const normalized = normalizeLeadInput(
-        rowInput,
-        {
-          defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
-          defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
-          leadCaptureMethod: LeadCaptureMethod.BULK_IMPORT,
-        },
-      );
+  return commitLeadImportRun(actor, review.runId, input.rowDecisions ? {
+    rowDecisions: input.rowDecisions,
+  } : {});
+}
 
-      const candidates = await findLeadImportDuplicateCandidates(prisma, normalized);
-      if (candidates.length > 0) {
-        const decision = rowDecisions.get(rowNumber);
-        if (!decision) {
-          throw new Error('Potential duplicate found. Review this row and choose whether to create a new lead or use the existing record.');
-        }
+export async function getLeadImportRun(actor: AuthenticatedActor, runId: string): Promise<LeadImportRunDetail> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
 
-        if (decision.duplicateDecision === 'use_existing') {
-          if (decision.targetEntityId) {
-            const selectedCandidate = candidates.find((candidate) => candidate.entityId === decision.targetEntityId);
-            if (!selectedCandidate) {
-              throw new Error('Selected duplicate target is not valid for this import row.');
-            }
-          } else if (candidates.length > 1) {
-            throw new Error('Select which existing record to use before skipping this duplicate row.');
-          }
+  const run = await prisma.leadImportRun.findUnique({
+    where: { id: runId },
+    include: LEAD_IMPORT_RUN_INCLUDE,
+  });
+  if (!run) {
+    throw new Error('Lead import run not found');
+  }
 
-          skippedByDecisionCount += 1;
-          continue;
-        }
+  return toLeadImportRunDetail(run);
+}
+
+export async function commitLeadImportRun(
+  actor: AuthenticatedActor,
+  runId: string,
+  input: CommitLeadImportRunRequest,
+): Promise<ImportLeadFileResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const finalizedRun = await prisma.$transaction(async (tx) => {
+    const run = await tx.leadImportRun.findUnique({
+      where: { id: runId },
+      include: LEAD_IMPORT_RUN_INCLUDE,
+    });
+    if (!run) {
+      throw new Error('Lead import run not found');
+    }
+
+    if (run.status === LeadImportRunStatus.IMPORTED || run.status === LeadImportRunStatus.IMPORTED_WITH_ERRORS) {
+      return run;
+    }
+
+    const incomingDecisions = new Map<number, NonNullable<CommitLeadImportRunRequest['rowDecisions']>[number]>(
+      (input.rowDecisions ?? []).map((decision) => [decision.rowNumber, decision]),
+    );
+
+    for (const row of run.rows) {
+      const incomingDecision = incomingDecisions.get(row.rowNumber);
+      if (!incomingDecision) {
+        continue;
       }
 
-      const lead = await prisma.$transaction((tx) =>
-        createLeadRecord(
+      await tx.leadImportRunRow.update({
+        where: { id: row.id },
+        data: {
+          duplicateDecision: toLeadImportDuplicateDecisionEnum(incomingDecision.duplicateDecision),
+          targetEntityId: incomingDecision.targetEntityId ?? null,
+        },
+      });
+    }
+
+    const refreshedRun = await tx.leadImportRun.findUniqueOrThrow({
+      where: { id: runId },
+      include: LEAD_IMPORT_RUN_INCLUDE,
+    });
+
+    validateLeadImportRunDecisions(refreshedRun.rows);
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    for (const [index, row] of refreshedRun.rows.entries()) {
+      if (row.status === LeadImportRunRowStatus.IMPORTED || row.status === LeadImportRunRowStatus.SKIPPED) {
+        if (row.status === LeadImportRunRowStatus.IMPORTED) {
+          createdCount += 1;
+        } else {
+          skippedCount += 1;
+        }
+        continue;
+      }
+
+      if (row.status === LeadImportRunRowStatus.INVALID) {
+        errorCount += 1;
+        continue;
+      }
+
+      if (row.status === LeadImportRunRowStatus.FAILED) {
+        errorCount += 1;
+        continue;
+      }
+
+      const decision = row.duplicateDecision;
+      if (row.status === LeadImportRunRowStatus.POTENTIAL_DUPLICATE && (decision === LeadImportDuplicateDecision.USE_EXISTING || decision === LeadImportDuplicateDecision.SKIP)) {
+        skippedCount += 1;
+        await tx.leadImportRunRow.update({
+          where: { id: row.id },
+          data: {
+            status: LeadImportRunRowStatus.SKIPPED,
+            detail: buildSkippedImportRowDetail(row),
+          },
+        });
+        continue;
+      }
+
+      try {
+        const payload = parseLeadImportMappedPayload(row);
+        const normalized = normalizeLeadInput(
+          payload,
+          {
+            defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+            defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
+            leadCaptureMethod: LeadCaptureMethod.BULK_IMPORT,
+          },
+        );
+
+        const lead = await createLeadRecord(
           tx,
           normalized,
           {
@@ -1690,33 +1880,375 @@ export async function importLeadFile(actor: AuthenticatedActor, input: ImportLea
           },
           {
             sourceMetadata: {
-              batchName: optionalTrimmed(input.batchName),
+              batchName: refreshedRun.batchName ?? undefined,
               rowIndex: index,
+              importRunId: refreshedRun.id,
             },
           },
-        ),
-      );
+        );
 
-      items.push(toLeadSummary(lead));
-    } catch (error) {
-      errors.push({
-        rowNumber,
-        detail: error instanceof Error ? error.message : String(error),
-      });
+        createdCount += 1;
+        await tx.leadImportRunRow.update({
+          where: { id: row.id },
+          data: {
+            status: LeadImportRunRowStatus.IMPORTED,
+            importedLeadId: lead.id,
+            importedAt: new Date(),
+            detail: `Lead imported successfully as ${lead.companyName}.`,
+          },
+        });
+      } catch (error) {
+        errorCount += 1;
+        await tx.leadImportRunRow.update({
+          where: { id: row.id },
+          data: {
+            status: LeadImportRunRowStatus.FAILED,
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+    }
+
+    await tx.leadImportRun.update({
+      where: { id: refreshedRun.id },
+      data: {
+        createdCount,
+        skippedCount,
+        errorCount,
+        status: errorCount > 0 ? LeadImportRunStatus.IMPORTED_WITH_ERRORS : LeadImportRunStatus.IMPORTED,
+        committedAt: new Date(),
+      },
+    });
+
+    return tx.leadImportRun.findUniqueOrThrow({
+      where: { id: refreshedRun.id },
+      include: LEAD_IMPORT_RUN_INCLUDE,
+    });
+  });
+
+  return buildLeadImportRunCommitResponse(finalizedRun);
+}
+
+function buildLeadImportFileDigest(fileName: string, fileContentBase64: string, sheetName?: string) {
+  return createHash('sha256')
+    .update(fileName)
+    .update(':')
+    .update(sheetName ?? '')
+    .update(':')
+    .update(fileContentBase64)
+    .digest('hex');
+}
+
+function buildImportDuplicateSignalKeys(input: NormalizedLeadInput) {
+  const keys: string[] = [];
+  const email = optionalTrimmed(input.email)?.toLowerCase();
+  const phone = optionalTrimmed(input.phone);
+  const companyName = optionalTrimmed(input.companyName)?.toLowerCase();
+  const state = optionalTrimmed(input.state)?.toUpperCase();
+
+  if (email) {
+    keys.push(`email:${email}`);
+  }
+  if (phone) {
+    keys.push(`phone:${phone}`);
+  }
+  if (companyName && state) {
+    keys.push(`company:${companyName}|state:${state}`);
+  }
+
+  return keys;
+}
+
+function buildWithinFileDuplicateCandidates(
+  seenSignals: Map<string, LeadImportDuplicateCandidate[]>,
+  input: NormalizedLeadInput,
+) {
+  const candidates = new Map<string, LeadImportDuplicateCandidate>();
+
+  for (const signal of buildImportDuplicateSignalKeys(input)) {
+    const signalCandidates = seenSignals.get(signal) ?? [];
+    for (const candidate of signalCandidates) {
+      candidates.set(candidate.entityId, candidate);
     }
   }
 
-  const batchName = optionalTrimmed(input.batchName);
+  return [...candidates.values()];
+}
+
+function registerWithinFileDuplicateSignals(
+  seenSignals: Map<string, LeadImportDuplicateCandidate[]>,
+  rowNumber: number,
+  input: NormalizedLeadInput,
+  sourceValues: Record<string, string>,
+) {
+  const candidate: LeadImportDuplicateCandidate = {
+    entityType: 'import_row',
+    entityId: `import-row:${rowNumber}`,
+    title: sourceValues.companyName || input.companyName,
+    subtitle: `Import row #${rowNumber}`,
+    detail: [sourceValues.email || input.email, sourceValues.phone || input.phone, sourceValues.state || input.state].filter(Boolean).join(' · '),
+  };
+
+  for (const signal of buildImportDuplicateSignalKeys(input)) {
+    const rows = seenSignals.get(signal) ?? [];
+    rows.push(candidate);
+    seenSignals.set(signal, rows);
+  }
+}
+
+function buildLeadImportDuplicateDetail(candidates: LeadImportDuplicateCandidate[]) {
+  const importRowCount = candidates.filter((candidate) => candidate.entityType === 'import_row').length;
+  const persistedCount = candidates.length - importRowCount;
+
+  if (importRowCount > 0 && persistedCount > 0) {
+    return `Potential duplicate found across existing records and other rows in this file (${candidates.length} candidate${candidates.length === 1 ? '' : 's'}).`;
+  }
+  if (importRowCount > 0) {
+    return `Potential duplicate found against other rows in this file (${importRowCount} candidate${importRowCount === 1 ? '' : 's'}).`;
+  }
+
+  return `Potential duplicate found across existing leads or customer accounts (${persistedCount} candidate${persistedCount === 1 ? '' : 's'}).`;
+}
+
+function toLeadImportRunStatusKey(status: LeadImportRunStatus): 'review_ready' | 'imported' | 'imported_with_errors' {
+  switch (status) {
+    case LeadImportRunStatus.REVIEW_READY:
+      return 'review_ready';
+    case LeadImportRunStatus.IMPORTED:
+      return 'imported';
+    case LeadImportRunStatus.IMPORTED_WITH_ERRORS:
+      return 'imported_with_errors';
+    default:
+      return 'review_ready';
+  }
+}
+
+function toLeadImportReviewRowStatusKey(status: LeadImportRunRowStatus): 'ready' | 'potential_duplicate' | 'invalid' | 'skipped' | 'imported' | 'failed' {
+  switch (status) {
+    case LeadImportRunRowStatus.READY:
+      return 'ready';
+    case LeadImportRunRowStatus.POTENTIAL_DUPLICATE:
+      return 'potential_duplicate';
+    case LeadImportRunRowStatus.INVALID:
+      return 'invalid';
+    case LeadImportRunRowStatus.SKIPPED:
+      return 'skipped';
+    case LeadImportRunRowStatus.IMPORTED:
+      return 'imported';
+    case LeadImportRunRowStatus.FAILED:
+      return 'failed';
+    default:
+      return 'invalid';
+  }
+}
+
+function toLeadImportDuplicateDecisionEnum(decision: LeadImportDuplicateDecisionKey) {
+  switch (decision) {
+    case 'create_new':
+      return LeadImportDuplicateDecision.CREATE_NEW;
+    case 'use_existing':
+      return LeadImportDuplicateDecision.USE_EXISTING;
+    case 'skip':
+      return LeadImportDuplicateDecision.SKIP;
+    default:
+      return LeadImportDuplicateDecision.CREATE_NEW;
+  }
+}
+
+function toLeadImportDuplicateDecisionKey(
+  decision: LeadImportDuplicateDecision | null | undefined,
+): LeadImportDuplicateDecisionKey | undefined {
+  switch (decision) {
+    case LeadImportDuplicateDecision.CREATE_NEW:
+      return 'create_new';
+    case LeadImportDuplicateDecision.USE_EXISTING:
+      return 'use_existing';
+    case LeadImportDuplicateDecision.SKIP:
+      return 'skip';
+    default:
+      return undefined;
+  }
+}
+
+function parseLeadImportDuplicateCandidates(value: Prisma.JsonValue | null): LeadImportDuplicateCandidate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') {
+      return [];
+    }
+
+    const entityType = 'entityType' in candidate ? candidate.entityType : undefined;
+    const entityId = 'entityId' in candidate ? candidate.entityId : undefined;
+    const title = 'title' in candidate ? candidate.title : undefined;
+    const subtitle = 'subtitle' in candidate && typeof candidate.subtitle === 'string' ? candidate.subtitle : undefined;
+    const detail = 'detail' in candidate && typeof candidate.detail === 'string' ? candidate.detail : undefined;
+
+    if (typeof entityType !== 'string' || typeof entityId !== 'string' || typeof title !== 'string') {
+      return [];
+    }
+
+    if (entityType !== 'lead' && entityType !== 'account' && entityType !== 'import_row') {
+      return [];
+    }
+
+    return [{
+      entityType,
+      entityId,
+      title,
+      ...(subtitle ? { subtitle } : {}),
+      ...(detail ? { detail } : {}),
+    }];
+  });
+}
+
+function parseLeadImportMappedPayload(row: Prisma.LeadImportRunRowGetPayload<{}>): LeadInputSource {
+  if (!row.mappedPayload || typeof row.mappedPayload !== 'object' || Array.isArray(row.mappedPayload)) {
+    throw new Error(`Import row ${row.rowNumber} is missing its mapped payload.`);
+  }
+
+  return row.mappedPayload as unknown as LeadInputSource;
+}
+
+function toLeadImportReviewRow(row: Prisma.LeadImportRunRowGetPayload<{}>): LeadImportReviewRow {
+  return {
+    rowNumber: row.rowNumber,
+    status: toLeadImportReviewRowStatusKey(row.status),
+    detail: row.detail,
+    candidates: parseLeadImportDuplicateCandidates(row.duplicateCandidates),
+  };
+}
+
+function toLeadImportRunDetail(run: LeadImportRunWithRows): LeadImportRunDetail {
+  return {
+    runId: run.id,
+    status: toLeadImportRunStatusKey(run.status),
+    fileName: run.fileName,
+    sheetName: run.sheetName,
+    ...(run.batchName ? { batchName: run.batchName } : {}),
+    totalRows: run.totalRows,
+    mappedRows: run.mappedRows,
+    readyRowCount: run.readyRowCount,
+    attentionRowCount: run.attentionRowCount,
+    createdCount: run.createdCount,
+    skippedCount: run.skippedCount,
+    errorCount: run.errorCount,
+    createdAt: run.createdAt.toISOString(),
+    ...(run.committedAt ? { committedAt: run.committedAt.toISOString() } : {}),
+    rows: run.rows
+      .filter((row) => row.status !== LeadImportRunRowStatus.READY)
+      .map(toLeadImportReviewRow),
+  };
+}
+
+function buildSkippedImportRowDetail(row: Prisma.LeadImportRunRowGetPayload<{}>) {
+  const decisionKey = toLeadImportDuplicateDecisionKey(row.duplicateDecision);
+  const candidates = parseLeadImportDuplicateCandidates(row.duplicateCandidates);
+
+  if (decisionKey === 'skip') {
+    return 'Row skipped by operator decision during duplicate review.';
+  }
+
+  if (decisionKey === 'use_existing') {
+    const target = row.targetEntityId
+      ? candidates.find((candidate) => candidate.entityId === row.targetEntityId)
+      : candidates.find((candidate) => candidate.entityType !== 'import_row');
+    if (target) {
+      return `Row linked to existing ${target.entityType === 'account' ? 'customer account' : 'lead'} ${target.title}.`;
+    }
+
+    return 'Row linked to an existing record during duplicate review.';
+  }
+
+  return row.detail;
+}
+
+function validateLeadImportRunDecisions(rows: Prisma.LeadImportRunRowGetPayload<{}>[]) {
+  for (const row of rows) {
+    if (row.status !== LeadImportRunRowStatus.POTENTIAL_DUPLICATE) {
+      continue;
+    }
+
+    const decisionKey = toLeadImportDuplicateDecisionKey(row.duplicateDecision);
+    if (!decisionKey) {
+      throw new Error(`Row ${row.rowNumber} still requires a duplicate decision before import can continue.`);
+    }
+
+    const candidates = parseLeadImportDuplicateCandidates(row.duplicateCandidates);
+    const persistedCandidates = candidates.filter((candidate) => candidate.entityType !== 'import_row');
+
+    if (decisionKey === 'use_existing') {
+      if (persistedCandidates.length === 0) {
+        throw new Error(`Row ${row.rowNumber} can only use an existing record when a lead or account match is available.`);
+      }
+
+      if (row.targetEntityId) {
+        const selectedCandidate = persistedCandidates.find((candidate) => candidate.entityId === row.targetEntityId);
+        if (!selectedCandidate) {
+          throw new Error(`Row ${row.rowNumber} has an invalid existing-record selection.`);
+        }
+      } else if (persistedCandidates.length > 1) {
+        throw new Error(`Row ${row.rowNumber} must choose which existing record should be used.`);
+      }
+    }
+  }
+}
+
+async function buildLeadImportRunCommitResponse(run: LeadImportRunWithRows): Promise<ImportLeadFileResponse> {
+  const importedLeadIds = run.rows
+    .filter((row) => row.status === LeadImportRunRowStatus.IMPORTED && row.importedLeadId)
+    .map((row) => row.importedLeadId as string);
+
+  const importedLeads = importedLeadIds.length > 0
+    ? await prisma.lead.findMany({
+        where: {
+          id: {
+            in: importedLeadIds,
+          },
+        },
+        include: LEAD_SUMMARY_INCLUDE,
+      })
+    : [];
+
+  const importedLeadMap = new Map(importedLeads.map((lead) => [lead.id, toLeadSummary(lead)]));
 
   return {
-    ...(batchName !== undefined ? { batchName } : {}),
-    totalRows: mapped.totalRows,
-    mappedRows: mapped.rows.length,
-    createdCount: items.length,
-    skippedCount: skippedByDecisionCount + errors.length,
-    errorCount: errors.length,
-    items,
-    errors,
+    runId: run.id,
+    status: toLeadImportRunStatusKey(run.status),
+    fileName: run.fileName,
+    sheetName: run.sheetName,
+    ...(run.batchName ? { batchName: run.batchName } : {}),
+    totalRows: run.totalRows,
+    mappedRows: run.mappedRows,
+    readyRowCount: run.readyRowCount,
+    attentionRowCount: run.attentionRowCount,
+    createdCount: run.createdCount,
+    skippedCount: run.skippedCount,
+    errorCount: run.errorCount,
+    createdAt: run.createdAt.toISOString(),
+    ...(run.committedAt ? { committedAt: run.committedAt.toISOString() } : {}),
+    items: run.rows
+      .filter((row) => row.status === LeadImportRunRowStatus.IMPORTED && row.importedLeadId)
+      .map((row) => importedLeadMap.get(row.importedLeadId as string))
+      .filter((lead): lead is LeadSummary => Boolean(lead)),
+    skippedRows: run.rows
+      .filter((row) => row.status === LeadImportRunRowStatus.SKIPPED)
+      .map((row) => {
+        const decision = toLeadImportDuplicateDecisionKey(row.duplicateDecision);
+        return {
+          rowNumber: row.rowNumber,
+          detail: row.detail,
+          ...(decision ? { decision } : {}),
+        };
+      }),
+    errors: run.rows
+      .filter((row) => row.status === LeadImportRunRowStatus.INVALID || row.status === LeadImportRunRowStatus.FAILED)
+      .map((row) => ({
+        rowNumber: row.rowNumber,
+        detail: row.detail,
+      })),
   };
 }
 

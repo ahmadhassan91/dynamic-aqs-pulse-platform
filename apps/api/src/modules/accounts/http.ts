@@ -6,6 +6,7 @@ import type {
   CreateAccountLocationRequest,
   CreateContactRequest,
   ListAccountsRequest,
+  UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
   UpdateAccountRequest,
   UpdateContactRequest,
@@ -29,6 +30,7 @@ import {
   listAccountContacts,
   listAccounts,
   updateAccount,
+  updateAccountLifecycle,
   updateAccountContact,
   updateAccountLocation,
 } from './service.js';
@@ -39,6 +41,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
   const isAccountRoute =
     pathname === '/api/v1/accounts'
     || /^\/api\/v1\/accounts\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/lifecycle$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/locations$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/locations\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/contacts$/.test(pathname)
@@ -59,6 +62,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         const search = url.searchParams.get('search')?.trim();
         const limit = parseInteger(url.searchParams.get('limit'));
         const includeInactive = parseBoolean(url.searchParams.get('includeInactive'));
+        const lifecycleStatus = url.searchParams.get('lifecycleStatus')?.trim();
 
         if (search) {
           query.search = search;
@@ -68,6 +72,9 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         }
         if (includeInactive !== undefined) {
           query.includeInactive = includeInactive;
+        }
+        if (lifecycleStatus) {
+          query.lifecycleStatus = lifecycleStatus as NonNullable<ListAccountsRequest['lifecycleStatus']>;
         }
 
         const response = await listAccounts(actor, query);
@@ -168,6 +175,26 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         });
         const body = (await readJsonBody(req)) as UpdateContactRequest;
         const response = await updateAccountContact(actor, accountId, contactId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['PATCH']);
+    }
+
+    const lifecycleMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/lifecycle$/);
+    if (lifecycleMatch) {
+      const accountId = lifecycleMatch[1];
+      if (!accountId) {
+        return false;
+      }
+
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.edit',
+        });
+        const body = (await readJsonBody(req)) as UpdateAccountLifecycleRequest;
+        const response = await updateAccountLifecycle(actor, accountId, body);
         return jsonResponse(res, 200, response);
       }
 

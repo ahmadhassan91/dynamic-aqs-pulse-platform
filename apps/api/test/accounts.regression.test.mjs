@@ -17,6 +17,7 @@ let authenticateAccessToken;
 let createLead;
 let createAccount;
 let updateAccount;
+let updateAccountLifecycle;
 let createAccountContact;
 let updateAccountContact;
 let createAccountLocation;
@@ -36,6 +37,7 @@ test.before(async () => {
   ({
     createAccount,
     updateAccount,
+    updateAccountLifecycle,
     createAccountContact,
     updateAccountContact,
     createAccountLocation,
@@ -326,4 +328,72 @@ test('account summary updates are editable through the governed maintenance path
 
   const detail = await getAccountDetail(actor, account.id);
   assert.equal(detail?.legalName, undefined);
+});
+
+test('account lifecycle states are filterable and governed with transition rules', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Lifecycle Account',
+      legalName: 'Lifecycle Account LLC',
+      lifecycleStatus: 'ACTIVE',
+      lifecycleStatusChangedAt: new Date('2026-04-15T10:00:00.000Z'),
+      isActive: true,
+    },
+  });
+
+  await assert.rejects(
+    updateAccountLifecycle(actor, account.id, {
+      lifecycleStatus: 'churned',
+    }),
+    /transition is not allowed/i,
+  );
+
+  const atRisk = await updateAccountLifecycle(actor, account.id, {
+    lifecycleStatus: 'at_risk',
+    lifecycleReasonNote: 'Ordering cadence has slowed.',
+  });
+  assert.equal(atRisk.lifecycleStatus, 'at_risk');
+  assert.equal(atRisk.isActive, true);
+
+  const filtered = await listAccounts(actor, {
+    lifecycleStatus: 'at_risk',
+  });
+  assert.equal(filtered.total, 1);
+  assert.equal(filtered.items[0]?.id, account.id);
+
+  const inactive = await updateAccountLifecycle(actor, account.id, {
+    lifecycleStatus: 'inactive',
+    lifecycleReasonNote: 'No recent orders.',
+  });
+  assert.equal(inactive.lifecycleStatus, 'inactive');
+  assert.equal(inactive.isActive, false);
+
+  await assert.rejects(
+    updateAccountLifecycle(actor, account.id, {
+      lifecycleStatus: 'churned',
+    }),
+    /required before an account can be marked as churned/i,
+  );
+
+  const churned = await updateAccountLifecycle(actor, account.id, {
+    lifecycleStatus: 'churned',
+    lifecycleReasonNote: 'Dealer exited the program.',
+  });
+  assert.equal(churned.lifecycleStatus, 'churned');
+  assert.equal(churned.isActive, false);
+
+  const reactivated = await updateAccountLifecycle(actor, account.id, {
+    lifecycleStatus: 'active',
+    lifecycleReasonNote: 'New order confirmed.',
+  });
+  assert.equal(reactivated.lifecycleStatus, 'active');
+  assert.equal(reactivated.isActive, true);
+
+  const archived = await updateAccount(actor, account.id, {
+    isActive: false,
+  });
+  assert.equal(archived.lifecycleStatus, 'active');
+  assert.equal(archived.isActive, false);
 });

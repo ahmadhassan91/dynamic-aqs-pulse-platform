@@ -230,13 +230,25 @@ export const LEAD_IMPORT_REVIEW_ROW_STATUSES = [
   'ready',
   'potential_duplicate',
   'invalid',
+  'skipped',
+  'imported',
+  'failed',
 ] as const;
 
 export type LeadImportReviewRowStatusKey = (typeof LEAD_IMPORT_REVIEW_ROW_STATUSES)[number];
 
+export const LEAD_IMPORT_RUN_STATUSES = [
+  'review_ready',
+  'imported',
+  'imported_with_errors',
+] as const;
+
+export type LeadImportRunStatusKey = (typeof LEAD_IMPORT_RUN_STATUSES)[number];
+
 export const LEAD_IMPORT_DUPLICATE_DECISIONS = [
   'create_new',
   'use_existing',
+  'skip',
 ] as const;
 
 export type LeadImportDuplicateDecisionKey = (typeof LEAD_IMPORT_DUPLICATE_DECISIONS)[number];
@@ -1028,7 +1040,7 @@ export interface LeadImportFilePreviewResponse {
 }
 
 export interface LeadImportDuplicateCandidate {
-  entityType: 'lead' | 'account';
+  entityType: 'lead' | 'account' | 'import_row';
   entityId: string;
   title: string;
   subtitle?: string;
@@ -1061,14 +1073,30 @@ export interface ImportLeadFileRequest extends Omit<ImportLeadsRequest, 'rows'> 
   rowDecisions?: LeadImportRowDecision[];
 }
 
-export interface ReviewLeadImportRequest extends ImportLeadFileRequest {}
+export interface ReviewLeadImportRequest extends Omit<ImportLeadFileRequest, 'rowDecisions'> {}
 
-export interface ReviewLeadImportResponse {
+export interface LeadImportRunDetail {
+  runId: string;
+  status: LeadImportRunStatusKey;
+  fileName: string;
+  sheetName: string;
+  batchName?: string;
   totalRows: number;
   mappedRows: number;
   readyRowCount: number;
   attentionRowCount: number;
+  createdCount: number;
+  skippedCount: number;
+  errorCount: number;
+  createdAt: string;
+  committedAt?: string;
   rows: LeadImportReviewRow[];
+}
+
+export interface ReviewLeadImportResponse extends LeadImportRunDetail {}
+
+export interface CommitLeadImportRunRequest {
+  rowDecisions?: LeadImportRowDecision[];
 }
 
 export interface LeadImportFileError {
@@ -1076,13 +1104,28 @@ export interface LeadImportFileError {
   detail: string;
 }
 
+export interface LeadImportSkippedRow {
+  rowNumber: number;
+  detail: string;
+  decision?: LeadImportDuplicateDecisionKey;
+}
+
 export interface ImportLeadFileResponse {
+  runId: string;
+  status: LeadImportRunStatusKey;
+  fileName: string;
+  sheetName: string;
   batchName?: string;
   totalRows: number;
   mappedRows: number;
+  readyRowCount: number;
+  attentionRowCount: number;
   createdCount: number;
   skippedCount: number;
   errorCount: number;
+  createdAt: string;
+  committedAt?: string;
   items: LeadSummary[];
+  skippedRows: LeadImportSkippedRow[];
   errors: LeadImportFileError[];
 }

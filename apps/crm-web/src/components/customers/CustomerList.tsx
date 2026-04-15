@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { ActionIcon, Alert, Badge, Card, Group, Loader, Paper, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Card, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { IconArrowRight, IconBuildingStore, IconMapPin, IconSearch, IconUsers } from '@tabler/icons-react';
-import type { AccountSummary } from '@pulse/contracts';
+import type { AccountLifecycleStatusKey, AccountSummary } from '@pulse/contracts';
 import { fetchAccounts } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
 export function CustomerList() {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
   const [searchQuery, setSearchQuery] = useState('');
+  const [lifecycleFilter, setLifecycleFilter] = useState<AccountLifecycleStatusKey | ''>('');
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export function CustomerList() {
         try {
           const response = await fetchAccounts(apiBaseUrl, auth.tokens.accessToken, {
             ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
+            ...(lifecycleFilter ? { lifecycleStatus: lifecycleFilter } : {}),
             limit: 50,
           });
           if (!cancelled) {
@@ -51,7 +53,7 @@ export function CustomerList() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [apiBaseUrl, auth, searchQuery]);
+  }, [apiBaseUrl, auth, lifecycleFilter, searchQuery]);
 
   const sourcedFromLeadCount = useMemo(
     () => accounts.filter((account) => account.sourceLeadId).length,
@@ -59,6 +61,10 @@ export function CustomerList() {
   );
   const territoryAssignedCount = useMemo(
     () => accounts.filter((account) => account.territoryId).length,
+    [accounts],
+  );
+  const atRiskCount = useMemo(
+    () => accounts.filter((account) => account.lifecycleStatus === 'at_risk').length,
     [accounts],
   );
 
@@ -84,20 +90,36 @@ export function CustomerList() {
         </Group>
       </Paper>
 
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
-        <MetricCard label="Active Accounts" value={String(accounts.filter((account) => account.isActive).length)} icon={<IconBuildingStore size={18} />} />
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
+        <MetricCard label="Active Accounts" value={String(accounts.filter((account) => account.lifecycleStatus === 'active').length)} icon={<IconBuildingStore size={18} />} />
+        <MetricCard label="At Risk" value={String(atRiskCount)} icon={<IconBuildingStore size={18} />} />
         <MetricCard label="Lead-Sourced" value={String(sourcedFromLeadCount)} icon={<IconUsers size={18} />} />
         <MetricCard label="Territory Assigned" value={String(territoryAssignedCount)} icon={<IconMapPin size={18} />} />
       </SimpleGrid>
 
       <Paper withBorder radius="md" p="md">
-        <TextInput
-          label="Search Accounts"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.currentTarget.value)}
-          placeholder="Search by account name, legal name, or account number"
-          leftSection={<IconSearch size={16} />}
-        />
+        <Group align="end" grow>
+          <TextInput
+            label="Search Accounts"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.currentTarget.value)}
+            placeholder="Search by account name, legal name, or account number"
+            leftSection={<IconSearch size={16} />}
+          />
+          <Select
+            label="Lifecycle"
+            value={lifecycleFilter}
+            onChange={(value) => setLifecycleFilter((value as AccountLifecycleStatusKey | '') ?? '')}
+            data={[
+              { value: '', label: 'All lifecycle states' },
+              { value: 'active', label: 'Active' },
+              { value: 'at_risk', label: 'At Risk' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'churned', label: 'Churned' },
+            ]}
+            clearable={false}
+          />
+        </Group>
       </Paper>
 
       {errorMessage ? (
@@ -155,9 +177,14 @@ export function CustomerList() {
                   <Table.Td>{account.contactCount}</Table.Td>
                   <Table.Td>{account.locationCount}</Table.Td>
                   <Table.Td>
-                    <Badge color={account.isActive ? 'green' : 'gray'} variant="light">
-                      {account.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
+                    <Group gap="xs">
+                      <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
+                        {formatAccountLifecycle(account.lifecycleStatus)}
+                      </Badge>
+                      {!account.isActive ? (
+                        <Badge color="gray" variant="outline">Record Inactive</Badge>
+                      ) : null}
+                    </Group>
                   </Table.Td>
                   <Table.Td>
                     {account.sourceLeadId ? (
@@ -179,6 +206,25 @@ export function CustomerList() {
       </Paper>
     </Stack>
   );
+}
+
+function accountLifecycleColor(status: AccountLifecycleStatusKey) {
+  switch (status) {
+    case 'active':
+      return 'green';
+    case 'at_risk':
+      return 'yellow';
+    case 'inactive':
+      return 'gray';
+    case 'churned':
+      return 'red';
+  }
+}
+
+function formatAccountLifecycle(status: AccountLifecycleStatusKey) {
+  return status === 'at_risk'
+    ? 'At Risk'
+    : status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function MetricCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {

@@ -14,12 +14,13 @@ import {
   Stack,
   Switch,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import type { AccountDetail } from '@pulse/contracts';
-import { updateAccountRecord } from '@/lib/pulse-api';
+import type { AccountDetail, AccountLifecycleStatusKey } from '@pulse/contracts';
+import { updateAccountLifecycle, updateAccountRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
 export function CustomerOverview(
@@ -32,6 +33,10 @@ export function CustomerOverview(
   const [legalName, setLegalName] = useState(account.legalName ?? '');
   const [accountType, setAccountType] = useState(account.accountType ?? '');
   const [isActive, setIsActive] = useState(account.isActive);
+  const [lifecycleOpened, setLifecycleOpened] = useState(false);
+  const [isLifecycleSaving, setIsLifecycleSaving] = useState(false);
+  const [nextLifecycleStatus, setNextLifecycleStatus] = useState<AccountLifecycleStatusKey>(account.lifecycleStatus);
+  const [lifecycleReasonNote, setLifecycleReasonNote] = useState(account.lifecycleReasonNote ?? '');
 
   const activeLocations = useMemo(
     () => account.locations.filter((location) => location.isActive),
@@ -78,6 +83,41 @@ export function CustomerOverview(
     setEditOpened(true);
   }
 
+  function openLifecycleModal(status: AccountLifecycleStatusKey) {
+    setNextLifecycleStatus(status);
+    setLifecycleReasonNote(account.lifecycleReasonNote ?? '');
+    setLifecycleOpened(true);
+  }
+
+  async function handleLifecycleSave() {
+    if (!auth) {
+      return;
+    }
+
+    setIsLifecycleSaving(true);
+    try {
+      await updateAccountLifecycle(apiBaseUrl, auth.tokens.accessToken, account.id, {
+        lifecycleStatus: nextLifecycleStatus,
+        lifecycleReasonNote: lifecycleReasonNote.trim() || null,
+      });
+      await onUpdated();
+      setLifecycleOpened(false);
+      notifications.show({
+        title: 'Lifecycle updated',
+        message: `${account.displayName} is now ${formatLifecycle(nextLifecycleStatus)}.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Lifecycle update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsLifecycleSaving(false);
+    }
+  }
+
   return (
     <Stack gap="lg">
       <Grid>
@@ -95,7 +135,8 @@ export function CustomerOverview(
               <MetadataRow label="Display Name" value={account.displayName} />
               <MetadataRow label="Legal Name" value={account.legalName ?? 'Not provided'} />
               <MetadataRow label="Account Type" value={account.accountType ?? 'Not classified'} />
-              <MetadataRow label="Status" value={account.isActive ? 'Active' : 'Inactive'} />
+              <MetadataRow label="Lifecycle" value={formatLifecycle(account.lifecycleStatus)} />
+              <MetadataRow label="Record Status" value={account.isActive ? 'Active In Pulse' : 'Inactive In Pulse'} />
               <MetadataRow label="Primary Location" value={formatLocation(primaryLocation)} />
             </Stack>
           </Card>
@@ -118,22 +159,56 @@ export function CustomerOverview(
       <Card withBorder radius="md" p="lg">
         <Group justify="space-between" mb="md">
           <Title order={4}>Account Lifecycle</Title>
-          {account.sourceLeadId ? (
-            <Button component={Link} href={`/leads/${account.sourceLeadId}`} variant="light" size="xs">
-              View Source Lead
-            </Button>
-          ) : null}
+          <Group gap="xs">
+            <Badge color={lifecycleColor(account.lifecycleStatus)} variant="light">{formatLifecycle(account.lifecycleStatus)}</Badge>
+            {account.sourceLeadId ? (
+              <Button component={Link} href={`/leads/${account.sourceLeadId}`} variant="light" size="xs">
+                View Source Lead
+              </Button>
+            ) : null}
+          </Group>
         </Group>
         <Group gap="xs" mb="md">
           <Badge color="blue" variant="light">{account.contactCount} Contacts</Badge>
           <Badge color="cyan" variant="light">{account.locationCount} Locations</Badge>
           {account.territoryCode ? <Badge color="grape" variant="light">{account.territoryCode}</Badge> : null}
           {account.shippingCenterCode ? <Badge color="teal" variant="light">{account.shippingCenterCode}</Badge> : null}
+          {!account.isActive ? <Badge color="gray" variant="outline">Record Inactive</Badge> : null}
         </Group>
+        <Stack gap="xs" mb="md">
+          <MetadataRow label="Lifecycle Changed" value={formatDate(account.lifecycleStatusChangedAt)} />
+          <MetadataRow label="Last Order" value={formatDate(account.lastOrderAt)} />
+          <MetadataRow label="Last Engagement" value={formatDate(account.lastEngagementAt)} />
+          <MetadataRow label="Lifecycle Note" value={account.lifecycleReasonNote ?? 'Not recorded'} />
+        </Stack>
+        {canEdit ? (
+          <Group gap="xs" mb="md">
+            {account.lifecycleStatus !== 'at_risk' ? (
+              <Button size="xs" variant="light" color="yellow" onClick={() => openLifecycleModal('at_risk')}>
+                Mark At Risk
+              </Button>
+            ) : null}
+            {account.lifecycleStatus !== 'inactive' ? (
+              <Button size="xs" variant="light" color="gray" onClick={() => openLifecycleModal('inactive')}>
+                Mark Inactive
+              </Button>
+            ) : null}
+            {account.lifecycleStatus !== 'churned' ? (
+              <Button size="xs" variant="light" color="red" onClick={() => openLifecycleModal('churned')}>
+                Confirm Churn
+              </Button>
+            ) : null}
+            {account.lifecycleStatus !== 'active' ? (
+              <Button size="xs" variant="light" color="green" onClick={() => openLifecycleModal('active')}>
+                Reactivate
+              </Button>
+            ) : null}
+          </Group>
+        ) : null}
         <List spacing="xs" size="sm">
           <List.Item>Customer activation now lives in Pulse from lead conversion through first-order confirmation.</List.Item>
-          <List.Item>Account territory was carried from the lead routing decision so downstream views stay aligned.</List.Item>
-          <List.Item>Operational account fields can now be maintained here while ERP-backed financial detail stays read-only until the Acumatica boundary is wired.</List.Item>
+          <List.Item>Lifecycle state is tracked separately from archive/inactive record status so churn and operating risk stay visible.</List.Item>
+          <List.Item>ERP-backed order automation is still parked, so lifecycle changes are manually governed in Pulse for now.</List.Item>
         </List>
       </Card>
 
@@ -165,12 +240,46 @@ export function CustomerOverview(
           <Switch
             checked={isActive}
             onChange={(event) => setIsActive(event.currentTarget.checked)}
-            label="Account is active"
+            label="Record is active in Pulse"
           />
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setEditOpened(false)}>Cancel</Button>
             <Button onClick={() => void handleSave()} loading={isSaving} disabled={!displayName.trim()}>
               Save Account
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={lifecycleOpened} onClose={() => setLifecycleOpened(false)} title="Update Account Lifecycle" centered>
+        <Stack gap="md">
+          <Select
+            label="Lifecycle status"
+            value={nextLifecycleStatus}
+            onChange={(value) => setNextLifecycleStatus((value as AccountLifecycleStatusKey | null) ?? account.lifecycleStatus)}
+            data={[
+              { value: 'active', label: 'Active' },
+              { value: 'at_risk', label: 'At Risk' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'churned', label: 'Churned' },
+            ]}
+            allowDeselect={false}
+          />
+          <Textarea
+            label="Lifecycle note"
+            description={nextLifecycleStatus === 'churned' ? 'Required when confirming churn.' : 'Optional operator context.'}
+            value={lifecycleReasonNote}
+            onChange={(event) => setLifecycleReasonNote(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setLifecycleOpened(false)}>Cancel</Button>
+            <Button
+              onClick={() => void handleLifecycleSave()}
+              loading={isLifecycleSaving}
+              disabled={nextLifecycleStatus === 'churned' && !lifecycleReasonNote.trim()}
+            >
+              Save Lifecycle
             </Button>
           </Group>
         </Stack>
@@ -213,4 +322,31 @@ function formatAssignmentMethod(value: AccountDetail['territoryAssignmentMethod'
     default:
       return 'Not recorded';
   }
+}
+
+function lifecycleColor(status: AccountLifecycleStatusKey) {
+  switch (status) {
+    case 'active':
+      return 'green';
+    case 'at_risk':
+      return 'yellow';
+    case 'inactive':
+      return 'gray';
+    case 'churned':
+      return 'red';
+  }
+}
+
+function formatLifecycle(status: AccountLifecycleStatusKey) {
+  return status === 'at_risk'
+    ? 'At Risk'
+    : status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function formatDate(value: string | undefined) {
+  if (!value) {
+    return 'Not recorded';
+  }
+
+  return new Date(value).toLocaleDateString();
 }

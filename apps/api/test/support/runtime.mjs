@@ -64,7 +64,9 @@ export function ensureTestDatabaseReady() {
 }
 
 export async function resetDatabase(prisma) {
-  const tables = await prisma.$queryRawUnsafe(`
+  await prisma.$disconnect();
+
+  const tables = await queryRows(`
     SELECT tablename
     FROM pg_tables
     WHERE schemaname = 'public'
@@ -83,9 +85,29 @@ export async function resetDatabase(prisma) {
     .map((tableName) => `"public"."${tableName.replace(/"/g, '""')}"`)
     .join(', ');
 
-  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${quotedTables} RESTART IDENTITY CASCADE;`);
+  execFileSync('psql', [TEST_DATABASE_URL, '-c', `TRUNCATE TABLE ${quotedTables} RESTART IDENTITY CASCADE;`], {
+    stdio: 'inherit',
+  });
+
+  await prisma.$connect();
 }
 
 export function getApiAppDir() {
   return apiAppDir;
+}
+
+function queryRows(sql) {
+  const output = execFileSync('psql', [TEST_DATABASE_URL, '-tA', '-F', '\t', '-c', sql], {
+    encoding: 'utf8',
+  }).trim();
+
+  if (!output) {
+    return [];
+  }
+
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((tablename) => ({ tablename }));
 }

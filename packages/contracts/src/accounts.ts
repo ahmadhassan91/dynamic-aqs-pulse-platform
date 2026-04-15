@@ -1,5 +1,14 @@
 import type { TerritoryAssignmentMethodKey } from './territories.js';
 
+export const ACCOUNT_LIFECYCLE_STATUSES = [
+  'active',
+  'at_risk',
+  'inactive',
+  'churned',
+] as const;
+
+export type AccountLifecycleStatusKey = (typeof ACCOUNT_LIFECYCLE_STATUSES)[number];
+
 export interface AccountSummary {
   id: string;
   accountNumber?: string;
@@ -22,6 +31,11 @@ export interface AccountSummary {
   assignedRdName?: string;
   territoryAssignmentMethod?: TerritoryAssignmentMethodKey;
   territoryAssignedAt?: string;
+  lifecycleStatus: AccountLifecycleStatusKey;
+  lifecycleStatusChangedAt?: string;
+  lifecycleReasonNote?: string;
+  lastOrderAt?: string;
+  lastEngagementAt?: string;
   isActive: boolean;
   contactCount: number;
   locationCount: number;
@@ -69,6 +83,7 @@ export interface ListAccountsRequest {
   search?: string;
   limit?: number;
   includeInactive?: boolean;
+  lifecycleStatus?: AccountLifecycleStatusKey;
 }
 
 export interface ListAccountsResponse {
@@ -88,6 +103,11 @@ export interface UpdateAccountRequest {
   legalName?: string | null;
   accountType?: string | null;
   isActive?: boolean;
+}
+
+export interface UpdateAccountLifecycleRequest {
+  lifecycleStatus: AccountLifecycleStatusKey;
+  lifecycleReasonNote?: string | null;
 }
 
 export interface CreateContactRequest {

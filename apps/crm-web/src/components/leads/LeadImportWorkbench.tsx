@@ -22,6 +22,7 @@ import {
 } from '@mantine/core';
 import { IconAlertCircle, IconCheck, IconFileUpload, IconRefresh, IconUpload } from '@tabler/icons-react';
 import type {
+  LeadImportRunDetail,
   ImportLeadFileResponse,
   LeadImportColumnMapping,
   LeadImportDuplicateCandidate,
@@ -34,10 +35,10 @@ import type {
   ReviewLeadImportResponse,
 } from '@pulse/contracts';
 import {
+  commitLeadImportRun,
   fetchBusinessSegments,
   fetchLeadRoutingPolicy,
   fetchLeadSources,
-  importLeadFile,
   previewLeadImport,
   reviewLeadImport,
 } from '@/lib/pulse-api';
@@ -76,7 +77,7 @@ export function LeadImportWorkbench() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [reviewResult, setReviewResult] = useState<ReviewLeadImportResponse | null>(null);
+  const [reviewResult, setReviewResult] = useState<ReviewLeadImportResponse | LeadImportRunDetail | null>(null);
   const [importResult, setImportResult] = useState<ImportLeadFileResponse | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isReviewLoading, setIsReviewLoading] = useState(false);
@@ -236,7 +237,7 @@ export function LeadImportWorkbench() {
   }
 
   async function handleImportSubmit() {
-    if (!auth || !file || !fileContentBase64 || !preview || !reviewResult) {
+    if (!auth || !reviewResult) {
       return;
     }
 
@@ -246,26 +247,7 @@ export function LeadImportWorkbench() {
     setIsImporting(true);
 
     try {
-      const payloadMappings: LeadImportColumnMapping[] = preview.columns.map((column) => {
-        const selectedTarget = mappings[column.sourceHeader];
-
-        return {
-          sourceHeader: column.sourceHeader,
-          ...(selectedTarget ? { targetField: selectedTarget } : {}),
-        };
-      });
-
-      const response = await importLeadFile(apiBaseUrl, accessToken, {
-        fileName: file.name,
-        fileContentBase64,
-        ...(selectedSheet ? { sheetName: selectedSheet } : {}),
-        ...(importContext.batchName.trim() ? { batchName: importContext.batchName.trim() } : {}),
-        ...(importContext.businessSegmentCode ? { businessSegmentCode: importContext.businessSegmentCode } : {}),
-        ...(importContext.leadSourceCode ? { leadSourceCode: importContext.leadSourceCode } : {}),
-        ...(importContext.sourceSiteId.trim() ? { sourceSiteId: importContext.sourceSiteId.trim() } : {}),
-        ...(importContext.sourceSiteName.trim() ? { sourceSiteName: importContext.sourceSiteName.trim() } : {}),
-        ...(importContext.sourceBrandTag.trim() ? { sourceBrandTag: importContext.sourceBrandTag.trim() } : {}),
-        mappings: payloadMappings,
+      const response = await commitLeadImportRun(apiBaseUrl, accessToken, reviewResult.runId, {
         rowDecisions: reviewResult.rows
           .filter((row: LeadImportReviewRow) => row.status === 'potential_duplicate')
           .map((row: LeadImportReviewRow) => {
@@ -339,7 +321,8 @@ export function LeadImportWorkbench() {
         if (!decision?.duplicateDecision) {
           return true;
         }
-        if (decision.duplicateDecision === 'use_existing' && reviewRow.candidates.length > 1 && !decision.targetEntityId) {
+        const persistedCandidates = reviewRow.candidates.filter((candidate) => candidate.entityType !== 'import_row');
+        if (decision.duplicateDecision === 'use_existing' && persistedCandidates.length > 1 && !decision.targetEntityId) {
           return true;
         }
 
@@ -680,7 +663,10 @@ export function LeadImportWorkbench() {
                                   data={[
                                     { value: '', label: 'Select a decision' },
                                     { value: 'create_new', label: 'Create a new lead anyway' },
-                                    { value: 'use_existing', label: 'Use existing record and skip this row' },
+                                    ...(row.candidates.some((candidate) => candidate.entityType !== 'import_row')
+                                      ? [{ value: 'use_existing', label: 'Use existing record and skip this row' }]
+                                      : []),
+                                    { value: 'skip', label: 'Skip this row' },
                                   ]}
                                   clearable={false}
                                 />
@@ -696,13 +682,15 @@ export function LeadImportWorkbench() {
                                       },
                                     }))
                                   }
-                                  data={row.candidates.map((candidate: LeadImportDuplicateCandidate) => ({
-                                    value: candidate.entityId,
-                                    label: `${candidate.title} (${candidate.entityType})`,
-                                  }))}
+                                  data={row.candidates
+                                    .filter((candidate) => candidate.entityType !== 'import_row')
+                                    .map((candidate: LeadImportDuplicateCandidate) => ({
+                                      value: candidate.entityId,
+                                      label: `${candidate.title} (${candidate.entityType})`,
+                                    }))}
                                   disabled={(rowDecisions[row.rowNumber]?.duplicateDecision ?? '') !== 'use_existing'}
-                                  placeholder={row.candidates.length > 1 ? 'Select the existing record' : 'Optional for single candidate'}
-                                  clearable={row.candidates.length > 1}
+                                  placeholder={row.candidates.filter((candidate) => candidate.entityType !== 'import_row').length > 1 ? 'Select the existing record' : 'Optional for single candidate'}
+                                  clearable={row.candidates.filter((candidate) => candidate.entityType !== 'import_row').length > 1}
                                 />
                               </SimpleGrid>
                             </Stack>
@@ -757,7 +745,17 @@ export function LeadImportWorkbench() {
                 <Text size="sm" c="dimmed">Rows with issues</Text>
                 <Title order={3}>{importResult?.errorCount ?? 0}</Title>
               </Card>
+              <Card withBorder radius="xl" p="md" className="premium-stat-card">
+                <Text size="sm" c="dimmed">Rows skipped</Text>
+                <Title order={3}>{importResult?.skippedCount ?? 0}</Title>
+              </Card>
             </SimpleGrid>
+
+            {importResult && importResult.createdCount === 0 ? (
+              <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                No new leads were created from this import run. Review skipped rows and row issues before rerunning another batch.
+              </Alert>
+            ) : null}
 
             {importResult?.items.length ? (
               <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
@@ -776,6 +774,19 @@ export function LeadImportWorkbench() {
                       Open Lead Workspace
                     </Button>
                   </Group>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {importResult?.skippedRows.length ? (
+              <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
+                <Stack gap="sm">
+                  <Title order={4}>Skipped rows</Title>
+                  {importResult.skippedRows.map((row) => (
+                    <Text key={`${row.rowNumber}:${row.detail}`}>
+                      <strong>Row {row.rowNumber}:</strong> {row.detail}
+                    </Text>
+                  ))}
                 </Stack>
               </Paper>
             ) : null}

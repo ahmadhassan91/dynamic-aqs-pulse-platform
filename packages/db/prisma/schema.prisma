@@ -179,6 +179,13 @@ enum LeadLifecycleStatus {
   CLOSED
 }
 
+enum AccountLifecycleStatus {
+  ACTIVE
+  AT_RISK
+  INACTIVE
+  CHURNED
+}
+
 enum LeadRoutingBasis {
   SERVICE_TECH_COUNT
   TRUCK_COUNT
@@ -217,6 +224,27 @@ enum WebsiteLeadFormType {
 enum WebsiteLeadType {
   HOMEOWNER
   CONTRACTOR
+}
+
+enum LeadImportRunStatus {
+  REVIEW_READY
+  IMPORTED
+  IMPORTED_WITH_ERRORS
+}
+
+enum LeadImportRunRowStatus {
+  READY
+  POTENTIAL_DUPLICATE
+  INVALID
+  SKIPPED
+  IMPORTED
+  FAILED
+}
+
+enum LeadImportDuplicateDecision {
+  CREATE_NEW
+  USE_EXISTING
+  SKIP
 }
 
 enum TrainingCategoryKind {
@@ -497,6 +525,7 @@ model User {
   territoryOverridesAssignedRd TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
   territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
   websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
+  leadImportRunsCreated       LeadImportRun[] @relation("LeadImportRunCreatedBy")
   dealerPortalMembership      DealerPortalUser?
   dealerPortalUsersCreated    DealerPortalUser[] @relation("DealerPortalUserCreatedBy")
   trainingTrainerProfile      TrainingTrainerProfile?
@@ -1114,6 +1143,63 @@ model WebsiteLeadSubmission {
   @@index([websiteLeadSiteId, reviewStatus, createdAt])
 }
 
+model LeadImportRun {
+  id                  String            @id @default(uuid()) @db.Uuid
+  createdByUserId     String?           @db.Uuid
+  status              LeadImportRunStatus @default(REVIEW_READY)
+  fileName            String
+  fileFormat          String
+  fileDigest          String
+  sheetName           String
+  batchName           String?
+  businessSegmentCode String?
+  leadSourceCode      String?
+  sourceSiteId        String?
+  sourceSiteName      String?
+  sourceBrandTag      String?
+  mappings            Json
+  totalRows           Int
+  mappedRows          Int
+  readyRowCount       Int              @default(0)
+  attentionRowCount   Int              @default(0)
+  createdCount        Int              @default(0)
+  skippedCount        Int              @default(0)
+  errorCount          Int              @default(0)
+  committedAt         DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  createdBy           User?            @relation("LeadImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rows                LeadImportRunRow[]
+
+  @@index([createdByUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([fileDigest, createdAt])
+}
+
+model LeadImportRunRow {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  runId                 String                   @db.Uuid
+  rowNumber             Int
+  status                LeadImportRunRowStatus
+  detail                String
+  sourceValues          Json?
+  mappedPayload         Json?
+  duplicateCandidates   Json?
+  duplicateDecision     LeadImportDuplicateDecision?
+  targetEntityId        String?
+  importedLeadId        String?                  @db.Uuid
+  importedAt            DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  run                   LeadImportRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, rowNumber])
+  @@index([runId, status, rowNumber])
+  @@index([importedLeadId])
+}
+
 model LeadExtension {
   leadId              String    @id @db.Uuid
   legacyAttributes    Json?
@@ -1478,6 +1564,11 @@ model Account {
   shippingCenterId           String?                 @db.Uuid
   assignedTmUserId           String?                 @db.Uuid
   assignedRdUserId           String?                 @db.Uuid
+  lifecycleStatus            AccountLifecycleStatus  @default(ACTIVE)
+  lifecycleStatusChangedAt   DateTime?
+  lifecycleReasonNote        String?
+  lastOrderAt                DateTime?
+  lastEngagementAt           DateTime?
   isActive                   Boolean                 @default(true)
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
@@ -1506,9 +1597,11 @@ model Account {
   @@index([shippingCenterId])
   @@index([assignedTmUserId])
   @@index([assignedRdUserId])
+  @@index([lifecycleStatus])
   @@index([isActive])
   @@index([accountType])
   @@index([displayName])
+  @@index([lifecycleStatus, isActive, updatedAt])
 }
 
 model LeadConversionPreparation {

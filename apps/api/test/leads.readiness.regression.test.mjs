@@ -380,6 +380,9 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
   assert.equal(convertedAccount.assignedTmUserId, actor.userId);
   assert.equal(convertedAccount.assignedRdUserId, actor.userId);
   assert.equal(convertedAccount.territoryAssignmentMethod, 'MANUAL_OVERRIDE');
+  assert.equal(convertedAccount.lifecycleStatus, 'ACTIVE');
+  assert.ok(convertedAccount.lifecycleStatusChangedAt);
+  assert.ok(convertedAccount.lastOrderAt);
   assert.ok(convertedAccount.territoryAssignedAt);
 
   const convertedReadiness = await getLeadReadiness(actor, readyFixture.lead.id);

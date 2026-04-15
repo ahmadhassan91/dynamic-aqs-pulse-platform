@@ -33,6 +33,7 @@ import type {
   ListAccountsResponse,
   CreateAccountLocationRequest,
   CreateContactRequest,
+  UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
   UpdateAccountRequest,
   UpdateContactRequest,
@@ -44,6 +45,7 @@ import type {
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   CaptureWebsiteLeadRequest,
+  CommitLeadImportRunRequest,
   CreateLeadRequest,
   CompleteLeadDiscoveryRequest,
   ConvertLeadOnFirstOrderRequest,
@@ -66,6 +68,7 @@ import type {
   ImportLeadFileResponse,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
+  LeadImportRunDetail,
   ReviewLeadImportRequest,
   ReviewLeadImportResponse,
   LeadTerritoryAssignmentSummary,
@@ -454,6 +457,9 @@ export async function fetchAccounts(
   if (query.includeInactive !== undefined) {
     searchParams.set('includeInactive', String(query.includeInactive));
   }
+  if (query.lifecycleStatus) {
+    searchParams.set('lifecycleStatus', query.lifecycleStatus);
+  }
 
   const pathname = searchParams.size > 0 ? `/api/v1/accounts?${searchParams.toString()}` : '/api/v1/accounts';
 
@@ -477,6 +483,19 @@ export async function updateAccountRecord(
   input: UpdateAccountRequest,
 ) {
   return requestJson<AccountDetail | AccountSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAccountLifecycle(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: UpdateAccountLifecycleRequest,
+) {
+  return requestJson<AccountSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/lifecycle`, {
     method: 'PATCH',
     accessToken,
     body: input,
@@ -1366,6 +1385,30 @@ export async function reviewLeadImport(
   input: ReviewLeadImportRequest,
 ) {
   return requestJson<ReviewLeadImportResponse>(apiBaseUrl, '/api/v1/leads/import/review', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchLeadImportRun(
+  apiBaseUrl: string,
+  accessToken: string,
+  runId: string,
+) {
+  return requestJson<LeadImportRunDetail>(apiBaseUrl, `/api/v1/leads/import/runs/${runId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function commitLeadImportRun(
+  apiBaseUrl: string,
+  accessToken: string,
+  runId: string,
+  input: CommitLeadImportRunRequest,
+) {
+  return requestJson<ImportLeadFileResponse>(apiBaseUrl, `/api/v1/leads/import/runs/${runId}/commit`, {
     method: 'POST',
     accessToken,
     body: input,

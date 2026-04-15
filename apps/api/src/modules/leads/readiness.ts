@@ -759,6 +759,9 @@ export async function convertLeadOnFirstOrder(
         shippingCenterId: lead.shippingCenterId ?? null,
         assignedTmUserId: lead.assignedTmUserId ?? null,
         assignedRdUserId: lead.assignedRdUserId ?? null,
+        lifecycleStatus: 'ACTIVE',
+        lifecycleStatusChangedAt: firstOrderAt,
+        lastOrderAt: firstOrderAt,
         isActive: true,
       },
     });

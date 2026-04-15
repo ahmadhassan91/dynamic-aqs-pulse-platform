@@ -74,9 +74,13 @@ export function previewLeadImportFile(input: LeadImportFilePreviewRequest): Lead
 export function mapLeadImportFile(
   input: ImportLeadFileRequest,
 ): {
+  format: 'csv' | 'xlsx';
+  fileName: string;
+  sheetName: string;
   totalRows: number;
   rows: ImportLeadRowInput[];
   rowNumbers: number[];
+  sourceRows: LeadImportPreviewRow[];
 } {
   const parsed = parseLeadImportFile(input);
   if (parsed.rows.length > MAX_IMPORT_ROWS) {
@@ -94,9 +98,13 @@ export function mapLeadImportFile(
   }
 
   return {
+    format: parsed.format,
+    fileName: parsed.fileName,
+    sheetName: parsed.sheetName,
     totalRows: parsed.rows.length,
     rows,
     rowNumbers,
+    sourceRows: parsed.rows,
   };
 }
 

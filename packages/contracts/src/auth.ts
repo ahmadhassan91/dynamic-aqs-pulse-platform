@@ -117,6 +117,28 @@ export interface LoginRequest {
   rememberMe?: boolean;
 }
 
+export interface StartMicrosoftEntraLoginRequest {
+  nextPath?: string;
+}
+
+export interface StartMicrosoftEntraLoginResponse {
+  provider: 'microsoft_entra';
+  authorizationUrl: string;
+  expiresAt: string;
+}
+
+export interface CompleteMicrosoftEntraLoginRequest {
+  code: string;
+  state: string;
+}
+
+export interface CompleteMicrosoftEntraLoginResponse {
+  identity: AuthIdentity;
+  session: AuthSession;
+  tokens: TokenPair;
+  nextPath?: string;
+}
+
 export interface RefreshSessionRequest {
   refreshToken: string;
 }

@@ -740,6 +740,18 @@ model Session {
   @@index([revokedAt])
 }
 
+model AuthLoginState {
+  id         String           @id @default(uuid()) @db.Uuid
+  provider   IdentityProvider
+  stateHash  String           @unique
+  nextPath   String?
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([provider, expiresAt])
+}
+
 model CalendarConnection {
   id                    String                     @id @default(uuid()) @db.Uuid
   userId                String                     @db.Uuid

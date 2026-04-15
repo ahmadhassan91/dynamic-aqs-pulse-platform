@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Checkbox,
+  Divider,
   Paper,
   PasswordInput,
   Stack,
@@ -18,16 +19,20 @@ interface LoginFormProps {
   initialEmail?: string;
   initialRememberMe?: boolean;
   loading?: boolean;
+  microsoftLoading?: boolean;
   error?: string | null;
   onSubmit?: (values: { email: string; password: string; rememberMe: boolean }) => void;
+  onMicrosoftSignIn?: (values: { rememberMe: boolean }) => void;
 }
 
 export function LoginForm({
   initialEmail = '',
   initialRememberMe = false,
   loading = false,
+  microsoftLoading = false,
   error,
   onSubmit,
+  onMicrosoftSignIn,
 }: LoginFormProps) {
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
@@ -104,6 +109,23 @@ export function LoginForm({
 
           <Button type="submit" fullWidth loading={loading}>
             Sign in
+          </Button>
+
+          <Divider label="or" labelPosition="center" />
+
+          <Button
+            type="button"
+            variant="default"
+            fullWidth
+            loading={microsoftLoading}
+            onClick={() => {
+              setValidationError(null);
+              onMicrosoftSignIn?.({
+                rememberMe,
+              });
+            }}
+          >
+            Sign in with Microsoft
           </Button>
         </Stack>
       </form>

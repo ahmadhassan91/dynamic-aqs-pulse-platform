@@ -46,11 +46,24 @@ export type AppAuthBootstrapConfig = {
   role: string;
 };
 
+export type AppEntraAuthConfig = {
+  enabled: boolean;
+  tenantId?: string | undefined;
+  clientId?: string | undefined;
+  clientSecret?: string | undefined;
+  redirectUri?: string | undefined;
+  scopes: string[];
+  authBaseUrl: string;
+  graphBaseUrl: string;
+  groupRoleMap: Record<string, string>;
+};
+
 export type AppAuthConfig = {
   issuer: string;
   accessTokenTtlMinutes: number;
   refreshTokenTtlDays: number;
   bootstrapAdmin: AppAuthBootstrapConfig;
+  entra: AppEntraAuthConfig;
 };
 
 export type AppOutlookCalendarConfig = {
@@ -95,6 +108,15 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const outlookRedirectUri = optionalString(env.MICROSOFT_GRAPH_REDIRECT_URI);
   const outlookEncryptionKey = optionalString(env.APP_ENCRYPTION_KEY);
   const outlookScopes = parseScopes(env.MICROSOFT_GRAPH_SCOPES);
+  const entraLoginRedirectUri = optionalString(env.MICROSOFT_ENTRA_LOGIN_REDIRECT_URI);
+  const entraLoginScopes = parseScopes(env.MICROSOFT_ENTRA_LOGIN_SCOPES, [
+    'openid',
+    'profile',
+    'email',
+    'offline_access',
+    'User.Read',
+  ]);
+  const entraGroupRoleMap = parseKeyValueMap(env.MICROSOFT_ENTRA_GROUP_ROLE_MAP);
 
   return {
     app: {
@@ -146,6 +168,22 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         displayName: env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME?.trim() || 'Pulse Bootstrap Admin',
         role: env.AUTH_BOOTSTRAP_ADMIN_ROLE?.trim() || 'SUPER_ADMIN',
       },
+      entra: {
+        enabled: Boolean(
+          outlookTenantId
+            && outlookClientId
+            && outlookClientSecret
+            && entraLoginRedirectUri,
+        ),
+        tenantId: outlookTenantId,
+        clientId: outlookClientId,
+        clientSecret: outlookClientSecret,
+        redirectUri: entraLoginRedirectUri,
+        scopes: entraLoginScopes,
+        authBaseUrl: env.MICROSOFT_ENTRA_AUTH_BASE_URL?.trim() || 'https://login.microsoftonline.com',
+        graphBaseUrl: env.MICROSOFT_GRAPH_API_BASE_URL?.trim() || 'https://graph.microsoft.com/v1.0',
+        groupRoleMap: entraGroupRoleMap,
+      },
     },
     outlookCalendar: {
       enabled: Boolean(
@@ -196,14 +234,41 @@ function optionalString(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function parseScopes(value: string | undefined) {
+function parseScopes(value: string | undefined, fallback: string[] = [
+  'openid',
+  'profile',
+  'email',
+  'offline_access',
+  'User.Read',
+  'Calendars.ReadWrite',
+]) {
   const raw = value?.trim();
   if (!raw) {
-    return ['openid', 'profile', 'email', 'offline_access', 'User.Read', 'Calendars.ReadWrite'];
+    return fallback;
   }
 
   return raw
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseKeyValueMap(value: string | undefined) {
+  const raw = value?.trim();
+  if (!raw) {
+    return {};
+  }
+
+  return raw
+    .split(/[,\n]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((accumulator, entry) => {
+      const [key, mappedValue] = entry.split(/[=:]/, 2).map((part) => part?.trim());
+      if (key && mappedValue) {
+        accumulator[key] = mappedValue;
+      }
+
+      return accumulator;
+    }, {});
 }

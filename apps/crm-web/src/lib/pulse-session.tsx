@@ -25,6 +25,7 @@ type PulseSessionContextValue = {
   apiBaseUrl: string;
   auth: AuthBundle | null;
   authError: string | null;
+  acceptAuthBundle: (bundle: AuthBundle, options?: { rememberMe?: boolean; emailHint?: string }) => void;
   email: string;
   isHydrated: boolean;
   isLoggingIn: boolean;
@@ -55,6 +56,19 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const acceptAuthBundle = useCallback(
+    (bundle: AuthBundle, options?: { rememberMe?: boolean; emailHint?: string }) => {
+      setRememberMe(Boolean(options?.rememberMe));
+      setAuth(bundle);
+      setAuthError(null);
+      if (options?.emailHint) {
+        setEmail(options.emailHint);
+      }
+      setPassword('');
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -220,14 +234,13 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       );
     }
 
-    setRememberMe(Boolean(input.rememberMe));
-    setAuth(response);
-    setAuthError(null);
-    setEmail(input.email);
-    setPassword('');
+    acceptAuthBundle(response, {
+      ...(input.rememberMe !== undefined ? { rememberMe: input.rememberMe } : {}),
+      emailHint: input.email,
+    });
 
     return response;
-  }, [apiBaseUrl]);
+  }, [acceptAuthBundle, apiBaseUrl]);
 
   const login = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -266,6 +279,7 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       apiBaseUrl,
       auth,
       authError,
+      acceptAuthBundle,
       email,
       isHydrated,
       isLoggingIn,
@@ -278,7 +292,7 @@ export function PulseSessionProvider({ children }: { children: ReactNode }) {
       setPassword,
       setRememberMe,
     }),
-    [apiBaseUrl, auth, authError, email, isHydrated, isLoggingIn, login, loginWithCredentials, logout, password, rememberMe],
+    [acceptAuthBundle, apiBaseUrl, auth, authError, email, isHydrated, isLoggingIn, login, loginWithCredentials, logout, password, rememberMe],
   );
 
   return <PulseSessionContext.Provider value={value}>{children}</PulseSessionContext.Provider>;

@@ -3,6 +3,7 @@ import { normalizeRole, ROLE_DEFAULT_MODULE_ACCESS } from '@pulse/auth';
 import {
   AuditAction,
   IdentityProvider,
+  Prisma,
   SessionAuthMethod,
   UserKind,
   prisma,
@@ -14,15 +15,90 @@ import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData as buildDomainAuditEntryData } from '../../utils/audit.js';
 import type {
   AuthIdentity,
+  AuthRole,
   AuthSession,
+  CompleteMicrosoftEntraLoginResponse,
   LoginRequest,
   RefreshSessionRequest,
+  StartMicrosoftEntraLoginResponse,
   TokenPair,
 } from '@pulse/contracts';
 import type { AuthRequestContext, AuthResponse, AuthenticatedActor } from './types.js';
 
 const SESSION_ENTITY_TYPE = 'SESSION';
+const AUTH_LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
 let bootstrapAdminSeedPromise: Promise<void> | null = null;
+
+type RawMicrosoftEntraTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+  id_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type MicrosoftEntraTokenResponse = {
+  accessToken: string;
+  refreshToken?: string | undefined;
+  expiresIn: number;
+  scope?: string | undefined;
+  idToken?: string | undefined;
+};
+
+type MicrosoftEntraProfileResponse = {
+  id?: string;
+  displayName?: string | null;
+  mail?: string | null;
+  userPrincipalName?: string | null;
+};
+
+type MicrosoftEntraGroupResponse = {
+  value?: Array<{
+    id?: string | null;
+  }>;
+  '@odata.nextLink'?: string;
+};
+
+type MicrosoftEntraIdTokenClaims = {
+  oid?: string;
+  name?: string;
+  email?: string;
+  preferred_username?: string;
+  groups?: string[];
+};
+
+const INTERNAL_ENTRA_ROLE_PRIORITY: Record<AuthRole, number> = {
+  SUPER_ADMIN: 100,
+  EXECUTIVE: 90,
+  SALES_BD_LEADERSHIP: 80,
+  FINANCE: 75,
+  ADMIN_CSR_OPS: 70,
+  REGIONAL_DIRECTOR: 65,
+  TERRITORY_MANAGER: 60,
+  TRAINING_OPS: 55,
+  SALES_BD_REP: 50,
+  DEALER_PORTAL_USER: 0,
+};
+
+export class MicrosoftEntraAuthUnavailableError extends Error {
+  constructor(message = 'Microsoft Entra auth is not configured') {
+    super(message);
+    this.name = 'MicrosoftEntraAuthUnavailableError';
+  }
+}
+
+type ConfiguredMicrosoftEntraAuth = {
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  scopes: string[];
+  authBaseUrl: string;
+  graphBaseUrl: string;
+  groupRoleMap: Record<string, string>;
+};
 
 export async function loginWithPassword(
   config: AppConfig,
@@ -56,63 +132,7 @@ export async function loginWithPassword(
     throw new Error('User is inactive');
   }
 
-  const tokenBundle = buildTokenBundle(config);
-  const session = await prisma.$transaction(async (tx) => {
-    const sessionData: Parameters<typeof tx.session.create>[0]['data'] = {
-      userId: identity.userId,
-      identityId: identity.id,
-      accessTokenHash: hashToken(tokenBundle.accessToken),
-      refreshTokenHash: hashToken(tokenBundle.refreshToken),
-      authMethod: SessionAuthMethod.PASSWORD,
-      expiresAt: tokenBundle.accessTokenExpiresAt,
-      refreshExpiresAt: tokenBundle.refreshTokenExpiresAt,
-      lastSeenAt: new Date(),
-    };
-
-    if (ctx.ipAddress !== undefined) {
-      sessionData.ipAddress = ctx.ipAddress;
-    }
-    if (ctx.userAgent !== undefined) {
-      sessionData.userAgent = ctx.userAgent;
-    }
-
-    const createdSession = await tx.session.create({
-      data: sessionData,
-    });
-
-    await Promise.all([
-      tx.user.update({
-        where: { id: identity.userId },
-        data: {
-          lastLoginAt: new Date(),
-        },
-      }),
-      tx.userIdentity.update({
-        where: { id: identity.id },
-        data: {
-          lastAuthenticatedAt: new Date(),
-        },
-      }),
-      tx.auditEntry.create({
-        data: buildAuditEntryData({
-          actorUserId: identity.userId,
-          action: AuditAction.LOGIN,
-          entityId: createdSession.id,
-          requestId: ctx.requestId,
-          correlationId: ctx.correlationId,
-          metadata: {
-            provider: identity.provider,
-            authMethod: SessionAuthMethod.PASSWORD,
-            userType: identity.user.userType,
-          },
-        }),
-      }),
-    ]);
-
-    return createdSession;
-  });
-
-  return buildAuthResponse(identity.user, session, tokenBundle);
+  return issueSessionForIdentity(config, identity.user, identity, SessionAuthMethod.PASSWORD, ctx);
 }
 
 export async function refreshSession(
@@ -238,6 +258,252 @@ export async function logoutCurrentSession(accessToken: string, ctx: AuthRequest
   };
 }
 
+export async function startMicrosoftEntraLogin(
+  config: AppConfig,
+  nextPath?: string,
+): Promise<StartMicrosoftEntraLoginResponse> {
+  const entra = requireConfiguredMicrosoftEntra(config);
+  const state = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + AUTH_LOGIN_STATE_TTL_MS);
+
+  await prisma.authLoginState.create({
+    data: {
+      provider: IdentityProvider.MICROSOFT_ENTRA,
+      stateHash: hashState(state),
+      nextPath: normalizeNextPath(nextPath) ?? null,
+      expiresAt,
+    },
+  });
+
+  const authorizationUrl = new URL(`${entra.authBaseUrl.replace(/\/$/, '')}/${entra.tenantId}/oauth2/v2.0/authorize`);
+  authorizationUrl.searchParams.set('client_id', entra.clientId);
+  authorizationUrl.searchParams.set('response_type', 'code');
+  authorizationUrl.searchParams.set('redirect_uri', entra.redirectUri);
+  authorizationUrl.searchParams.set('response_mode', 'query');
+  authorizationUrl.searchParams.set('scope', entra.scopes.join(' '));
+  authorizationUrl.searchParams.set('state', state);
+  authorizationUrl.searchParams.set('prompt', 'select_account');
+
+  return {
+    provider: 'microsoft_entra',
+    authorizationUrl: authorizationUrl.toString(),
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+export async function completeMicrosoftEntraLogin(
+  config: AppConfig,
+  input: {
+    code?: string | null;
+    state?: string | null;
+  },
+  ctx: AuthRequestContext = {},
+): Promise<CompleteMicrosoftEntraLoginResponse> {
+  requireConfiguredMicrosoftEntra(config);
+  const code = input.code?.trim();
+  const state = input.state?.trim();
+
+  if (!code || !state) {
+    throw new Error('Missing Microsoft Entra authorization code or state');
+  }
+
+  const authState = await prisma.authLoginState.findUnique({
+    where: {
+      stateHash: hashState(state),
+    },
+  });
+
+  if (!authState || authState.provider !== IdentityProvider.MICROSOFT_ENTRA) {
+    throw new Error('Microsoft Entra authorization state was not recognized');
+  }
+
+  if (authState.usedAt || authState.expiresAt.getTime() < Date.now()) {
+    throw new Error('Microsoft Entra authorization state expired');
+  }
+
+  const tokenResponse = await exchangeMicrosoftEntraToken(config, {
+    grant_type: 'authorization_code',
+    code,
+  });
+  const claims = parseMicrosoftEntraIdToken(tokenResponse.idToken);
+  const profile = await fetchMicrosoftEntraProfile(config, tokenResponse.accessToken);
+
+  const providerSubject = claims.oid?.trim() || profile.id?.trim() || '';
+  const email = normalizeEmail(
+    claims.preferred_username
+      ?? claims.email
+      ?? profile.mail
+      ?? profile.userPrincipalName
+      ?? undefined,
+  );
+  const displayName = claims.name?.trim() || profile.displayName?.trim() || email;
+
+  if (!providerSubject) {
+    throw new Error('Microsoft Entra login did not return a stable user identifier');
+  }
+
+  if (!email) {
+    throw new Error('Microsoft Entra login did not return a usable email address');
+  }
+
+  const mappedRole = await resolveMicrosoftEntraRole(config, tokenResponse.accessToken, claims.groups);
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existingIdentity = await tx.userIdentity.findUnique({
+      where: {
+        provider_providerSubject: {
+          provider: IdentityProvider.MICROSOFT_ENTRA,
+          providerSubject,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    const emailMatchedUser = existingIdentity
+      ? null
+      : await tx.user.findUnique({
+        where: { email },
+        include: {
+          identities: true,
+        },
+      });
+
+    const linkedUser = existingIdentity?.user ?? emailMatchedUser ?? null;
+    if (linkedUser && linkedUser.userType !== UserKind.INTERNAL) {
+      await tx.auditEntry.create({
+        data: buildDomainAuditEntryData({
+          action: AuditAction.LOGIN,
+          entityType: 'auth_attempt',
+          requestId: ctx.requestId,
+          correlationId: ctx.correlationId,
+          sourceSystem: 'microsoft_entra',
+          metadata: {
+            provider: 'microsoft_entra',
+            email,
+            result: 'rejected_non_internal_user',
+          },
+        }),
+      });
+      throw new Error('This Microsoft account is not allowed to access the internal Pulse workspace');
+    }
+
+    const effectiveRole = mappedRole ?? (linkedUser ? normalizeRole(linkedUser.roleCode) : null);
+    if (!effectiveRole || !isInternalRole(effectiveRole)) {
+      await tx.auditEntry.create({
+        data: buildDomainAuditEntryData({
+          action: AuditAction.LOGIN,
+          entityType: 'auth_attempt',
+          requestId: ctx.requestId,
+          correlationId: ctx.correlationId,
+          sourceSystem: 'microsoft_entra',
+          metadata: {
+            provider: 'microsoft_entra',
+            email,
+            result: 'rejected_no_mapped_role',
+          },
+        }),
+      });
+      throw new Error('No approved Pulse role was resolved for this Microsoft account');
+    }
+
+    const user = linkedUser
+      ? await tx.user.update({
+          where: { id: linkedUser.id },
+          data: {
+            email,
+            displayName: displayName || linkedUser.displayName,
+            roleCode: mappedRole ? effectiveRole : linkedUser.roleCode,
+            userType: UserKind.INTERNAL,
+            isActive: linkedUser.isActive,
+          },
+        })
+      : await tx.user.create({
+          data: {
+            email,
+            displayName: displayName || email,
+            roleCode: effectiveRole,
+            userType: UserKind.INTERNAL,
+            isActive: true,
+          },
+        });
+
+    if (!user.isActive) {
+      throw new Error('User is inactive');
+    }
+
+    const linkedUserIdentities = linkedUser
+      ? await tx.userIdentity.findMany({
+          where: { userId: linkedUser.id },
+        })
+      : [];
+    const existingLocalPrimary = linkedUserIdentities.some((identity) => identity.isPrimary);
+    const identity = await tx.userIdentity.upsert({
+      where: {
+        provider_providerSubject: {
+          provider: IdentityProvider.MICROSOFT_ENTRA,
+          providerSubject,
+        },
+      },
+      update: {
+        userId: user.id,
+        loginEmail: email,
+        isPrimary: existingIdentity?.isPrimary ?? !existingLocalPrimary,
+      },
+      create: {
+        userId: user.id,
+        provider: IdentityProvider.MICROSOFT_ENTRA,
+        providerSubject,
+        loginEmail: email,
+        isPrimary: !existingLocalPrimary,
+      },
+    });
+
+    if (!existingIdentity && !linkedUser) {
+      await tx.auditEntry.create({
+        data: buildDomainAuditEntryData({
+          actorUserId: user.id,
+          action: AuditAction.CREATE,
+          entityType: 'USER',
+          entityId: user.id,
+          requestId: ctx.requestId,
+          correlationId: ctx.correlationId,
+          sourceSystem: 'microsoft_entra',
+          metadata: {
+            provider: 'microsoft_entra',
+            result: 'auto_provisioned',
+            mappedRole: effectiveRole,
+          },
+        }),
+      });
+    }
+
+    await tx.authLoginState.update({
+      where: { id: authState.id },
+      data: { usedAt: new Date() },
+    });
+
+    const authResponse = await issueSessionForIdentity(
+      config,
+      user,
+      identity,
+      SessionAuthMethod.OIDC,
+      ctx,
+      tx,
+    );
+
+    return {
+      authResponse,
+      nextPath: authState.nextPath ?? undefined,
+    };
+  });
+
+  return {
+    ...outcome.authResponse,
+    ...(outcome.nextPath ? { nextPath: outcome.nextPath } : {}),
+  };
+}
+
 export async function ensureBootstrapAdminSeeded(config: AppConfig) {
   if (bootstrapAdminSeedPromise) {
     return bootstrapAdminSeedPromise;
@@ -317,6 +583,285 @@ export function readBearerToken(authorizationHeader: string | undefined) {
   }
 
   return token;
+}
+
+async function issueSessionForIdentity(
+  config: AppConfig,
+  user: User,
+  identity: UserIdentity,
+  authMethod: SessionAuthMethod,
+  ctx: AuthRequestContext = {},
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<AuthResponse> {
+  const tokenBundle = buildTokenBundle(config);
+  const authenticatedAt = new Date();
+  const session = await db.session.create({
+    data: {
+      userId: user.id,
+      identityId: identity.id,
+      accessTokenHash: hashToken(tokenBundle.accessToken),
+      refreshTokenHash: hashToken(tokenBundle.refreshToken),
+      authMethod,
+      ipAddress: ctx.ipAddress ?? null,
+      userAgent: ctx.userAgent ?? null,
+      expiresAt: tokenBundle.accessTokenExpiresAt,
+      refreshExpiresAt: tokenBundle.refreshTokenExpiresAt,
+      lastSeenAt: authenticatedAt,
+    },
+  });
+
+  const nextUser = await db.user.update({
+    where: { id: user.id },
+    data: {
+      lastLoginAt: authenticatedAt,
+    },
+  });
+
+  await db.userIdentity.update({
+    where: { id: identity.id },
+    data: {
+      loginEmail: user.email || identity.loginEmail || null,
+      lastAuthenticatedAt: authenticatedAt,
+    },
+  });
+
+  await db.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: nextUser.id,
+      action: AuditAction.LOGIN,
+      entityId: session.id,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      metadata: {
+        provider: identity.provider,
+        authMethod,
+      },
+    }),
+  });
+
+  return buildAuthResponse(nextUser, session, tokenBundle);
+}
+
+function requireConfiguredMicrosoftEntra(config: AppConfig): ConfiguredMicrosoftEntraAuth {
+  const entra = config.auth.entra;
+  if (
+    !entra.enabled
+    || !entra.tenantId
+    || !entra.clientId
+    || !entra.clientSecret
+    || !entra.redirectUri
+  ) {
+    throw new MicrosoftEntraAuthUnavailableError();
+  }
+
+  return {
+    tenantId: entra.tenantId,
+    clientId: entra.clientId,
+    clientSecret: entra.clientSecret,
+    redirectUri: entra.redirectUri,
+    scopes: entra.scopes,
+    authBaseUrl: entra.authBaseUrl,
+    graphBaseUrl: entra.graphBaseUrl,
+    groupRoleMap: entra.groupRoleMap,
+  };
+}
+
+async function exchangeMicrosoftEntraToken(
+  config: AppConfig,
+  input: {
+    grant_type: 'authorization_code' | 'refresh_token';
+    code?: string | undefined;
+    refreshToken?: string | undefined;
+  },
+): Promise<MicrosoftEntraTokenResponse> {
+  const entra = requireConfiguredMicrosoftEntra(config);
+  const endpoint = `${entra.authBaseUrl.replace(/\/$/, '')}/${entra.tenantId}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    client_id: entra.clientId,
+    client_secret: entra.clientSecret,
+    redirect_uri: entra.redirectUri,
+    scope: entra.scopes.join(' '),
+    grant_type: input.grant_type,
+  });
+
+  if (input.grant_type === 'authorization_code') {
+    if (!input.code?.trim()) {
+      throw new Error('Microsoft Entra authorization code is required');
+    }
+    body.set('code', input.code.trim());
+  } else {
+    if (!input.refreshToken?.trim()) {
+      throw new Error('Microsoft Entra refresh token is required');
+    }
+    body.set('refresh_token', input.refreshToken.trim());
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+  const payload = (await response.json().catch(() => ({}))) as RawMicrosoftEntraTokenResponse;
+
+  if (!response.ok || payload.error || !payload.access_token) {
+    throw new Error(payload.error_description || payload.error || 'Microsoft Entra token exchange failed');
+  }
+
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    expiresIn: payload.expires_in ?? 3600,
+    scope: payload.scope,
+    idToken: payload.id_token,
+  };
+}
+
+async function fetchMicrosoftEntraProfile(
+  config: AppConfig,
+  accessToken: string,
+): Promise<MicrosoftEntraProfileResponse> {
+  const entra = requireConfiguredMicrosoftEntra(config);
+  const response = await fetch(
+    `${entra.graphBaseUrl.replace(/\/$/, '')}/me?$select=id,displayName,mail,userPrincipalName`,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Microsoft Entra profile lookup failed');
+  }
+
+  return (await response.json()) as MicrosoftEntraProfileResponse;
+}
+
+async function fetchMicrosoftEntraGroupIds(
+  config: AppConfig,
+  accessToken: string,
+): Promise<string[]> {
+  const entra = requireConfiguredMicrosoftEntra(config);
+  const groupIds = new Set<string>();
+  let nextUrl: string | null = `${entra.graphBaseUrl.replace(/\/$/, '')}/me/transitiveMemberOf/microsoft.graph.group?$select=id`;
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Microsoft Entra group lookup failed');
+    }
+
+    const payload = (await response.json()) as MicrosoftEntraGroupResponse;
+    for (const entry of payload.value ?? []) {
+      const id = entry.id?.trim();
+      if (id) {
+        groupIds.add(id.toLowerCase());
+      }
+    }
+    nextUrl = payload['@odata.nextLink'] ?? null;
+  }
+
+  return [...groupIds];
+}
+
+async function resolveMicrosoftEntraRole(
+  config: AppConfig,
+  accessToken: string,
+  tokenGroupIds?: string[] | undefined,
+): Promise<AuthRole | null> {
+  const configuredMap = config.auth.entra.groupRoleMap;
+  const configuredEntries = Object.entries(configuredMap);
+  if (configuredEntries.length === 0) {
+    return null;
+  }
+
+  const availableGroupIds = new Set(
+    (tokenGroupIds ?? [])
+      .map((groupId) => groupId?.trim().toLowerCase())
+      .filter(Boolean) as string[],
+  );
+
+  if (availableGroupIds.size === 0) {
+    for (const groupId of await fetchMicrosoftEntraGroupIds(config, accessToken)) {
+      availableGroupIds.add(groupId);
+    }
+  }
+
+  let resolvedRole: AuthRole | null = null;
+  let highestPriority = -1;
+  for (const [groupId, mappedRole] of configuredEntries) {
+    if (!availableGroupIds.has(groupId.trim().toLowerCase())) {
+      continue;
+    }
+
+    try {
+      const normalizedRole = normalizeRole(mappedRole);
+      if (!isInternalRole(normalizedRole)) {
+        continue;
+      }
+
+      const priority = INTERNAL_ENTRA_ROLE_PRIORITY[normalizedRole] ?? 0;
+      if (priority > highestPriority) {
+        highestPriority = priority;
+        resolvedRole = normalizedRole;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return resolvedRole;
+}
+
+function parseMicrosoftEntraIdToken(idToken?: string | undefined): MicrosoftEntraIdTokenClaims {
+  if (!idToken?.trim()) {
+    return {};
+  }
+
+  const parts = idToken.split('.');
+  if (parts.length < 2 || !parts[1]) {
+    throw new Error('Microsoft Entra id_token could not be parsed');
+  }
+
+  try {
+    return JSON.parse(decodeBase64Url(parts[1])) as MicrosoftEntraIdTokenClaims;
+  } catch {
+    throw new Error('Microsoft Entra id_token could not be parsed');
+  }
+}
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
+}
+
+function normalizeNextPath(nextPath?: string | null) {
+  const trimmed = nextPath?.trim();
+  if (!trimmed || !trimmed.startsWith('/') || trimmed.startsWith('//')) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith('/auth/')) {
+    return '/leads';
+  }
+
+  return trimmed;
+}
+
+function hashState(state: string) {
+  return createHash('sha256').update(state).digest('hex');
+}
+
+function isInternalRole(role: AuthRole) {
+  return role !== 'DEALER_PORTAL_USER';
 }
 
 async function resolveSessionByAccessToken(accessToken: string) {

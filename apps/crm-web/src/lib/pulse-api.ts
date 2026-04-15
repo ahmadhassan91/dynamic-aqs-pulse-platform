@@ -17,6 +17,8 @@ import type {
   UpdateAdminUserResponse,
   AuthIdentity,
   AuthSession,
+  CompleteMicrosoftEntraLoginRequest,
+  CompleteMicrosoftEntraLoginResponse,
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
   CalendarOutlookConnectionSummary,
@@ -84,6 +86,8 @@ import type {
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
   ResolveWebsiteLeadSubmissionRequest,
+  StartMicrosoftEntraLoginRequest,
+  StartMicrosoftEntraLoginResponse,
   UpdateLeadRoutingPolicyRequest,
   ListLeadWorkflowQueueRequest,
   ListLeadWorkflowQueueResponse,
@@ -158,6 +162,26 @@ type AuthBundle = {
 
 export async function loginToPulse(apiBaseUrl: string, input: LoginRequest) {
   return requestJson<AuthBundle>(apiBaseUrl, '/api/v1/auth/login', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function startMicrosoftEntraLogin(
+  apiBaseUrl: string,
+  input: StartMicrosoftEntraLoginRequest = {},
+) {
+  return requestJson<StartMicrosoftEntraLoginResponse>(apiBaseUrl, '/api/v1/auth/entra/start', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function completeMicrosoftEntraLogin(
+  apiBaseUrl: string,
+  input: CompleteMicrosoftEntraLoginRequest,
+) {
+  return requestJson<CompleteMicrosoftEntraLoginResponse>(apiBaseUrl, '/api/v1/auth/entra/complete', {
     method: 'POST',
     body: input,
   });

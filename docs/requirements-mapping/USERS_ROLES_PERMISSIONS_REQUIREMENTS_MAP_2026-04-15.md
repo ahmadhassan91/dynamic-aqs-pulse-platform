@@ -22,12 +22,11 @@ Primary source documents:
 | Dealer hierarchy and company-account access | Dealer Portal discovery + Role Visibility Requirements | Partial | `apps/api/src/modules/dealer-portal/service.ts` returns company-linked context | Add hierarchy/affinity/private-label entitlements explicitly |
 | Per-user overrides, temporary elevation, label-based entitlements | Foundation Security/Admin PRD | Missing | Not evidenced in persisted auth model | Design override model before broad rollout to ops/support |
 | Field-level masking for finance/pricing/private-label data | Role-Based Visibility Requirements | Partial | Module separation exists; field masking is not centrally enforced | Add field entitlement layer and response-shaping rules |
-| Internal auth transport / Entra alignment | Auth guide + architecture + PRD validation notes | Decision | Current implementation uses local identity for internal users | Decide Release 0 auth posture and reconcile docs + code |
+| Internal auth transport / Entra alignment | Auth guide + architecture + PRD validation notes | Implemented (Alpha) | `apps/api/src/modules/auth/service.ts`, `apps/api/src/modules/auth/http.ts`, `apps/crm-web/src/app/auth/login/page.tsx`, `apps/crm-web/src/app/auth/entra/callback/page.tsx`, `docs/MICROSOFT_ENTRA_INTERNAL_SSO_IMPLEMENTATION_2026-04-15.md` | Move group-role mapping out of env config and finalize production cutover posture later |
 | MFA, lockout thresholds, concurrent session cap, self-service recovery | Foundation Security/Admin PRD | Blocked | Tracker explicitly parks advanced hardening | Implement once auth posture is finalized |
 
 Current hardening priorities:
 1. Central record-scope enforcement
 2. Field-level masking for protected data
 3. Failed-login and permission-denial audit logging
-4. Auth posture decision: local-first alpha vs Entra-first release baseline
-
+4. Record the final production cutover posture once Entra group mapping leaves env-only configuration

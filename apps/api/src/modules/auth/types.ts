@@ -1,8 +1,12 @@
 import type {
   AuthIdentity,
   AuthSession,
+  CompleteMicrosoftEntraLoginRequest,
+  CompleteMicrosoftEntraLoginResponse,
   LoginRequest,
   RefreshSessionRequest,
+  StartMicrosoftEntraLoginRequest,
+  StartMicrosoftEntraLoginResponse,
   TokenPair,
 } from '@pulse/contracts';
 import type { AuthRole } from '@pulse/contracts';
@@ -34,3 +38,9 @@ export type AuthenticatedActor = {
 };
 
 export type { LoginRequest, RefreshSessionRequest };
+export type {
+  CompleteMicrosoftEntraLoginRequest,
+  CompleteMicrosoftEntraLoginResponse,
+  StartMicrosoftEntraLoginRequest,
+  StartMicrosoftEntraLoginResponse,
+};

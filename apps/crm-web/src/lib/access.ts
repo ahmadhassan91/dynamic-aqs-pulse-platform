@@ -62,25 +62,48 @@ export function normalizeRoleInput(role: string | null | undefined): AuthRole {
   throw new Error(`Unknown role: ${rawRole}`);
 }
 
-export function canAccessModule(role: AuthRole, module: WorkspaceModuleKey) {
-  return (ROLE_DEFAULT_MODULE_ACCESS[role] ?? []).includes(module);
-}
-
-export function canPerformAction(role: AuthRole, action: WorkspaceActionKey) {
-  return (ROLE_DEFAULT_ACTION_ACCESS[role] ?? []).includes(action);
-}
-
-export function getAccessibleLandingTargets(role: AuthRole | null | undefined) {
+function resolveSafeRole(role: AuthRole | string | null | undefined): AuthRole | null {
   if (!role) {
+    return null;
+  }
+
+  try {
+    return normalizeRoleInput(role);
+  } catch {
+    return null;
+  }
+}
+
+export function canAccessModule(role: AuthRole | string | null | undefined, module: WorkspaceModuleKey) {
+  const normalizedRole = resolveSafeRole(role);
+  if (!normalizedRole) {
+    return false;
+  }
+
+  return ((ROLE_DEFAULT_MODULE_ACCESS ?? {})[normalizedRole] ?? []).includes(module);
+}
+
+export function canPerformAction(role: AuthRole | string | null | undefined, action: WorkspaceActionKey) {
+  const normalizedRole = resolveSafeRole(role);
+  if (!normalizedRole) {
+    return false;
+  }
+
+  return ((ROLE_DEFAULT_ACTION_ACCESS ?? {})[normalizedRole] ?? []).includes(action);
+}
+
+export function getAccessibleLandingTargets(role: AuthRole | string | null | undefined) {
+  const normalizedRole = resolveSafeRole(role);
+  if (!normalizedRole) {
     return [];
   }
 
   return WORKSPACE_LANDING_TARGETS.filter((target) => {
-    if (target.module && !canAccessModule(role, target.module)) {
+    if (target.module && !canAccessModule(normalizedRole, target.module)) {
       return false;
     }
 
-    if (target.action && !canPerformAction(role, target.action)) {
+    if (target.action && !canPerformAction(normalizedRole, target.action)) {
       return false;
     }
 
@@ -88,7 +111,7 @@ export function getAccessibleLandingTargets(role: AuthRole | null | undefined) {
   });
 }
 
-export function getDefaultWorkspacePath(role: AuthRole | null | undefined) {
+export function getDefaultWorkspacePath(role: AuthRole | string | null | undefined) {
   const firstTarget = getAccessibleLandingTargets(role)[0];
   return firstTarget?.href ?? '/auth/login';
 }

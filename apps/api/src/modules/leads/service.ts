@@ -83,9 +83,14 @@ import type {
 } from '@pulse/contracts';
 import { findLeadRegionOption } from '@pulse/contracts';
 import { createHash } from 'node:crypto';
+import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
+import {
+  tryAutoSyncCalendarEventToOutlook,
+  tryAutoUnsyncCalendarEventFromOutlook,
+} from '../calendar/outlook.js';
 import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
 import {
   asString,
@@ -1053,6 +1058,7 @@ export async function scheduleLeadDiscovery(
   actor: AuthenticatedActor,
   leadId: string,
   input: ScheduleLeadDiscoveryRequest = {},
+  config?: AppConfig,
 ): Promise<LeadDetail> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.intake_manage');
@@ -1123,6 +1129,14 @@ export async function scheduleLeadDiscovery(
     });
   });
 
+  if (config) {
+    await tryAutoSyncCalendarEventToOutlook(actor, config, {
+      sourceModule: 'leads',
+      sourceRecordId: leadId,
+      eventType: 'discovery_call',
+    });
+  }
+
   return (await getLeadDetail(actor, leadId)) as LeadDetail;
 }
 
@@ -1130,6 +1144,7 @@ export async function completeLeadDiscovery(
   actor: AuthenticatedActor,
   leadId: string,
   input: CompleteLeadDiscoveryRequest,
+  config?: AppConfig,
 ): Promise<LeadDetail> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.intake_manage');
@@ -1220,6 +1235,19 @@ export async function completeLeadDiscovery(
     });
   });
 
+  if (config) {
+    await tryAutoUnsyncCalendarEventFromOutlook(
+      actor,
+      config,
+      {
+        sourceModule: 'leads',
+        sourceRecordId: leadId,
+        eventType: 'discovery_call',
+      },
+      'Lead discovery completed in Pulse',
+    );
+  }
+
   return (await getLeadDetail(actor, leadId)) as LeadDetail;
 }
 
@@ -1227,6 +1255,7 @@ export async function skipLeadDiscovery(
   actor: AuthenticatedActor,
   leadId: string,
   input: SkipLeadDiscoveryRequest,
+  config?: AppConfig,
 ): Promise<LeadDetail> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.intake_manage');
@@ -1314,6 +1343,19 @@ export async function skipLeadDiscovery(
       }),
     });
   });
+
+  if (config) {
+    await tryAutoUnsyncCalendarEventFromOutlook(
+      actor,
+      config,
+      {
+        sourceModule: 'leads',
+        sourceRecordId: leadId,
+        eventType: 'discovery_call',
+      },
+      'Lead discovery was skipped / fast-tracked in Pulse',
+    );
+  }
 
   return (await getLeadDetail(actor, leadId)) as LeadDetail;
 }

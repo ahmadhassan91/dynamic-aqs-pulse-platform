@@ -1,6 +1,7 @@
 import { AuthorizationError } from '@pulse/auth';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
+import type { AppConfig } from '../../config.js';
 import type {
   CaptureWebsiteLeadRequest,
   CommitLeadImportRunRequest,
@@ -97,7 +98,7 @@ import {
   validateLeadConversionPreparation,
 } from './readiness.js';
 
-export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
+export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
   const pathname = url.pathname;
   const method = req.method ?? 'GET';
 
@@ -618,7 +619,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         action: 'lead.intake_manage',
       });
       const body = (await readJsonBody(req)) as ScheduleLeadDiscoveryRequest;
-      const response = await scheduleLeadDiscovery(actor, leadId, body);
+      const response = await scheduleLeadDiscovery(actor, leadId, body, config);
       return jsonResponse(res, 200, response);
     }
 
@@ -638,7 +639,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         action: 'lead.intake_manage',
       });
       const body = (await readJsonBody(req)) as CompleteLeadDiscoveryRequest;
-      const response = await completeLeadDiscovery(actor, leadId, body);
+      const response = await completeLeadDiscovery(actor, leadId, body, config);
       return jsonResponse(res, 200, response);
     }
 
@@ -658,7 +659,7 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         action: 'lead.intake_manage',
       });
       const body = (await readJsonBody(req)) as SkipLeadDiscoveryRequest;
-      const response = await skipLeadDiscovery(actor, leadId, body);
+      const response = await skipLeadDiscovery(actor, leadId, body, config);
       return jsonResponse(res, 200, response);
     }
 

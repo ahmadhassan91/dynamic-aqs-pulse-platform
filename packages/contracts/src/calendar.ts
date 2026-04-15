@@ -8,6 +8,13 @@ export const CALENDAR_EVENT_TYPES = [
 
 export type CalendarEventTypeKey = (typeof CALENDAR_EVENT_TYPES)[number];
 
+export const CALENDAR_MEETING_PROVIDERS = [
+  'none',
+  'teams',
+] as const;
+
+export type CalendarMeetingProviderKey = (typeof CALENDAR_MEETING_PROVIDERS)[number];
+
 export const CALENDAR_EVENT_STATUSES = [
   'scheduled',
   'completed',
@@ -50,7 +57,12 @@ export interface CalendarOutlookConnectionSummary {
   provider: 'outlook';
   isConfigured: boolean;
   isConnected: boolean;
+  supportsSharedCalendars?: boolean;
+  supportsTeamsMeetings?: boolean;
   connectionEmail?: string;
+  targetCalendarId?: string;
+  targetCalendarName?: string;
+  meetingProvider?: CalendarMeetingProviderKey;
   connectedAt?: string;
   accessTokenExpiresAt?: string;
   lastSyncedAt?: string;
@@ -60,7 +72,23 @@ export interface CalendarOutlookConnectionSummary {
 export interface CalendarOutlookEventSyncSummary {
   syncedAt?: string;
   externalWebLink?: string;
+  meetingJoinUrl?: string;
   lastSyncError?: string;
+}
+
+export interface CalendarOutlookCalendarSummary {
+  id: string;
+  name: string;
+  ownerName?: string;
+  ownerAddress?: string;
+  canEdit: boolean;
+  canShare?: boolean;
+  isDefault: boolean;
+  supportsTeamsMeetings: boolean;
+}
+
+export interface ListCalendarOutlookCalendarsResponse {
+  items: CalendarOutlookCalendarSummary[];
 }
 
 export interface StartCalendarOutlookConnectionResponse {
@@ -82,7 +110,13 @@ export interface SyncCalendarOutlookEventResponse {
   eventType: CalendarEventTypeKey;
   externalEventId: string;
   externalWebLink?: string;
+  meetingJoinUrl?: string;
   syncedAt: string;
+}
+
+export interface UpdateCalendarOutlookConnectionRequest {
+  targetCalendarId?: string | null;
+  meetingProvider?: CalendarMeetingProviderKey;
 }
 
 export interface CalendarOverviewSummary {

@@ -53,6 +53,7 @@ Notes:
 
 - `APP_ENCRYPTION_KEY` is required because Pulse encrypts Outlook refresh/access tokens at rest.
 - Do not commit real secrets into the repo.
+- If you want shared-calendar testing, include `Calendars.ReadWrite.Shared` in `MICROSOFT_GRAPH_SCOPES`.
 
 ## Local Run Steps
 
@@ -85,8 +86,11 @@ pnpm dev:web
 7. Select a discovery or training event
 8. Click `Sync to Outlook`
 9. Verify the event appears in Outlook Calendar
-10. Change the source event in Pulse and re-sync to confirm update behavior
-11. Disconnect Outlook and confirm the connection state clears cleanly
+10. In the Outlook card, choose the target calendar and save it
+11. If Teams links are in scope for testing, set meeting preference to `Teams`
+12. Schedule or reschedule a discovery/training event in Pulse and confirm it auto-syncs
+13. Complete, skip, or cancel the source event in Pulse and confirm the Outlook event is removed
+14. Disconnect Outlook and confirm the connection state clears cleanly
 
 ## Current Scope
 
@@ -98,16 +102,22 @@ Done in this slice:
 - manual Pulse-to-Outlook sync for:
   - lead discovery
   - training session
+- automatic Outlook sync for:
+  - lead discovery scheduling
+  - training session create / reschedule
+- automatic Outlook unsync for:
+  - lead discovery completion / skip
+  - training session complete / cancel
+- target-calendar selection from available Graph calendars
+- Teams meeting-link preference for supported virtual event families
 - external event binding persistence
-- regression coverage for connect, callback, invalid state, refresh-token path, and missing config
+- regression coverage for connect, callback, settings persistence, automatic lead/training sync, refresh-token path, and missing config
 
 Still intentionally out of scope:
 
-- automatic sync on every lead/training mutation
-- Teams meeting generation
 - WebEx coexistence
 - bidirectional Outlook-to-Pulse reconciliation
-- shared/delegate calendar behavior
+- broader shared/delegate calendar nuance
 
 ## Validation Commands
 

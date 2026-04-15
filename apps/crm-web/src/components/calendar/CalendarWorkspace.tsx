@@ -14,6 +14,7 @@ import {
   Loader,
   Paper,
   SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Table,
@@ -28,6 +29,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClock,
+  IconDeviceDesktop,
   IconExternalLink,
   IconLink,
   IconMapPin,
@@ -39,13 +41,17 @@ import {
 import type {
   CalendarEventSummary,
   CalendarEventTypeKey,
+  CalendarMeetingProviderKey,
+  CalendarOutlookCalendarSummary,
   CalendarWorkspaceResponse,
 } from '@pulse/contracts';
 import {
   disconnectCalendarOutlookConnection,
+  fetchCalendarOutlookCalendars,
   fetchCalendarWorkspace,
   startCalendarOutlookConnection,
   syncCalendarOutlookEvent,
+  updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -245,6 +251,9 @@ export function CalendarWorkspace() {
   const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
   const [isDisconnectingOutlook, setIsDisconnectingOutlook] = useState(false);
   const [isSyncingOutlookEvent, setIsSyncingOutlookEvent] = useState(false);
+  const [isLoadingOutlookCalendars, setIsLoadingOutlookCalendars] = useState(false);
+  const [isUpdatingOutlookSettings, setIsUpdatingOutlookSettings] = useState(false);
+  const [outlookCalendars, setOutlookCalendars] = useState<CalendarOutlookCalendarSummary[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
 
@@ -276,9 +285,30 @@ export function CalendarWorkspace() {
     }
   }, [accessToken, apiBaseUrl, auth, range.end, range.start]);
 
+  const loadOutlookCalendars = useCallback(async () => {
+    if (!auth || !workspace?.outlookConnection?.isConnected) {
+      setOutlookCalendars([]);
+      return;
+    }
+
+    setIsLoadingOutlookCalendars(true);
+    try {
+      const response = await fetchCalendarOutlookCalendars(apiBaseUrl, accessToken);
+      setOutlookCalendars(response.items);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoadingOutlookCalendars(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, workspace?.outlookConnection?.isConnected]);
+
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    void loadOutlookCalendars();
+  }, [loadOutlookCalendars]);
 
   useEffect(() => {
     const status = searchParams.get('outlook');
@@ -309,6 +339,7 @@ export function CalendarWorkspace() {
     [filteredItems, selectedEventId],
   );
   const outlookConnection = workspace?.outlookConnection;
+  const selectedOutlookCalendarValue = outlookConnection?.targetCalendarId ?? '__primary__';
 
   const itemsByDay = useMemo(() => {
     const buckets = new Map<string, CalendarEventSummary[]>();
@@ -326,6 +357,22 @@ export function CalendarWorkspace() {
 
     return buckets;
   }, [filteredItems]);
+
+  const outlookCalendarOptions = useMemo(
+    () => [
+      { value: '__primary__', label: 'Primary mailbox calendar' },
+      ...outlookCalendars.map((entry) => ({
+        value: entry.id,
+        label: entry.ownerName ? `${entry.name} (${entry.ownerName})` : entry.name,
+      })),
+    ],
+    [outlookCalendars],
+  );
+
+  const selectedOutlookCalendar = useMemo(
+    () => outlookCalendars.find((entry) => entry.id === outlookConnection?.targetCalendarId) ?? null,
+    [outlookCalendars, outlookConnection?.targetCalendarId],
+  );
 
   const monthCells = useMemo(() => buildMonthCells(anchorDate), [anchorDate]);
   const weekDays = useMemo(
@@ -375,6 +422,46 @@ export function CalendarWorkspace() {
       setIsDisconnectingOutlook(false);
     }
   }, [accessToken, apiBaseUrl, auth, loadWorkspace]);
+
+  const handleOutlookCalendarChange = useCallback(async (value: string | null) => {
+    if (!auth || !workspace?.outlookConnection?.isConnected) {
+      return;
+    }
+
+    setIsUpdatingOutlookSettings(true);
+    setErrorMessage(null);
+    try {
+      await updateCalendarOutlookConnection(apiBaseUrl, accessToken, {
+        targetCalendarId: value && value !== '__primary__' ? value : null,
+      });
+      setOutlookMessage('Outlook calendar target updated.');
+      await Promise.all([loadWorkspace(), loadOutlookCalendars()]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsUpdatingOutlookSettings(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadOutlookCalendars, loadWorkspace, workspace?.outlookConnection?.isConnected]);
+
+  const handleMeetingProviderChange = useCallback(async (value: string | null) => {
+    if (!auth || !workspace?.outlookConnection?.isConnected || !value) {
+      return;
+    }
+
+    setIsUpdatingOutlookSettings(true);
+    setErrorMessage(null);
+    try {
+      await updateCalendarOutlookConnection(apiBaseUrl, accessToken, {
+        meetingProvider: value as CalendarMeetingProviderKey,
+      });
+      setOutlookMessage('Outlook meeting-link preference updated.');
+      await Promise.all([loadWorkspace(), loadOutlookCalendars()]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsUpdatingOutlookSettings(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadOutlookCalendars, loadWorkspace, workspace?.outlookConnection?.isConnected]);
 
   const handleSyncSelectedEvent = useCallback(async () => {
     if (!auth || !selectedEvent) {
@@ -503,49 +590,84 @@ export function CalendarWorkspace() {
           </Alert>
 
           <Paper withBorder radius="lg" p="md">
-            <Group justify="space-between" align="flex-start">
-              <Stack gap={4}>
-                <Text fw={700}>Outlook calendar sync</Text>
-                <Text size="sm" c="dimmed" maw={760}>
-                  Connect your Outlook mailbox so the centralized Pulse calendar can reflect discovery and training
-                  events into your working calendar without making Outlook the source of truth.
-                </Text>
-                {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
-                  <Text size="sm" c="dimmed">
-                    Connected mailbox: {outlookConnection.connectionEmail}
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Text fw={700}>Outlook calendar sync</Text>
+                  <Text size="sm" c="dimmed" maw={760}>
+                    Connect your Outlook mailbox so the centralized Pulse calendar can reflect discovery and training
+                    events into your working calendar without making Outlook the source of truth.
                   </Text>
-                ) : null}
-              </Stack>
-              <Group gap="xs">
-                {!outlookConnection?.isConfigured ? (
-                  <Badge color="yellow" variant="light">
-                    Not configured
-                  </Badge>
-                ) : outlookConnection.isConnected ? (
-                  <>
-                    <Badge color="green" variant="light">
-                      Connected
+                  {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
+                    <Text size="sm" c="dimmed">
+                      Connected mailbox: {outlookConnection.connectionEmail}
+                    </Text>
+                  ) : null}
+                </Stack>
+                <Group gap="xs">
+                  {!outlookConnection?.isConfigured ? (
+                    <Badge color="yellow" variant="light">
+                      Not configured
                     </Badge>
+                  ) : outlookConnection.isConnected ? (
+                    <>
+                      <Badge color="green" variant="light">
+                        Connected
+                      </Badge>
+                      <Button
+                        variant="light"
+                        color="gray"
+                        loading={isDisconnectingOutlook}
+                        onClick={() => void handleDisconnectOutlook()}
+                      >
+                        Disconnect
+                      </Button>
+                    </>
+                  ) : (
                     <Button
-                      variant="light"
-                      color="gray"
-                      loading={isDisconnectingOutlook}
-                      onClick={() => void handleDisconnectOutlook()}
+                      leftSection={<IconLink size={16} />}
+                      loading={isConnectingOutlook}
+                      onClick={() => void handleStartOutlookConnect()}
                     >
-                      Disconnect
+                      Connect Outlook
                     </Button>
-                  </>
-                ) : (
-                  <Button
-                    leftSection={<IconLink size={16} />}
-                    loading={isConnectingOutlook}
-                    onClick={() => void handleStartOutlookConnect()}
-                  >
-                    Connect Outlook
-                  </Button>
-                )}
+                  )}
+                </Group>
               </Group>
-            </Group>
+
+              {outlookConnection?.isConnected ? (
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                  <Select
+                    label="Target Outlook calendar"
+                    description="Use the primary mailbox calendar or choose another editable calendar this mailbox can write to."
+                    data={outlookCalendarOptions}
+                    value={selectedOutlookCalendarValue}
+                    onChange={(value) => void handleOutlookCalendarChange(value)}
+                    disabled={isLoadingOutlookCalendars || isUpdatingOutlookSettings}
+                    rightSection={isLoadingOutlookCalendars ? <Loader size="xs" /> : undefined}
+                  />
+                  <Select
+                    label="Meeting link preference"
+                    description="Teams links are created only for remote-compatible event families such as discovery calls and virtual training."
+                    data={[
+                      { value: 'none', label: 'No auto meeting link' },
+                      { value: 'teams', label: 'Microsoft Teams link' },
+                    ]}
+                    value={outlookConnection.meetingProvider ?? 'none'}
+                    onChange={(value) => void handleMeetingProviderChange(value)}
+                    disabled={isUpdatingOutlookSettings}
+                  />
+                </SimpleGrid>
+              ) : null}
+
+              {outlookConnection?.isConnected && selectedOutlookCalendar ? (
+                <Alert color="blue" icon={<IconDeviceDesktop size={16} />}>
+                  Target calendar: {selectedOutlookCalendar.name}
+                  {selectedOutlookCalendar.ownerName ? ` (${selectedOutlookCalendar.ownerName})` : ''}
+                  . Teams meeting links are {outlookConnection.meetingProvider === 'teams' ? 'enabled' : 'disabled'}.
+                </Alert>
+              ) : null}
+            </Stack>
           </Paper>
 
           {errorMessage ? (
@@ -848,6 +970,19 @@ export function CalendarWorkspace() {
                                   Open in Outlook
                                 </Button>
                               ) : null}
+                              {selectedEvent.outlookSync?.meetingJoinUrl ? (
+                                <Button
+                                  component="a"
+                                  href={selectedEvent.outlookSync.meetingJoinUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  variant="light"
+                                  color="violet"
+                                  leftSection={<IconExternalLink size={16} />}
+                                >
+                                  Open meeting link
+                                </Button>
+                              ) : null}
                             </Group>
                             {selectedEvent.outlookSync?.syncedAt ? (
                               <Text size="sm" c="dimmed">
@@ -855,9 +990,15 @@ export function CalendarWorkspace() {
                               </Text>
                             ) : (
                               <Text size="sm" c="dimmed">
-                                This event has not been pushed to Outlook yet.
+                                This event has not been pushed to Outlook yet. Once synced, future lead/training schedule
+                                changes will keep Outlook current automatically.
                               </Text>
                             )}
+                            {selectedEvent.outlookSync?.meetingJoinUrl ? (
+                              <Text size="sm" c="dimmed">
+                                Pulse captured a live provider meeting link for this event.
+                              </Text>
+                            ) : null}
                             {selectedEvent.outlookSync?.lastSyncError ? (
                               <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
                                 {selectedEvent.outlookSync.lastSyncError}

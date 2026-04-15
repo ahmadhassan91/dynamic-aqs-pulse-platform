@@ -19,6 +19,11 @@ let ensureWebsiteLeadConfigSeeded;
 let ensureTerritoryPolicySeeded;
 let ensureTrainingSeeded;
 let createLead;
+let scheduleLeadDiscovery;
+let createTrainingSession;
+let rescheduleTrainingSession;
+let cancelTrainingSession;
+let updateOutlookConnection;
 const SERIAL = { concurrency: false };
 
 let mockOutlook;
@@ -33,9 +38,16 @@ test.before(async () => {
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
     createLead,
+    scheduleLeadDiscovery,
   } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
-  ({ ensureTrainingSeeded } = await import('../dist/modules/training/service.js'));
+  ({
+    ensureTrainingSeeded,
+    createTrainingSession,
+    rescheduleTrainingSession,
+    cancelTrainingSession,
+  } = await import('../dist/modules/training/service.js'));
+  ({ updateOutlookConnection } = await import('../dist/modules/calendar/outlook.js'));
 
   await prisma.$connect();
 });
@@ -92,6 +104,76 @@ async function createAdminSession() {
   const actor = await authenticateAccessToken(auth.tokens.accessToken);
   assert.ok(actor, 'expected bootstrap admin actor');
   return { actor, auth };
+}
+
+async function connectOutlookForRuntime(runtime, auth) {
+  const port = runtime.server.address().port;
+  const connectPayload = await (
+    await fetch(`http://127.0.0.1:${port}/api/v1/calendar/outlook/connect`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    })
+  ).json();
+
+  const state = new URL(connectPayload.authorizationUrl).searchParams.get('state');
+  assert.ok(state);
+
+  await fetch(
+    `http://127.0.0.1:${port}/api/v1/integrations/outlook/callback?code=seed-code&state=${encodeURIComponent(state)}`,
+    { redirect: 'manual' },
+  );
+
+  return { port };
+}
+
+async function createTrainingAccountFixture(suffix = 'calendar-sync') {
+  const segment = await prisma.businessSegmentRef.findFirst({
+    where: { code: 'residential' },
+  });
+
+  const tm = await prisma.user.create({
+    data: {
+      email: `tm-${suffix}@pulse.local`,
+      displayName: `TM ${suffix}`,
+      roleCode: 'TERRITORY_MANAGER',
+    },
+  });
+  const rd = await prisma.user.create({
+    data: {
+      email: `rd-${suffix}@pulse.local`,
+      displayName: `RD ${suffix}`,
+      roleCode: 'REGIONAL_DIRECTOR',
+    },
+  });
+  const trainer = await prisma.user.create({
+    data: {
+      email: `trainer-${suffix}@pulse.local`,
+      displayName: `Trainer ${suffix}`,
+      roleCode: 'TRAINING_OPS',
+      trainingTrainerProfile: {
+        create: {
+          isActive: true,
+        },
+      },
+    },
+  });
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: `Calendar Training Account ${suffix}`,
+      legalName: `Calendar Training Account ${suffix} LLC`,
+      accountType: 'Dealer',
+      businessSegmentId: segment?.id ?? null,
+      lifecycleStatus: 'ACTIVE',
+      isActive: true,
+      assignedTmUserId: tm.id,
+      assignedRdUserId: rd.id,
+    },
+  });
+
+  return { account, trainer };
 }
 
 test('outlook connect route returns authorization URL and callback stores encrypted mailbox tokens', SERIAL, async () => {
@@ -239,6 +321,155 @@ test('outlook sync creates event binding and refreshes the token when expired', 
   }
 });
 
+test('outlook settings list available calendars and persist target calendar plus meeting preference', SERIAL, async () => {
+  const { actor, auth } = await createAdminSession();
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port } = await connectOutlookForRuntime(runtime, auth);
+
+    const calendarsResponse = await fetch(`http://127.0.0.1:${port}/api/v1/calendar/outlook/calendars`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(calendarsResponse.status, 200);
+    const calendarsPayload = await calendarsResponse.json();
+    assert.equal(calendarsPayload.items.length, 2);
+    assert.equal(calendarsPayload.items[1].id, 'shared-team');
+
+    const settingsResponse = await fetch(`http://127.0.0.1:${port}/api/v1/calendar/outlook/connection`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        targetCalendarId: 'shared-team',
+        meetingProvider: 'teams',
+      }),
+    });
+
+    assert.equal(settingsResponse.status, 200);
+    const settingsPayload = await settingsResponse.json();
+    assert.equal(settingsPayload.targetCalendarId, 'shared-team');
+    assert.equal(settingsPayload.targetCalendarName, 'Shared Sales Calendar');
+    assert.equal(settingsPayload.meetingProvider, 'teams');
+
+    const connection = await prisma.calendarConnection.findFirstOrThrow({
+      where: { provider: 'OUTLOOK' },
+    });
+    assert.equal(connection.targetCalendarId, 'shared-team');
+    assert.equal(connection.meetingProviderPreference, 'TEAMS');
+
+    await updateOutlookConnection(actor, config, {
+      targetCalendarId: null,
+      meetingProvider: 'none',
+    });
+
+    const resetConnection = await prisma.calendarConnection.findFirstOrThrow({
+      where: { provider: 'OUTLOOK' },
+    });
+    assert.equal(resetConnection.targetCalendarId, null);
+    assert.equal(resetConnection.meetingProviderPreference, 'NONE');
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('lead discovery scheduling auto-syncs into the selected Outlook calendar with a Teams link', SERIAL, async () => {
+  const { actor, auth } = await createAdminSession();
+  const lead = await createLead(actor, {
+    companyName: 'Outlook Auto Discovery Dealer',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    await connectOutlookForRuntime(runtime, auth);
+    await updateOutlookConnection(actor, config, {
+      targetCalendarId: 'shared-team',
+      meetingProvider: 'teams',
+    });
+
+    await scheduleLeadDiscovery(actor, lead.id, { note: 'Auto-sync discovery' }, config);
+
+    assert.equal(mockOutlook.eventCreates.length, 1);
+    assert.equal(mockOutlook.eventCreates[0].path, '/me/calendars/shared-team/events');
+    assert.equal(mockOutlook.eventCreates[0].body.isOnlineMeeting, true);
+    assert.equal(mockOutlook.eventCreates[0].body.onlineMeetingProvider, 'teamsForBusiness');
+
+    const binding = await prisma.calendarEventBinding.findFirstOrThrow({
+      where: {
+        sourceModule: 'leads',
+        sourceRecordId: lead.id,
+      },
+    });
+    assert.equal(binding.targetCalendarId, 'shared-team');
+    assert.equal(binding.meetingProvider, 'TEAMS');
+    assert.equal(binding.externalMeetingJoinUrl, 'https://teams.test/join/evt-1');
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('training session auto-syncs on create and reschedule, then removes the provider event on cancellation', SERIAL, async () => {
+  const { actor, auth } = await createAdminSession();
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    await connectOutlookForRuntime(runtime, auth);
+    await updateOutlookConnection(actor, config, {
+      meetingProvider: 'teams',
+    });
+
+    const { account, trainer } = await createTrainingAccountFixture();
+    const trainingType = await prisma.trainingType.findFirstOrThrow({
+      where: { deliveryMode: 'VIRTUAL' },
+    });
+
+    const session = await createTrainingSession(actor, account.id, {
+      trainerUserId: trainer.id,
+      trainingTypeId: trainingType.id,
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      durationMinutes: 90,
+      title: 'Auto Outlook Training',
+    }, config);
+
+    assert.equal(mockOutlook.eventCreates.length, 1);
+    assert.equal(mockOutlook.eventCreates[0].path, '/me/events');
+    assert.equal(mockOutlook.eventCreates[0].body.isOnlineMeeting, true);
+
+    const rescheduled = await rescheduleTrainingSession(actor, session.id, {
+      scheduledAt: new Date(Date.now() + 172_800_000).toISOString(),
+      title: 'Auto Outlook Training - Rescheduled',
+    }, config);
+
+    assert.equal(mockOutlook.eventUpdates.length, 1);
+    assert.equal(mockOutlook.eventUpdates[0].path, '/me/events/evt-1');
+    assert.equal(rescheduled.title, 'Auto Outlook Training - Rescheduled');
+
+    await cancelTrainingSession(actor, session.id, {
+      status: 'cancelled',
+      notes: 'Cancelled for regression coverage',
+    }, config);
+
+    assert.equal(mockOutlook.eventDeletes.length, 1);
+    const bindingCount = await prisma.calendarEventBinding.count({
+      where: { sourceModule: 'training', sourceRecordId: session.id },
+    });
+    assert.equal(bindingCount, 0);
+  } finally {
+    await runtime.close();
+  }
+});
+
 test('outlook callback rejects unrecognized state and does not create a connection', SERIAL, async () => {
   const runtime = await createPulseServer(config);
   await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
@@ -288,6 +519,8 @@ async function createMockOutlookServer() {
     tokenRefreshCount: 0,
     eventCreates: [],
     eventUpdates: [],
+    eventDeletes: [],
+    nextEventId: 1,
   };
 
   const server = createServer(async (req, res) => {
@@ -325,20 +558,86 @@ async function createMockOutlookServer() {
       });
     }
 
-    if (pathname === '/me/events' && req.method === 'POST') {
-      state.eventCreates.push(JSON.parse(await readBody(req)));
+    if (pathname === '/me/calendars' && req.method === 'GET') {
       return json(res, 200, {
-        id: 'evt-1',
-        webLink: 'https://outlook.test/events/evt-1',
+        value: [
+          {
+            id: 'primary-calendar',
+            name: 'Calendar',
+            canEdit: true,
+            canShare: true,
+            isDefaultCalendar: true,
+            owner: {
+              name: 'Trainer Test',
+              address: 'trainer@test.local',
+            },
+            allowedOnlineMeetingProviders: ['teamsForBusiness'],
+          },
+          {
+            id: 'shared-team',
+            name: 'Shared Sales Calendar',
+            canEdit: true,
+            canShare: true,
+            isDefaultCalendar: false,
+            owner: {
+              name: 'Sales Team',
+              address: 'sales@test.local',
+            },
+            allowedOnlineMeetingProviders: ['teamsForBusiness'],
+          },
+        ],
       });
     }
 
-    if (pathname === '/me/events/evt-1' && req.method === 'PATCH') {
-      state.eventUpdates.push(JSON.parse(await readBody(req)));
-      return json(res, 200, {
-        id: 'evt-1',
-        webLink: 'https://outlook.test/events/evt-1',
+    const createEventMatch = pathname.match(/^\/me(?:\/calendars\/([^/]+))?\/events$/);
+    if (createEventMatch && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      state.eventCreates.push({
+        path: pathname,
+        body,
       });
+      const eventId = `evt-${state.nextEventId++}`;
+      return json(res, 200, {
+        id: eventId,
+        webLink: `https://outlook.test/events/${eventId}`,
+        ...(body.isOnlineMeeting
+          ? {
+              onlineMeeting: {
+                joinUrl: `https://teams.test/join/${eventId}`,
+              },
+            }
+          : {}),
+      });
+    }
+
+    const updateEventMatch = pathname.match(/^\/me\/events\/([^/]+)$/);
+    if (updateEventMatch && req.method === 'PATCH') {
+      const body = JSON.parse(await readBody(req));
+      const eventId = updateEventMatch[1];
+      state.eventUpdates.push({
+        path: pathname,
+        body,
+      });
+      return json(res, 200, {
+        id: eventId,
+        webLink: `https://outlook.test/events/${eventId}`,
+        ...(body.isOnlineMeeting
+          ? {
+              onlineMeeting: {
+                joinUrl: `https://teams.test/join/${eventId}`,
+              },
+            }
+          : {}),
+      });
+    }
+
+    if (updateEventMatch && req.method === 'DELETE') {
+      state.eventDeletes.push({
+        path: pathname,
+      });
+      res.statusCode = 204;
+      res.end();
+      return;
     }
 
     res.statusCode = 404;
@@ -357,6 +656,9 @@ async function createMockOutlookServer() {
     },
     get eventUpdates() {
       return state.eventUpdates;
+    },
+    get eventDeletes() {
+      return state.eventDeletes;
     },
     baseUrl: `http://127.0.0.1:${port}`,
     close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),

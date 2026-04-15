@@ -167,6 +167,11 @@ enum CalendarConnectionProvider {
   OUTLOOK
 }
 
+enum CalendarMeetingProviderPreference {
+  NONE
+  TEAMS
+}
+
 enum LeadStage {
   NEW
   DISCOVERY_SCHEDULED
@@ -742,6 +747,9 @@ model CalendarConnection {
   providerSubject       String
   providerEmail         String?
   scope                 String
+  targetCalendarId      String?
+  targetCalendarName    String?
+  meetingProviderPreference CalendarMeetingProviderPreference @default(NONE)
   accessTokenEncrypted  String
   refreshTokenEncrypted String
   accessTokenExpiresAt  DateTime
@@ -785,6 +793,9 @@ model CalendarEventBinding {
   eventType             String
   externalEventId       String
   externalWebLink       String?
+  externalMeetingJoinUrl String?
+  targetCalendarId      String?
+  meetingProvider       CalendarMeetingProviderPreference @default(NONE)
   lastSyncedAt          DateTime                   @default(now())
   lastSyncError         String?
   createdAt             DateTime                   @default(now())

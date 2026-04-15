@@ -20,9 +20,11 @@ import type {
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
   CalendarOutlookConnectionSummary,
+  ListCalendarOutlookCalendarsResponse,
   StartCalendarOutlookConnectionResponse,
   SyncCalendarOutlookEventRequest,
   SyncCalendarOutlookEventResponse,
+  UpdateCalendarOutlookConnectionRequest,
   AccountDetail,
   AccountSummary,
   AccountLocationSummary,
@@ -213,6 +215,25 @@ export async function disconnectCalendarOutlookConnection(apiBaseUrl: string, ac
   return requestJson<CalendarOutlookConnectionSummary>(apiBaseUrl, '/api/v1/calendar/outlook/connection', {
     method: 'DELETE',
     accessToken,
+  });
+}
+
+export async function fetchCalendarOutlookCalendars(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListCalendarOutlookCalendarsResponse>(apiBaseUrl, '/api/v1/calendar/outlook/calendars', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function updateCalendarOutlookConnection(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateCalendarOutlookConnectionRequest,
+) {
+  return requestJson<CalendarOutlookConnectionSummary>(apiBaseUrl, '/api/v1/calendar/outlook/connection', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
   });
 }
 

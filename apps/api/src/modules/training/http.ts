@@ -1,6 +1,7 @@
 import { AuthorizationError } from '@pulse/auth';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
+import type { AppConfig } from '../../config.js';
 import type {
   CancelTrainingSessionRequest,
   CheckInTrainingSessionRequest,
@@ -47,7 +48,7 @@ import {
   rescheduleTrainingSession,
 } from './service.js';
 
-export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
+export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
   const method = req.method ?? 'GET';
   const pathname = url.pathname;
   const isTrainingRoute =
@@ -265,7 +266,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
         const body = (await readJsonBody(req)) as CreateTrainingSessionRequest;
-        const response = await createTrainingSession(actor, accountId, body);
+        const response = await createTrainingSession(actor, accountId, body, config);
         return jsonResponse(res, 201, response);
       });
     }
@@ -283,7 +284,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
         const body = (await readJsonBody(req)) as UpdateTrainingSessionScheduleRequest;
-        const response = await rescheduleTrainingSession(actor, sessionId, body);
+        const response = await rescheduleTrainingSession(actor, sessionId, body, config);
         return jsonResponse(res, 200, response);
       });
     }
@@ -319,7 +320,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
         const body = (await readJsonBody(req)) as CompleteTrainingSessionRequest;
-        const response = await completeTrainingSession(actor, sessionId, body);
+        const response = await completeTrainingSession(actor, sessionId, body, config);
         return jsonResponse(res, 200, response);
       });
     }
@@ -337,7 +338,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
         const body = (await readJsonBody(req)) as CancelTrainingSessionRequest;
-        const response = await cancelTrainingSession(actor, sessionId, body);
+        const response = await cancelTrainingSession(actor, sessionId, body, config);
         return jsonResponse(res, 200, response);
       });
     }

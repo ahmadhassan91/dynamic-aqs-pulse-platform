@@ -1,12 +1,21 @@
-import { AuditAction, CalendarConnectionProvider, prisma } from '@pulse/db';
+import {
+  AuditAction,
+  CalendarConnectionProvider,
+  CalendarMeetingProviderPreference,
+  prisma,
+} from '@pulse/db';
 import type {
   CalendarEventSummary,
   CalendarEventTypeKey,
+  CalendarMeetingProviderKey,
+  CalendarOutlookCalendarSummary,
   CalendarOutlookConnectionSummary,
   CalendarOutlookEventSyncSummary,
+  ListCalendarOutlookCalendarsResponse,
   StartCalendarOutlookConnectionResponse,
   SyncCalendarOutlookEventRequest,
   SyncCalendarOutlookEventResponse,
+  UpdateCalendarOutlookConnectionRequest,
 } from '@pulse/contracts';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AppConfig } from '../../config.js';
@@ -31,9 +40,31 @@ type OutlookProfileResponse = {
   userPrincipalName?: string | null;
 };
 
+type OutlookCalendarOwner = {
+  name?: string | null;
+  address?: string | null;
+};
+
+type OutlookCalendarEntryResponse = {
+  id: string;
+  name?: string | null;
+  canEdit?: boolean | null;
+  canShare?: boolean | null;
+  isDefaultCalendar?: boolean | null;
+  owner?: OutlookCalendarOwner | null;
+  allowedOnlineMeetingProviders?: string[] | null;
+};
+
+type OutlookCalendarListResponse = {
+  value?: OutlookCalendarEntryResponse[];
+};
+
 type OutlookEventResponse = {
   id: string;
   webLink?: string;
+  onlineMeeting?: {
+    joinUrl?: string | null;
+  } | null;
 };
 
 type WorkspaceBindingMap = Map<string, CalendarOutlookEventSyncSummary>;
@@ -71,7 +102,7 @@ export async function getOutlookWorkspaceState(
 
   if (!connection) {
     return {
-      connection: buildConnectionSummary(null, true),
+      connection: buildConnectionSummary(null, true, config.outlookCalendar.scopes),
       bindings: new Map(),
     };
   }
@@ -90,18 +121,138 @@ export async function getOutlookWorkspaceState(
     : [];
 
   return {
-    connection: buildConnectionSummary(connection, true),
+    connection: buildConnectionSummary(connection, true, config.outlookCalendar.scopes),
     bindings: new Map(
       bindings.map((binding) => [
         createBindingKey(binding.sourceModule, binding.sourceRecordId, binding.eventType),
         {
           ...(binding.lastSyncedAt ? { syncedAt: binding.lastSyncedAt.toISOString() } : {}),
           ...(binding.externalWebLink ? { externalWebLink: binding.externalWebLink } : {}),
+          ...(binding.externalMeetingJoinUrl ? { meetingJoinUrl: binding.externalMeetingJoinUrl } : {}),
           ...(binding.lastSyncError ? { lastSyncError: binding.lastSyncError } : {}),
         },
       ]),
     ),
   };
+}
+
+export async function listOutlookCalendars(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+): Promise<ListCalendarOutlookCalendarsResponse> {
+  requireConfiguredOutlook(config);
+
+  const connection = await prisma.calendarConnection.findUnique({
+    where: {
+      userId_provider: {
+        userId: actor.userId,
+        provider: CalendarConnectionProvider.OUTLOOK,
+      },
+    },
+  });
+
+  if (!connection) {
+    throw new Error('Connect Outlook before loading available calendars');
+  }
+
+  const accessToken = await ensureActiveAccessToken(config, connection);
+  const items = await fetchOutlookCalendars(config, accessToken);
+  return { items };
+}
+
+export async function updateOutlookConnection(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  input: UpdateCalendarOutlookConnectionRequest,
+): Promise<CalendarOutlookConnectionSummary> {
+  const outlook = requireConfiguredOutlook(config);
+  const connection = await prisma.calendarConnection.findUnique({
+    where: {
+      userId_provider: {
+        userId: actor.userId,
+        provider: CalendarConnectionProvider.OUTLOOK,
+      },
+    },
+  });
+
+  if (!connection) {
+    throw new Error('Connect Outlook before updating calendar settings');
+  }
+
+  const accessToken = await ensureActiveAccessToken(config, connection);
+  const availableCalendars = await fetchOutlookCalendars(config, accessToken);
+  const requestedMeetingProvider = input.meetingProvider
+    ? toMeetingProviderPreference(input.meetingProvider)
+    : connection.meetingProviderPreference;
+
+  let targetCalendarId: string | null = connection.targetCalendarId ?? null;
+  let targetCalendarName: string | null = connection.targetCalendarName ?? null;
+
+  if (input.targetCalendarId !== undefined) {
+    if (input.targetCalendarId !== null && input.targetCalendarId.trim()) {
+      const selected = availableCalendars.find((entry) => entry.id === input.targetCalendarId?.trim());
+      if (!selected) {
+        throw new Error('Selected Outlook calendar was not found for the current mailbox');
+      }
+      if (!selected.canEdit) {
+        throw new Error('Selected Outlook calendar is not editable with the current mailbox permissions');
+      }
+      if (requestedMeetingProvider === CalendarMeetingProviderPreference.TEAMS && !selected.supportsTeamsMeetings) {
+        throw new Error('Selected Outlook calendar does not support Teams meeting links');
+      }
+      targetCalendarId = selected.id;
+      targetCalendarName = selected.name;
+    } else {
+      targetCalendarId = null;
+      targetCalendarName = null;
+    }
+  }
+
+  if (targetCalendarId) {
+    const selected = availableCalendars.find((entry) => entry.id === targetCalendarId);
+    if (!selected) {
+      targetCalendarId = null;
+      targetCalendarName = null;
+    } else {
+      targetCalendarName = selected.name;
+      if (requestedMeetingProvider === CalendarMeetingProviderPreference.TEAMS && !selected.supportsTeamsMeetings) {
+        throw new Error('Selected Outlook calendar does not support Teams meeting links');
+      }
+    }
+  } else if (requestedMeetingProvider === CalendarMeetingProviderPreference.TEAMS) {
+    const primary = availableCalendars.find((entry) => entry.isDefault) ?? availableCalendars[0] ?? null;
+    if (primary && !primary.supportsTeamsMeetings) {
+      throw new Error('The primary Outlook calendar does not support Teams meeting links');
+    }
+  }
+
+  const updated = await prisma.calendarConnection.update({
+    where: { id: connection.id },
+    data: {
+      targetCalendarId,
+      targetCalendarName,
+      meetingProviderPreference: requestedMeetingProvider,
+      lastSyncError: null,
+    },
+  });
+
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'calendar_connection',
+      entityId: updated.id,
+      sourceSystem: 'outlook',
+      metadata: {
+        provider: 'outlook',
+        targetCalendarId,
+        targetCalendarName,
+        meetingProviderPreference: requestedMeetingProvider.toLowerCase(),
+      },
+    }),
+  });
+
+  return buildConnectionSummary(updated, true, outlook.scopes);
 }
 
 export async function startOutlookConnection(
@@ -265,7 +416,7 @@ export async function disconnectOutlookConnection(
   });
 
   if (!connection) {
-    return buildConnectionSummary(null, true);
+    return buildConnectionSummary(null, true, config.outlookCalendar.scopes);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -295,7 +446,99 @@ export async function disconnectOutlookConnection(
     });
   });
 
-  return buildConnectionSummary(null, true);
+  return buildConnectionSummary(null, true, config.outlookCalendar.scopes);
+}
+
+export async function tryAutoSyncCalendarEventToOutlook(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  input: SyncCalendarOutlookEventRequest,
+): Promise<void> {
+  if (!config.outlookCalendar.enabled) {
+    return;
+  }
+
+  const connection = await prisma.calendarConnection.findUnique({
+    where: {
+      userId_provider: {
+        userId: actor.userId,
+        provider: CalendarConnectionProvider.OUTLOOK,
+      },
+    },
+  });
+
+  if (!connection) {
+    return;
+  }
+
+  try {
+    await syncCalendarEventToOutlook(actor, config, input);
+  } catch (error) {
+    await prisma.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.SYNC,
+        entityType: 'calendar_event_binding',
+        entityId: connection.id,
+        sourceSystem: 'outlook',
+        metadata: {
+          provider: 'outlook',
+          sourceModule: input.sourceModule,
+          sourceRecordId: input.sourceRecordId,
+          eventType: input.eventType,
+          result: 'auto_sync_failed',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }),
+    });
+  }
+}
+
+export async function tryAutoUnsyncCalendarEventFromOutlook(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  input: SyncCalendarOutlookEventRequest,
+  reason: string,
+): Promise<void> {
+  if (!config.outlookCalendar.enabled) {
+    return;
+  }
+
+  const connection = await prisma.calendarConnection.findUnique({
+    where: {
+      userId_provider: {
+        userId: actor.userId,
+        provider: CalendarConnectionProvider.OUTLOOK,
+      },
+    },
+  });
+
+  if (!connection) {
+    return;
+  }
+
+  try {
+    await removeCalendarEventFromOutlook(actor, config, input, reason);
+  } catch (error) {
+    await prisma.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.SYNC,
+        entityType: 'calendar_event_binding',
+        entityId: connection.id,
+        sourceSystem: 'outlook',
+        metadata: {
+          provider: 'outlook',
+          sourceModule: input.sourceModule,
+          sourceRecordId: input.sourceRecordId,
+          eventType: input.eventType,
+          result: 'auto_unsync_failed',
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }),
+    });
+  }
 }
 
 export async function syncCalendarEventToOutlook(
@@ -303,7 +546,7 @@ export async function syncCalendarEventToOutlook(
   config: AppConfig,
   input: SyncCalendarOutlookEventRequest,
 ): Promise<SyncCalendarOutlookEventResponse> {
-  const outlook = requireConfiguredOutlook(config);
+  requireConfiguredOutlook(config);
   const connection = await prisma.calendarConnection.findUnique({
     where: {
       userId_provider: {
@@ -332,12 +575,26 @@ export async function syncCalendarEventToOutlook(
 
   try {
     const activeAccessToken = await ensureActiveAccessToken(config, connection);
-    const payload = buildOutlookEventPayload(event, config.web.publicBaseUrl);
-    const response = binding
+    const payload = buildOutlookEventPayload(event, config.web.publicBaseUrl, connection);
+    const shouldRecreate =
+      Boolean(
+        binding
+        && (
+          (binding.targetCalendarId ?? null) !== (connection.targetCalendarId ?? null)
+          || binding.meetingProvider !== connection.meetingProviderPreference
+        ),
+      );
+
+    if (binding && shouldRecreate) {
+      await deleteOutlookEvent(config, activeAccessToken, binding.externalEventId);
+    }
+
+    const response = binding && !shouldRecreate
       ? await patchOutlookEvent(config, activeAccessToken, binding.externalEventId, payload)
-      : await createOutlookEvent(config, activeAccessToken, payload);
+      : await createOutlookEvent(config, activeAccessToken, connection, payload);
     const syncedAt = new Date();
     const externalWebLink = response.webLink ?? null;
+    const externalMeetingJoinUrl = response.onlineMeeting?.joinUrl ?? null;
 
     await prisma.$transaction(async (tx) => {
       await tx.calendarConnection.update({
@@ -365,12 +622,18 @@ export async function syncCalendarEventToOutlook(
           eventType: input.eventType,
           externalEventId: response.id,
           externalWebLink,
+          externalMeetingJoinUrl,
+          targetCalendarId: connection.targetCalendarId ?? null,
+          meetingProvider: connection.meetingProviderPreference,
           lastSyncedAt: syncedAt,
           lastSyncError: null,
         },
         update: {
           externalEventId: response.id,
           externalWebLink,
+          externalMeetingJoinUrl,
+          targetCalendarId: connection.targetCalendarId ?? null,
+          meetingProvider: connection.meetingProviderPreference,
           lastSyncedAt: syncedAt,
           lastSyncError: null,
         },
@@ -401,6 +664,7 @@ export async function syncCalendarEventToOutlook(
       eventType: input.eventType,
       externalEventId: response.id,
       ...(response.webLink ? { externalWebLink: response.webLink } : {}),
+      ...(externalMeetingJoinUrl ? { meetingJoinUrl: externalMeetingJoinUrl } : {}),
       syncedAt: syncedAt.toISOString(),
     };
   } catch (error) {
@@ -428,21 +692,126 @@ export async function syncCalendarEventToOutlook(
   }
 }
 
+async function removeCalendarEventFromOutlook(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  input: SyncCalendarOutlookEventRequest,
+  reason: string,
+) {
+  requireConfiguredOutlook(config);
+  const connection = await prisma.calendarConnection.findUnique({
+    where: {
+      userId_provider: {
+        userId: actor.userId,
+        provider: CalendarConnectionProvider.OUTLOOK,
+      },
+    },
+  });
+
+  if (!connection) {
+    return;
+  }
+
+  const binding = await prisma.calendarEventBinding.findUnique({
+    where: {
+      connectionId_sourceModule_sourceRecordId_eventType: {
+        connectionId: connection.id,
+        sourceModule: input.sourceModule,
+        sourceRecordId: input.sourceRecordId,
+        eventType: input.eventType,
+      },
+    },
+  });
+
+  if (!binding) {
+    return;
+  }
+
+  try {
+    const accessToken = await ensureActiveAccessToken(config, connection);
+    await deleteOutlookEvent(config, accessToken, binding.externalEventId);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.calendarConnection.update({
+        where: { id: connection.id },
+        data: {
+          lastSyncedAt: new Date(),
+          lastSyncError: null,
+        },
+      });
+
+      await tx.calendarEventBinding.delete({
+        where: { id: binding.id },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.SYNC,
+          entityType: 'calendar_event_binding',
+          entityId: binding.id,
+          sourceSystem: 'outlook',
+          metadata: {
+            provider: 'outlook',
+            sourceModule: input.sourceModule,
+            sourceRecordId: input.sourceRecordId,
+            eventType: input.eventType,
+            externalEventId: binding.externalEventId,
+            result: 'removed',
+            reason,
+          },
+        }),
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.calendarConnection.update({
+        where: { id: connection.id },
+        data: {
+          lastSyncError: message,
+        },
+      });
+
+      await tx.calendarEventBinding.update({
+        where: { id: binding.id },
+        data: {
+          lastSyncError: message,
+        },
+      });
+    });
+
+    throw error;
+  }
+}
+
 function buildConnectionSummary(
   connection: {
     providerEmail: string | null;
+    targetCalendarId?: string | null;
+    targetCalendarName?: string | null;
+    meetingProviderPreference?: CalendarMeetingProviderPreference;
     createdAt: Date;
     accessTokenExpiresAt: Date;
     lastSyncedAt: Date | null;
     lastSyncError: string | null;
   } | null,
   isConfigured: boolean,
+  scopes: string[] = [],
 ): CalendarOutlookConnectionSummary {
   if (!connection) {
     return {
       provider: 'outlook',
       isConfigured,
       isConnected: false,
+      ...(isConfigured
+        ? {
+            supportsSharedCalendars: scopes.includes('Calendars.ReadWrite.Shared'),
+            supportsTeamsMeetings: true,
+            meetingProvider: 'none' as const,
+          }
+        : {}),
     };
   }
 
@@ -450,7 +819,12 @@ function buildConnectionSummary(
     provider: 'outlook',
     isConfigured,
     isConnected: true,
+    supportsSharedCalendars: scopes.includes('Calendars.ReadWrite.Shared'),
+    supportsTeamsMeetings: true,
     ...(connection.providerEmail ? { connectionEmail: connection.providerEmail } : {}),
+    ...(connection.targetCalendarId ? { targetCalendarId: connection.targetCalendarId } : {}),
+    ...(connection.targetCalendarName ? { targetCalendarName: connection.targetCalendarName } : {}),
+    meetingProvider: fromMeetingProviderPreference(connection.meetingProviderPreference ?? CalendarMeetingProviderPreference.NONE),
     connectedAt: connection.createdAt.toISOString(),
     accessTokenExpiresAt: connection.accessTokenExpiresAt.toISOString(),
     ...(connection.lastSyncedAt ? { lastSyncedAt: connection.lastSyncedAt.toISOString() } : {}),
@@ -581,8 +955,47 @@ async function fetchOutlookProfile(config: AppConfig, accessToken: string) {
   return payload;
 }
 
-async function createOutlookEvent(config: AppConfig, accessToken: string, payload: Record<string, unknown>) {
-  return sendOutlookEventRequest(config, accessToken, '/me/events', 'POST', payload);
+async function fetchOutlookCalendars(config: AppConfig, accessToken: string): Promise<CalendarOutlookCalendarSummary[]> {
+  const response = await fetch(
+    `${config.outlookCalendar.graphBaseUrl.replace(/\/$/, '')}/me/calendars?$select=id,name,canEdit,canShare,isDefaultCalendar,owner,allowedOnlineMeetingProviders`,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  const payload = (await response.json()) as OutlookCalendarListResponse & { error?: { message?: string } };
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? 'Failed to read Outlook calendars');
+  }
+
+  return (payload.value ?? [])
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name?.trim() || 'Unnamed calendar',
+      ...(entry.owner?.name ? { ownerName: entry.owner.name } : {}),
+      ...(entry.owner?.address ? { ownerAddress: entry.owner.address } : {}),
+      canEdit: entry.canEdit !== false,
+      ...(entry.canShare !== undefined && entry.canShare !== null ? { canShare: entry.canShare } : {}),
+      isDefault: entry.isDefaultCalendar === true,
+      supportsTeamsMeetings: (entry.allowedOnlineMeetingProviders ?? []).includes('teamsForBusiness'),
+    }))
+    .sort((left, right) => Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name));
+}
+
+async function createOutlookEvent(
+  config: AppConfig,
+  accessToken: string,
+  connection: {
+    targetCalendarId: string | null;
+  },
+  payload: Record<string, unknown>,
+) {
+  const path = connection.targetCalendarId
+    ? `/me/calendars/${encodeURIComponent(connection.targetCalendarId)}/events`
+    : '/me/events';
+  return sendOutlookEventRequest(config, accessToken, path, 'POST', payload);
 }
 
 async function patchOutlookEvent(
@@ -598,6 +1011,32 @@ async function patchOutlookEvent(
     'PATCH',
     payload,
   );
+}
+
+async function deleteOutlookEvent(
+  config: AppConfig,
+  accessToken: string,
+  eventId: string,
+) {
+  const response = await fetch(
+    `${config.outlookCalendar.graphBaseUrl.replace(/\/$/, '')}/me/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return;
+  }
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    const body = bodyText ? JSON.parse(bodyText) as { error?: { message?: string } } : null;
+    throw new Error(body?.error?.message ?? 'Failed to remove synced Outlook event');
+  }
 }
 
 async function sendOutlookEventRequest(
@@ -631,7 +1070,13 @@ async function sendOutlookEventRequest(
   return body;
 }
 
-function buildOutlookEventPayload(event: CalendarEventSummary, webBaseUrl: string) {
+function buildOutlookEventPayload(
+  event: CalendarEventSummary,
+  webBaseUrl: string,
+  connection: {
+    meetingProviderPreference: CalendarMeetingProviderPreference;
+  },
+) {
   const startsAt = new Date(event.startsAt);
   const endsAt = event.endsAt
     ? new Date(event.endsAt)
@@ -644,6 +1089,9 @@ function buildOutlookEventPayload(event: CalendarEventSummary, webBaseUrl: strin
     ...(event.notes ? [`<p>${escapeHtml(event.notes)}</p>`] : []),
     `<p><strong>Pulse record:</strong> <a href="${escapeHtml(absoluteSourceUrl)}">${escapeHtml(absoluteSourceUrl)}</a></p>`,
   ];
+  const shouldCreateTeamsMeeting =
+    connection.meetingProviderPreference === CalendarMeetingProviderPreference.TEAMS
+    && supportsOnlineMeeting(event.eventType);
 
   return {
     subject: event.title,
@@ -668,6 +1116,12 @@ function buildOutlookEventPayload(event: CalendarEventSummary, webBaseUrl: strin
       : {}),
     categories: ['Pulse CRM', normalizeCategory(event.eventType)],
     transactionId: event.id,
+    ...(shouldCreateTeamsMeeting
+      ? {
+          isOnlineMeeting: true,
+          onlineMeetingProvider: 'teamsForBusiness',
+        }
+      : {}),
   };
 }
 
@@ -692,6 +1146,20 @@ function defaultDurationMinutes(eventType: CalendarEventTypeKey) {
 
 function normalizeCategory(eventType: CalendarEventTypeKey) {
   return eventType.replace(/_/g, ' ');
+}
+
+function supportsOnlineMeeting(eventType: CalendarEventTypeKey) {
+  return eventType === 'discovery_call' || eventType === 'virtual_training';
+}
+
+function toMeetingProviderPreference(value: CalendarMeetingProviderKey) {
+  return value === 'teams'
+    ? CalendarMeetingProviderPreference.TEAMS
+    : CalendarMeetingProviderPreference.NONE;
+}
+
+function fromMeetingProviderPreference(value: CalendarMeetingProviderPreference): CalendarMeetingProviderKey {
+  return value === CalendarMeetingProviderPreference.TEAMS ? 'teams' : 'none';
 }
 
 function hashState(value: string) {

@@ -19,6 +19,7 @@ import type {
   AccountTrainingHistoryResponse,
   AccountTrainingProgramSummary,
   CancelTrainingSessionRequest,
+  CalendarEventTypeKey,
   CheckInTrainingSessionRequest,
   CompleteTrainingFollowUpTaskRequest,
   CompleteTrainingSessionRequest,
@@ -55,8 +56,13 @@ import type {
   TrainingTypeSummary,
   UpdateTrainingSessionScheduleRequest,
 } from '@pulse/contracts';
+import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import {
+  tryAutoSyncCalendarEventToOutlook,
+  tryAutoUnsyncCalendarEventFromOutlook,
+} from '../calendar/outlook.js';
 
 const TRAINING_CATEGORY_ENTITY = 'TRAINING_CATEGORY';
 const TRAINING_TYPE_ENTITY = 'TRAINING_TYPE';
@@ -1298,6 +1304,7 @@ export async function createTrainingSession(
   actor: AuthenticatedActor,
   accountId: string,
   input: CreateTrainingSessionRequest,
+  config?: AppConfig,
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
@@ -1416,6 +1423,14 @@ export async function createTrainingSession(
     return session;
   });
 
+  if (config) {
+    await tryAutoSyncCalendarEventToOutlook(actor, config, {
+      sourceModule: 'training',
+      sourceRecordId: created.id,
+      eventType: resolveTrainingCalendarEventType(created),
+    });
+  }
+
   return toTrainingSessionSummary(created);
 }
 
@@ -1423,6 +1438,7 @@ export async function rescheduleTrainingSession(
   actor: AuthenticatedActor,
   sessionId: string,
   input: UpdateTrainingSessionScheduleRequest,
+  config?: AppConfig,
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
@@ -1495,6 +1511,14 @@ export async function rescheduleTrainingSession(
     return next;
   });
 
+  if (config) {
+    await tryAutoSyncCalendarEventToOutlook(actor, config, {
+      sourceModule: 'training',
+      sourceRecordId: updated.id,
+      eventType: resolveTrainingCalendarEventType(updated),
+    });
+  }
+
   return toTrainingSessionSummary(updated);
 }
 
@@ -1560,6 +1584,7 @@ export async function completeTrainingSession(
   actor: AuthenticatedActor,
   sessionId: string,
   input: CompleteTrainingSessionRequest,
+  config?: AppConfig,
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
@@ -1720,6 +1745,19 @@ export async function completeTrainingSession(
     });
   });
 
+  if (config) {
+    await tryAutoUnsyncCalendarEventFromOutlook(
+      actor,
+      config,
+      {
+        sourceModule: 'training',
+        sourceRecordId: updated.id,
+        eventType: resolveTrainingCalendarEventType(updated),
+      },
+      'Training session completed in Pulse',
+    );
+  }
+
   return toTrainingSessionSummary(updated);
 }
 
@@ -1727,6 +1765,7 @@ export async function cancelTrainingSession(
   actor: AuthenticatedActor,
   sessionId: string,
   input: CancelTrainingSessionRequest,
+  config?: AppConfig,
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
@@ -1774,6 +1813,19 @@ export async function cancelTrainingSession(
 
     return next;
   });
+
+  if (config) {
+    await tryAutoUnsyncCalendarEventFromOutlook(
+      actor,
+      config,
+      {
+        sourceModule: 'training',
+        sourceRecordId: updated.id,
+        eventType: resolveTrainingCalendarEventType(updated),
+      },
+      `Training session marked ${updated.status.toLowerCase()} in Pulse`,
+    );
+  }
 
   return toTrainingSessionSummary(updated);
 }
@@ -2402,6 +2454,24 @@ function buildTrainingExecutionExceptions(items: TrainingSessionSummary[]): Trai
 
 function hasTrainingExecutionException(item: TrainingSessionSummary) {
   return buildTrainingExecutionExceptions([item]).length > 0;
+}
+
+function resolveTrainingCalendarEventType(
+  session: Pick<TrainingSessionRecord, 'activityKind'> & {
+    trainingType?: {
+      deliveryMode: TrainingDeliveryMode;
+    } | null;
+  },
+): CalendarEventTypeKey {
+  if (session.activityKind === TrainingActivityKind.SITE_VISIT) {
+    return 'on_site_visit';
+  }
+
+  if (session.trainingType?.deliveryMode === TrainingDeliveryMode.VIRTUAL) {
+    return 'virtual_training';
+  }
+
+  return 'account_training';
 }
 
 function toAccountSegment(input: string) {

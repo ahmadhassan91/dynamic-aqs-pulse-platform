@@ -2,6 +2,10 @@
 
 Date: 2026-04-15
 
+Note:
+- This document captures the first Outlook foundation slice.
+- Automatic sync, target-calendar selection, and Teams meeting preference were added later in `CALENDAR_SLICE_C_AUTO_SYNC_AND_SHARED_CALENDAR_IMPLEMENTATION_2026-04-15.md`.
+
 ## Goal
 
 Add the first real provider-connected calendar slice on top of the centralized Pulse calendar without breaking the rule that Pulse remains the workflow source of truth.

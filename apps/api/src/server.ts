@@ -225,7 +225,7 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
-  const leadRouteHandled = await handleLeadRoutes(req, res, url);
+  const leadRouteHandled = await handleLeadRoutes(req, res, url, ctx.config);
   if (leadRouteHandled !== false) {
     return;
   }
@@ -245,7 +245,7 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
-  const trainingRouteHandled = await handleTrainingRoutes(req, res, url);
+  const trainingRouteHandled = await handleTrainingRoutes(req, res, url, ctx.config);
   if (trainingRouteHandled !== false) {
     return;
   }

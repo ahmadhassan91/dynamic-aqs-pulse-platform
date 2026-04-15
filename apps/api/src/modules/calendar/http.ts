@@ -4,6 +4,7 @@ import type { URL } from 'node:url';
 import type {
   CalendarWorkspaceRequest,
   SyncCalendarOutlookEventRequest,
+  UpdateCalendarOutlookConnectionRequest,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import {
@@ -17,7 +18,15 @@ import {
   unauthorizedResponse,
 } from '../../utils/http.js';
 import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
-import { CalendarIntegrationUnavailableError, completeOutlookConnection, disconnectOutlookConnection, startOutlookConnection, syncCalendarEventToOutlook } from './outlook.js';
+import {
+  CalendarIntegrationUnavailableError,
+  completeOutlookConnection,
+  disconnectOutlookConnection,
+  listOutlookCalendars,
+  startOutlookConnection,
+  syncCalendarEventToOutlook,
+  updateOutlookConnection,
+} from './outlook.js';
 import { getCalendarWorkspace } from './service.js';
 
 export async function handleCalendarRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config: AppConfig) {
@@ -58,12 +67,41 @@ export async function handleCalendarRoutes(req: IncomingMessage, res: ServerResp
     }
 
     if (pathname === '/api/v1/calendar/outlook/connection') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'calendar' });
+        const response = await getCalendarWorkspace(actor, {
+          startDate: new Date().toISOString(),
+          endDate: new Date().toISOString(),
+        }, config);
+        return jsonResponse(res, 200, response.outlookConnection);
+      }
+
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, { module: 'calendar' });
+        const body = (await readJsonBody(req, 100_000)) as Partial<UpdateCalendarOutlookConnectionRequest>;
+        const response = await updateOutlookConnection(actor, config, {
+          ...(body.targetCalendarId !== undefined ? { targetCalendarId: body.targetCalendarId } : {}),
+          ...(body.meetingProvider !== undefined ? { meetingProvider: body.meetingProvider } : {}),
+        });
+        return jsonResponse(res, 200, response);
+      }
+
       if (method !== 'DELETE') {
-        return methodNotAllowedResponse(res, method, ['DELETE']);
+        return methodNotAllowedResponse(res, method, ['GET', 'PATCH', 'DELETE']);
       }
 
       const actor = await requireAuthenticatedActor(req, { module: 'calendar' });
       const response = await disconnectOutlookConnection(actor, config);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/calendar/outlook/calendars') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, { module: 'calendar' });
+      const response = await listOutlookCalendars(actor, config);
       return jsonResponse(res, 200, response);
     }
 

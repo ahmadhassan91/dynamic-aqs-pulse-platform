@@ -621,7 +621,10 @@ export function AdminWorkspace({
                   <TextInput
                     placeholder="Search users..."
                     value={filters.search}
-                    onChange={(event) => setFilters((current) => ({ ...current, search: event.currentTarget.value, page: 1 }))}
+                    onChange={(event) => {
+                      const nextValue = event.currentTarget.value;
+                      setFilters((current) => ({ ...current, search: nextValue, page: 1 }));
+                    }}
                     leftSection={<IconSearch size={16} />}
                   />
                   <Select

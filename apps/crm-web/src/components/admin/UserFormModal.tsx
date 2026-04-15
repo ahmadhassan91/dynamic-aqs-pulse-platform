@@ -74,7 +74,10 @@ export function UserFormModal({
             label="Email Address"
             placeholder="user@dynamicaqs.com"
             value={values.email}
-            onChange={(event) => setValues((current) => ({ ...current, email: event.currentTarget.value }))}
+            onChange={(event) => {
+              const nextValue = event.currentTarget.value;
+              setValues((current) => ({ ...current, email: nextValue }));
+            }}
             required
           />
 
@@ -82,13 +85,19 @@ export function UserFormModal({
             <TextInput
               label="First Name"
               value={values.firstName}
-              onChange={(event) => setValues((current) => ({ ...current, firstName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value;
+                setValues((current) => ({ ...current, firstName: nextValue }));
+              }}
               required
             />
             <TextInput
               label="Last Name"
               value={values.lastName}
-              onChange={(event) => setValues((current) => ({ ...current, lastName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value;
+                setValues((current) => ({ ...current, lastName: nextValue }));
+              }}
               required
             />
           </Group>
@@ -106,14 +115,20 @@ export function UserFormModal({
               label="Temporary Password"
               placeholder="Leave blank to auto-generate"
               value={values.password}
-              onChange={(event) => setValues((current) => ({ ...current, password: event.currentTarget.value }))}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value;
+                setValues((current) => ({ ...current, password: nextValue }));
+              }}
             />
           ) : null}
 
           <Switch
             label="User is active"
             checked={values.isActive}
-            onChange={(event) => setValues((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+            onChange={(event) => {
+              const nextChecked = event.currentTarget.checked;
+              setValues((current) => ({ ...current, isActive: nextChecked }));
+            }}
           />
 
           <Group justify="flex-end" gap="sm">

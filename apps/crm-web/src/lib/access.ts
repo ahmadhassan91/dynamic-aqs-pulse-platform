@@ -1,9 +1,9 @@
 import type { AuthRole, WorkspaceActionKey, WorkspaceModuleKey } from '@pulse/contracts';
 import {
-  AUTH_ROLES,
-  ROLE_DEFAULT_ACTION_ACCESS,
-  ROLE_DEFAULT_MODULE_ACCESS,
-} from '@pulse/contracts/auth';
+  AUTH_ROLE_CATALOG,
+  ROLE_DEFAULT_ACTION_ACCESS_CATALOG,
+  ROLE_DEFAULT_MODULE_ACCESS_CATALOG,
+} from '@/lib/auth-catalog';
 
 export type WorkspaceLandingTarget = {
   href: string;
@@ -55,7 +55,7 @@ export function normalizeRoleInput(role: string | null | undefined): AuthRole {
     return aliasedRole;
   }
 
-  if (AUTH_ROLES.includes(rawRole as AuthRole)) {
+  if (AUTH_ROLE_CATALOG.includes(rawRole as AuthRole)) {
     return rawRole as AuthRole;
   }
 
@@ -80,7 +80,7 @@ export function canAccessModule(role: AuthRole | string | null | undefined, modu
     return false;
   }
 
-  return ((ROLE_DEFAULT_MODULE_ACCESS ?? {})[normalizedRole] ?? []).includes(module);
+  return (ROLE_DEFAULT_MODULE_ACCESS_CATALOG[normalizedRole] ?? []).includes(module);
 }
 
 export function canPerformAction(role: AuthRole | string | null | undefined, action: WorkspaceActionKey) {
@@ -89,7 +89,7 @@ export function canPerformAction(role: AuthRole | string | null | undefined, act
     return false;
   }
 
-  return ((ROLE_DEFAULT_ACTION_ACCESS ?? {})[normalizedRole] ?? []).includes(action);
+  return (ROLE_DEFAULT_ACTION_ACCESS_CATALOG[normalizedRole] ?? []).includes(action);
 }
 
 export function getAccessibleLandingTargets(role: AuthRole | string | null | undefined) {

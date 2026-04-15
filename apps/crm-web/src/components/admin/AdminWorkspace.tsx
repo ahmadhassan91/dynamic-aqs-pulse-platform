@@ -46,7 +46,6 @@ import type {
   ListAdminUsersResponse,
   UpdateAdminUserRequest,
 } from '@pulse/contracts';
-import { AUTH_ROLES } from '@pulse/contracts/auth';
 import {
   createAdminUser as createAdminUserRequest,
   fetchAdminActivity,
@@ -57,6 +56,7 @@ import {
   resetAdminUserPassword,
   updateAdminUser as updateAdminUserRequest,
 } from '@/lib/pulse-api';
+import { AUTH_ROLE_CATALOG } from '@/lib/auth-catalog';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { UserFormModal } from './UserFormModal';
@@ -64,7 +64,7 @@ import { UserImportModal } from './UserImportModal';
 
 type AdminTab = 'overview' | 'users' | 'roles' | 'activity';
 
-const authRoleCatalog = AUTH_ROLES ?? [];
+const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
 
 export function AdminWorkspace({
   initialTab = 'overview',

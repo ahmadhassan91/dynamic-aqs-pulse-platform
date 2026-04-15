@@ -12,7 +12,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import type { AdminUserSummary, AuthRole } from '@pulse/contracts';
-import { AUTH_ROLES } from '@pulse/contracts/auth';
+import { AUTH_ROLE_CATALOG } from '@/lib/auth-catalog';
 
 type UserFormValues = {
   email: string;
@@ -23,7 +23,7 @@ type UserFormValues = {
   password: string;
 };
 
-const authRoleCatalog = AUTH_ROLES ?? [];
+const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
 
 export function UserFormModal({
   opened,

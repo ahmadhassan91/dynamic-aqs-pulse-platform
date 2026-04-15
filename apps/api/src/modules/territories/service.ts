@@ -11,6 +11,7 @@ import {
   prisma,
 } from '@pulse/db';
 import type {
+  AccountTerritoryAssignmentSummary,
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
@@ -20,6 +21,7 @@ import type {
   ListShippingCentersResponse,
   ListTerritoriesResponse,
   ListTerritoryAssignmentHistoryResponse,
+  ReassignAccountTerritoryRequest,
   RegionSummary,
   ReassignLeadTerritoryRequest,
   ReplaceTerritoryCoverageRequest,
@@ -48,6 +50,7 @@ const TERRITORY_OVERRIDE_ENTITY_TYPE = 'TERRITORY_ASSIGNMENT_OVERRIDE';
 const TERRITORY_POLICY_ENTITY_TYPE = 'TERRITORY_POLICY';
 const SHIPPING_CENTER_ENTITY_TYPE = 'SHIPPING_CENTER';
 const LEAD_ENTITY_TYPE = 'LEAD';
+const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
 
 const DEFAULT_SHIPPING_CENTERS = [
   { code: 'nv_nevada', name: 'Nevada Shipping', city: 'Las Vegas', state: 'NV', countryCode: 'US' },
@@ -98,6 +101,10 @@ type TerritoryResolution = {
   assignedRdName?: string;
   assignmentMethod?: TerritoryAssignmentMethod;
 };
+
+type AccountWithTerritoryRefs = Prisma.AccountGetPayload<{
+  include: typeof ACCOUNT_TERRITORY_INCLUDE;
+}>;
 
 const ASSIGNABLE_TERRITORY_ROLE_CODES = ['TERRITORY_MANAGER', 'REGIONAL_DIRECTOR'] as const;
 
@@ -467,6 +474,19 @@ export async function updateRegion(
       reasonNote: 'Lead territory assignments were refreshed after region ownership changed.',
     });
 
+    await refreshAccountTerritoryAssignments(tx, {
+      where: {
+        territory: {
+          is: {
+            regionId,
+          },
+        },
+      },
+      changedByUserId: actor.userId,
+      reasonCode: 'region_refresh',
+      reasonNote: 'Account territory assignments were refreshed after region ownership changed.',
+    });
+
     return next;
   });
 
@@ -719,6 +739,15 @@ export async function updateTerritory(
       reasonNote: 'Lead territory assignments were refreshed after territory settings changed.',
     });
 
+    await refreshAccountTerritoryAssignments(tx, {
+      where: {
+        territoryId,
+      },
+      changedByUserId: actor.userId,
+      reasonCode: 'territory_refresh',
+      reasonNote: 'Account territory assignments were refreshed after territory settings changed.',
+    });
+
     return next;
   });
 
@@ -808,6 +837,27 @@ export async function replaceTerritoryCoverage(
       changedByUserId: actor.userId,
       reasonCode: 'coverage_refresh',
       reasonNote: 'Lead territory assignments were refreshed after territory coverage changed.',
+    });
+
+    await refreshAccountTerritoryAssignments(tx, {
+      where: {
+        OR: [
+          { territoryId },
+          {
+            locations: {
+              some: {
+                isActive: true,
+                state: {
+                  in: Array.from(new Set([...previousStates, ...normalizedCoverage.map((entry) => entry.stateCode)])),
+                },
+              },
+            },
+          },
+        ],
+      },
+      changedByUserId: actor.userId,
+      reasonCode: 'coverage_refresh',
+      reasonNote: 'Account territory assignments were refreshed after territory coverage changed.',
     });
 
     return next;
@@ -988,6 +1038,96 @@ export async function reassignLeadTerritory(
   });
 
   return toLeadTerritoryAssignmentSummary(updated);
+}
+
+export async function reassignAccountTerritory(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: ReassignAccountTerritoryRequest,
+): Promise<AccountTerritoryAssignmentSummary | null> {
+  assertModuleAccess(actor.role, 'territories');
+  assertActionAccess(actor.role, 'territory.reassign');
+
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: ACCOUNT_TERRITORY_INCLUDE,
+  });
+  if (!account) {
+    return null;
+  }
+
+  const territory = await prisma.territory.findUnique({
+    where: { id: input.territoryId },
+    include: TERRITORY_INCLUDE,
+  });
+  if (!territory || !territory.isActive) {
+    throw new Error('Unknown or inactive territory');
+  }
+
+  const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
+  const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
+  const reasonCode = requireText(input.reasonCode, 'reasonCode');
+  const reasonNote = optionalText(input.reasonNote);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.territoryAssignmentOverride.upsert({
+      where: {
+        entityType_entityId: {
+          entityType: TerritoryAssignmentEntityType.ACCOUNT,
+          entityId: accountId,
+        },
+      },
+      update: {
+        territoryId: territory.id,
+        ...(assignedTmUserId !== undefined ? { assignedTmUserId } : { assignedTmUserId: null }),
+        ...(assignedRdUserId !== undefined ? { assignedRdUserId } : { assignedRdUserId: null }),
+        reasonCode,
+        ...(reasonNote !== undefined ? { reasonNote } : { reasonNote: null }),
+        createdByUserId: actor.userId,
+      },
+      create: {
+        entityType: TerritoryAssignmentEntityType.ACCOUNT,
+        entityId: accountId,
+        territoryId: territory.id,
+        ...(assignedTmUserId !== undefined ? { assignedTmUserId } : {}),
+        ...(assignedRdUserId !== undefined ? { assignedRdUserId } : {}),
+        reasonCode,
+        ...(reasonNote !== undefined ? { reasonNote } : {}),
+        createdByUserId: actor.userId,
+      },
+    });
+
+    const next = await syncAccountTerritoryAssignment(tx, {
+      accountId,
+      assignmentMethod: TerritoryAssignmentMethod.MANUAL_OVERRIDE,
+      changedByUserId: actor.userId,
+      reasonCode,
+      ...(reasonNote !== undefined ? { reasonNote } : {}),
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TERRITORY_OVERRIDE_ENTITY_TYPE,
+        entityId: accountId,
+        afterData: {
+          territoryId: territory.id,
+          territoryCode: territory.code,
+          accountId,
+          assignedTmUserId: assignedTmUserId ?? undefined,
+          assignedRdUserId: assignedRdUserId ?? undefined,
+          reasonCode,
+          reasonNote: reasonNote ?? undefined,
+        },
+        metadata: baseMetadata(actor, 'territory.reassign_account'),
+      }),
+    });
+
+    return next;
+  });
+
+  return toAccountTerritoryAssignmentSummary(updated);
 }
 
 export async function resolveLeadTerritoryContext(
@@ -1210,6 +1350,64 @@ export async function syncLeadTerritoryAssignment(
   return next;
 }
 
+export async function syncAccountTerritoryAssignment(
+  tx: Prisma.TransactionClient,
+  input: {
+    accountId: string;
+    assignmentMethod?: TerritoryAssignmentMethod;
+    changedByUserId?: string;
+    reasonCode?: string;
+    reasonNote?: string;
+  },
+) {
+  const current = await tx.account.findUniqueOrThrow({
+    where: { id: input.accountId },
+    include: ACCOUNT_TERRITORY_INCLUDE,
+  });
+
+  const resolution = await resolveAccountTerritoryContext(tx, {
+    accountId: input.accountId,
+  });
+
+  const assignmentMethod = input.assignmentMethod ?? resolution.assignmentMethod ?? current.territoryAssignmentMethod ?? TerritoryAssignmentMethod.DEFAULT_STATE;
+  const next = await tx.account.update({
+    where: { id: input.accountId },
+    data: buildAccountTerritoryUpdateData(resolution, assignmentMethod),
+    include: ACCOUNT_TERRITORY_INCLUDE,
+  });
+
+  if (hasAccountTerritoryAssignmentDelta(current, next, assignmentMethod)) {
+    await writeAccountTerritoryHistory(tx, {
+      account: current,
+      next,
+      assignmentMethod,
+      ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
+      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: input.changedByUserId,
+        action: AuditAction.UPDATE,
+        entityType: ACCOUNT_ENTITY_TYPE,
+        entityId: next.id,
+        beforeData: toAccountTerritoryAuditPayload(current),
+        afterData: toAccountTerritoryAuditPayload(next),
+        metadata: {
+          assignmentMethod: toTerritoryAssignmentMethodKey(assignmentMethod),
+          ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+          ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+          ...(input.changedByUserId ? { trigger: 'manual' } : { trigger: 'system' }),
+          operation: 'account.territory_assignment.sync',
+        },
+      }),
+    });
+  }
+
+  return next;
+}
+
 async function refreshLeadTerritoryAssignments(
   tx: Prisma.TransactionClient,
   input: {
@@ -1238,6 +1436,32 @@ async function refreshLeadTerritoryAssignments(
   for (const lead of leads) {
     await syncLeadTerritoryAssignment(tx, {
       leadId: lead.id,
+      ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
+      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+    });
+  }
+}
+
+async function refreshAccountTerritoryAssignments(
+  tx: Prisma.TransactionClient,
+  input: {
+    where: Prisma.AccountWhereInput;
+    changedByUserId?: string;
+    reasonCode?: string;
+    reasonNote?: string;
+  },
+) {
+  const accounts = await tx.account.findMany({
+    where: input.where,
+    select: {
+      id: true,
+    },
+  });
+
+  for (const account of accounts) {
+    await syncAccountTerritoryAssignment(tx, {
+      accountId: account.id,
       ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
       ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
       ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
@@ -1301,9 +1525,61 @@ const LEAD_TERRITORY_INCLUDE = {
   },
 } satisfies Prisma.LeadInclude;
 
+const ACCOUNT_TERRITORY_INCLUDE = {
+  territory: {
+    include: {
+      region: {
+        include: {
+          directorUser: {
+            select: {
+              id: true,
+              displayName: true,
+            },
+          },
+        },
+      },
+      shippingCenter: true,
+    },
+  },
+  shippingCenter: true,
+  assignedTmUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+  assignedRdUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+  locations: {
+    where: {
+      isActive: true,
+    },
+    orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    take: 1,
+  },
+} satisfies Prisma.AccountInclude;
+
 function hasLeadTerritoryAssignmentDelta(
   current: Prisma.LeadGetPayload<{ include: typeof LEAD_TERRITORY_INCLUDE }>,
   next: Prisma.LeadGetPayload<{ include: typeof LEAD_TERRITORY_INCLUDE }>,
+  assignmentMethod: TerritoryAssignmentMethod,
+) {
+  return (
+    current.territoryId !== next.territoryId
+    || current.shippingCenterId !== next.shippingCenterId
+    || current.assignedTmUserId !== next.assignedTmUserId
+    || current.assignedRdUserId !== next.assignedRdUserId
+    || current.territoryAssignmentMethod !== assignmentMethod
+  );
+}
+
+function hasAccountTerritoryAssignmentDelta(
+  current: AccountWithTerritoryRefs,
+  next: AccountWithTerritoryRefs,
   assignmentMethod: TerritoryAssignmentMethod,
 ) {
   return (
@@ -1346,6 +1622,171 @@ async function writeLeadTerritoryHistory(
       ...(input.next.territory?.code ? { nextTerritoryCode: input.next.territory.code } : {}),
     },
   });
+}
+
+async function writeAccountTerritoryHistory(
+  tx: Prisma.TransactionClient,
+  input: {
+    account: AccountWithTerritoryRefs;
+    next: AccountWithTerritoryRefs;
+    changedByUserId?: string;
+    assignmentMethod: TerritoryAssignmentMethod;
+    reasonCode?: string;
+    reasonNote?: string;
+  },
+) {
+  await tx.territoryAssignmentHistory.create({
+    data: {
+      entityType: TerritoryAssignmentEntityType.ACCOUNT,
+      entityId: input.next.id,
+      assignmentMethod: input.assignmentMethod,
+      ...(input.account.territoryId ? { previousTerritoryId: input.account.territoryId } : {}),
+      ...(input.next.territoryId ? { nextTerritoryId: input.next.territoryId } : {}),
+      ...(input.account.shippingCenterId ? { previousShippingCenterId: input.account.shippingCenterId } : {}),
+      ...(input.next.shippingCenterId ? { nextShippingCenterId: input.next.shippingCenterId } : {}),
+      ...(input.account.assignedTmUserId ? { previousAssignedTmUserId: input.account.assignedTmUserId } : {}),
+      ...(input.next.assignedTmUserId ? { nextAssignedTmUserId: input.next.assignedTmUserId } : {}),
+      ...(input.account.assignedRdUserId ? { previousAssignedRdUserId: input.account.assignedRdUserId } : {}),
+      ...(input.next.assignedRdUserId ? { nextAssignedRdUserId: input.next.assignedRdUserId } : {}),
+      ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
+      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+      ...(input.account.territory?.code ? { previousTerritoryCode: input.account.territory.code } : {}),
+      ...(input.next.territory?.code ? { nextTerritoryCode: input.next.territory.code } : {}),
+    },
+  });
+}
+
+async function resolveAccountTerritoryContext(
+  tx: Prisma.TransactionClient,
+  input: {
+    accountId: string;
+  },
+): Promise<TerritoryResolution> {
+  const account = await tx.account.findUniqueOrThrow({
+    where: { id: input.accountId },
+    include: ACCOUNT_TERRITORY_INCLUDE,
+  });
+
+  let territory: TerritoryWithRefs | null = null;
+  let assignmentMethod: TerritoryAssignmentMethod = TerritoryAssignmentMethod.DEFAULT_STATE;
+
+  const override = await tx.territoryAssignmentOverride.findUnique({
+    where: {
+      entityType_entityId: {
+        entityType: TerritoryAssignmentEntityType.ACCOUNT,
+        entityId: input.accountId,
+      },
+    },
+    include: {
+      territory: {
+        include: TERRITORY_INCLUDE,
+      },
+      assignedTmUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      assignedRdUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+
+  if (override?.territory?.isActive) {
+    territory = override.territory;
+    assignmentMethod = TerritoryAssignmentMethod.MANUAL_OVERRIDE;
+  }
+
+  const primaryLocation = account.locations[0] ?? null;
+  if (!territory && primaryLocation?.state) {
+    const countryCode = normalizeCountryCode(primaryLocation.countryCode, primaryLocation.state);
+    const stateCode = normalizeStateCode(primaryLocation.state);
+
+    if (stateCode) {
+      const coverage = await tx.territoryStateCoverage.findUnique({
+        where: {
+          countryCode_stateCode: {
+            countryCode,
+            stateCode,
+          },
+        },
+        include: {
+          territory: {
+            include: TERRITORY_INCLUDE,
+          },
+        },
+      });
+
+      if (coverage?.territory?.isActive) {
+        territory = coverage.territory;
+      }
+    }
+  }
+
+  if (!territory && account.territory?.isActive) {
+    territory = account.territory as TerritoryWithRefs;
+    assignmentMethod = account.territoryAssignmentMethod ?? TerritoryAssignmentMethod.SYSTEM;
+  }
+
+  if (!territory) {
+    return {};
+  }
+
+  const base: TerritoryResolution = {
+    territoryId: territory.id,
+    territoryCode: territory.code,
+    territoryName: territory.name,
+    regionId: territory.regionId,
+    regionCode: territory.region.code,
+    regionName: territory.region.name,
+    ...(territory.shippingCenterId ? { shippingCenterId: territory.shippingCenterId } : {}),
+    ...(territory.shippingCenter?.code ? { shippingCenterCode: territory.shippingCenter.code } : {}),
+    ...(territory.shippingCenter?.name ? { shippingCenterName: territory.shippingCenter.name } : {}),
+    assignmentMethod,
+  };
+
+  if (assignmentMethod === TerritoryAssignmentMethod.MANUAL_OVERRIDE) {
+    const assignedTmUserId = override?.assignedTmUserId ?? territory.managerUserId ?? undefined;
+    const assignedTmName = override?.assignedTmUser?.displayName ?? territory.managerUser?.displayName ?? undefined;
+    const assignedRdUserId = override?.assignedRdUserId ?? territory.region.directorUserId ?? undefined;
+    const assignedRdName = override?.assignedRdUser?.displayName ?? territory.region.directorUser?.displayName ?? undefined;
+    return {
+      ...base,
+      ...(assignedTmUserId ? { assignedTmUserId } : {}),
+      ...(assignedTmName ? { assignedTmName } : {}),
+      ...(assignedRdUserId ? { assignedRdUserId } : {}),
+      ...(assignedRdName ? { assignedRdName } : {}),
+    };
+  }
+
+  return {
+    ...base,
+    ...(territory.managerUserId ? { assignedTmUserId: territory.managerUserId } : {}),
+    ...(territory.managerUser?.displayName ? { assignedTmName: territory.managerUser.displayName } : {}),
+    ...(territory.region.directorUserId ? { assignedRdUserId: territory.region.directorUserId } : {}),
+    ...(territory.region.directorUser?.displayName ? { assignedRdName: territory.region.directorUser.displayName } : {}),
+  };
+}
+
+function buildAccountTerritoryUpdateData(
+  resolution: TerritoryResolution,
+  assignmentMethod: TerritoryAssignmentMethod,
+): Prisma.AccountUncheckedUpdateInput {
+  const assignedAt = new Date();
+
+  return {
+    territoryId: resolution.territoryId ?? null,
+    shippingCenterId: resolution.shippingCenterId ?? null,
+    assignedTmUserId: resolution.assignedTmUserId ?? null,
+    assignedRdUserId: resolution.assignedRdUserId ?? null,
+    territoryAssignmentMethod: assignmentMethod,
+    territoryAssignedAt: resolution.territoryId ? assignedAt : null,
+  };
 }
 
 async function requireTerritoryPolicy(tx: Prisma.TransactionClient = prisma) {
@@ -1773,6 +2214,29 @@ function toLeadTerritoryAssignmentSummary(
   };
 }
 
+function toAccountTerritoryAssignmentSummary(account: AccountWithTerritoryRefs): AccountTerritoryAssignmentSummary {
+  return {
+    accountId: account.id,
+    ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+    ...(account.territory?.code ? { territoryCode: account.territory.code } : {}),
+    ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+    ...(account.territory?.regionId ? { regionId: account.territory.regionId } : {}),
+    ...(account.territory?.region.code ? { regionCode: account.territory.region.code } : {}),
+    ...(account.territory?.region.name ? { regionName: account.territory.region.name } : {}),
+    ...(account.shippingCenterId ? { shippingCenterId: account.shippingCenterId } : {}),
+    ...(account.shippingCenter?.code ? { shippingCenterCode: account.shippingCenter.code } : {}),
+    ...(account.shippingCenter?.name ? { shippingCenterName: account.shippingCenter.name } : {}),
+    ...(account.assignedTmUserId ? { assignedTmUserId: account.assignedTmUserId } : {}),
+    ...(account.assignedTmUser?.displayName ? { assignedTmName: account.assignedTmUser.displayName } : {}),
+    ...(account.assignedRdUserId ? { assignedRdUserId: account.assignedRdUserId } : {}),
+    ...(account.assignedRdUser?.displayName ? { assignedRdName: account.assignedRdUser.displayName } : {}),
+    ...(account.territoryAssignmentMethod
+      ? { assignmentMethod: toTerritoryAssignmentMethodKey(account.territoryAssignmentMethod) }
+      : {}),
+    ...(account.territoryAssignedAt ? { assignedAt: account.territoryAssignedAt.toISOString() } : {}),
+  };
+}
+
 function toLeadTerritoryAuditPayload(
   lead: Prisma.LeadGetPayload<{ include: typeof LEAD_TERRITORY_INCLUDE }>,
 ) {
@@ -1787,6 +2251,22 @@ function toLeadTerritoryAuditPayload(
     assignedRdName: lead.assignedRdUser?.displayName ?? undefined,
     assignmentMethod: lead.territoryAssignmentMethod
       ? toTerritoryAssignmentMethodKey(lead.territoryAssignmentMethod)
+      : undefined,
+  };
+}
+
+function toAccountTerritoryAuditPayload(account: AccountWithTerritoryRefs) {
+  return {
+    territoryId: account.territoryId,
+    territoryCode: account.territory?.code,
+    shippingCenterId: account.shippingCenterId,
+    shippingCenterCode: account.shippingCenter?.code,
+    assignedTmUserId: account.assignedTmUserId,
+    assignedTmName: account.assignedTmUser?.displayName ?? undefined,
+    assignedRdUserId: account.assignedRdUserId,
+    assignedRdName: account.assignedRdUser?.displayName ?? undefined,
+    assignmentMethod: account.territoryAssignmentMethod
+      ? toTerritoryAssignmentMethodKey(account.territoryAssignmentMethod)
       : undefined,
   };
 }

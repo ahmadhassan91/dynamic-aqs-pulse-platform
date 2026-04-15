@@ -26,6 +26,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowRight,
+  IconBuilding,
   IconBuildingWarehouse,
   IconHistory,
   IconMap,
@@ -36,6 +37,7 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 import type {
+  AccountSummary,
   LeadSummary,
   ListTerritoryAssignableUsersResponse,
   RegionSummary,
@@ -45,6 +47,7 @@ import type {
   TerritorySummary,
 } from '@pulse/contracts';
 import {
+  fetchAccounts,
   fetchLeads,
   fetchTerritoryAssignableUsers,
   fetchTerritoryAssignmentHistory,
@@ -52,6 +55,7 @@ import {
   fetchTerritoryRegions,
   fetchTerritoryShippingCenters,
   fetchTerritories,
+  reassignAccountTerritory,
   reassignLeadTerritory,
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
@@ -85,6 +89,7 @@ export function TerritoryManagement({
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
   const [territories, setTerritories] = useState<TerritorySummary[]>([]);
   const [leads, setLeads] = useState<LeadSummary[]>([]);
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<ListTerritoryAssignableUsersResponse>({
     territoryManagers: [],
     regionalDirectors: [],
@@ -94,10 +99,16 @@ export function TerritoryManagement({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [reassignLead, setReassignLead] = useState<LeadSummary | null>(null);
   const [historyLead, setHistoryLead] = useState<LeadSummary | null>(null);
+  const [reassignAccount, setReassignAccount] = useState<AccountSummary | null>(null);
+  const [historyAccount, setHistoryAccount] = useState<AccountSummary | null>(null);
   const [assignmentHistory, setAssignmentHistory] = useState<TerritoryAssignmentHistoryEntry[]>([]);
+  const [accountAssignmentHistory, setAccountAssignmentHistory] = useState<TerritoryAssignmentHistoryEntry[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [accountHistoryError, setAccountHistoryError] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isLoadingAccountHistory, setIsLoadingAccountHistory] = useState(false);
   const [isSavingReassignment, setIsSavingReassignment] = useState(false);
+  const [isSavingAccountReassignment, setIsSavingAccountReassignment] = useState(false);
   const [selectedTerritoryId, setSelectedTerritoryId] = useState('');
   const [selectedAssignedTmUserId, setSelectedAssignedTmUserId] = useState('');
   const [selectedAssignedRdUserId, setSelectedAssignedRdUserId] = useState('');
@@ -115,6 +126,7 @@ export function TerritoryManagement({
       setShippingCenters([]);
       setTerritories([]);
       setLeads([]);
+      setAccounts([]);
       setAssignableUsers({
         territoryManagers: [],
         regionalDirectors: [],
@@ -123,6 +135,7 @@ export function TerritoryManagement({
     }
 
     const accessToken = auth.tokens.accessToken;
+    const canViewCustomers = canPerformAction(auth.identity.role, 'customer.view');
     let cancelled = false;
 
     async function loadWorkspace() {
@@ -136,6 +149,7 @@ export function TerritoryManagement({
           shippingCentersResponse,
           territoriesResponse,
           leadsResponse,
+          accountsResponse,
           assignableUsersResponse,
         ] = await Promise.all([
           fetchTerritoryPolicy(apiBaseUrl, accessToken),
@@ -143,6 +157,9 @@ export function TerritoryManagement({
           fetchTerritoryShippingCenters(apiBaseUrl, accessToken),
           fetchTerritories(apiBaseUrl, accessToken),
           fetchLeads(apiBaseUrl, accessToken, { limit: 500 }),
+          canViewCustomers
+            ? fetchAccounts(apiBaseUrl, accessToken, { limit: 500, includeInactive: false })
+            : Promise.resolve({ items: [], total: 0 }),
           fetchTerritoryAssignableUsers(apiBaseUrl, accessToken),
         ]);
 
@@ -155,6 +172,7 @@ export function TerritoryManagement({
         setShippingCenters(shippingCentersResponse.items);
         setTerritories(territoriesResponse.items);
         setLeads(leadsResponse.items);
+        setAccounts(accountsResponse.items);
         setAssignableUsers(assignableUsersResponse);
       } catch (error) {
         if (!cancelled) {
@@ -179,6 +197,8 @@ export function TerritoryManagement({
     [leads],
   );
   const canReassignTerritory = auth ? canPerformAction(auth.identity.role, 'territory.reassign') : false;
+  const canViewCustomers = auth ? canPerformAction(auth.identity.role, 'customer.view') : false;
+  const activeAccounts = useMemo(() => accounts.filter((account) => account.isActive), [accounts]);
 
   const unassignedLeads = useMemo(
     () => activePipelineLeads.filter((lead) => !lead.territoryId),
@@ -207,6 +227,23 @@ export function TerritoryManagement({
     }
     return counts;
   }, [activePipelineLeads]);
+
+  const unassignedAccounts = useMemo(
+    () => activeAccounts.filter((account) => !account.territoryId),
+    [activeAccounts],
+  );
+
+  const territoryAccountRoster = useMemo(
+    () =>
+      [...activeAccounts].sort((left, right) => {
+        if (Boolean(left.territoryId) !== Boolean(right.territoryId)) {
+          return left.territoryId ? 1 : -1;
+        }
+
+        return left.displayName.localeCompare(right.displayName);
+      }),
+    [activeAccounts],
+  );
 
   const dashboardAlerts = useMemo<TerritoryDashboardAlert[]>(() => {
     const items: TerritoryDashboardAlert[] = [];
@@ -246,8 +283,16 @@ export function TerritoryManagement({
       });
     }
 
+    if (canViewCustomers && unassignedAccounts.length > 0) {
+      items.push({
+        label: 'Unassigned active accounts',
+        detail: `${unassignedAccounts.length} active accounts do not yet have a maintained territory assignment.`,
+        tone: 'orange',
+      });
+    }
+
     return items;
-  }, [regions, territories, unassignedLeads]);
+  }, [canViewCustomers, regions, territories, unassignedAccounts.length, unassignedLeads]);
 
   const workloads = useMemo<TerritoryDashboardWorkload[]>(
     () =>
@@ -274,12 +319,15 @@ export function TerritoryManagement({
       coveredStates: territories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
       shippingCenters: shippingCenters.filter((item) => item.isActive).length,
       activeLeads: activePipelineLeads.length,
+      activeAccounts: activeAccounts.length,
       assignedLeads: activePipelineLeads.filter((lead) => Boolean(lead.territoryId)).length,
+      assignedAccounts: activeAccounts.filter((account) => Boolean(account.territoryId)).length,
       unassignedLeads: unassignedLeads.length,
+      unassignedAccounts: unassignedAccounts.length,
       strategicGrowthLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'strategic_growth').length,
       nationalTmLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'national_tm').length,
     }),
-    [activePipelineLeads, regions.length, shippingCenters, territories, unassignedLeads.length],
+    [activeAccounts, activePipelineLeads, regions.length, shippingCenters, territories, unassignedAccounts.length, unassignedLeads.length],
   );
 
   const regionSummaries = useMemo(
@@ -365,11 +413,65 @@ export function TerritoryManagement({
     };
   }, [apiBaseUrl, auth, historyLead]);
 
+  useEffect(() => {
+    if (!historyAccount || !auth) {
+      setAccountAssignmentHistory([]);
+      setAccountHistoryError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const accessToken = auth.tokens.accessToken;
+    const accountId = historyAccount.id;
+
+    async function loadAssignmentHistory() {
+      setIsLoadingAccountHistory(true);
+      setAccountHistoryError(null);
+
+      try {
+        const response = await fetchTerritoryAssignmentHistory(
+          apiBaseUrl,
+          accessToken,
+          'account',
+          accountId,
+        );
+
+        if (!cancelled) {
+          setAccountAssignmentHistory(response.items);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAccountHistoryError(error instanceof Error ? error.message : String(error));
+          setAccountAssignmentHistory([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingAccountHistory(false);
+        }
+      }
+    }
+
+    void loadAssignmentHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, historyAccount]);
+
   function openReassignmentModal(lead: LeadSummary) {
     setReassignLead(lead);
     setSelectedTerritoryId(lead.territoryId ?? '');
     setSelectedAssignedTmUserId(lead.assignedTmUserId ?? '');
     setSelectedAssignedRdUserId(lead.assignedRdUserId ?? '');
+    setReassignReasonCode('manual_override');
+    setReassignReasonNote('');
+  }
+
+  function openAccountReassignmentModal(account: AccountSummary) {
+    setReassignAccount(account);
+    setSelectedTerritoryId(account.territoryId ?? '');
+    setSelectedAssignedTmUserId(account.assignedTmUserId ?? '');
+    setSelectedAssignedRdUserId(account.assignedRdUserId ?? '');
     setReassignReasonCode('manual_override');
     setReassignReasonNote('');
   }
@@ -406,6 +508,41 @@ export function TerritoryManagement({
       });
     } finally {
       setIsSavingReassignment(false);
+    }
+  }
+
+  async function handleAccountReassignment() {
+    if (!auth || !reassignAccount || !selectedTerritoryId) {
+      return;
+    }
+
+    setIsSavingAccountReassignment(true);
+
+    try {
+      const response = await reassignAccountTerritory(apiBaseUrl, auth.tokens.accessToken, reassignAccount.id, {
+        territoryId: selectedTerritoryId,
+        assignedTmUserId: selectedAssignedTmUserId || null,
+        assignedRdUserId: selectedAssignedRdUserId || null,
+        reasonCode: reassignReasonCode,
+        ...(reassignReasonNote.trim() ? { reasonNote: reassignReasonNote.trim() } : {}),
+      });
+
+      notifications.show({
+        title: 'Account territory updated',
+        message: `${reassignAccount.displayName} now aligns to ${response.territoryName ?? response.territoryCode ?? 'the selected territory'}${response.assignedTmName ? ` with TM ${response.assignedTmName}` : ''}${response.assignedRdName ? ` and RD ${response.assignedRdName}` : ''}.`,
+        color: 'green',
+      });
+
+      setReassignAccount(null);
+      setRefreshNonce((value) => value + 1);
+    } catch (error) {
+      notifications.show({
+        title: 'Account territory update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingAccountReassignment(false);
     }
   }
 
@@ -517,6 +654,17 @@ export function TerritoryManagement({
         />
       </SimpleGrid>
 
+      {canViewCustomers ? (
+        <SimpleGrid cols={{ base: 2, md: 2 }} spacing="md">
+          <MetricCard label="Active Accounts" value={stats.activeAccounts} color="teal" />
+          <MetricCard
+            label="Unassigned Accounts"
+            value={stats.unassignedAccounts}
+            color={stats.unassignedAccounts > 0 ? 'orange' : 'teal'}
+          />
+        </SimpleGrid>
+      ) : null}
+
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as TerritoryTab) ?? 'dashboard')} className="premium-tabs-shell">
         <Tabs.List>
           <Tabs.Tab value="dashboard" leftSection={<IconTargetArrow size={16} />}>
@@ -583,11 +731,11 @@ export function TerritoryManagement({
                 </Stack>
               </Paper>
 
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group gap="sm">
-                    <ThemeIcon radius="xl" color="orange" variant="light">
-                      <IconUsers size={18} />
+            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+              <Stack gap="md">
+                <Group gap="sm">
+                  <ThemeIcon radius="xl" color="orange" variant="light">
+                    <IconUsers size={18} />
                     </ThemeIcon>
                     <div>
                       <Title order={4}>Lead assignment watchlist</Title>
@@ -637,6 +785,62 @@ export function TerritoryManagement({
                 </Stack>
               </Paper>
             </SimpleGrid>
+
+            {canViewCustomers ? (
+              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+                <Stack gap="md">
+                  <Group gap="sm">
+                    <ThemeIcon radius="xl" color="teal" variant="light">
+                      <IconBuilding size={18} />
+                    </ThemeIcon>
+                    <div>
+                      <Title order={4}>Customer ownership watchlist</Title>
+                      <Text size="sm" c="dimmed">
+                        Active customer accounts whose territory ownership still needs cleanup or verification.
+                      </Text>
+                    </div>
+                  </Group>
+                  {unassignedAccounts.length > 0 ? (
+                    <Stack gap="sm">
+                      {unassignedAccounts.slice(0, 6).map((account) => (
+                        <Paper key={account.id} withBorder radius="lg" p="md">
+                          <Group justify="space-between" align="flex-start" gap="md">
+                            <div>
+                              <Text fw={700}>{account.displayName}</Text>
+                              <Text size="sm" c="dimmed">
+                                {formatAccountLifecycle(account.lifecycleStatus)} · {account.accountType ?? 'Customer'}
+                              </Text>
+                            </div>
+                            <Stack gap="xs" align="flex-end">
+                              <Badge color="orange" variant="light">
+                                Needs assignment
+                              </Badge>
+                              <Group gap="xs">
+                                <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="xs">
+                                  Open account
+                                </Button>
+                                {canReassignTerritory ? (
+                                  <Button variant="light" size="xs" onClick={() => openAccountReassignmentModal(account)}>
+                                    Assign territory
+                                  </Button>
+                                ) : null}
+                                <Button variant="subtle" size="xs" onClick={() => setHistoryAccount(account)}>
+                                  History
+                                </Button>
+                              </Group>
+                            </Stack>
+                          </Group>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Text size="sm" c="dimmed">
+                      Active customer accounts currently have a maintained territory assignment.
+                    </Text>
+                  )}
+                </Stack>
+              </Paper>
+            ) : null}
           </Stack>
         </Tabs.Panel>
 
@@ -1015,6 +1219,74 @@ export function TerritoryManagement({
                 </Table.ScrollContainer>
               </Stack>
             </Paper>
+
+            {canViewCustomers ? (
+              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+                <Stack gap="md">
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Title order={4}>Customer territory roster</Title>
+                      <Text size="sm" c="dimmed">
+                        Active customer territory ownership, account propagation status, and manual override controls.
+                      </Text>
+                    </div>
+                    <Badge color="teal" variant="light">
+                      {territoryAccountRoster.length} active accounts
+                    </Badge>
+                  </Group>
+
+                  <Table.ScrollContainer minWidth={980}>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Account</Table.Th>
+                          <Table.Th>Lifecycle</Table.Th>
+                          <Table.Th>Territory</Table.Th>
+                          <Table.Th>Region</Table.Th>
+                          <Table.Th>Assignment Method</Table.Th>
+                          <Table.Th>Shipping</Table.Th>
+                          <Table.Th>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {territoryAccountRoster.slice(0, 18).map((account) => (
+                          <Table.Tr key={account.id}>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text fw={700}>{account.displayName}</Text>
+                                <Text size="xs" c="dimmed">
+                                  {account.accountType ?? 'Customer'}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>{formatAccountLifecycle(account.lifecycleStatus)}</Table.Td>
+                            <Table.Td>{account.territoryName ?? account.territoryCode ?? 'Unassigned'}</Table.Td>
+                            <Table.Td>{account.regionName ?? 'Unassigned'}</Table.Td>
+                            <Table.Td>{formatAssignmentMethod(account.territoryAssignmentMethod)}</Table.Td>
+                            <Table.Td>{account.shippingCenterName ?? 'Unassigned'}</Table.Td>
+                            <Table.Td>
+                              <Group gap="xs" wrap="nowrap">
+                                <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="compact-sm">
+                                  Open
+                                </Button>
+                                {canReassignTerritory ? (
+                                  <Button variant="light" size="compact-sm" onClick={() => openAccountReassignmentModal(account)}>
+                                    Override
+                                  </Button>
+                                ) : null}
+                                <Button variant="subtle" size="compact-sm" onClick={() => setHistoryAccount(account)}>
+                                  History
+                                </Button>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </Stack>
+              </Paper>
+            ) : null}
           </Stack>
         </Tabs.Panel>
       </Tabs>
@@ -1098,6 +1370,84 @@ export function TerritoryManagement({
       </Modal>
 
       <Modal
+        opened={Boolean(reassignAccount)}
+        onClose={() => setReassignAccount(null)}
+        title="Account territory override"
+        centered
+        size="lg"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Maintain the live customer territory assignment when account ownership needs to differ from the default
+            primary-location rule. This writes history and updates downstream territory views immediately.
+          </Text>
+          <Paper withBorder radius="lg" p="md">
+            <Stack gap={4}>
+              <Text fw={700}>{reassignAccount?.displayName}</Text>
+              <Text size="sm" c="dimmed">
+                {reassignAccount ? formatAccountLifecycle(reassignAccount.lifecycleStatus) : '—'} · {reassignAccount?.territoryName ?? reassignAccount?.territoryCode ?? 'Unassigned'}
+              </Text>
+            </Stack>
+          </Paper>
+          <Select
+            label="Territory"
+            placeholder="Select a territory"
+            data={territorySelectData}
+            value={selectedTerritoryId}
+            onChange={(value) => setSelectedTerritoryId(value ?? '')}
+            searchable
+          />
+          <Select
+            label="Reason"
+            data={TERRITORY_OVERRIDE_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            value={reassignReasonCode}
+            onChange={(value) => setReassignReasonCode(value ?? 'manual_override')}
+          />
+          <Select
+            label="Named Territory Manager Override"
+            description="Leave blank to inherit the territory default manager."
+            placeholder="Use territory default manager"
+            data={territoryManagerSelectData}
+            value={selectedAssignedTmUserId}
+            onChange={(value) => setSelectedAssignedTmUserId(value ?? '')}
+            searchable
+            clearable
+          />
+          <Select
+            label="Named Regional Director Override"
+            description="Leave blank to inherit the region default director."
+            placeholder="Use region default director"
+            data={regionalDirectorSelectData}
+            value={selectedAssignedRdUserId}
+            onChange={(value) => setSelectedAssignedRdUserId(value ?? '')}
+            searchable
+            clearable
+          />
+          <Textarea
+            label="Note"
+            placeholder="Add optional detail for the override history."
+            value={reassignReasonNote}
+            onChange={(event) => setReassignReasonNote(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setReassignAccount(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                void handleAccountReassignment();
+              }}
+              loading={isSavingAccountReassignment}
+              disabled={!selectedTerritoryId}
+            >
+              Save override
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
         opened={Boolean(historyLead)}
         onClose={() => setHistoryLead(null)}
         title="Territory assignment history"
@@ -1150,6 +1500,60 @@ export function TerritoryManagement({
           )}
         </Stack>
       </Modal>
+
+      <Modal
+        opened={Boolean(historyAccount)}
+        onClose={() => setHistoryAccount(null)}
+        title="Account territory assignment history"
+        centered
+        size="lg"
+      >
+        <Stack gap="md">
+          <Paper withBorder radius="lg" p="md">
+            <Stack gap={4}>
+              <Text fw={700}>{historyAccount?.displayName}</Text>
+              <Text size="sm" c="dimmed">
+                {historyAccount?.territoryName ?? historyAccount?.territoryCode ?? 'Unassigned'} · {historyAccount ? formatAccountLifecycle(historyAccount.lifecycleStatus) : 'Lifecycle missing'}
+              </Text>
+            </Stack>
+          </Paper>
+
+          {isLoadingAccountHistory ? (
+            <Group justify="center" py="lg">
+              <Loader size="sm" color="blue" />
+            </Group>
+          ) : accountHistoryError ? (
+            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+              {accountHistoryError}
+            </Alert>
+          ) : accountAssignmentHistory.length > 0 ? (
+            <Timeline active={Math.max(accountAssignmentHistory.length - 1, 0)} bulletSize={24} lineWidth={2}>
+              {accountAssignmentHistory.map((item) => (
+                <Timeline.Item
+                  key={item.id}
+                  title={`${formatAssignmentMethod(item.assignmentMethod)} · ${formatDateLabel(item.changedAt)}`}
+                >
+                  <Text size="sm" fw={600}>
+                    {buildHistoryTransitionLabel(item)}
+                  </Text>
+                  <Text size="sm" c="dimmed" mt={4}>
+                    Changed by {item.changedByUserName ?? 'Pulse CRM'}{item.reasonCode ? ` · ${formatReasonCode(item.reasonCode)}` : ''}
+                  </Text>
+                  {item.reasonNote ? (
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {item.reasonNote}
+                    </Text>
+                  ) : null}
+                </Timeline.Item>
+              ))}
+            </Timeline>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No assignment history has been recorded for this account yet.
+            </Text>
+          )}
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
@@ -1197,6 +1601,10 @@ function MetricCard({
 
 function formatRoutingTeam(value: LeadSummary['routingTeam']) {
   return value === 'strategic_growth' ? 'Strategic Growth' : 'National TM';
+}
+
+function formatAccountLifecycle(value: AccountSummary['lifecycleStatus']) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatStageLabel(value: LeadSummary['stage']) {

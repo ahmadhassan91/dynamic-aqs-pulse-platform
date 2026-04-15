@@ -18,6 +18,7 @@ import type {
 } from '@pulse/contracts/accounts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { syncAccountTerritoryAssignment } from '../territories/service.js';
 
 const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
 const LOCATION_ENTITY_TYPE = 'ACCOUNT_LOCATION';
@@ -609,6 +610,13 @@ export async function createAccountLocation(
       }),
     });
 
+    await syncAccountTerritoryAssignment(tx, {
+      accountId,
+      changedByUserId: actor.userId,
+      reasonCode: 'location_create',
+      reasonNote: 'Account territory assignment was refreshed after a location was created.',
+    });
+
     return created;
   });
 
@@ -724,6 +732,13 @@ export async function updateAccountLocation(
           isActive: next.isActive,
         },
       }),
+    });
+
+    await syncAccountTerritoryAssignment(tx, {
+      accountId,
+      changedByUserId: actor.userId,
+      reasonCode: 'location_update',
+      reasonNote: 'Account territory assignment was refreshed after a location changed.',
     });
 
     return next;

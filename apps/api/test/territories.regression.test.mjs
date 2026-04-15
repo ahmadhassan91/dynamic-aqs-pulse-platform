@@ -18,6 +18,10 @@ let loginWithPassword;
 let authenticateAccessToken;
 let createLead;
 let getLeadDetail;
+let createAccount;
+let createAccountLocation;
+let updateAccountLocation;
+let getAccountDetail;
 let createRegion;
 let createShippingCenter;
 let createTerritory;
@@ -25,9 +29,11 @@ let getTerritoryPolicy;
 let listShippingCenters;
 let listTerritoryAssignmentHistory;
 let listTerritoryAssignableUsers;
+let reassignAccountTerritory;
 let reassignLeadTerritory;
 let replaceTerritoryCoverage;
 let getTerritoryMapWorkspace;
+let updateTerritory;
 let updateTerritoryPolicy;
 const SERIAL = { concurrency: false };
 
@@ -43,6 +49,12 @@ test.before(async () => {
     getLeadDetail,
   } = await import('../dist/modules/leads/service.js'));
   ({
+    createAccount,
+    createAccountLocation,
+    updateAccountLocation,
+    getAccountDetail,
+  } = await import('../dist/modules/accounts/service.js'));
+  ({
     createRegion,
     createShippingCenter,
     createTerritory,
@@ -51,9 +63,11 @@ test.before(async () => {
     listShippingCenters,
     listTerritoryAssignmentHistory,
     listTerritoryAssignableUsers,
+    reassignAccountTerritory,
     reassignLeadTerritory,
     replaceTerritoryCoverage,
     getTerritoryMapWorkspace,
+    updateTerritory,
     updateTerritoryPolicy,
   } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
@@ -575,6 +589,168 @@ test('named owner overrides reject inactive users and wrong roles', SERIAL, asyn
       }),
     /Selected user must have role REGIONAL_DIRECTOR/i,
   );
+});
+
+test('account territory assignment is derived from the primary location and refreshes when the primary state changes', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'account_location_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'account_location_fl',
+    stateCode: 'FL',
+  });
+
+  const account = await createAccount(actor, {
+    displayName: 'Account Location Territory Refresh',
+    legalName: 'Account Location Territory Refresh LLC',
+    accountType: 'Dealer',
+  });
+
+  const location = await createAccountLocation(actor, account.id, {
+    name: 'Primary',
+    city: 'Dallas',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  let detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.territoryId, texas.territory.id);
+  assert.equal(detail.shippingCenterId, texas.shippingCenter.id);
+  assert.equal(detail.assignedTmUserId, texas.manager.id);
+  assert.equal(detail.assignedRdUserId, texas.director.id);
+  assert.equal(detail.territoryAssignmentMethod, 'default_state');
+
+  await updateAccountLocation(actor, account.id, location.id, {
+    state: 'FL',
+  });
+
+  detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.territoryId, florida.territory.id);
+  assert.equal(detail.shippingCenterId, florida.shippingCenter.id);
+  assert.equal(detail.assignedTmUserId, florida.manager.id);
+  assert.equal(detail.assignedRdUserId, florida.director.id);
+
+  const history = await listTerritoryAssignmentHistory(actor, 'account', account.id);
+  assert.equal(history.items.length, 2);
+  assert.equal(history.items[0].nextTerritoryCode, florida.territory.code);
+  assert.equal(history.items[1].nextTerritoryCode, texas.territory.code);
+});
+
+test('manual account override survives later primary-location changes until the override is cleared', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'account_override_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'account_override_fl',
+    stateCode: 'FL',
+  });
+  const alternateTm = await createUser('TERRITORY_MANAGER', 'tm-account-override@pulse.local', 'Account Override TM');
+  const alternateRd = await createUser('REGIONAL_DIRECTOR', 'rd-account-override@pulse.local', 'Account Override RD');
+
+  const account = await createAccount(actor, {
+    displayName: 'Account Territory Manual Override',
+    legalName: 'Account Territory Manual Override LLC',
+    accountType: 'Dealer',
+  });
+
+  const location = await createAccountLocation(actor, account.id, {
+    name: 'Primary',
+    city: 'Austin',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  let detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.territoryId, texas.territory.id);
+
+  const override = await reassignAccountTerritory(actor, account.id, {
+    territoryId: florida.territory.id,
+    assignedTmUserId: alternateTm.id,
+    assignedRdUserId: alternateRd.id,
+    reasonCode: 'manual_override',
+    reasonNote: 'Customer belongs with the Florida team.',
+  });
+  assert.equal(override?.territoryId, florida.territory.id);
+  assert.equal(override?.assignedTmUserId, alternateTm.id);
+  assert.equal(override?.assignedRdUserId, alternateRd.id);
+
+  await updateAccountLocation(actor, account.id, location.id, {
+    state: 'TX',
+    city: 'Houston',
+  });
+
+  detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.territoryId, florida.territory.id);
+  assert.equal(detail.assignedTmUserId, alternateTm.id);
+  assert.equal(detail.assignedRdUserId, alternateRd.id);
+  assert.equal(detail.territoryAssignmentMethod, 'manual_override');
+
+  const history = await listTerritoryAssignmentHistory(actor, 'account', account.id);
+  assert.equal(history.items.length, 2, 'location changes should not churn account history when an override still owns the account');
+  assert.equal(history.items[0].nextTerritoryCode, florida.territory.code);
+  assert.equal(history.items[1].nextTerritoryCode, texas.territory.code);
+});
+
+test('territory admin updates refresh downstream account ownership and shipping alignment', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await seedTerritoryFixture(actor, {
+    suffix: 'account_refresh_admin',
+    stateCode: 'NV',
+  });
+  const nextTm = await createUser('TERRITORY_MANAGER', 'tm-account-refresh@pulse.local', 'Account Refresh TM');
+  const nextShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_account_refresh_next',
+    name: 'Account Refresh Shipping',
+    city: 'Reno',
+    state: 'NV',
+  });
+
+  const account = await createAccount(actor, {
+    displayName: 'Account Territory Refresh',
+    legalName: 'Account Territory Refresh LLC',
+    accountType: 'Dealer',
+  });
+
+  await createAccountLocation(actor, account.id, {
+    name: 'Primary',
+    city: 'Las Vegas',
+    state: 'NV',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  let detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.assignedTmUserId, fixture.manager.id);
+  assert.equal(detail.shippingCenterId, fixture.shippingCenter.id);
+
+  await updateTerritory(actor, fixture.territory.id, {
+    managerUserId: nextTm.id,
+    shippingCenterId: nextShippingCenter.id,
+  });
+
+  detail = await getAccountDetail(actor, account.id);
+  assert.ok(detail);
+  assert.equal(detail.assignedTmUserId, nextTm.id);
+  assert.equal(detail.shippingCenterId, nextShippingCenter.id);
+  assert.equal(detail.territoryId, fixture.territory.id);
+
+  const history = await listTerritoryAssignmentHistory(actor, 'account', account.id);
+  assert.equal(history.items.length, 2);
+  assert.equal(history.items[0].reasonCode, 'territory_refresh');
+  assert.equal(history.items[0].previousAssignedTmUserId, fixture.manager.id);
+  assert.equal(history.items[0].nextAssignedTmUserId, nextTm.id);
+  assert.equal(history.items[0].nextShippingCenterId, nextShippingCenter.id);
 });
 
 test('territory permissions allow RD admin actions, TM reassign actions, and deny unrelated roles', SERIAL, async () => {

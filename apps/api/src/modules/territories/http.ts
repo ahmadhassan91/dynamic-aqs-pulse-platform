@@ -5,6 +5,7 @@ import type {
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
+  ReassignAccountTerritoryRequest,
   ReassignLeadTerritoryRequest,
   ReplaceTerritoryCoverageRequest,
   UpdateRegionRequest,
@@ -33,6 +34,7 @@ import {
   listTerritories,
   listTerritoryAssignmentHistory,
   reassignLeadTerritory,
+  reassignAccountTerritory,
   replaceTerritoryCoverage,
   updateRegion,
   updateShippingCenter,
@@ -230,6 +232,29 @@ export async function handleTerritoryRoutes(req: IncomingMessage, res: ServerRes
         return jsonResponse(res, 404, {
           error: 'NOT_FOUND',
           detail: 'Lead not found',
+        });
+      }
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname.startsWith('/api/v1/territories/assignments/accounts/')) {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    const accountId = pathname.split('/').filter(Boolean).at(-1);
+    if (!accountId) {
+      return badRequestResponse(res, 'Account id is required');
+    }
+
+    return withTerritoryAuth(req, res, async (actor) => {
+      const body = (await readJsonBody(req)) as ReassignAccountTerritoryRequest;
+      const response = await reassignAccountTerritory(actor, accountId, body);
+      if (!response) {
+        return jsonResponse(res, 404, {
+          error: 'NOT_FOUND',
+          detail: 'Account not found',
         });
       }
       return jsonResponse(res, 200, response);

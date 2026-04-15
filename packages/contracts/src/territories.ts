@@ -236,6 +236,33 @@ export interface LeadTerritoryAssignmentSummary {
   assignedAt?: string;
 }
 
+export interface ReassignAccountTerritoryRequest {
+  territoryId: string;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
+  reasonCode: string;
+  reasonNote?: string;
+}
+
+export interface AccountTerritoryAssignmentSummary {
+  accountId: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  assignedTmUserId?: string;
+  assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  assignmentMethod?: TerritoryAssignmentMethodKey;
+  assignedAt?: string;
+}
+
 export interface TerritoryMapCoverageEntrySummary {
   territoryId: string;
   territoryCode: string;

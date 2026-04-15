@@ -17,7 +17,7 @@ Primary source documents:
 | Territory command center under approved prototype shell | Prototype parity rule | Implemented | `/territories`, `/territory_map`, territory components in `crm-web` | Keep route structure stable |
 | Interactive coverage map parity | Prototype + current territory map expectation | Implemented | `TerritoryCoverageMapPage.tsx`, `TerritoryMapLibre.tsx`, map read model | Continue enriching overlays and filters |
 | Lead ownership posture pre-first-order | Lead-to-dealer journey + visibility rules | Partial | lead assignment kernel exists; final ownership transfer rules still need polish | Harden lead-to-account ownership propagation and handoff rules |
-| Account/location propagation of territory truth | Territory PRD + downstream consistency rule | Partial | initial account propagation exists from conversion | Finish propagation and maintenance flows for account/location updates |
+| Account/location propagation of territory truth | Territory PRD + downstream consistency rule | Implemented to dependency boundary | account territory now refreshes from primary-location create/update, territory admin changes, and manual account override while preserving assignment history | Keep true location-scoped territory truth parked unless operations explicitly require independent location ownership |
 | Role-scoped territory visibility | Role-Based Visibility Requirements | Partial | module/action access exists; record-scope visibility is not centrally enforced | Implement scope-aware territory read filters |
 | Strategic Growth / National TM precedence flags | Discovery + territory policy posture | Partial | policy flags and UI posture exist | Need explicit approved precedence rules before closure |
 | Territory reporting and exception views | Territory PRD + ops expectations | Partial | dashboard counts exist; deeper exception reporting not complete | Build workload/unassigned/coverage-gap reporting |
@@ -26,7 +26,6 @@ Primary source documents:
 
 Current hardening priorities:
 1. Scope-aware visibility enforcement
-2. Lead/account/location propagation maintenance
-3. Reporting and exception views
-4. Finalize Strategic Growth / National TM precedence rules
-
+2. Reporting and exception views
+3. Finalize Strategic Growth / National TM precedence rules
+4. Clarify office-side assignment rules if they remain distinct from shipping-center alignment

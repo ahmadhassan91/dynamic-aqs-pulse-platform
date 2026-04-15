@@ -71,6 +71,7 @@ import type {
   LeadImportRunDetail,
   ReviewLeadImportRequest,
   ReviewLeadImportResponse,
+  AccountTerritoryAssignmentSummary,
   LeadTerritoryAssignmentSummary,
   LogLeadInitialContactRequest,
   LeadRoutingPolicySummary,
@@ -90,6 +91,7 @@ import type {
   LoginRequest,
   PublicWebsiteLeadSite,
   ReferenceListResponse,
+  ReassignAccountTerritoryRequest,
   ReassignLeadTerritoryRequest,
   ReferenceValueSummary,
   ScheduleLeadDiscoveryRequest,
@@ -387,6 +389,23 @@ export async function reassignLeadTerritory(
   return requestJson<LeadTerritoryAssignmentSummary>(
     apiBaseUrl,
     `/api/v1/territories/assignments/leads/${leadId}`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function reassignAccountTerritory(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: ReassignAccountTerritoryRequest,
+) {
+  return requestJson<AccountTerritoryAssignmentSummary>(
+    apiBaseUrl,
+    `/api/v1/territories/assignments/accounts/${accountId}`,
     {
       method: 'POST',
       accessToken,

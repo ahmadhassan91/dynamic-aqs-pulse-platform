@@ -160,6 +160,25 @@ test('discovery scheduling SLA becomes the next queue priority after initial con
   assert.match(item.reason, /Discovery scheduling is overdue/i);
 });
 
+test('discovery scheduling preserves an explicitly chosen future slot', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Calendar Scheduled Discovery',
+    serviceTechCount: 2,
+    state: 'TX',
+  });
+
+  const chosenSlot = new Date(Date.now() + (48 * 3600000)).toISOString();
+  const detail = await scheduleLeadDiscovery(actor, lead.id, {
+    scheduledAt: chosenSlot,
+    note: 'Scheduled from centralized calendar launcher.',
+  });
+
+  assert.equal(detail.stage, 'discovery_scheduled');
+  assert.ok(detail.discoveryScheduledAt, 'expected scheduled discovery datetime');
+  assert.equal(new Date(detail.discoveryScheduledAt).toISOString(), chosenSlot);
+});
+
 test('routing policy updates change queue stale thresholds and CIS follow-up timing', SERIAL, async () => {
   const actor = await createAdminActor();
 

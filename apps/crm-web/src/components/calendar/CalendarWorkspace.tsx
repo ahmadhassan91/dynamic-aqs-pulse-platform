@@ -54,6 +54,7 @@ import {
   updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
 type CalendarViewMode = 'month' | 'week' | 'list';
 type CalendarFilterMode = 'all' | 'discovery' | 'training' | 'visits' | 'audits';
@@ -170,6 +171,10 @@ function normalizeStatusLabel(value: CalendarEventSummary['status']) {
   return value.replace(/_/g, ' ');
 }
 
+function isActivationKey(key: string) {
+  return key === 'Enter' || key === ' ';
+}
+
 function resolveRange(anchorDate: Date, view: CalendarViewMode) {
   if (view === 'week') {
     return {
@@ -256,8 +261,13 @@ export function CalendarWorkspace() {
   const [outlookCalendars, setOutlookCalendars] = useState<CalendarOutlookCalendarSummary[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
+  const [schedulerAnchorDate, setSchedulerAnchorDate] = useState<Date | null>(null);
 
   const range = useMemo(() => resolveRange(anchorDate, view), [anchorDate, view]);
+
+  const openSchedulerForDate = useCallback((date: Date) => {
+    setSchedulerAnchorDate(startOfDay(date));
+  }, []);
 
   const loadWorkspace = useCallback(async () => {
     if (!auth) {
@@ -585,8 +595,8 @@ export function CalendarWorkspace() {
           </Group>
 
           <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
-            Events shown here come from live lead discovery and training workflows. Create or reschedule activity from
-            the owning workflow so history, ownership, and reporting stay consistent.
+            The centralized calendar now launches real discovery and training scheduling. Detailed execution,
+            completion, and reporting still stay anchored to the owning lead and training workflows.
           </Alert>
 
           <Paper withBorder radius="lg" p="md">
@@ -607,7 +617,7 @@ export function CalendarWorkspace() {
                 <Group gap="xs">
                   {!outlookConnection?.isConfigured ? (
                     <Badge color="yellow" variant="light">
-                      Not configured
+                      Outlook sync unavailable
                     </Badge>
                   ) : outlookConnection.isConnected ? (
                     <>
@@ -667,6 +677,13 @@ export function CalendarWorkspace() {
                   . Teams meeting links are {outlookConnection.meetingProvider === 'teams' ? 'enabled' : 'disabled'}.
                 </Alert>
               ) : null}
+
+              {!outlookConnection?.isConfigured ? (
+                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                  Microsoft sign-in can work independently from Outlook mailbox sync. This environment still needs the
+                  Outlook sync configuration enabled before users can connect a working calendar.
+                </Alert>
+              ) : null}
             </Stack>
           </Paper>
 
@@ -716,9 +733,20 @@ export function CalendarWorkspace() {
                           withBorder
                           radius="lg"
                           p="xs"
+                          onClick={() => openSchedulerForDate(day)}
+                          onKeyDown={(event) => {
+                            if (isActivationKey(event.key)) {
+                              event.preventDefault();
+                              openSchedulerForDate(day);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
                           style={{
                             minHeight: 140,
                             background: inCurrentMonth ? undefined : 'rgba(248, 250, 252, 0.7)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
                           }}
                         >
                           <Stack gap={6}>
@@ -732,7 +760,10 @@ export function CalendarWorkspace() {
                                   key={item.id}
                                   component="button"
                                   type="button"
-                                  onClick={() => setSelectedEventId(item.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedEventId(item.id);
+                                  }}
                                   style={{
                                     border: '1px solid rgba(191, 219, 254, 0.9)',
                                     borderRadius: 10,
@@ -771,14 +802,29 @@ export function CalendarWorkspace() {
                     const items = itemsByDay.get(key) ?? [];
 
                     return (
-                      <Card key={key} withBorder radius="lg" p="sm" style={{ minHeight: 220 }}>
+                      <Card
+                        key={key}
+                        withBorder
+                        radius="lg"
+                        p="sm"
+                        onClick={() => openSchedulerForDate(day)}
+                        onKeyDown={(event) => {
+                          if (isActivationKey(event.key)) {
+                            event.preventDefault();
+                            openSchedulerForDate(day);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        style={{ minHeight: 220, cursor: 'pointer', textAlign: 'left' }}
+                      >
                         <Stack gap="sm">
                           <Stack gap={0}>
                             <Text fw={700}>{formatWeekday(day)}</Text>
                             <Text size="xs" c="dimmed">{items.length} event{items.length === 1 ? '' : 's'}</Text>
                           </Stack>
                           {items.length === 0 ? (
-                            <Text size="sm" c="dimmed">No scheduled activity.</Text>
+                            <Text size="sm" c="dimmed">No scheduled activity. Click to open the scheduler.</Text>
                           ) : (
                             items.map((item) => {
                               const meta = getEventMeta(item.eventType);
@@ -787,7 +833,10 @@ export function CalendarWorkspace() {
                                   key={item.id}
                                   component="button"
                                   type="button"
-                                  onClick={() => setSelectedEventId(item.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedEventId(item.id);
+                                  }}
                                   style={{
                                     border: '1px solid rgba(226, 232, 240, 0.9)',
                                     borderRadius: 12,
@@ -1036,6 +1085,15 @@ export function CalendarWorkspace() {
           </Paper>
         </SimpleGrid>
       )}
+
+      <CalendarSchedulerModal
+        opened={Boolean(schedulerAnchorDate)}
+        onClose={() => setSchedulerAnchorDate(null)}
+        anchorDate={schedulerAnchorDate}
+        apiBaseUrl={apiBaseUrl}
+        accessToken={accessToken}
+        onSaved={loadWorkspace}
+      />
     </Stack>
   );
 }

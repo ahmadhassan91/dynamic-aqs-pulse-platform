@@ -1064,6 +1064,7 @@ export async function scheduleLeadDiscovery(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const note = optionalTrimmed(input.note) ?? 'Discovery scheduled';
+  const requestedScheduledAt = parseOptionalScheduledAt(input.scheduledAt, 'scheduledAt');
 
   await prisma.$transaction(async (tx) => {
     const current = await tx.lead.findUnique({
@@ -1078,12 +1079,13 @@ export async function scheduleLeadDiscovery(
     }
 
     const now = new Date();
+    const scheduledAt = current.discoveryScheduledAt ?? requestedScheduledAt ?? now;
     await tx.lead.update({
       where: { id: leadId },
       data: {
         stage: LeadStage.DISCOVERY_SCHEDULED,
         initialContactedAt: current.initialContactedAt ?? now,
-        discoveryScheduledAt: current.discoveryScheduledAt ?? now,
+        discoveryScheduledAt: scheduledAt,
       },
     });
 
@@ -1116,7 +1118,7 @@ export async function scheduleLeadDiscovery(
         afterData: {
           stage: 'discovery_scheduled',
           initialContactedAt: (current.initialContactedAt ?? now).toISOString(),
-          discoveryScheduledAt: (current.discoveryScheduledAt ?? now).toISOString(),
+          discoveryScheduledAt: scheduledAt.toISOString(),
         },
         metadata: {
           actorRole: actor.role,
@@ -4645,6 +4647,23 @@ function normalizePositiveInteger(value: unknown, fieldName: string, allowZero =
   const minimum = allowZero ? 0 : 1;
   if (parsed < minimum) {
     throw new Error(`${fieldName} must be at least ${minimum}`);
+  }
+
+  return parsed;
+}
+
+function parseOptionalScheduledAt(value: string | undefined, fieldName: string) {
+  if (!value?.trim()) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${fieldName} must be a valid ISO datetime`);
+  }
+
+  if (parsed.getTime() < Date.now() - 60_000) {
+    throw new Error(`${fieldName} must be in the future`);
   }
 
   return parsed;

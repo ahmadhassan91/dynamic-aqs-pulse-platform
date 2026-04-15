@@ -865,6 +865,7 @@ export interface LogLeadInitialContactRequest {
 
 export interface ScheduleLeadDiscoveryRequest {
   note?: string;
+  scheduledAt?: string;
 }
 
 export interface CompleteLeadDiscoveryRequest {

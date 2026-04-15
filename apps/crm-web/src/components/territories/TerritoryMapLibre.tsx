@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Group, Paper, Stack, Text } from '@mantine/core';
-import { IconBuildingWarehouse, IconMapPin, IconUsers } from '@tabler/icons-react';
+import { ActionIcon, Box, Collapse, Group, Paper, Stack, Text } from '@mantine/core';
+import { IconBuildingWarehouse, IconChevronDown, IconChevronUp, IconMapPin, IconUsers } from '@tabler/icons-react';
 import type {
   TerritoryMapCoverageEntrySummary,
   TerritoryMapPinSummary,
@@ -246,6 +246,7 @@ export function TerritoryMapLibre({
   const geoJsonRef = useRef<{ features: GeoJsonFeature[] } | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [hoveredState, setHoveredState] = useState<HoveredStateSummary | null>(null);
+  const [isOverlayExpanded, setIsOverlayExpanded] = useState(false);
 
   const coverageByState = useMemo(() => {
     const paletteByTerritory = new Map<string, string>();
@@ -690,71 +691,88 @@ export function TerritoryMapLibre({
           position: 'absolute',
           top: 16,
           right: 16,
-          width: 300,
+          width: isOverlayExpanded ? 300 : 220,
           backdropFilter: 'blur(10px)',
           background: 'rgba(255,255,255,0.94)',
         }}
       >
         <Stack gap="xs">
           <Group justify="space-between" align="center">
-            <Text fw={700}>Live coverage focus</Text>
-            <Text size="xs" c="dimmed">
-              {pins.length} mapped records
-            </Text>
-          </Group>
-
-          {hoveredState ? (
-            <Stack gap={4}>
-              <Text size="sm" fw={700}>
-                {hoveredState.stateName}
-              </Text>
-              <Text size="sm" c="dimmed">
-                Territory: {hoveredState.territoryName}
-              </Text>
-              <Text size="sm" c="dimmed">
-                TM: {hoveredState.assignedTmName ?? 'Unassigned'}
-              </Text>
-              <Text size="sm" c="dimmed">
-                RD: {hoveredState.assignedRdName ?? 'Unassigned'}
-              </Text>
-              <Text size="sm" c="dimmed">
-                Shipping: {hoveredState.shippingCenterName ?? 'Unassigned'}
+            <Stack gap={0}>
+              <Text fw={700}>Live coverage focus</Text>
+              <Text size="xs" c="dimmed">
+                {pins.length} mapped records
               </Text>
             </Stack>
-          ) : (
-            <Text size="sm" c="dimmed">
-              Hover a covered state to inspect the current TM, RD, and shipping alignment.
-            </Text>
-          )}
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              radius="xl"
+              aria-label={isOverlayExpanded ? 'Collapse coverage focus details' : 'Expand coverage focus details'}
+              onClick={() => setIsOverlayExpanded((current) => !current)}
+            >
+              {isOverlayExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            </ActionIcon>
+          </Group>
 
-          <Group gap="sm" mt="xs">
-            <Group gap={6}>
-              <Box w={10} h={10} style={{ borderRadius: 999, background: '#16a34a' }} />
-              <Text size="xs">Accounts</Text>
-            </Group>
-            <Group gap={6}>
-              <Box w={10} h={10} style={{ borderRadius: 999, background: '#2563eb' }} />
-              <Text size="xs">Assigned leads</Text>
-            </Group>
-            <Group gap={6}>
-              <Box w={10} h={10} style={{ borderRadius: 999, background: '#f97316' }} />
-              <Text size="xs">Needs assignment</Text>
-            </Group>
-          </Group>
-          <Group gap="sm">
-            <Group gap={6}>
-              <IconBuildingWarehouse size={14} color="#b45309" />
-              <Text size="xs">Shipping hubs</Text>
-            </Group>
-            <Group gap={6}>
-              <IconUsers size={14} color="#1d4ed8" />
-              <Text size="xs">Clustered coverage</Text>
-            </Group>
-            <Group gap={6}>
-              <IconMapPin size={14} color="#0f172a" />
-              <Text size="xs">{mapReady ? 'Interactive map live' : 'Loading map'}</Text>
-            </Group>
-          </Group>
+          <Text size="sm" c="dimmed">
+            {hoveredState
+              ? `${hoveredState.stateName} · ${hoveredState.territoryName}`
+              : 'Hover a covered state to inspect TM, RD, and shipping alignment.'}
+          </Text>
+
+          <Collapse in={isOverlayExpanded}>
+            <Stack gap="xs">
+              {hoveredState ? (
+                <Stack gap={4}>
+                  <Text size="sm" fw={700}>
+                    {hoveredState.stateName}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    Territory: {hoveredState.territoryName}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    TM: {hoveredState.assignedTmName ?? 'Unassigned'}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    RD: {hoveredState.assignedRdName ?? 'Unassigned'}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    Shipping: {hoveredState.shippingCenterName ?? 'Unassigned'}
+                  </Text>
+                </Stack>
+              ) : null}
+
+              <Group gap="sm" mt="xs">
+                <Group gap={6}>
+                  <Box w={10} h={10} style={{ borderRadius: 999, background: '#16a34a' }} />
+                  <Text size="xs">Accounts</Text>
+                </Group>
+                <Group gap={6}>
+                  <Box w={10} h={10} style={{ borderRadius: 999, background: '#2563eb' }} />
+                  <Text size="xs">Assigned leads</Text>
+                </Group>
+                <Group gap={6}>
+                  <Box w={10} h={10} style={{ borderRadius: 999, background: '#f97316' }} />
+                  <Text size="xs">Needs assignment</Text>
+                </Group>
+              </Group>
+              <Group gap="sm">
+                <Group gap={6}>
+                  <IconBuildingWarehouse size={14} color="#b45309" />
+                  <Text size="xs">Shipping hubs</Text>
+                </Group>
+                <Group gap={6}>
+                  <IconUsers size={14} color="#1d4ed8" />
+                  <Text size="xs">Clustered coverage</Text>
+                </Group>
+                <Group gap={6}>
+                  <IconMapPin size={14} color="#0f172a" />
+                  <Text size="xs">{mapReady ? 'Interactive map live' : 'Loading map'}</Text>
+                </Group>
+              </Group>
+            </Stack>
+          </Collapse>
         </Stack>
       </Paper>
     </Box>

@@ -11,6 +11,7 @@ import type {
   CalendarOutlookCalendarSummary,
   CalendarOutlookConnectionSummary,
   CalendarOutlookEventSyncSummary,
+  CalendarOutlookPolicySummary,
   ListCalendarOutlookCalendarsResponse,
   StartCalendarOutlookConnectionResponse,
   SyncCalendarOutlookEventRequest,
@@ -23,6 +24,12 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 import { decryptSecret, encryptSecret } from '../../utils/secrets.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { resolveCalendarEventForSync } from './events.js';
+import {
+  canActorUseOutlookCalendar,
+  getOutlookCalendarAdminSettings,
+  getOutlookPolicySummaryForActor,
+  shouldAutoSyncOutlookEvent,
+} from './policy.js';
 
 type OutlookTokenResponse = {
   access_token?: string;
@@ -84,9 +91,11 @@ export async function getOutlookWorkspaceState(
   connection: CalendarOutlookConnectionSummary;
   bindings: WorkspaceBindingMap;
 }> {
+  const policyState = await getOutlookPolicySummaryForActor(actor, config);
+
   if (!config.outlookCalendar.enabled) {
     return {
-      connection: buildConnectionSummary(null, false),
+      connection: buildConnectionSummary(null, false, [], policyState),
       bindings: new Map(),
     };
   }
@@ -102,7 +111,7 @@ export async function getOutlookWorkspaceState(
 
   if (!connection) {
     return {
-      connection: buildConnectionSummary(null, true, config.outlookCalendar.scopes),
+      connection: buildConnectionSummary(null, true, config.outlookCalendar.scopes, policyState),
       bindings: new Map(),
     };
   }
@@ -121,7 +130,7 @@ export async function getOutlookWorkspaceState(
     : [];
 
   return {
-    connection: buildConnectionSummary(connection, true, config.outlookCalendar.scopes),
+    connection: buildConnectionSummary(connection, true, config.outlookCalendar.scopes, policyState),
     bindings: new Map(
       bindings.map((binding) => [
         createBindingKey(binding.sourceModule, binding.sourceRecordId, binding.eventType),
@@ -141,6 +150,7 @@ export async function listOutlookCalendars(
   config: AppConfig,
 ): Promise<ListCalendarOutlookCalendarsResponse> {
   requireConfiguredOutlook(config);
+  await ensureActorCanUseOutlookCalendar(actor, config);
 
   const connection = await prisma.calendarConnection.findUnique({
     where: {
@@ -156,7 +166,12 @@ export async function listOutlookCalendars(
   }
 
   const accessToken = await ensureActiveAccessToken(config, connection);
-  const items = await fetchOutlookCalendars(config, accessToken);
+  const policyState = await getOutlookPolicySummaryForActor(actor, config);
+  const items = filterCalendarsByPolicy(
+    await fetchOutlookCalendars(config, accessToken),
+    policyState.policy.sharedCalendarsEnabled,
+    connection.providerEmail,
+  );
   return { items };
 }
 
@@ -166,6 +181,8 @@ export async function updateOutlookConnection(
   input: UpdateCalendarOutlookConnectionRequest,
 ): Promise<CalendarOutlookConnectionSummary> {
   const outlook = requireConfiguredOutlook(config);
+  await ensureActorCanUseOutlookCalendar(actor, config);
+  const policyState = await getOutlookPolicySummaryForActor(actor, config);
   const connection = await prisma.calendarConnection.findUnique({
     where: {
       userId_provider: {
@@ -180,10 +197,14 @@ export async function updateOutlookConnection(
   }
 
   const accessToken = await ensureActiveAccessToken(config, connection);
-  const availableCalendars = await fetchOutlookCalendars(config, accessToken);
+  const availableCalendars = filterCalendarsByPolicy(
+    await fetchOutlookCalendars(config, accessToken),
+    policyState.policy.sharedCalendarsEnabled,
+    connection.providerEmail,
+  );
   const requestedMeetingProvider = input.meetingProvider
     ? toMeetingProviderPreference(input.meetingProvider)
-    : connection.meetingProviderPreference;
+    : connection.meetingProviderPreference ?? toMeetingProviderPreference(policyState.policy.defaultMeetingProvider);
 
   let targetCalendarId: string | null = connection.targetCalendarId ?? null;
   let targetCalendarName: string | null = connection.targetCalendarName ?? null;
@@ -252,7 +273,7 @@ export async function updateOutlookConnection(
     }),
   });
 
-  return buildConnectionSummary(updated, true, outlook.scopes);
+  return buildConnectionSummary(updated, true, outlook.scopes, policyState);
 }
 
 export async function startOutlookConnection(
@@ -260,6 +281,7 @@ export async function startOutlookConnection(
   config: AppConfig,
 ): Promise<StartCalendarOutlookConnectionResponse> {
   const outlook = requireConfiguredOutlook(config);
+  await ensureActorCanUseOutlookCalendar(actor, config);
   const state = randomBytes(32).toString('base64url');
   const stateHash = hashState(state);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -340,6 +362,8 @@ export async function completeOutlookConnection(
   });
   const profile = await fetchOutlookProfile(config, tokenResponse.accessToken);
   const providerEmail = profile.mail ?? profile.userPrincipalName ?? null;
+  const settings = await getOutlookCalendarAdminSettings(config);
+  const defaultMeetingProvider = toMeetingProviderPreference(settings.policy.defaultMeetingProvider);
 
   await prisma.$transaction(async (tx) => {
     await tx.calendarConnection.upsert({
@@ -358,6 +382,7 @@ export async function completeOutlookConnection(
         accessTokenEncrypted: encryptSecret(tokenResponse.accessToken, outlook.encryptionKey),
         refreshTokenEncrypted: encryptSecret(tokenResponse.refreshToken, outlook.encryptionKey),
         accessTokenExpiresAt: tokenResponse.expiresAt,
+        meetingProviderPreference: defaultMeetingProvider,
         isActive: true,
       },
       update: {
@@ -367,6 +392,7 @@ export async function completeOutlookConnection(
         accessTokenEncrypted: encryptSecret(tokenResponse.accessToken, outlook.encryptionKey),
         refreshTokenEncrypted: encryptSecret(tokenResponse.refreshToken, outlook.encryptionKey),
         accessTokenExpiresAt: tokenResponse.expiresAt,
+        meetingProviderPreference: defaultMeetingProvider,
         isActive: true,
         lastSyncError: null,
       },
@@ -455,6 +481,10 @@ export async function tryAutoSyncCalendarEventToOutlook(
   input: SyncCalendarOutlookEventRequest,
 ): Promise<void> {
   if (!config.outlookCalendar.enabled) {
+    return;
+  }
+
+  if (!await shouldAttemptAutoSync(actor, config, input.sourceModule)) {
     return;
   }
 
@@ -547,6 +577,7 @@ export async function syncCalendarEventToOutlook(
   input: SyncCalendarOutlookEventRequest,
 ): Promise<SyncCalendarOutlookEventResponse> {
   requireConfiguredOutlook(config);
+  await ensureActorCanUseOutlookCalendar(actor, config);
   const connection = await prisma.calendarConnection.findUnique({
     where: {
       userId_provider: {
@@ -799,17 +830,25 @@ function buildConnectionSummary(
   } | null,
   isConfigured: boolean,
   scopes: string[] = [],
+  policyState?: {
+    configurationIssues: string[];
+    availabilityMessage?: string;
+    policy: CalendarOutlookPolicySummary;
+  },
 ): CalendarOutlookConnectionSummary {
   if (!connection) {
     return {
       provider: 'outlook',
       isConfigured,
       isConnected: false,
+      ...(policyState?.configurationIssues.length ? { configurationIssues: policyState.configurationIssues } : {}),
+      ...(policyState?.availabilityMessage ? { availabilityMessage: policyState.availabilityMessage } : {}),
+      ...(policyState?.policy ? { policy: policyState.policy } : {}),
       ...(isConfigured
         ? {
             supportsSharedCalendars: scopes.includes('Calendars.ReadWrite.Shared'),
             supportsTeamsMeetings: true,
-            meetingProvider: 'none' as const,
+            meetingProvider: policyState?.policy.defaultMeetingProvider ?? ('none' as const),
           }
         : {}),
     };
@@ -821,6 +860,9 @@ function buildConnectionSummary(
     isConnected: true,
     supportsSharedCalendars: scopes.includes('Calendars.ReadWrite.Shared'),
     supportsTeamsMeetings: true,
+    ...(policyState?.configurationIssues.length ? { configurationIssues: policyState.configurationIssues } : {}),
+    ...(policyState?.availabilityMessage ? { availabilityMessage: policyState.availabilityMessage } : {}),
+    ...(policyState?.policy ? { policy: policyState.policy } : {}),
     ...(connection.providerEmail ? { connectionEmail: connection.providerEmail } : {}),
     ...(connection.targetCalendarId ? { targetCalendarId: connection.targetCalendarId } : {}),
     ...(connection.targetCalendarName ? { targetCalendarName: connection.targetCalendarName } : {}),
@@ -854,6 +896,41 @@ function requireConfiguredOutlook(config: AppConfig) {
     graphBaseUrl: config.outlookCalendar.graphBaseUrl,
     encryptionKey: config.outlookCalendar.encryptionKey,
   };
+}
+
+async function ensureActorCanUseOutlookCalendar(actor: AuthenticatedActor, config: AppConfig) {
+  const policyState = await getOutlookPolicySummaryForActor(actor, config);
+  if (!policyState.isConfigured) {
+    throw new CalendarIntegrationUnavailableError(policyState.availabilityMessage ?? 'Outlook calendar integration is not configured');
+  }
+
+  if (!await canActorUseOutlookCalendar(actor, config)) {
+    throw new CalendarIntegrationUnavailableError(policyState.availabilityMessage ?? 'Outlook calendar sync is not enabled for this user');
+  }
+}
+
+async function shouldAttemptAutoSync(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  sourceModule: 'leads' | 'training',
+) {
+  return shouldAutoSyncOutlookEvent(actor, config, sourceModule);
+}
+
+function filterCalendarsByPolicy(
+  items: CalendarOutlookCalendarSummary[],
+  sharedCalendarsEnabled: boolean,
+  providerEmail: string | null,
+) {
+  if (sharedCalendarsEnabled) {
+    return items;
+  }
+
+  const normalizedProviderEmail = providerEmail?.trim().toLowerCase();
+  return items.filter((entry) => {
+    const ownerAddress = entry.ownerAddress?.trim().toLowerCase();
+    return entry.isDefault || !ownerAddress || ownerAddress === normalizedProviderEmail;
+  });
 }
 
 async function ensureActiveAccessToken(

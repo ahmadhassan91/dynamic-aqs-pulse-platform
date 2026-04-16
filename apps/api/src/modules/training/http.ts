@@ -409,8 +409,20 @@ async function withTrainingAuth(
   },
   handler: (actor: AuthenticatedActor) => Promise<unknown>,
 ) {
-  const actor = await requireAuthenticatedActor(req, permission);
-  return handler(actor);
+  try {
+    const actor = await requireAuthenticatedActor(req, permission);
+    return await handler(actor);
+  } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return unauthorizedResponse(res, error.message);
+    }
+
+    if (error instanceof AuthorizationError) {
+      return forbiddenResponse(res, error.message);
+    }
+
+    return badRequestResponse(res, error instanceof Error ? error.message : String(error));
+  }
 }
 
 function parseInteger(value: string | null) {

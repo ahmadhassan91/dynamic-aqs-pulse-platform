@@ -31,6 +31,7 @@ import {
   IconClock,
   IconDeviceDesktop,
   IconExternalLink,
+  IconSettings,
   IconLink,
   IconMapPin,
   IconPhoneCall,
@@ -53,6 +54,7 @@ import {
   syncCalendarOutlookEvent,
   updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
@@ -247,6 +249,7 @@ export function CalendarWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const searchParams = useSearchParams();
   const accessToken = auth?.tokens.accessToken ?? '';
+  const role = auth?.identity.role;
   const [view, setView] = useState<CalendarViewMode>('month');
   const [filter, setFilter] = useState<CalendarFilterMode>('all');
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
@@ -262,6 +265,10 @@ export function CalendarWorkspace() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
   const [schedulerAnchorDate, setSchedulerAnchorDate] = useState<Date | null>(null);
+  const canScheduleDiscovery = role ? canPerformAction(role, 'lead.intake_manage') : false;
+  const canScheduleTraining = role ? canPerformAction(role, 'training.schedule') : false;
+  const canViewCalendarIntegrations = role ? canPerformAction(role, 'admin.integration_view') : false;
+  const canManageCalendarIntegrations = role ? canPerformAction(role, 'admin.integration_manage') : false;
 
   const range = useMemo(() => resolveRange(anchorDate, view), [anchorDate, view]);
 
@@ -613,11 +620,31 @@ export function CalendarWorkspace() {
                       Connected mailbox: {outlookConnection.connectionEmail}
                     </Text>
                   ) : null}
+                  {canViewCalendarIntegrations ? (
+                    <Button
+                      component={Link}
+                      href="/admin/integrations"
+                      variant="subtle"
+                      size="xs"
+                      w="fit-content"
+                      leftSection={<IconSettings size={14} />}
+                    >
+                      Open integration settings
+                    </Button>
+                  ) : null}
                 </Stack>
                 <Group gap="xs">
                   {!outlookConnection?.isConfigured ? (
                     <Badge color="yellow" variant="light">
                       Outlook sync unavailable
+                    </Badge>
+                  ) : outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
+                    <Badge color="yellow" variant="light">
+                      Awaiting admin enablement
+                    </Badge>
+                  ) : outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
+                    <Badge color="yellow" variant="light">
+                      Pilot restricted
                     </Badge>
                   ) : outlookConnection.isConnected ? (
                     <>
@@ -637,6 +664,11 @@ export function CalendarWorkspace() {
                     <Button
                       leftSection={<IconLink size={16} />}
                       loading={isConnectingOutlook}
+                      disabled={Boolean(
+                        !outlookConnection?.isConfigured
+                        || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
+                        || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
+                      )}
                       onClick={() => void handleStartOutlookConnect()}
                     >
                       Connect Outlook
@@ -680,8 +712,22 @@ export function CalendarWorkspace() {
 
               {!outlookConnection?.isConfigured ? (
                 <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                  Microsoft sign-in can work independently from Outlook mailbox sync. This environment still needs the
-                  Outlook sync configuration enabled before users can connect a working calendar.
+                  {outlookConnection?.availabilityMessage
+                    ?? 'Microsoft sign-in can work independently from Outlook mailbox sync. This environment still needs the Outlook sync configuration enabled before users can connect a working calendar.'}
+                  {canManageCalendarIntegrations ? ' Open Administration > Integrations to review environment and rollout settings.' : ''}
+                </Alert>
+              ) : null}
+
+              {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
+                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                  {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is configured but currently disabled by admin policy.'}
+                  {canManageCalendarIntegrations ? ' Re-enable it in Administration > Integrations when you are ready for pilot users.' : ''}
+                </Alert>
+              ) : null}
+
+              {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
+                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                  {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is in pilot mode for approved users only.'}
                 </Alert>
               ) : null}
             </Stack>
@@ -1063,6 +1109,12 @@ export function CalendarWorkspace() {
                               variant="light"
                               leftSection={<IconLink size={16} />}
                               loading={isConnectingOutlook}
+                              disabled={Boolean(
+                                outlookConnection?.policy && (
+                                  !outlookConnection.policy.allowUserConnections
+                                  || !outlookConnection.policy.isCurrentUserEligible
+                                )
+                              )}
                               onClick={() => void handleStartOutlookConnect()}
                             >
                               Connect Outlook
@@ -1092,6 +1144,8 @@ export function CalendarWorkspace() {
         anchorDate={schedulerAnchorDate}
         apiBaseUrl={apiBaseUrl}
         accessToken={accessToken}
+        canScheduleDiscovery={canScheduleDiscovery}
+        canScheduleTraining={canScheduleTraining}
         onSaved={loadWorkspace}
       />
     </Stack>

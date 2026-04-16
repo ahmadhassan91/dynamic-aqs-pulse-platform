@@ -56,6 +56,7 @@ export const WORKSPACE_ACTIONS = [
   'admin.audit_view',
   'admin.system_health_view',
   'admin.integration_view',
+  'admin.integration_manage',
   'lead.view',
   'customer.view',
   'customer.create',
@@ -139,6 +140,34 @@ export interface CompleteMicrosoftEntraLoginResponse {
   nextPath?: string;
 }
 
+export interface MicrosoftEntraGroupRoleMapping {
+  groupId: string;
+  role: AuthRole;
+}
+
+export interface MicrosoftEntraPolicySummary {
+  allowEmailLinking: boolean;
+  autoProvisionFromGroups: boolean;
+  allowedDomains: string[];
+  groupRoleMappings: MicrosoftEntraGroupRoleMapping[];
+  envGroupRoleMappings: MicrosoftEntraGroupRoleMapping[];
+  effectiveGroupRoleMappings: MicrosoftEntraGroupRoleMapping[];
+}
+
+export interface AdminMicrosoftEntraIntegrationSettingsResponse {
+  provider: 'microsoft_entra';
+  isConfigured: boolean;
+  configurationIssues: string[];
+  policy: MicrosoftEntraPolicySummary;
+}
+
+export interface UpdateAdminMicrosoftEntraIntegrationSettingsRequest {
+  allowEmailLinking?: boolean;
+  autoProvisionFromGroups?: boolean;
+  allowedDomains?: string[];
+  groupRoleMappings?: MicrosoftEntraGroupRoleMapping[];
+}
+
 export interface RefreshSessionRequest {
   refreshToken: string;
 }
@@ -179,7 +208,7 @@ export const ROLE_DEFAULT_ACTION_ACCESS: Record<AuthRole, readonly WorkspaceActi
   SALES_BD_REP: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'reports.builder'],
   SALES_BD_LEADERSHIP: ['reference.view', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.finance_queue_view', 'reports.builder'],
   FINANCE: ['reference.view', 'lead.view', 'customer.view', 'customer.financials_view', 'contact.view', 'location.view', 'lead.finance_queue_view', 'lead.finance_decide', 'reports.builder'],
-  ADMIN_CSR_OPS: ['reference.view', 'reference.manage', 'admin.user_view', 'admin.user_manage', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.portal_setup', 'lead.consignment_approve', 'consignment.manage', 'consignment.sync', 'reports.builder'],
+  ADMIN_CSR_OPS: ['reference.view', 'reference.manage', 'admin.user_view', 'admin.user_manage', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view', 'admin.integration_manage', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.portal_setup', 'lead.consignment_approve', 'consignment.manage', 'consignment.sync', 'reports.builder'],
   TERRITORY_MANAGER: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.consignment_approve', 'territory.reassign', 'training.schedule', 'reports.builder'],
   REGIONAL_DIRECTOR: ['reference.view', 'lead.view', 'customer.view', 'contact.view', 'location.view', 'territory.admin', 'territory.reassign', 'training.schedule', 'reports.builder'],
   TRAINING_OPS: ['reference.view', 'training.catalog_manage', 'training.schedule', 'reports.builder'],

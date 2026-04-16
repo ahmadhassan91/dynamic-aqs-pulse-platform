@@ -44,12 +44,29 @@ function fromLocalDateTimeInput(value: string) {
   return new Date(value).toISOString();
 }
 
+function toUserFacingLoadError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === 'Failed to fetch') {
+    return 'Pulse API is unavailable. Make sure the backend is running on localhost:4000 and then reopen the scheduler.';
+  }
+  if (/cannot access module training/i.test(message) || /training\.schedule/i.test(message)) {
+    return 'Your current Pulse role can schedule discovery here, but it does not have training scheduling access. Ask an admin if this role should be allowed to launch training sessions from the centralized calendar.';
+  }
+  if (/cannot access module leads/i.test(message) || /lead\.intake_manage/i.test(message)) {
+    return 'Your current Pulse role can view the centralized calendar, but it does not have lead discovery scheduling access.';
+  }
+
+  return message;
+}
+
 export function CalendarSchedulerModal({
   opened,
   onClose,
   anchorDate,
   apiBaseUrl,
   accessToken,
+  canScheduleDiscovery,
+  canScheduleTraining,
   onSaved,
 }: {
   opened: boolean;
@@ -57,6 +74,8 @@ export function CalendarSchedulerModal({
   anchorDate: Date | null;
   apiBaseUrl: string;
   accessToken: string;
+  canScheduleDiscovery: boolean;
+  canScheduleTraining: boolean;
   onSaved: () => Promise<void> | void;
 }) {
   const [mode, setMode] = useState<CalendarScheduleMode>('discovery');
@@ -82,6 +101,11 @@ export function CalendarSchedulerModal({
       return;
     }
 
+    if (!canScheduleDiscovery && canScheduleTraining) {
+      setMode('training');
+    } else {
+      setMode('discovery');
+    }
     setScheduledAt(anchorDate ? toInitialLocalDateTimeInput(anchorDate) : '');
     setLeadId('');
     setAccountId('');
@@ -96,28 +120,39 @@ export function CalendarSchedulerModal({
     let cancelled = false;
     setIsLoading(true);
 
-    Promise.all([
-      fetchLeads(apiBaseUrl, accessToken, { lifecycleStatus: 'active', limit: 100 }),
-      fetchTrainingAccounts(apiBaseUrl, accessToken, { limit: 100 }),
-      fetchTrainingCatalog(apiBaseUrl, accessToken),
-      fetchTrainingTrainers(apiBaseUrl, accessToken),
-    ])
-      .then(([leadResponse, accountResponse, catalogResponse, trainerResponse]) => {
+    const jobs: Promise<[LeadSummary[], TrainingAccountSummary[], TrainingCatalogResponse | null, TrainingTrainerSummary[]]> =
+      Promise.all([
+        canScheduleDiscovery
+          ? fetchLeads(apiBaseUrl, accessToken, { lifecycleStatus: 'active', limit: 100 }).then((response) => response.items)
+          : Promise.resolve([]),
+        canScheduleTraining
+          ? fetchTrainingAccounts(apiBaseUrl, accessToken, { limit: 100 }).then((response) => response.items)
+          : Promise.resolve([]),
+        canScheduleTraining
+          ? fetchTrainingCatalog(apiBaseUrl, accessToken)
+          : Promise.resolve(null),
+        canScheduleTraining
+          ? fetchTrainingTrainers(apiBaseUrl, accessToken).then((response) => response.items)
+          : Promise.resolve([]),
+      ]);
+
+    jobs
+      .then(([leadItems, accountItems, catalogResponse, trainerItems]) => {
         if (cancelled) {
           return;
         }
 
-        setLeadOptions(leadResponse.items);
-        setTrainingAccounts(accountResponse.items);
+        setLeadOptions(leadItems);
+        setTrainingAccounts(accountItems);
         setTrainingCatalog(catalogResponse);
-        setTrainers(trainerResponse.items);
+        setTrainers(trainerItems);
       })
       .catch((error) => {
         if (cancelled) {
           return;
         }
 
-        setLoadError(error instanceof Error ? error.message : String(error));
+        setLoadError(toUserFacingLoadError(error));
       })
       .finally(() => {
         if (!cancelled) {
@@ -128,7 +163,7 @@ export function CalendarSchedulerModal({
     return () => {
       cancelled = true;
     };
-  }, [accessToken, anchorDate, apiBaseUrl, opened]);
+  }, [accessToken, anchorDate, apiBaseUrl, canScheduleDiscovery, canScheduleTraining, opened]);
 
   const trainingTypeOptions = useMemo(
     () => (trainingCatalog?.trainingTypes ?? []).map((entry) => ({
@@ -255,14 +290,22 @@ export function CalendarSchedulerModal({
           <Alert color="red">{loadError}</Alert>
         ) : null}
 
-        <SegmentedControl
-          value={mode}
-          onChange={(value) => setMode(value as CalendarScheduleMode)}
-          data={[
-            { value: 'discovery', label: 'Discovery call' },
-            { value: 'training', label: 'Training session' },
-          ]}
-        />
+        {(canScheduleDiscovery || canScheduleTraining) ? (
+          <SegmentedControl
+            value={mode}
+            onChange={(value) => setMode(value as CalendarScheduleMode)}
+            data={[
+              ...(canScheduleDiscovery ? [{ value: 'discovery', label: 'Discovery call' }] : []),
+              ...(canScheduleTraining ? [{ value: 'training', label: 'Training session' }] : []),
+            ]}
+          />
+        ) : null}
+
+        {!canScheduleDiscovery && !canScheduleTraining ? (
+          <Alert color="yellow">
+            Your current Pulse role does not have calendar scheduling permissions for discovery or training workflows.
+          </Alert>
+        ) : null}
 
         <TextInput
           label="Scheduled for"

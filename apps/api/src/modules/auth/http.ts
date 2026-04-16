@@ -101,7 +101,7 @@ export async function handleAuthRoutes(
       if (/missing .*authorization code|missing .*state/i.test(message)) {
         return badRequestResponse(res, message);
       }
-      if (/not allowed to access the internal pulse workspace|no approved pulse role/i.test(message)) {
+      if (/not allowed to access the internal pulse workspace|no approved pulse role|email domain is not approved|email-based microsoft account linking is disabled|automatic microsoft account provisioning is disabled/i.test(message)) {
         return forbiddenResponse(res, message);
       }
       return unauthorizedResponse(res, message);

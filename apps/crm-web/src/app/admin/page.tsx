@@ -3,7 +3,7 @@ import { AdminWorkspace } from '@/components/admin/AdminWorkspace';
 
 type AdminPageProps = {
   searchParams: Promise<{
-    tab?: 'overview' | 'users' | 'roles' | 'activity';
+    tab?: 'overview' | 'users' | 'roles' | 'activity' | 'integrations';
   }>;
 };
 

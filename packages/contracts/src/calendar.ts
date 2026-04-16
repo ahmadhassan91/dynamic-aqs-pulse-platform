@@ -59,6 +59,9 @@ export interface CalendarOutlookConnectionSummary {
   isConnected: boolean;
   supportsSharedCalendars?: boolean;
   supportsTeamsMeetings?: boolean;
+  availabilityMessage?: string;
+  configurationIssues?: string[];
+  policy?: CalendarOutlookPolicySummary;
   connectionEmail?: string;
   targetCalendarId?: string;
   targetCalendarName?: string;
@@ -67,6 +70,16 @@ export interface CalendarOutlookConnectionSummary {
   accessTokenExpiresAt?: string;
   lastSyncedAt?: string;
   lastSyncError?: string;
+}
+
+export interface CalendarOutlookPolicySummary {
+  allowUserConnections: boolean;
+  isCurrentUserEligible: boolean;
+  sharedCalendarsEnabled: boolean;
+  defaultMeetingProvider: CalendarMeetingProviderKey;
+  autoSyncDiscoveryEnabled: boolean;
+  autoSyncTrainingEnabled: boolean;
+  pilotUserEmails: string[];
 }
 
 export interface CalendarOutlookEventSyncSummary {
@@ -117,6 +130,22 @@ export interface SyncCalendarOutlookEventResponse {
 export interface UpdateCalendarOutlookConnectionRequest {
   targetCalendarId?: string | null;
   meetingProvider?: CalendarMeetingProviderKey;
+}
+
+export interface AdminCalendarIntegrationSettingsResponse {
+  provider: 'outlook';
+  isConfigured: boolean;
+  configurationIssues: string[];
+  policy: CalendarOutlookPolicySummary;
+}
+
+export interface UpdateAdminCalendarIntegrationSettingsRequest {
+  allowUserConnections?: boolean;
+  sharedCalendarsEnabled?: boolean;
+  defaultMeetingProvider?: CalendarMeetingProviderKey;
+  autoSyncDiscoveryEnabled?: boolean;
+  autoSyncTrainingEnabled?: boolean;
+  pilotUserEmails?: string[];
 }
 
 export interface CalendarOverviewSummary {

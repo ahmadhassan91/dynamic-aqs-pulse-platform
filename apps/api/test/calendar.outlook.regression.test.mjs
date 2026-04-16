@@ -128,6 +128,20 @@ async function connectOutlookForRuntime(runtime, auth) {
   return { port };
 }
 
+async function updateCalendarAdminPolicy(port, auth, input) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/calendar`, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${auth.tokens.accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 async function createTrainingAccountFixture(suffix = 'calendar-sync') {
   const segment = await prisma.businessSegmentRef.findFirst({
     where: { code: 'residential' },
@@ -328,6 +342,10 @@ test('outlook settings list available calendars and persist target calendar plus
 
   try {
     const { port } = await connectOutlookForRuntime(runtime, auth);
+    await updateCalendarAdminPolicy(port, auth, {
+      sharedCalendarsEnabled: true,
+      pilotUserEmails: ['admin@pulse.local'],
+    });
 
     const calendarsResponse = await fetch(`http://127.0.0.1:${port}/api/v1/calendar/outlook/calendars`, {
       headers: {
@@ -391,7 +409,12 @@ test('lead discovery scheduling auto-syncs into the selected Outlook calendar wi
   await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
 
   try {
-    await connectOutlookForRuntime(runtime, auth);
+    const { port } = await connectOutlookForRuntime(runtime, auth);
+    await updateCalendarAdminPolicy(port, auth, {
+      sharedCalendarsEnabled: true,
+      defaultMeetingProvider: 'teams',
+      pilotUserEmails: ['admin@pulse.local'],
+    });
     await updateOutlookConnection(actor, config, {
       targetCalendarId: 'shared-team',
       meetingProvider: 'teams',

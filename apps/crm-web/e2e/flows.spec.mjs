@@ -109,7 +109,7 @@ async function loginToInternalWorkspace(page, fixtures) {
   await expect(page.getByRole('heading', { name: 'Welcome to Pulse CRM' })).toBeVisible();
   await page.getByLabel('Email').fill(fixtures.internalAuth.email);
   await page.getByLabel('Password').fill(fixtures.internalAuth.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
 
 async function chooseSelectOption(page, label, optionMatcher) {

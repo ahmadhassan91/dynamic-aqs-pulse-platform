@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import { AuthorizationError } from '@pulse/auth';
 import type {
+  UpdateAdminMicrosoftEntraIntegrationSettingsRequest,
+  UpdateAdminCalendarIntegrationSettingsRequest,
   CreateAdminUserRequest,
   ImportAdminUsersRequest,
   ListAdminActivityRequest,
@@ -23,7 +25,9 @@ import {
 import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
 import {
   createAdminUser,
+  getAdminIntegrationStatus,
   getAdminOverview,
+  getAdminSystemHealth,
   importAdminUsers,
   listAdminActivity,
   listAdminRoleAccess,
@@ -31,6 +35,14 @@ import {
   resetAdminUserPassword,
   updateAdminUser,
 } from './service.js';
+import {
+  getMicrosoftEntraAdminSettings,
+  updateMicrosoftEntraAdminSettings,
+} from '../auth/policy.js';
+import {
+  getOutlookCalendarAdminSettings,
+  updateOutlookCalendarAdminSettings,
+} from '../calendar/policy.js';
 
 type AdminRouteDependencies = {
   config: AppConfig;
@@ -199,7 +211,86 @@ export async function handleAdminRoutes(
     });
   }
 
+  if (pathname === '/api/v1/admin/system-health') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.system_health_view' }, async () => {
+      const snapshot = await buildAdminSystemSnapshot(dependencies);
+      const response = await getAdminSystemHealth(snapshot);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/admin/integrations') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
+      const snapshot = await buildAdminSystemSnapshot(dependencies);
+      const response = await getAdminIntegrationStatus(snapshot);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/admin/integrations/calendar') {
+    if (method === 'GET') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
+        const response = await getOutlookCalendarAdminSettings(dependencies.config);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (method === 'PATCH') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+        const body = (await readJsonBody(req)) as UpdateAdminCalendarIntegrationSettingsRequest;
+        const response = await updateOutlookCalendarAdminSettings(actor, dependencies.config, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
+  }
+
+  if (pathname === '/api/v1/admin/integrations/auth') {
+    if (method === 'GET') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
+        const response = await getMicrosoftEntraAdminSettings(dependencies.config);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (method === 'PATCH') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+        const body = (await readJsonBody(req)) as UpdateAdminMicrosoftEntraIntegrationSettingsRequest;
+        const response = await updateMicrosoftEntraAdminSettings(actor, dependencies.config, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
+  }
+
   return false;
+}
+
+async function buildAdminSystemSnapshot(dependencies: AdminRouteDependencies) {
+  const [database, queue, workers, acumatica] = await Promise.all([
+    dependencies.getDatabaseHealth(),
+    dependencies.getQueueStatus(),
+    dependencies.getWorkersStatus(),
+    dependencies.getAcumaticaHealth(),
+  ]);
+
+  return {
+    config: dependencies.config,
+    database,
+    queue,
+    workers,
+    acumatica,
+  };
 }
 
 async function withAdminAuth(

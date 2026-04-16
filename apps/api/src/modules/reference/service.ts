@@ -18,6 +18,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 const BUSINESS_SEGMENT_ENTITY_TYPE = 'BUSINESS_SEGMENT_REF';
 const LEAD_SOURCE_ENTITY_TYPE = 'LEAD_SOURCE_REF';
 const LEAD_STAGE_ENTITY_TYPE = 'LEAD_STAGE_REF';
+let referenceSeedPromise: Promise<void> | null = null;
 
 const DEFAULT_BUSINESS_SEGMENTS = [
   { code: 'residential', name: 'Residential', description: 'Residential-focused accounts and downstream views.', sortOrder: 10 },
@@ -105,57 +106,54 @@ const DEFAULT_LEAD_STAGES = [
 ] as const;
 
 export async function ensureReferenceDataSeeded() {
+  if (referenceSeedPromise) {
+    return referenceSeedPromise;
+  }
+
+  referenceSeedPromise = ensureReferenceDataSeededInternal().finally(() => {
+    referenceSeedPromise = null;
+  });
+
+  return referenceSeedPromise;
+}
+
+async function ensureReferenceDataSeededInternal() {
   await prisma.$transaction(async (tx) => {
-    await Promise.all([
-      ...DEFAULT_BUSINESS_SEGMENTS.map((item) =>
-        tx.businessSegmentRef.upsert({
-          where: {
-            code: item.code,
-          },
-          update: {},
-          create: {
-            code: item.code,
-            name: item.name,
-            description: item.description,
-            sortOrder: item.sortOrder,
-            isActive: true,
-          },
-        }),
-      ),
-      ...DEFAULT_LEAD_SOURCES.map((item) =>
-        tx.leadSourceRef.upsert({
-          where: {
-            code: item.code,
-          },
-          update: {},
-          create: {
-            code: item.code,
-            name: item.name,
-            description: item.description,
-            sortOrder: item.sortOrder,
-            isActive: true,
-          },
-        }),
-      ),
-      ...DEFAULT_LEAD_STAGES.map((item) =>
-        tx.leadStageRef.upsert({
-          where: {
-            stage: item.stage,
-          },
-          update: {},
-          create: {
-            stage: item.stage,
-            code: item.code,
-            name: item.name,
-            dashboardLabel: item.dashboardLabel,
-            description: item.description,
-            sortOrder: item.sortOrder,
-            isActive: true,
-            isTerminal: item.isTerminal,
-          },
-        }),
-      ),
-    ]);
+    await tx.businessSegmentRef.createMany({
+      data: DEFAULT_BUSINESS_SEGMENTS.map((item) => ({
+        code: item.code,
+        name: item.name,
+        description: item.description,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      })),
+      skipDuplicates: true,
+    });
+
+    await tx.leadSourceRef.createMany({
+      data: DEFAULT_LEAD_SOURCES.map((item) => ({
+        code: item.code,
+        name: item.name,
+        description: item.description,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      })),
+      skipDuplicates: true,
+    });
+
+    await tx.leadStageRef.createMany({
+      data: DEFAULT_LEAD_STAGES.map((item) => ({
+        stage: item.stage,
+        code: item.code,
+        name: item.name,
+        dashboardLabel: item.dashboardLabel,
+        description: item.description,
+        sortOrder: item.sortOrder,
+        isActive: true,
+        isTerminal: item.isTerminal,
+      })),
+      skipDuplicates: true,
+    });
   });
 }
 

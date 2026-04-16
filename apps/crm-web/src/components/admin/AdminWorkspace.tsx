@@ -29,13 +29,17 @@ import {
   IconEdit,
   IconFileImport,
   IconKey,
+  IconLink,
   IconPlus,
   IconSearch,
   IconShield,
   IconUsers,
 } from '@tabler/icons-react';
 import type {
+  AdminCalendarIntegrationSettingsResponse,
+  AdminMicrosoftEntraIntegrationSettingsResponse,
   AdminActivityEntry,
+  AdminIntegrationStatusResponse,
   AdminOverviewResponse,
   AdminRoleAccessCatalogResponse,
   AdminUserStatus,
@@ -48,21 +52,28 @@ import type {
 } from '@pulse/contracts';
 import {
   createAdminUser as createAdminUserRequest,
+  fetchAdminCalendarIntegrationSettings,
+  fetchAdminMicrosoftEntraIntegrationSettings,
+  fetchAdminIntegrations,
   fetchAdminActivity,
   fetchAdminOverview,
   fetchAdminRoleAccess,
   fetchAdminUsers,
   importAdminUsers as importAdminUsersRequest,
   resetAdminUserPassword,
+  updateAdminCalendarIntegrationSettings as updateAdminCalendarIntegrationSettingsRequest,
+  updateAdminMicrosoftEntraIntegrationSettings as updateAdminMicrosoftEntraIntegrationSettingsRequest,
   updateAdminUser as updateAdminUserRequest,
 } from '@/lib/pulse-api';
 import { AUTH_ROLE_CATALOG } from '@/lib/auth-catalog';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
+import { AdminEntraIntegrationPanel } from './AdminEntraIntegrationPanel';
 import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
 
-type AdminTab = 'overview' | 'users' | 'roles' | 'activity';
+type AdminTab = 'overview' | 'users' | 'roles' | 'activity' | 'integrations';
 
 const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
 
@@ -76,14 +87,19 @@ export function AdminWorkspace({
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
   const [rolesCatalog, setRolesCatalog] = useState<AdminRoleAccessCatalogResponse | null>(null);
   const [activity, setActivity] = useState<AdminActivityEntry[]>([]);
+  const [integrationStatuses, setIntegrationStatuses] = useState<AdminIntegrationStatusResponse | null>(null);
+  const [calendarIntegrationSettings, setCalendarIntegrationSettings] = useState<AdminCalendarIntegrationSettingsResponse | null>(null);
+  const [entraIntegrationSettings, setEntraIntegrationSettings] = useState<AdminMicrosoftEntraIntegrationSettingsResponse | null>(null);
   const [usersResponse, setUsersResponse] = useState<ListAdminUsersResponse | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [integrationsLoading, setIntegrationsLoading] = useState(false);
   const [usersLoading, setUsersLoading] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     search: '',
@@ -97,6 +113,7 @@ export function AdminWorkspace({
   const [userImportOpen, setUserImportOpen] = useState(false);
   const [userFormLoading, setUserFormLoading] = useState(false);
   const [userImportLoading, setUserImportLoading] = useState(false);
+  const [integrationSaving, setIntegrationSaving] = useState(false);
   const [userMutationError, setUserMutationError] = useState<string | null>(null);
   const role = auth?.identity.role;
   const tabAccess = useMemo(
@@ -105,11 +122,13 @@ export function AdminWorkspace({
       users: role ? canPerformAction(role, 'admin.user_view') : false,
       roles: role ? canPerformAction(role, 'admin.role_view') : false,
       activity: role ? canPerformAction(role, 'admin.audit_view') : false,
+      integrations: role ? canPerformAction(role, 'admin.integration_view') : false,
     }),
     [role],
   );
+  const canManageIntegrations = role ? canPerformAction(role, 'admin.integration_manage') : false;
   const availableTabs = useMemo(
-    () => (['overview', 'users', 'roles', 'activity'] as const).filter((tab) => tabAccess[tab]),
+    () => (['overview', 'users', 'roles', 'activity', 'integrations'] as const).filter((tab) => tabAccess[tab]),
     [tabAccess],
   );
 
@@ -237,6 +256,50 @@ export function AdminWorkspace({
 
   useEffect(() => {
     const accessToken = auth?.tokens.accessToken;
+    if (!accessToken || !tabAccess.integrations) {
+      return;
+    }
+    const token = accessToken;
+
+    let cancelled = false;
+    setIntegrationsLoading(true);
+
+    async function loadIntegrations() {
+      try {
+        const [statusResponse, calendarSettingsResponse, entraSettingsResponse] = await Promise.all([
+          fetchAdminIntegrations(apiBaseUrl, token),
+          fetchAdminCalendarIntegrationSettings(apiBaseUrl, token),
+          fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, token),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setIntegrationStatuses(statusResponse);
+        setCalendarIntegrationSettings(calendarSettingsResponse);
+        setEntraIntegrationSettings(entraSettingsResponse);
+        setIntegrationsError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setIntegrationsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIntegrationsLoading(false);
+        }
+      }
+    }
+
+    void loadIntegrations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, tabAccess.integrations]);
+
+  useEffect(() => {
+    const accessToken = auth?.tokens.accessToken;
     if (!accessToken || !tabAccess.users) {
       return;
     }
@@ -315,6 +378,21 @@ export function AdminWorkspace({
         fetchAdminActivity(apiBaseUrl, auth.tokens.accessToken, { limit: 12 }).then((nextActivity) => {
           setActivity(nextActivity.entries);
           setActivityError(null);
+        }),
+      );
+    }
+
+    if (tabAccess.integrations) {
+      jobs.push(
+        Promise.all([
+          fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken),
+          fetchAdminCalendarIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
+          fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
+        ]).then(([statusResponse, calendarSettingsResponse, entraSettingsResponse]) => {
+          setIntegrationStatuses(statusResponse);
+          setCalendarIntegrationSettings(calendarSettingsResponse);
+          setEntraIntegrationSettings(entraSettingsResponse);
+          setIntegrationsError(null);
         }),
       );
     }
@@ -461,18 +539,84 @@ export function AdminWorkspace({
     }
   }
 
+  async function handleIntegrationSave(values: {
+    allowUserConnections: boolean;
+    sharedCalendarsEnabled: boolean;
+    defaultMeetingProvider: 'none' | 'teams';
+    autoSyncDiscoveryEnabled: boolean;
+    autoSyncTrainingEnabled: boolean;
+    pilotUserEmails: string[];
+  }) {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const response = await updateAdminCalendarIntegrationSettingsRequest(apiBaseUrl, auth.tokens.accessToken, values);
+      setCalendarIntegrationSettings(response);
+      const nextStatuses = await fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken);
+      setIntegrationStatuses(nextStatuses);
+      setIntegrationsError(null);
+      notifications.show({
+        color: 'green',
+        message: 'Calendar integration settings updated.',
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
+  async function handleEntraIntegrationSave(values: {
+    allowEmailLinking: boolean;
+    autoProvisionFromGroups: boolean;
+    allowedDomains: string[];
+    groupRoleMappings: Array<{ groupId: string; role: AuthRole }>;
+  }) {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const response = await updateAdminMicrosoftEntraIntegrationSettingsRequest(apiBaseUrl, auth.tokens.accessToken, values);
+      setEntraIntegrationSettings(response);
+      const nextStatuses = await fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken);
+      setIntegrationStatuses(nextStatuses);
+      setIntegrationsError(null);
+      notifications.show({
+        color: 'green',
+        message: 'Microsoft Entra access settings updated.',
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
   const currentTabLoading = (
     !isHydrated
     || (activeTab === 'overview' && tabAccess.overview && (overviewLoading || !overview))
     || (activeTab === 'users' && tabAccess.users && (usersLoading || !usersResponse))
     || (activeTab === 'roles' && tabAccess.roles && (rolesLoading || !rolesCatalog))
     || (activeTab === 'activity' && tabAccess.activity && activityLoading && activity.length === 0)
+    || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !entraIntegrationSettings))
   );
 
   const currentTabError = (
     activeTab === 'overview' ? overviewError
     : activeTab === 'users' ? userError
     : activeTab === 'roles' ? rolesError
+    : activeTab === 'integrations' ? integrationsError
     : activityError
   );
 
@@ -548,6 +692,11 @@ export function AdminWorkspace({
                 Activity Monitor
               </Tabs.Tab>
             ) : null}
+            {tabAccess.integrations ? (
+              <Tabs.Tab value="integrations" leftSection={<IconLink size={16} />}>
+                Integrations
+              </Tabs.Tab>
+            ) : null}
           </Tabs.List>
 
           <Tabs.Panel value="overview" pt="md">
@@ -584,6 +733,14 @@ export function AdminWorkspace({
                       title="Audit Activity"
                       description="Review the latest admin and auth events"
                       onClick={() => setActiveTab('activity')}
+                    />
+                  ) : null}
+                  {tabAccess.integrations ? (
+                    <ActionCard
+                      icon={IconLink}
+                      title="Calendar Integrations"
+                      description="Review Outlook rollout status and calendar sync controls"
+                      onClick={() => setActiveTab('integrations')}
                     />
                   ) : null}
                 </SimpleGrid>
@@ -861,6 +1018,25 @@ export function AdminWorkspace({
                 </Table.Tbody>
               </Table>
             </Paper>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="integrations" pt="md">
+            <Stack gap="md">
+              <AdminEntraIntegrationPanel
+                settings={entraIntegrationSettings}
+                statuses={integrationStatuses}
+                canManage={canManageIntegrations}
+                isSaving={integrationSaving}
+                onSave={handleEntraIntegrationSave}
+              />
+              <AdminCalendarIntegrationPanel
+                settings={calendarIntegrationSettings}
+                statuses={integrationStatuses}
+                canManage={canManageIntegrations}
+                isSaving={integrationSaving}
+                onSave={handleIntegrationSave}
+              />
+            </Stack>
           </Tabs.Panel>
         </Tabs>
       </Stack>

@@ -633,23 +633,33 @@ const ELIGIBLE_TRAINER_ROLE_CODES = new Set([
   'TERRITORY_MANAGER',
   'REGIONAL_DIRECTOR',
 ]);
+let trainingSeedPromise: Promise<void> | null = null;
 
 export async function ensureTrainingSeeded() {
+  if (trainingSeedPromise) {
+    return trainingSeedPromise;
+  }
+
+  trainingSeedPromise = ensureTrainingSeededInternal().finally(() => {
+    trainingSeedPromise = null;
+  });
+
+  return trainingSeedPromise;
+}
+
+async function ensureTrainingSeededInternal() {
   await prisma.$transaction(async (tx) => {
-    for (const category of DEFAULT_TRAINING_CATEGORIES) {
-      await tx.trainingCategory.upsert({
-        where: { code: category.code },
-        update: {},
-        create: {
-          kind: category.kind,
-          code: category.code,
-          name: category.name,
-          description: category.description,
-          sortOrder: category.sortOrder,
-          isActive: true,
-        },
-      });
-    }
+    await tx.trainingCategory.createMany({
+      data: DEFAULT_TRAINING_CATEGORIES.map((category) => ({
+        kind: category.kind,
+        code: category.code,
+        name: category.name,
+        description: category.description,
+        sortOrder: category.sortOrder,
+        isActive: true,
+      })),
+      skipDuplicates: true,
+    });
 
     const categories = await tx.trainingCategory.findMany({
       select: { id: true, code: true, name: true },
@@ -662,23 +672,24 @@ export async function ensureTrainingSeeded() {
         throw new Error(`Missing training category seed: ${trainingType.categoryCode}`);
       }
 
-      await tx.trainingType.upsert({
-        where: { code: trainingType.code },
-        update: {},
-        create: {
-          categoryId: category.id,
-          code: trainingType.code,
-          name: trainingType.name,
-          description: trainingType.description,
-          family: trainingType.family,
-          deliveryMode: trainingType.deliveryMode,
-          defaultDurationMinutes: trainingType.defaultDurationMinutes,
-          countsTowardHours: trainingType.countsTowardHours,
-          isCustomerFacing: trainingType.isCustomerFacing,
-          isCertificationTrack: trainingType.isCertificationTrack,
-          sortOrder: trainingType.sortOrder,
-          isActive: true,
-        },
+      await tx.trainingType.createMany({
+        data: [
+          {
+            categoryId: category.id,
+            code: trainingType.code,
+            name: trainingType.name,
+            description: trainingType.description,
+            family: trainingType.family,
+            deliveryMode: trainingType.deliveryMode,
+            defaultDurationMinutes: trainingType.defaultDurationMinutes,
+            countsTowardHours: trainingType.countsTowardHours,
+            isCustomerFacing: trainingType.isCustomerFacing,
+            isCertificationTrack: trainingType.isCertificationTrack,
+            sortOrder: trainingType.sortOrder,
+            isActive: true,
+          },
+        ],
+        skipDuplicates: true,
       });
     }
 
@@ -703,19 +714,20 @@ export async function ensureTrainingSeeded() {
         materialsSummary: override?.materialsSummary,
       };
 
-      await tx.trainingTemplate.upsert({
-        where: { code: templateSeed.code },
-        update: {},
-        create: {
-          trainingTypeId: typeRecord.id,
-          code: templateSeed.code,
-          title: templateSeed.title,
-          ...(templateSeed.description ? { description: templateSeed.description } : {}),
-          ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
-          ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
-          proofRequirement: templateSeed.proofRequirement,
-          isActive: true,
-        },
+      await tx.trainingTemplate.createMany({
+        data: [
+          {
+            trainingTypeId: typeRecord.id,
+            code: templateSeed.code,
+            title: templateSeed.title,
+            ...(templateSeed.description ? { description: templateSeed.description } : {}),
+            ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
+            ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
+            proofRequirement: templateSeed.proofRequirement,
+            isActive: true,
+          },
+        ],
+        skipDuplicates: true,
       });
 
       const cadenceOverride = DEFAULT_TRAINING_CADENCE_OVERRIDES.get(trainingType.code);

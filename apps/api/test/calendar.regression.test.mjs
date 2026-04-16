@@ -12,6 +12,7 @@ let createPulseServer;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
+let createAdminUser;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
@@ -27,6 +28,7 @@ test.before(async () => {
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ createAdminUser } = await import('../dist/modules/admin/service.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({
     ensureLeadRoutingPolicySeeded,
@@ -73,6 +75,31 @@ async function createAdminSession() {
   const actor = await authenticateAccessToken(auth.tokens.accessToken);
   assert.ok(actor, 'expected bootstrap admin actor');
   return { actor, auth };
+}
+
+async function createInternalRoleSession(role, email) {
+  const { actor } = await createAdminSession();
+  const password = 'CalendarRole!234';
+
+  await createAdminUser(actor, {
+    email,
+    firstName: 'Calendar',
+    lastName: 'Ops',
+    role,
+    password,
+    isActive: true,
+  });
+
+  const auth = await loginWithPassword(
+    config,
+    {
+      email,
+      password,
+    },
+    {},
+  );
+
+  return { auth };
 }
 
 function actorWithRole(actor, role) {
@@ -246,4 +273,38 @@ test('calendar workspace requires auth on the route and rejects oversized ranges
       }),
     /cannot exceed 180 days/i,
   );
+});
+
+test('training routes return 403 for calendar-visible roles without crashing the API runtime', SERIAL, async () => {
+  const { auth } = await createInternalRoleSession('ADMIN_CSR_OPS', 'calendar.ops@pulse.local');
+  const runtime = await createPulseServer(loadAppConfig(process.env));
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const address = runtime.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const trainingResponse = await fetch(`http://127.0.0.1:${port}/api/v1/training/catalog`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(trainingResponse.status, 403);
+    const trainingPayload = await trainingResponse.json();
+    assert.match(String(trainingPayload.detail), /cannot access module training/i);
+
+    const calendarResponse = await fetch(
+      `http://127.0.0.1:${port}/api/v1/calendar/workspace?startDate=2026-06-01T00:00:00.000Z&endDate=2026-06-30T23:59:59.999Z`,
+      {
+        headers: {
+          authorization: `Bearer ${auth.tokens.accessToken}`,
+        },
+      },
+    );
+
+    assert.equal(calendarResponse.status, 200);
+  } finally {
+    await runtime.close();
+  }
 });

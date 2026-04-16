@@ -3,6 +3,8 @@ import type {
   AdminOverviewResponse,
   AdminRoleAccessCatalogResponse,
   AdminSystemHealthResponse,
+  AdminCalendarIntegrationSettingsResponse,
+  AdminMicrosoftEntraIntegrationSettingsResponse,
   CreateAdminUserRequest,
   CreateAdminUserResponse,
   ImportAdminUsersRequest,
@@ -27,6 +29,7 @@ import type {
   SyncCalendarOutlookEventRequest,
   SyncCalendarOutlookEventResponse,
   UpdateCalendarOutlookConnectionRequest,
+  UpdateAdminCalendarIntegrationSettingsRequest,
   AccountDetail,
   AccountSummary,
   AccountLocationSummary,
@@ -88,6 +91,7 @@ import type {
   ResolveWebsiteLeadSubmissionRequest,
   StartMicrosoftEntraLoginRequest,
   StartMicrosoftEntraLoginResponse,
+  UpdateAdminMicrosoftEntraIntegrationSettingsRequest,
   UpdateLeadRoutingPolicyRequest,
   ListLeadWorkflowQueueRequest,
   ListLeadWorkflowQueueResponse,
@@ -394,6 +398,44 @@ export async function fetchAdminIntegrations(apiBaseUrl: string, accessToken: st
   return requestJson<AdminIntegrationStatusResponse>(apiBaseUrl, '/api/v1/admin/integrations', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function fetchAdminCalendarIntegrationSettings(apiBaseUrl: string, accessToken: string) {
+  return requestJson<AdminCalendarIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/calendar', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl: string, accessToken: string) {
+  return requestJson<AdminMicrosoftEntraIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/auth', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function updateAdminCalendarIntegrationSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateAdminCalendarIntegrationSettingsRequest,
+) {
+  return requestJson<AdminCalendarIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/calendar', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAdminMicrosoftEntraIntegrationSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateAdminMicrosoftEntraIntegrationSettingsRequest,
+) {
+  return requestJson<AdminMicrosoftEntraIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/auth', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
   });
 }
 
@@ -1565,14 +1607,19 @@ async function requestJson<TResponse>(
     body?: unknown;
   },
 ): Promise<TResponse> {
-  const response = await fetch(`${normalizeApiBaseUrl(apiBaseUrl)}${pathname}`, {
-    method: options.method,
-    headers: {
-      ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
-      ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${normalizeApiBaseUrl(apiBaseUrl)}${pathname}`, {
+      method: options.method,
+      headers: {
+        ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
+        ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    });
+  } catch (error) {
+    throw new Error(normalizeNetworkError(apiBaseUrl, error));
+  }
 
   if (!response.ok) {
     const detail = await readErrorDetail(response);
@@ -1591,14 +1638,19 @@ async function requestJsonMaybeNotFound<TResponse>(
     body?: unknown;
   },
 ): Promise<TResponse | null> {
-  const response = await fetch(`${normalizeApiBaseUrl(apiBaseUrl)}${pathname}`, {
-    method: options.method,
-    headers: {
-      ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
-      ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${normalizeApiBaseUrl(apiBaseUrl)}${pathname}`, {
+      method: options.method,
+      headers: {
+        ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
+        ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    });
+  } catch (error) {
+    throw new Error(normalizeNetworkError(apiBaseUrl, error));
+  }
 
   if (response.status === 404) {
     return null;
@@ -1633,4 +1685,13 @@ async function readErrorDetail(response: Response) {
 
 function normalizeApiBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+function normalizeNetworkError(apiBaseUrl: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === 'Failed to fetch') {
+    return `Pulse API is unavailable at ${normalizeApiBaseUrl(apiBaseUrl)}. Make sure the backend is running and try again.`;
+  }
+
+  return message;
 }

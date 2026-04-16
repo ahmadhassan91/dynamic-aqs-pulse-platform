@@ -11,6 +11,9 @@ let prisma;
 let loadAppConfig;
 let createPulseServer;
 let ensureBootstrapAdminSeeded;
+let loginWithPassword;
+let authenticateAccessToken;
+let updateMicrosoftEntraAdminSettings;
 let mockEntra;
 let config;
 const SERIAL = { concurrency: false };
@@ -19,7 +22,8 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
-  ({ ensureBootstrapAdminSeeded } = await import('../dist/modules/auth/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ updateMicrosoftEntraAdminSettings } = await import('../dist/modules/auth/policy.js'));
   await prisma.$connect();
 });
 
@@ -48,18 +52,43 @@ test.afterEach(async () => {
   }
 });
 
-test('entra start + complete links an existing bootstrap admin by email', SERIAL, async () => {
+async function createBootstrapActor() {
+  const auth = await loginWithPassword(
+    config,
+    {
+      email: process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL,
+      password: process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD,
+    },
+    {},
+  );
+  const actor = await authenticateAccessToken(auth.tokens.accessToken);
+  assert.ok(actor, 'expected bootstrap admin actor');
+  return actor;
+}
+
+test('entra start + complete links an existing internal Pulse user by email', SERIAL, async () => {
+  const linkedEmail = 'entra.linked.admin@pulse.local';
+  await prisma.user.create({
+    data: {
+      email: linkedEmail,
+      displayName: 'Existing Internal Admin',
+      roleCode: 'SUPER_ADMIN',
+      userType: 'INTERNAL',
+      isActive: true,
+    },
+  });
+
   mockEntra.setScenario({
     claims: {
       oid: 'entra-bootstrap-admin',
       name: 'Pulse Bootstrap Admin',
-      preferred_username: process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL,
+      preferred_username: linkedEmail,
     },
     profile: {
       id: 'entra-bootstrap-admin',
       displayName: 'Pulse Bootstrap Admin',
-      mail: process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL,
-      userPrincipalName: process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL,
+      mail: linkedEmail,
+      userPrincipalName: linkedEmail,
     },
     groups: [],
   });
@@ -73,7 +102,7 @@ test('entra start + complete links an existing bootstrap admin by email', SERIAL
 
     const { response, payload } = await completeEntraFlow(port, state, 'bootstrap-code');
     assert.equal(response.status, 200);
-    assert.equal(payload.identity.email, process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL);
+    assert.equal(payload.identity.email, linkedEmail);
     assert.equal(payload.identity.role, 'SUPER_ADMIN');
     assert.equal(payload.nextPath, '/leads/forms');
 
@@ -138,6 +167,147 @@ test('entra complete auto-provisions an internal user when mapped group membersh
     assert.ok(user, 'expected auto-provisioned internal user');
     assert.equal(user.roleCode, 'TRAINING_OPS');
     assert.equal(user.userType, 'INTERNAL');
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('entra complete respects admin policy when email linking is disabled', SERIAL, async () => {
+  const linkedEmail = 'entra.linking.disabled@pulse.local';
+  await prisma.user.create({
+    data: {
+      email: linkedEmail,
+      displayName: 'Link Disabled User',
+      roleCode: 'ADMIN_CSR_OPS',
+      userType: 'INTERNAL',
+      isActive: true,
+    },
+  });
+
+  const actor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(actor, config, {
+    allowEmailLinking: false,
+    autoProvisionFromGroups: false,
+  });
+
+  mockEntra.setScenario({
+    claims: {
+      oid: 'entra-link-disabled-user',
+      name: 'Link Disabled User',
+      preferred_username: linkedEmail,
+    },
+    profile: {
+      id: 'entra-link-disabled-user',
+      displayName: 'Link Disabled User',
+      mail: linkedEmail,
+      userPrincipalName: linkedEmail,
+    },
+    groups: [],
+  });
+
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port, state } = await startEntraFlow(runtime);
+    const { response, payload } = await completeEntraFlow(port, state, 'link-disabled-code');
+
+    assert.equal(response.status, 403);
+    assert.match(String(payload.detail), /email-based microsoft account linking is disabled/i);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('entra complete auto-provisions from admin-managed group mapping when the domain is approved', SERIAL, async () => {
+  process.env.MICROSOFT_ENTRA_GROUP_ROLE_MAP = '';
+  config = loadAppConfig(process.env);
+  await ensureBootstrapAdminSeeded(config);
+
+  const actor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(actor, config, {
+    allowEmailLinking: false,
+    autoProvisionFromGroups: true,
+    allowedDomains: ['dynamicaqs.com'],
+    groupRoleMappings: [
+      { groupId: 'group-training', role: 'TRAINING_OPS' },
+    ],
+  });
+
+  mockEntra.setScenario({
+    claims: {
+      oid: 'entra-stored-policy-user',
+      name: 'Tina Stored Mapping',
+      preferred_username: 'tina.training@dynamicaqs.com',
+    },
+    profile: {
+      id: 'entra-stored-policy-user',
+      displayName: 'Tina Stored Mapping',
+      mail: 'tina.training@dynamicaqs.com',
+      userPrincipalName: 'tina.training@dynamicaqs.com',
+    },
+    groups: ['group-training'],
+  });
+
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port, state } = await startEntraFlow(runtime);
+    const { response, payload } = await completeEntraFlow(port, state, 'stored-mapping-code');
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.identity.role, 'TRAINING_OPS');
+
+    const user = await prisma.user.findUnique({
+      where: { email: 'tina.training@dynamicaqs.com' },
+    });
+    assert.ok(user, 'expected auto-provisioned user from stored mapping');
+    assert.equal(user.roleCode, 'TRAINING_OPS');
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('entra complete rejects approved groups when the email domain is not allowed', SERIAL, async () => {
+  process.env.MICROSOFT_ENTRA_GROUP_ROLE_MAP = '';
+  config = loadAppConfig(process.env);
+  await ensureBootstrapAdminSeeded(config);
+
+  const actor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(actor, config, {
+    allowEmailLinking: false,
+    autoProvisionFromGroups: true,
+    allowedDomains: ['dynamicaqs.com'],
+    groupRoleMappings: [
+      { groupId: 'group-finance', role: 'FINANCE' },
+    ],
+  });
+
+  mockEntra.setScenario({
+    claims: {
+      oid: 'entra-domain-mismatch-user',
+      name: 'Domain Mismatch User',
+      preferred_username: 'outside.user@gmail.com',
+    },
+    profile: {
+      id: 'entra-domain-mismatch-user',
+      displayName: 'Domain Mismatch User',
+      mail: 'outside.user@gmail.com',
+      userPrincipalName: 'outside.user@gmail.com',
+    },
+    groups: ['group-finance'],
+  });
+
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port, state } = await startEntraFlow(runtime);
+    const { response, payload } = await completeEntraFlow(port, state, 'domain-mismatch-code');
+
+    assert.equal(response.status, 403);
+    assert.match(String(payload.detail), /email domain is not approved/i);
   } finally {
     await runtime.close();
   }

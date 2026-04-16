@@ -13,6 +13,7 @@ import {
 } from '@pulse/db';
 import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData as buildDomainAuditEntryData } from '../../utils/audit.js';
+import { getResolvedMicrosoftEntraPolicy } from './policy.js';
 import type {
   AuthIdentity,
   AuthRole,
@@ -346,7 +347,14 @@ export async function completeMicrosoftEntraLogin(
     throw new Error('Microsoft Entra login did not return a usable email address');
   }
 
-  const mappedRole = await resolveMicrosoftEntraRole(config, tokenResponse.accessToken, claims.groups);
+  const entraPolicy = await getResolvedMicrosoftEntraPolicy(config);
+  const mappedRole = await resolveMicrosoftEntraRole(
+    config,
+    tokenResponse.accessToken,
+    claims.groups,
+    entraPolicy.effectiveGroupRoleMappings,
+  );
+  const isAllowedDomain = isEmailAllowedByMicrosoftEntraPolicy(email, entraPolicy.allowedDomains);
   const outcome = await prisma.$transaction(async (tx) => {
     const existingIdentity = await tx.userIdentity.findUnique({
       where: {
@@ -371,38 +379,54 @@ export async function completeMicrosoftEntraLogin(
 
     const linkedUser = existingIdentity?.user ?? emailMatchedUser ?? null;
     if (linkedUser && linkedUser.userType !== UserKind.INTERNAL) {
-      await tx.auditEntry.create({
-        data: buildDomainAuditEntryData({
-          action: AuditAction.LOGIN,
-          entityType: 'auth_attempt',
-          requestId: ctx.requestId,
-          correlationId: ctx.correlationId,
-          sourceSystem: 'microsoft_entra',
-          metadata: {
-            provider: 'microsoft_entra',
-            email,
-            result: 'rejected_non_internal_user',
-          },
-        }),
+      await auditMicrosoftEntraRejectedAttempt(tx, {
+        email,
+        result: 'rejected_non_internal_user',
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
       });
       throw new Error('This Microsoft account is not allowed to access the internal Pulse workspace');
     }
 
+    if (!existingIdentity && !isAllowedDomain) {
+      await auditMicrosoftEntraRejectedAttempt(tx, {
+        email,
+        result: 'rejected_domain_not_allowed',
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
+        allowedDomains: entraPolicy.allowedDomains,
+      });
+      throw new Error('This Microsoft account email domain is not approved for internal Pulse access');
+    }
+
+    if (!existingIdentity && emailMatchedUser && !entraPolicy.allowEmailLinking && !mappedRole) {
+      await auditMicrosoftEntraRejectedAttempt(tx, {
+        email,
+        result: 'rejected_email_linking_disabled',
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
+      });
+      throw new Error('Email-based Microsoft account linking is disabled. Ask an admin to approve this user or add a group-role mapping.');
+    }
+
+    if (!existingIdentity && !linkedUser && !entraPolicy.autoProvisionFromGroups && mappedRole) {
+      await auditMicrosoftEntraRejectedAttempt(tx, {
+        email,
+        result: 'rejected_auto_provision_disabled',
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
+        mappedRole,
+      });
+      throw new Error('Automatic Microsoft account provisioning is disabled. Ask an admin to create this Pulse user first.');
+    }
+
     const effectiveRole = mappedRole ?? (linkedUser ? normalizeRole(linkedUser.roleCode) : null);
     if (!effectiveRole || !isInternalRole(effectiveRole)) {
-      await tx.auditEntry.create({
-        data: buildDomainAuditEntryData({
-          action: AuditAction.LOGIN,
-          entityType: 'auth_attempt',
-          requestId: ctx.requestId,
-          correlationId: ctx.correlationId,
-          sourceSystem: 'microsoft_entra',
-          metadata: {
-            provider: 'microsoft_entra',
-            email,
-            result: 'rejected_no_mapped_role',
-          },
-        }),
+      await auditMicrosoftEntraRejectedAttempt(tx, {
+        email,
+        result: 'rejected_no_mapped_role',
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
       });
       throw new Error('No approved Pulse role was resolved for this Microsoft account');
     }
@@ -775,9 +799,12 @@ async function resolveMicrosoftEntraRole(
   config: AppConfig,
   accessToken: string,
   tokenGroupIds?: string[] | undefined,
+  configuredEntriesInput?: Array<{ groupId: string; role: AuthRole }>,
 ): Promise<AuthRole | null> {
-  const configuredMap = config.auth.entra.groupRoleMap;
-  const configuredEntries = Object.entries(configuredMap);
+  const configuredMappings = configuredEntriesInput ?? [];
+  const configuredEntries = configuredMappings.length > 0
+    ? configuredMappings.map((entry) => [entry.groupId, entry.role] as const)
+    : Object.entries(config.auth.entra.groupRoleMap);
   if (configuredEntries.length === 0) {
     return null;
   }
@@ -818,6 +845,44 @@ async function resolveMicrosoftEntraRole(
   }
 
   return resolvedRole;
+}
+
+function isEmailAllowedByMicrosoftEntraPolicy(email: string, allowedDomains: string[]) {
+  if (allowedDomains.length === 0) {
+    return true;
+  }
+
+  const [, domain = ''] = email.toLowerCase().split('@');
+  return Boolean(domain) && allowedDomains.includes(domain);
+}
+
+async function auditMicrosoftEntraRejectedAttempt(
+  tx: Prisma.TransactionClient,
+  input: {
+    email: string;
+    result: string;
+    requestId?: string | undefined;
+    correlationId?: string | undefined;
+    mappedRole?: AuthRole | null | undefined;
+    allowedDomains?: string[] | undefined;
+  },
+) {
+  await tx.auditEntry.create({
+    data: buildDomainAuditEntryData({
+      action: AuditAction.LOGIN,
+      entityType: 'auth_attempt',
+      requestId: input.requestId,
+      correlationId: input.correlationId,
+      sourceSystem: 'microsoft_entra',
+      metadata: {
+        provider: 'microsoft_entra',
+        email: input.email,
+        result: input.result,
+        ...(input.mappedRole ? { mappedRole: input.mappedRole } : {}),
+        ...(input.allowedDomains ? { allowedDomains: input.allowedDomains } : {}),
+      },
+    }),
+  });
 }
 
 function parseMicrosoftEntraIdToken(idToken?: string | undefined): MicrosoftEntraIdTokenClaims {

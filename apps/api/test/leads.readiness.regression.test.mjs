@@ -396,3 +396,52 @@ test('lead readiness and conversion regression suite', SERIAL, async () => {
     /already been converted/i,
   );
 });
+
+test('conditional finance approval keeps conversion blocked even after checklist completion', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createFinanceReviewedLead(actor, 'conditional');
+
+  await generateLeadReadinessChecklist(actor, fixture.lead.id);
+  await importLeadContactsFromCis(actor, fixture.lead.id);
+
+  await updateLeadConversionPreparation(actor, fixture.lead.id, {
+    priceClassCode: 'NET30-CONDITIONAL',
+    portalEligibilityStatus: 'provisioned',
+    shippingAddressSnapshot: {
+      name: 'Conditional Main',
+      line1: '455 Market Street',
+      city: 'Dallas',
+      state: 'TX',
+      postalCode: '75201',
+      countryCode: 'US',
+    },
+    billingAddressSnapshot: {
+      name: 'Conditional Billing',
+      line1: '455 Market Street',
+      city: 'Dallas',
+      state: 'TX',
+      postalCode: '75201',
+      countryCode: 'US',
+    },
+    notes: 'Conditional finance follow-through still pending.',
+  });
+
+  await completeManualChecklistItems(actor, fixture.lead.id);
+
+  const readiness = await getLeadReadiness(actor, fixture.lead.id);
+  assert.ok(readiness);
+  assert.equal(readiness.summary.checklistStatus, 'blocked');
+  assert.equal(readiness.summary.status, 'blocked');
+  assert.ok(readiness.blockers.some((blocker) => blocker.includes('Finance approval is conditional')));
+
+  const validation = await validateLeadConversionPreparation(actor, fixture.lead.id);
+  assert.equal(validation.ready, false);
+  assert.ok(validation.blockers.some((blocker) => blocker.includes('Finance approval is conditional')));
+
+  await assert.rejects(
+    () => convertLeadOnFirstOrder(actor, fixture.lead.id, {
+      firstOrderConfirmedAt: '2026-04-13T10:00:00.000Z',
+    }),
+    /Finance approval is conditional and still requires follow-through/i,
+  );
+});

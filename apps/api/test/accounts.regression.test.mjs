@@ -306,6 +306,114 @@ test('territory-scoped customer visibility stays simple for territory managers',
   assert.equal(adminList.total, 2);
 });
 
+test('regional directors can see accounts across territories in regions they direct', SERIAL, async () => {
+  const adminActor = await createAdminActor();
+  const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.rd.accounts@pulse.local', 'TM RD Accounts');
+  const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.rd.other.accounts@pulse.local', 'TM Other RD Accounts');
+  const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.region.accounts@pulse.local', 'RD Region Accounts');
+  const outsideRdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.outside.accounts@pulse.local', 'RD Outside Accounts');
+
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const ownedRegion = await prisma.region.create({
+    data: {
+      code: 'rg_rd_accounts',
+      name: 'RD Accounts Region',
+      directorUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const outsideRegion = await prisma.region.create({
+    data: {
+      code: 'rg_outside_accounts',
+      name: 'Outside Accounts Region',
+      directorUserId: outsideRdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const firstTerritory = await prisma.territory.create({
+    data: {
+      code: 'rd_accounts_one',
+      name: 'RD Accounts One',
+      regionId: ownedRegion.id,
+      managerUserId: tmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const secondTerritory = await prisma.territory.create({
+    data: {
+      code: 'rd_accounts_two',
+      name: 'RD Accounts Two',
+      regionId: ownedRegion.id,
+      managerUserId: otherTmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const hiddenTerritory = await prisma.territory.create({
+    data: {
+      code: 'rd_accounts_hidden',
+      name: 'RD Accounts Hidden',
+      regionId: outsideRegion.id,
+      managerUserId: otherTmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const firstVisible = await prisma.account.create({
+    data: {
+      displayName: 'RD Visible Dealer One',
+      legalName: 'RD Visible Dealer One LLC',
+      territoryId: firstTerritory.id,
+      assignedTmUserId: tmActor.userId,
+      assignedRdUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const secondVisible = await prisma.account.create({
+    data: {
+      displayName: 'RD Visible Dealer Two',
+      legalName: 'RD Visible Dealer Two LLC',
+      territoryId: secondTerritory.id,
+      assignedTmUserId: otherTmActor.userId,
+      assignedRdUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  await prisma.account.create({
+    data: {
+      displayName: 'RD Hidden Dealer',
+      legalName: 'RD Hidden Dealer LLC',
+      territoryId: hiddenTerritory.id,
+      assignedTmUserId: otherTmActor.userId,
+      assignedRdUserId: outsideRdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const rdList = await listAccounts(rdActor, {});
+  assert.equal(rdList.total, 2);
+  assert.deepEqual(
+    rdList.items.map((item) => item.id).sort(),
+    [firstVisible.id, secondVisible.id].sort(),
+  );
+
+  const firstDetail = await getAccountDetail(rdActor, firstVisible.id);
+  const secondDetail = await getAccountDetail(rdActor, secondVisible.id);
+  assert.ok(firstDetail);
+  assert.ok(secondDetail);
+});
+
 test('account contact maintenance supports primary reassignment and soft deactivation', SERIAL, async () => {
   const actor = await createAdminActor();
 

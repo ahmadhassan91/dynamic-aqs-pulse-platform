@@ -399,3 +399,42 @@ test('cis and finance regression suite', SERIAL, async () => {
   const awaitingQueue = await listFinanceQueue(financeActor, { decisionStatus: 'awaiting_submission' });
   assert.equal(awaitingQueue.total, 0);
 });
+
+test('only finance roles can record finance decisions on queued CIS packages', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    adminActor,
+    'SALES_BD_REP',
+    'sales.rep+cis-denial@dynamicaqs.com',
+    'SalesDenial!123',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    adminActor,
+    'FINANCE',
+    'finance.user+cis-denial@dynamicaqs.com',
+    'FinanceDenial!123',
+  );
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Finance Role Gate');
+
+  await assert.rejects(
+    () =>
+      recordFinanceDecision(salesActor, fixture.cisPackageId, {
+        decision: 'approved',
+        creditLineAmount: 7500,
+        paymentTerms: 'NET_30',
+        decisionNotes: 'Sales should not be able to approve finance.',
+      }),
+    /cannot perform action lead\.finance_decide/i,
+  );
+
+  const approved = await recordFinanceDecision(financeActor, fixture.cisPackageId, {
+    decision: 'approved',
+    creditLineAmount: 7500,
+    paymentTerms: 'NET_30',
+    decisionNotes: 'Finance role approved the package.',
+  });
+
+  assert.equal(approved.status, 'finance_approved');
+  assert.equal(approved.financeDecision?.status, 'approved');
+});

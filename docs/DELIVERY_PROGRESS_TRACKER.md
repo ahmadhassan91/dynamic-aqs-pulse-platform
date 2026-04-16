@@ -1,6 +1,6 @@
 # Dynamic AQS Pulse Delivery Progress Tracker
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 This tracker is the production-repo progress view for delivery execution.
 
@@ -36,6 +36,7 @@ Use it to:
 | --- | --- | --- | --- | --- |
 | Monorepo platform bootstrap | `Done` | Production monorepo is established and pushed | Continue feature slices inside the new repo | `README.md`, `turbo.json`, `pnpm-workspace.yaml` |
 | Traceability mirror + E2E baseline | `Done` | Roadmap registers, source-of-truth documents, and release workbooks are now mirrored into the implementation repo, and browser-level end-to-end coverage is green for internal auth/navigation, the public website lead form, public CIS, and dealer portal | Expand browser coverage only where routes are already settled, backend-wired, and important enough to justify maintenance | `docs/traceability/`, `docs/TRACEABILITY_AND_E2E_BASELINE_2026-04-14.md`, `apps/crm-web/e2e/` |
+| Regression coverage hardening | `In Progress` | Targeted regression depth has been expanded across auth recovery, accounts, centralized calendar, lead readiness, and CIS/finance, and both the full API pass and browser E2E are green when run sequentially; the current test harness still uses a shared test database, so parallel execution can create deadlocks or false negatives | Keep broadening module suites while isolating the harness more cleanly and later add repo-standard coverage tooling | `docs/REGRESSION_COVERAGE_EXPANSION_2026-04-17.md`, `apps/api/test/`, `apps/crm-web/e2e/` |
 | Module requirements mapping | `Done` | Implementation-side requirement maps now exist for users/roles/permissions, leads, territory, and training so production hardening can be tracked against source-of-truth PRDs and meetings instead of chat memory | Keep these maps current whenever code intentionally closes or defers a requirement | `docs/requirements-mapping/` |
 | PostgreSQL + Prisma core schema | `Done` | Core CRM schema and migration pipeline foundation are in place | Extend schema for auth/session and domain modules | `packages/db/prisma/schema.prisma` |
 | Queue and worker runtime | `Done` | `pg-boss` queue and worker bootstrap are live | Add domain jobs after auth/audit foundation | `apps/api/src/queue/` |

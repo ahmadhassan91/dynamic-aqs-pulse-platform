@@ -300,3 +300,132 @@ test('denied password login and suppressed recovery requests are audited cleanly
     }),
   );
 });
+
+test('expired password reset tokens are rejected and audited as expired', async () => {
+  const actor = await createAdminActor();
+
+  const created = await createAdminUser(actor, {
+    email: 'expired.reset@dynamicaqs.com',
+    firstName: 'Expired',
+    lastName: 'Reset',
+    role: 'ADMIN_CSR_OPS',
+    isActive: true,
+    password: 'ExpiredPass!123',
+  });
+
+  const requested = await requestPasswordReset(
+    config,
+    {
+      email: created.user.email,
+    },
+    {
+      ipAddress: '127.0.0.1',
+      userAgent: 'auth-expired-reset-test',
+    },
+  );
+
+  assert.equal(requested.delivery, 'preview');
+  assert.ok(requested.previewToken);
+
+  await prisma.passwordResetToken.updateMany({
+    where: {
+      userId: created.user.id,
+      usedAt: null,
+    },
+    data: {
+      expiresAt: new Date(Date.now() - 60_000),
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      resetPassword(
+        config,
+        {
+          token: requested.previewToken,
+          newPassword: 'ExpiredPass!456',
+        },
+        {
+          ipAddress: '127.0.0.1',
+          userAgent: 'auth-expired-reset-test',
+        },
+      ),
+    /invalid or has expired/i,
+  );
+
+  const expiredAudit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'PASSWORD_RESET',
+      action: 'REJECT',
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  const metadata = expiredAudit?.metadata;
+  assert.ok(metadata && typeof metadata === 'object');
+  assert.equal(metadata.result, 'reset_rejected_expired_token');
+});
+
+test('preview-disabled recovery still accepts the request but withholds reset delivery details', async () => {
+  const actor = await createAdminActor();
+
+  const created = await createAdminUser(actor, {
+    email: 'no-preview.reset@dynamicaqs.com',
+    firstName: 'No',
+    lastName: 'Preview',
+    role: 'ADMIN_CSR_OPS',
+    isActive: true,
+    password: 'PreviewPass!123',
+  });
+
+  const noPreviewConfig = loadAppConfig({
+    ...process.env,
+    AUTH_PASSWORD_RECOVERY_PREVIEW_ENABLED: 'false',
+  });
+
+  const requested = await requestPasswordReset(
+    noPreviewConfig,
+    {
+      email: created.user.email,
+    },
+    {
+      ipAddress: '127.0.0.1',
+      userAgent: 'auth-no-preview-test',
+    },
+  );
+
+  assert.equal(requested.accepted, true);
+  assert.equal(requested.delivery, 'unavailable');
+  assert.match(requested.message, /not enabled in this environment yet/i);
+  assert.equal(requested.previewToken, undefined);
+  assert.equal(requested.previewResetUrl, undefined);
+
+  const storedToken = await prisma.passwordResetToken.findFirst({
+    where: {
+      userId: created.user.id,
+      usedAt: null,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  assert.equal(storedToken, null);
+
+  const createAudit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'PASSWORD_RESET',
+      action: 'CREATE',
+      actorUserId: created.user.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  const metadata = createAudit?.metadata;
+  assert.ok(metadata && typeof metadata === 'object');
+  assert.equal(metadata.result, 'delivery_unavailable');
+});

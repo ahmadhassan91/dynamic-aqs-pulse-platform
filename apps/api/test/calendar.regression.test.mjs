@@ -474,6 +474,133 @@ test('calendar workspace applies simple territory-owned scope for territory mana
   );
 });
 
+test('calendar workspace lets regional directors see events across territories in directed regions only', SERIAL, async () => {
+  const admin = await createAdminSession();
+  const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.region.calendar@pulse.local', 'RD Region Calendar');
+  const otherRdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.hidden.calendar@pulse.local', 'RD Hidden Calendar');
+  const tmOne = await createScopedActor('TERRITORY_MANAGER', 'tm.one.calendar@pulse.local', 'TM One Calendar');
+  const tmTwo = await createScopedActor('TERRITORY_MANAGER', 'tm.two.calendar@pulse.local', 'TM Two Calendar');
+
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const ownedRegion = await prisma.region.create({
+    data: {
+      code: 'rg_rd_calendar',
+      name: 'RD Calendar Region',
+      directorUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const hiddenRegion = await prisma.region.create({
+    data: {
+      code: 'rg_hidden_calendar',
+      name: 'Hidden Calendar Region',
+      directorUserId: otherRdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const visibleTerritoryOne = await prisma.territory.create({
+    data: {
+      code: 'rd_calendar_one',
+      name: 'RD Calendar One',
+      regionId: ownedRegion.id,
+      managerUserId: tmOne.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const visibleTerritoryTwo = await prisma.territory.create({
+    data: {
+      code: 'rd_calendar_two',
+      name: 'RD Calendar Two',
+      regionId: ownedRegion.id,
+      managerUserId: tmTwo.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const hiddenTerritory = await prisma.territory.create({
+    data: {
+      code: 'rd_calendar_hidden',
+      name: 'RD Calendar Hidden',
+      regionId: hiddenRegion.id,
+      managerUserId: tmTwo.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const firstLead = await createLead(admin.actor, {
+    companyName: 'RD Calendar Visible Lead One',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+  const secondLead = await createLead(admin.actor, {
+    companyName: 'RD Calendar Visible Lead Two',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+  const hiddenLead = await createLead(admin.actor, {
+    companyName: 'RD Calendar Hidden Lead',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: firstLead.id },
+    data: {
+      territoryId: visibleTerritoryOne.id,
+      assignedTmUserId: tmOne.userId,
+      assignedTmName: tmOne.displayName,
+      assignedRdUserId: rdActor.userId,
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-10-10T15:00:00.000Z'),
+    },
+  });
+
+  await prisma.lead.update({
+    where: { id: secondLead.id },
+    data: {
+      territoryId: visibleTerritoryTwo.id,
+      assignedTmUserId: tmTwo.userId,
+      assignedTmName: tmTwo.displayName,
+      assignedRdUserId: rdActor.userId,
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-10-11T15:00:00.000Z'),
+    },
+  });
+
+  await prisma.lead.update({
+    where: { id: hiddenLead.id },
+    data: {
+      territoryId: hiddenTerritory.id,
+      assignedTmUserId: tmTwo.userId,
+      assignedTmName: tmTwo.displayName,
+      assignedRdUserId: otherRdActor.userId,
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-10-12T15:00:00.000Z'),
+    },
+  });
+
+  const workspace = await getCalendarWorkspace(rdActor, {
+    startDate: '2026-10-01T00:00:00.000Z',
+    endDate: '2026-10-31T23:59:59.999Z',
+  }, config);
+
+  assert.equal(workspace.summary.totalEvents, 2);
+  assert.equal(workspace.summary.discoveryCallCount, 2);
+  assert.deepEqual(
+    workspace.items.map((item) => item.title).sort(),
+    ['Discovery Call — RD Calendar Visible Lead One', 'Discovery Call — RD Calendar Visible Lead Two'].sort(),
+  );
+});
+
 test('calendar workspace requires auth on the route and rejects oversized ranges', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const runtime = await createPulseServer(loadAppConfig(process.env));

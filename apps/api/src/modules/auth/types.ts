@@ -3,7 +3,11 @@ import type {
   AuthSession,
   CompleteMicrosoftEntraLoginRequest,
   CompleteMicrosoftEntraLoginResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   LoginRequest,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   RefreshSessionRequest,
   StartMicrosoftEntraLoginRequest,
   StartMicrosoftEntraLoginResponse,
@@ -41,6 +45,10 @@ export type { LoginRequest, RefreshSessionRequest };
 export type {
   CompleteMicrosoftEntraLoginRequest,
   CompleteMicrosoftEntraLoginResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   StartMicrosoftEntraLoginRequest,
   StartMicrosoftEntraLoginResponse,
 };

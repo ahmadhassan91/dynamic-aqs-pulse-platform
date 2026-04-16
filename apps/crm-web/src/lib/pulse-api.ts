@@ -21,6 +21,8 @@ import type {
   AuthSession,
   CompleteMicrosoftEntraLoginRequest,
   CompleteMicrosoftEntraLoginResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
   CalendarOutlookConnectionSummary,
@@ -107,6 +109,8 @@ import type {
   LoginRequest,
   PublicWebsiteLeadSite,
   ReferenceListResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   ReassignAccountTerritoryRequest,
   ReassignLeadTerritoryRequest,
   ReferenceValueSummary,
@@ -166,6 +170,20 @@ type AuthBundle = {
 
 export async function loginToPulse(apiBaseUrl: string, input: LoginRequest) {
   return requestJson<AuthBundle>(apiBaseUrl, '/api/v1/auth/login', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function requestPulsePasswordReset(apiBaseUrl: string, input: ForgotPasswordRequest) {
+  return requestJson<ForgotPasswordResponse>(apiBaseUrl, '/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function resetPulsePassword(apiBaseUrl: string, input: ResetPasswordRequest) {
+  return requestJson<ResetPasswordResponse>(apiBaseUrl, '/api/v1/auth/reset-password', {
     method: 'POST',
     body: input,
   });

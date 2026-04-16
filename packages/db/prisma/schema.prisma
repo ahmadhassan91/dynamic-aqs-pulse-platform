@@ -547,6 +547,7 @@ model User {
   trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
   calendarConnections         CalendarConnection[]
   calendarAuthStates          CalendarConnectionAuthState[]
+  passwordResetTokens         PasswordResetToken[]
 
   @@index([roleCode])
   @@index([userType])
@@ -706,6 +707,7 @@ model UserIdentity {
 
   user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
 
   @@unique([provider, providerSubject])
   @@unique([provider, loginEmail])
@@ -750,6 +752,28 @@ model AuthLoginState {
   createdAt  DateTime         @default(now())
 
   @@index([provider, expiresAt])
+}
+
+model PasswordResetToken {
+  id                 String       @id @default(uuid()) @db.Uuid
+  userId             String       @db.Uuid
+  identityId         String       @db.Uuid
+  tokenHash          String       @unique
+  requestedEmail     String
+  requestedIpAddress String?
+  requestedUserAgent String?
+  expiresAt          DateTime
+  usedAt             DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identity           UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([identityId, expiresAt])
+  @@index([expiresAt])
+  @@index([usedAt])
 }
 
 model CalendarConnection {

@@ -35,6 +35,8 @@ export function applyTestEnvironment() {
   process.env.AUTH_ISSUER = process.env.AUTH_ISSUER || 'pulse.local';
   process.env.AUTH_ACCESS_TOKEN_TTL_MINUTES = process.env.AUTH_ACCESS_TOKEN_TTL_MINUTES || '15';
   process.env.AUTH_REFRESH_TOKEN_TTL_DAYS = process.env.AUTH_REFRESH_TOKEN_TTL_DAYS || '14';
+  process.env.AUTH_PASSWORD_RECOVERY_TOKEN_TTL_MINUTES = process.env.AUTH_PASSWORD_RECOVERY_TOKEN_TTL_MINUTES || '60';
+  process.env.AUTH_PASSWORD_RECOVERY_PREVIEW_ENABLED = process.env.AUTH_PASSWORD_RECOVERY_PREVIEW_ENABLED || 'true';
   process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL = process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL || 'admin@pulse.local';
   process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD = process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD || 'replace-me';
   process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME =

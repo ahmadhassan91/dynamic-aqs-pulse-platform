@@ -19,7 +19,11 @@ import type {
   AuthRole,
   AuthSession,
   CompleteMicrosoftEntraLoginResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   LoginRequest,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   RefreshSessionRequest,
   StartMicrosoftEntraLoginResponse,
   TokenPair,
@@ -27,6 +31,8 @@ import type {
 import type { AuthRequestContext, AuthResponse, AuthenticatedActor } from './types.js';
 
 const SESSION_ENTITY_TYPE = 'SESSION';
+const AUTH_ATTEMPT_ENTITY_TYPE = 'AUTH_ATTEMPT';
+const PASSWORD_RESET_ENTITY_TYPE = 'PASSWORD_RESET';
 const AUTH_LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
 let bootstrapAdminSeedPromise: Promise<void> | null = null;
 
@@ -126,14 +132,288 @@ export async function loginWithPassword(
   });
 
   if (!identity?.passwordHash || !verifySecret(password, identity.passwordHash)) {
+    await auditPasswordLoginAttempt({
+      action: 'rejected_invalid_credentials',
+      email,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
     throw new Error('Invalid email or password');
   }
 
   if (!identity.user.isActive) {
+    await auditPasswordLoginAttempt({
+      action: 'rejected_inactive_user',
+      actorUserId: identity.user.id,
+      email,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
     throw new Error('User is inactive');
   }
 
   return issueSessionForIdentity(config, identity.user, identity, SessionAuthMethod.PASSWORD, ctx);
+}
+
+export async function requestPasswordReset(
+  config: AppConfig,
+  input: ForgotPasswordRequest,
+  ctx: AuthRequestContext = {},
+): Promise<ForgotPasswordResponse> {
+  const email = normalizeEmail(input.email);
+
+  if (!email) {
+    throw new Error('Email is required');
+  }
+
+  await ensureBootstrapAdminSeeded(config);
+
+  const identity = await prisma.userIdentity.findFirst({
+    where: {
+      provider: IdentityProvider.LOCAL,
+      loginEmail: email,
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  const genericSuppressedResponse: ForgotPasswordResponse = {
+    accepted: true,
+    delivery: 'suppressed',
+    message: 'If a matching local Pulse account is eligible for password recovery, a reset path will be prepared.',
+  };
+
+  if (!identity?.user || !identity.passwordHash) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.CREATE,
+      result: 'suppressed_unknown_or_non_local',
+      email,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    return genericSuppressedResponse;
+  }
+
+  if (!identity.user.isActive) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.CREATE,
+      actorUserId: identity.user.id,
+      result: 'suppressed_inactive_user',
+      email,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    return genericSuppressedResponse;
+  }
+
+  if (!config.auth.passwordRecovery.previewEnabled) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.CREATE,
+      actorUserId: identity.user.id,
+      result: 'delivery_unavailable',
+      email,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    return {
+      accepted: true,
+      delivery: 'unavailable',
+      message: 'Password reset delivery is not enabled in this environment yet. Ask an administrator to reset this local Pulse account.',
+    };
+  }
+
+  const rawToken = randomToken();
+  const expiresAt = new Date(Date.now() + (config.auth.passwordRecovery.tokenTtlMinutes * 60_000));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.passwordResetToken.updateMany({
+      where: {
+        userId: identity.user.id,
+        usedAt: null,
+      },
+      data: {
+        usedAt: new Date(),
+      },
+    });
+
+    await tx.passwordResetToken.create({
+      data: {
+        userId: identity.user.id,
+        identityId: identity.id,
+        tokenHash: hashToken(rawToken),
+        requestedEmail: email,
+        requestedIpAddress: ctx.ipAddress ?? null,
+        requestedUserAgent: ctx.userAgent ?? null,
+        expiresAt,
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildDomainAuditEntryData({
+        actorUserId: identity.user.id,
+        action: AuditAction.CREATE,
+        entityType: PASSWORD_RESET_ENTITY_TYPE,
+        entityId: identity.user.id,
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
+        metadata: {
+          operation: 'forgot_password_requested',
+          delivery: 'preview',
+          email,
+          expiresAt: expiresAt.toISOString(),
+        },
+      }),
+    });
+  });
+
+  return {
+    accepted: true,
+    delivery: 'preview',
+    message: 'Password reset preview is ready for this local environment.',
+    previewResetUrl: buildPasswordResetUrl(config, rawToken),
+    previewToken: rawToken,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+export async function resetPassword(
+  config: AppConfig,
+  input: ResetPasswordRequest,
+  ctx: AuthRequestContext = {},
+): Promise<ResetPasswordResponse> {
+  const token = input.token?.trim();
+  const nextPassword = input.newPassword?.trim();
+
+  if (!token) {
+    throw new Error('Password reset token is required');
+  }
+  if (!nextPassword) {
+    throw new Error('New password is required');
+  }
+  if (nextPassword.length < 10) {
+    throw new Error('New password must be at least 10 characters long');
+  }
+
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: {
+      tokenHash: hashToken(token),
+    },
+    include: {
+      user: true,
+      identity: true,
+    },
+  });
+
+  if (!resetToken) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.REJECT,
+      result: 'reset_rejected_invalid_token',
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    throw new Error('Password reset link is invalid or has expired');
+  }
+
+  if (resetToken.usedAt || resetToken.expiresAt.getTime() <= Date.now()) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.REJECT,
+      actorUserId: resetToken.userId,
+      result: resetToken.usedAt ? 'reset_rejected_used_token' : 'reset_rejected_expired_token',
+      email: resetToken.requestedEmail,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    throw new Error('Password reset link is invalid or has expired');
+  }
+
+  if (resetToken.identity.provider !== IdentityProvider.LOCAL || !resetToken.identity.passwordHash) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.REJECT,
+      actorUserId: resetToken.userId,
+      result: 'reset_rejected_non_local_identity',
+      email: resetToken.requestedEmail,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    throw new Error('Password reset is only available for local Pulse accounts');
+  }
+
+  if (!resetToken.user.isActive) {
+    await auditPasswordResetAttempt({
+      action: AuditAction.REJECT,
+      actorUserId: resetToken.userId,
+      result: 'reset_rejected_inactive_user',
+      email: resetToken.requestedEmail,
+      requestId: ctx.requestId,
+      correlationId: ctx.correlationId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    throw new Error('User is inactive');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.userIdentity.update({
+      where: { id: resetToken.identityId },
+      data: {
+        passwordHash: hashSecret(nextPassword),
+        lastAuthenticatedAt: null,
+      },
+    });
+
+    await tx.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.session.updateMany({
+      where: {
+        userId: resetToken.userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: 'password_reset',
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildDomainAuditEntryData({
+        actorUserId: resetToken.userId,
+        action: AuditAction.UPDATE,
+        entityType: PASSWORD_RESET_ENTITY_TYPE,
+        entityId: resetToken.id,
+        requestId: ctx.requestId,
+        correlationId: ctx.correlationId,
+        metadata: {
+          operation: 'password_reset_completed',
+          email: resetToken.requestedEmail,
+        },
+      }),
+    });
+  });
+
+  return {
+    success: true,
+    email: resetToken.requestedEmail,
+  };
 }
 
 export async function refreshSession(
@@ -1037,6 +1317,12 @@ function buildTokenBundle(config: AppConfig): BuiltTokenBundle {
   };
 }
 
+function buildPasswordResetUrl(config: AppConfig, token: string) {
+  const resetUrl = new URL('/auth/reset-password', config.web.publicBaseUrl);
+  resetUrl.searchParams.set('token', token);
+  return resetUrl.toString();
+}
+
 function normalizeEmail(email: string | undefined) {
   const normalized = email?.trim().toLowerCase();
   return normalized || '';
@@ -1082,6 +1368,63 @@ function randomToken() {
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
+}
+
+async function auditPasswordLoginAttempt(input: {
+  action: 'rejected_invalid_credentials' | 'rejected_inactive_user';
+  actorUserId?: string | undefined;
+  email: string;
+  requestId?: string | undefined;
+  correlationId?: string | undefined;
+  ipAddress?: string | undefined;
+  userAgent?: string | undefined;
+}) {
+  await prisma.auditEntry.create({
+    data: buildDomainAuditEntryData({
+      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
+      action: AuditAction.LOGIN,
+      entityType: AUTH_ATTEMPT_ENTITY_TYPE,
+      entityId: input.email,
+      requestId: input.requestId,
+      correlationId: input.correlationId,
+      metadata: {
+        operation: 'password_login',
+        result: input.action,
+        email: input.email,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      },
+    }),
+  });
+}
+
+async function auditPasswordResetAttempt(input: {
+  action: AuditAction;
+  result: string;
+  actorUserId?: string | undefined;
+  email?: string | undefined;
+  requestId?: string | undefined;
+  correlationId?: string | undefined;
+  ipAddress?: string | undefined;
+  userAgent?: string | undefined;
+}) {
+  await prisma.auditEntry.create({
+    data: buildDomainAuditEntryData({
+      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
+      action: input.action,
+      entityType: PASSWORD_RESET_ENTITY_TYPE,
+      entityId: input.email,
+      requestId: input.requestId,
+      correlationId: input.correlationId,
+      metadata: {
+        operation: 'password_recovery',
+        result: input.result,
+        ...(input.email ? { email: input.email } : {}),
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      },
+    }),
+  });
 }
 
 function buildAuditEntryData(input: {

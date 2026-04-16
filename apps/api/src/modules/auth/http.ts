@@ -12,19 +12,23 @@ import {
 import type { AppConfig } from '../../config.js';
 import {
   completeMicrosoftEntraLogin,
+  requestPasswordReset,
   getCurrentSession,
   loginWithPassword,
   logoutCurrentSession,
   MicrosoftEntraAuthUnavailableError,
   readBearerToken,
   refreshSession,
+  resetPassword,
   startMicrosoftEntraLogin,
 } from './service.js';
 import type {
   AuthRequestContext,
   CompleteMicrosoftEntraLoginRequest,
+  ForgotPasswordRequest,
   LoginRequest,
   LogoutRequest,
+  ResetPasswordRequest,
   RefreshSessionRequest,
   StartMicrosoftEntraLoginRequest,
 } from './types.js';
@@ -49,6 +53,38 @@ export async function handleAuthRoutes(
       return jsonResponse(res, 200, response);
     } catch (error) {
       return unauthorizedResponse(res, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (pathname === '/api/v1/auth/forgot-password') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    try {
+      const body = (await readJsonBody(req)) as ForgotPasswordRequest;
+      const response = await requestPasswordReset(config, body, buildRequestContext(req));
+      return jsonResponse(res, 200, response);
+    } catch (error) {
+      return badRequestResponse(res, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (pathname === '/api/v1/auth/reset-password') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    try {
+      const body = (await readJsonBody(req)) as ResetPasswordRequest;
+      const response = await resetPassword(config, body, buildRequestContext(req));
+      return jsonResponse(res, 200, response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/invalid or has expired|only available for local pulse accounts|user is inactive/i.test(message)) {
+        return badRequestResponse(res, message);
+      }
+      return badRequestResponse(res, message);
     }
   }
 

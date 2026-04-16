@@ -62,6 +62,10 @@ export type AppAuthConfig = {
   issuer: string;
   accessTokenTtlMinutes: number;
   refreshTokenTtlDays: number;
+  passwordRecovery: {
+    tokenTtlMinutes: number;
+    previewEnabled: boolean;
+  };
   bootstrapAdmin: AppAuthBootstrapConfig;
   entra: AppEntraAuthConfig;
 };
@@ -117,6 +121,10 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     'User.Read',
   ]);
   const entraGroupRoleMap = parseKeyValueMap(env.MICROSOFT_ENTRA_GROUP_ROLE_MAP);
+  const passwordRecoveryPreviewEnabled = parseBoolean(
+    env.AUTH_PASSWORD_RECOVERY_PREVIEW_ENABLED,
+    environment !== 'production',
+  );
 
   return {
     app: {
@@ -162,6 +170,10 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       issuer: env.AUTH_ISSUER?.trim() || 'pulse.local',
       accessTokenTtlMinutes: parseNumber(env.AUTH_ACCESS_TOKEN_TTL_MINUTES, 15),
       refreshTokenTtlDays: parseNumber(env.AUTH_REFRESH_TOKEN_TTL_DAYS, 14),
+      passwordRecovery: {
+        tokenTtlMinutes: parseNumber(env.AUTH_PASSWORD_RECOVERY_TOKEN_TTL_MINUTES, 60),
+        previewEnabled: passwordRecoveryPreviewEnabled,
+      },
       bootstrapAdmin: {
         email: optionalString(env.AUTH_BOOTSTRAP_ADMIN_EMAIL),
         password: optionalString(env.AUTH_BOOTSTRAP_ADMIN_PASSWORD),
@@ -219,6 +231,23 @@ function parseNumber(value: string | undefined, fallback: number): number {
 function parseLogLevel(value: string | undefined): AppLoggingConfig['level'] {
   if (value === 'debug' || value === 'warn' || value === 'error') return value;
   return 'info';
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 }
 
 function requireString(value: string | undefined, key: string): string {

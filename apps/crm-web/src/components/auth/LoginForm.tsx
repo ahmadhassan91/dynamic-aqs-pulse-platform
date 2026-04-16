@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   Alert,
+  Anchor,
   Button,
   Checkbox,
   Divider,
@@ -100,6 +101,12 @@ export function LoginForm({
             value={password}
             onChange={(event) => setPassword(event.currentTarget.value)}
           />
+
+          <Text size="sm" ta="right">
+            <Anchor href="/auth/forgot-password">
+              Forgot password?
+            </Anchor>
+          </Text>
 
           <Checkbox
             label="Remember me on this device"

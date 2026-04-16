@@ -127,6 +127,29 @@ export interface LoginRequest {
   rememberMe?: boolean;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ForgotPasswordResponse {
+  accepted: true;
+  delivery: 'preview' | 'unavailable' | 'suppressed';
+  message: string;
+  previewResetUrl?: string;
+  previewToken?: string;
+  expiresAt?: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface ResetPasswordResponse {
+  success: true;
+  email: string;
+}
+
 export interface StartMicrosoftEntraLoginRequest {
   nextPath?: string;
 }

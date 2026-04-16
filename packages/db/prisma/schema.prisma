@@ -1656,9 +1656,37 @@ model CisPaymentVaultReference {
   updatedAt                DateTime                @updatedAt
 
   cisPackage               CisPackage              @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  promotedAccountReferences AccountPaymentVaultReference[]
 
   @@index([cisPackageId, createdAt])
   @@index([provider])
+}
+
+model AccountPaymentVaultReference {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  accountId                String                  @db.Uuid
+  sourceCisVaultReferenceId String?                @db.Uuid
+  provider                 CisPaymentVaultProvider @default(UNKNOWN)
+  vaultToken               String?
+  vaultCustomerRef         String?
+  externalPaymentMethodRef String?
+  last4                    String?
+  brand                    String?
+  billingZip               String?
+  authorizationCapturedAt  DateTime?
+  isDefault                Boolean                 @default(false)
+  isActive                 Boolean                 @default(true)
+  status                   String
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  account                  Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sourceCisVaultReference  CisPaymentVaultReference? @relation(fields: [sourceCisVaultReferenceId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, createdAt])
+  @@index([accountId, isActive])
+  @@index([provider])
+  @@index([sourceCisVaultReferenceId])
 }
 
 model Account {
@@ -1705,6 +1733,7 @@ model Account {
   trainingSessions           TrainingSession[]
   trainingFollowUpTasks      TrainingFollowUpTask[]
   trainingCertifications     TrainingCertificationRecord[]
+  paymentVaultReferences     AccountPaymentVaultReference[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])

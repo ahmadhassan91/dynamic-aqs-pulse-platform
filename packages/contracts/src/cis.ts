@@ -65,6 +65,23 @@ export const CIS_PAYMENT_TERMS = [
 
 export type CisPaymentTermsKey = (typeof CIS_PAYMENT_TERMS)[number];
 
+export const CIS_DOCUMENT_TYPES = [
+  'scanned_cis_pdf',
+  'resale_certificate',
+  'supporting_attachment',
+] as const;
+
+export type CisDocumentTypeKey = (typeof CIS_DOCUMENT_TYPES)[number];
+
+export const CIS_PARSE_STATUSES = [
+  'queued',
+  'parsed',
+  'needs_review',
+  'failed',
+] as const;
+
+export type CisParseStatusKey = (typeof CIS_PARSE_STATUSES)[number];
+
 export interface CisFormDraftInput {
   companyWebsite?: string;
   numOfTechs?: number;
@@ -177,6 +194,41 @@ export interface CisFinanceDecisionRecord {
   decidedAt?: string;
 }
 
+export interface CisDocumentRecord {
+  id: string;
+  cisPackageId: string;
+  documentType: CisDocumentTypeKey;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  uploadedByUserId?: string;
+  uploadedAt: string;
+  sha256?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CisParsedDraftRecord {
+  id: string;
+  cisPackageId: string;
+  documentId: string;
+  documentFileName: string;
+  documentType: CisDocumentTypeKey;
+  parserVersion: string;
+  parseStatus: CisParseStatusKey;
+  rawExtractionText?: string;
+  rawStructuredPayload?: Record<string, unknown>;
+  fieldConfidenceMap?: Record<string, unknown>;
+  safeFieldPayload?: CisFormDraftInput;
+  paymentFieldsDetected: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListCisParsedDraftsResponse {
+  items: CisParsedDraftRecord[];
+}
+
 export interface CisLinkIssueRequest {
   recipientEmail?: string;
   note?: string;
@@ -227,6 +279,29 @@ export interface CisFinanceDecisionRequest {
   paymentTerms?: CisPaymentTermsKey;
   decisionNotes?: string;
   requestedInfoNotes?: string;
+}
+
+export interface UploadCisScanRequest {
+  fileName: string;
+  storageKey?: string;
+  mimeType?: string;
+  sha256?: string;
+  parserVersion?: string;
+  rawExtractionText?: string;
+  rawStructuredPayload?: Record<string, unknown>;
+  fieldConfidenceMap?: Record<string, unknown>;
+  safeFieldPayload?: CisFormDraftInput;
+  paymentFieldsDetected?: boolean;
+}
+
+export interface UploadCisScanResponse {
+  cisPackage: CisPackageDetail;
+  document: CisDocumentRecord;
+  parsedDraft: CisParsedDraftRecord;
+}
+
+export interface ApplyCisParsedDraftRequest {
+  note?: string;
 }
 
 export interface ListFinanceQueueRequest {

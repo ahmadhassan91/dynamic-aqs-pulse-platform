@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
-import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
+import { assertActionAccess, assertModuleAccess, canPerformAction } from '@pulse/auth';
 import {
   AuditAction,
   CisEntryMethod,
+  CisDocumentType,
   CisEsignStatus,
   CisFinanceDecisionStatus,
+  CisParseStatus,
   CisPackageStatus,
   CisPaymentMethod,
   CisPaymentTerms,
@@ -14,6 +16,8 @@ import {
   prisma,
 } from '@pulse/db';
 import type {
+  ApplyCisParsedDraftRequest,
+  CisDocumentRecord,
   CisFinanceDecisionRecord,
   CisFinanceDecisionRequest,
   CisFormDataRecord,
@@ -23,20 +27,25 @@ import type {
   CisLinkIssueResponse,
   CisPackageDetail,
   CisPackageEventSummary,
+  CisParsedDraftRecord,
   CisPackageSummary,
   CisPublicPackage,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   FinanceQueueItem,
+  ListCisParsedDraftsResponse,
   ListFinanceQueueRequest,
   ListFinanceQueueResponse,
   SavePublicCisDraftRequest,
   SubmitPublicCisRequest,
+  UploadCisScanRequest,
+  UploadCisScanResponse,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildLeadRecordScope } from '../auth/visibility.js';
 
 const CIS_PACKAGE_ENTITY_TYPE = 'CIS_PACKAGE';
 const DEFAULT_LINK_EXPIRY_DAYS = 30;
@@ -60,6 +69,18 @@ type CisPackageWithRelations = Prisma.CisPackageGetPayload<{
     };
   };
 }>;
+
+type CisParsedDraftWithRelations = Prisma.CisParsedDraftGetPayload<{
+  include: {
+    document: true;
+  };
+}>;
+
+type UploadLeadCisScanResult = {
+  cisPackage: CisPackageDetail;
+  document: CisDocumentRecord;
+  parsedDraft: CisParsedDraftRecord;
+};
 
 type MutableCisFormSnapshot = {
   companyWebsite?: string;
@@ -298,11 +319,17 @@ export async function issueCisLink(
 export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: string): Promise<CisPackageDetail | null> {
   assertModuleAccess(actor.role, 'cis');
   assertActionAccess(actor.role, 'lead.view');
+  const leadScope = buildLeadRecordScope(actor);
 
   const cisPackage = await prisma.cisPackage.findFirst({
-    where: {
-      leadId,
-    },
+    where: leadScope
+      ? {
+          leadId,
+          lead: leadScope,
+        }
+      : {
+          leadId,
+        },
     orderBy: {
       createdAt: 'desc',
     },
@@ -319,15 +346,23 @@ export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: strin
     },
   });
 
-  return cisPackage ? toCisPackageDetail(cisPackage) : null;
+  return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
 }
 
 export async function getCisPackageDetail(actor: AuthenticatedActor, cisPackageId: string): Promise<CisPackageDetail | null> {
   assertModuleAccess(actor.role, 'cis');
   assertActionAccess(actor.role, 'lead.view');
+  const leadScope = buildLeadRecordScope(actor);
 
-  const cisPackage = await prisma.cisPackage.findUnique({
-    where: { id: cisPackageId },
+  const cisPackage = await prisma.cisPackage.findFirst({
+    where: leadScope
+      ? {
+          id: cisPackageId,
+          lead: leadScope,
+        }
+      : {
+          id: cisPackageId,
+        },
     include: {
       lead: true,
       formData: true,
@@ -341,7 +376,433 @@ export async function getCisPackageDetail(actor: AuthenticatedActor, cisPackageI
     },
   });
 
-  return cisPackage ? toCisPackageDetail(cisPackage) : null;
+  return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
+}
+
+export async function listCisParsedDrafts(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+): Promise<ListCisParsedDraftsResponse> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.view');
+
+  const cisPackage = await prisma.cisPackage.findFirst({
+    where: buildScopedCisPackageWhere(actor, cisPackageId),
+    select: {
+      id: true,
+    },
+  });
+
+  if (!cisPackage) {
+    throw new Error(`CIS package not found: ${cisPackageId}`);
+  }
+
+  const drafts = await prisma.cisParsedDraft.findMany({
+    where: {
+      cisPackageId,
+    },
+    include: {
+      document: true,
+    },
+    orderBy: [
+      { createdAt: 'desc' },
+      { updatedAt: 'desc' },
+    ],
+  });
+
+  return {
+    items: drafts.map(toCisParsedDraftRecord),
+  };
+}
+
+export async function uploadLeadCisScan(
+  actor: AuthenticatedActor,
+  leadId: string,
+  input: UploadCisScanRequest,
+): Promise<UploadCisScanResponse> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const fileName = requireTrimmed(input.fileName, 'fileName');
+  const mimeType = optionalTrimmed(input.mimeType) ?? 'application/pdf';
+  const storageKey = optionalTrimmed(input.storageKey) ?? buildScannedCisStorageKey(leadId, fileName);
+  const parserVersion = optionalTrimmed(input.parserVersion) ?? 'manual-review-v1';
+  const rawExtractionText = optionalTrimmed(input.rawExtractionText);
+  const sha256 = optionalTrimmed(input.sha256);
+  const normalizedSafeFieldPayload = normalizeSafeFieldPayload(input.safeFieldPayload);
+  const paymentFieldsDetected = Boolean(input.paymentFieldsDetected) || detectPaymentFieldCapture(input.safeFieldPayload);
+  const rawStructuredPayload = input.rawStructuredPayload
+    ? toBoundedJsonValue(input.rawStructuredPayload, {
+        field: 'cis.parsedDraft.rawStructuredPayload',
+        maxBytes: JSON_SIZE_LIMITS.cisParsedStructuredPayloadBytes,
+      })
+    : undefined;
+  const fieldConfidenceMap = input.fieldConfidenceMap
+    ? toBoundedJsonValue(input.fieldConfidenceMap, {
+        field: 'cis.parsedDraft.fieldConfidenceMap',
+        maxBytes: JSON_SIZE_LIMITS.cisParsedConfidenceMapBytes,
+      })
+    : undefined;
+  const safeFieldPayload = normalizedSafeFieldPayload
+    ? toBoundedJsonValue(normalizedSafeFieldPayload, {
+        field: 'cis.parsedDraft.safeFieldPayload',
+        maxBytes: JSON_SIZE_LIMITS.cisParsedSafePayloadBytes,
+      })
+    : undefined;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const leadScope = buildLeadRecordScope(actor);
+    const lead = await tx.lead.findFirst({
+      where: leadScope
+        ? {
+            AND: [
+              { id: leadId },
+              leadScope,
+            ],
+          }
+        : { id: leadId },
+    });
+    if (!lead) {
+      throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    const existing = await tx.cisPackage.findFirst({
+      where: { leadId },
+      include: {
+        lead: true,
+        formData: true,
+        internalReview: true,
+        financeDecision: true,
+        events: {
+          orderBy: {
+            occurredAt: 'desc',
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    const now = new Date();
+    const nextStatus = shouldUseReviewInProgress(existing?.status)
+      ? CisPackageStatus.REVIEW_IN_PROGRESS
+      : existing?.status ?? CisPackageStatus.REVIEW_IN_PROGRESS;
+
+    const cisPackageUpdateData: Prisma.CisPackageUpdateInput = {
+      entryMethod: CisEntryMethod.SCANNED_PDF,
+      status: nextStatus,
+      submittedAt: existing?.submittedAt ?? now,
+      reviewStartedAt: existing?.reviewStartedAt ?? now,
+      ...(existing?.formData ? {} : { formData: { create: buildLeadPrefill(lead) } }),
+    };
+    const cisPackageCreateData: Prisma.CisPackageCreateInput = {
+      lead: {
+        connect: {
+          id: leadId,
+        },
+      },
+      entryMethod: CisEntryMethod.SCANNED_PDF,
+      status: CisPackageStatus.REVIEW_IN_PROGRESS,
+      submittedAt: now,
+      reviewStartedAt: now,
+      formData: {
+        create: buildLeadPrefill(lead),
+      },
+    };
+
+    const cisPackage: CisPackageWithRelations = existing
+      ? await tx.cisPackage.update({
+          where: { id: existing.id },
+          data: cisPackageUpdateData,
+          include: {
+            lead: true,
+            formData: true,
+            internalReview: true,
+            financeDecision: true,
+            events: {
+              orderBy: {
+                occurredAt: 'desc',
+              },
+            },
+          },
+        })
+      : await tx.cisPackage.create({
+          data: cisPackageCreateData,
+          include: {
+            lead: true,
+            formData: true,
+            internalReview: true,
+            financeDecision: true,
+            events: {
+              orderBy: {
+                occurredAt: 'desc',
+              },
+            },
+          },
+        });
+
+    const document = await tx.cisDocument.create({
+      data: {
+        cisPackageId: cisPackage.id,
+        documentType: CisDocumentType.SCANNED_CIS_PDF,
+        storageKey,
+        fileName,
+        mimeType,
+        ...(sha256 ? { sha256 } : {}),
+        uploadedByUserId: actor.userId,
+      },
+    });
+
+    const parsedDraft = await tx.cisParsedDraft.create({
+      data: {
+        cisPackageId: cisPackage.id,
+        documentId: document.id,
+        parserVersion,
+        parseStatus: CisParseStatus.NEEDS_REVIEW,
+        ...(rawExtractionText ? { rawExtractionText } : {}),
+        ...(rawStructuredPayload ? { rawStructuredPayload } : {}),
+        ...(fieldConfidenceMap ? { fieldConfidenceMap } : {}),
+        ...(safeFieldPayload ? { safeFieldPayload } : {}),
+        paymentFieldsDetected,
+      },
+      include: {
+        document: true,
+      },
+    });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId: cisPackage.id,
+        eventType: 'scan_uploaded',
+        fromStatus: existing?.status ?? null,
+        toStatus: cisPackage.status,
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        note: paymentFieldsDetected
+          ? 'Scanned CIS registered; payment fields detected and excluded from canonical apply.'
+          : 'Scanned CIS registered for internal review.',
+        metadata: toJsonValue({
+          documentId: document.id,
+          parsedDraftId: parsedDraft.id,
+          parserVersion,
+          paymentFieldsDetected,
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: CIS_PACKAGE_ENTITY_TYPE,
+        entityId: cisPackage.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId,
+          operation: 'cis_scan_upload',
+          documentId: document.id,
+          parsedDraftId: parsedDraft.id,
+          paymentFieldsDetected,
+        },
+        afterData: {
+          status: cisPackage.status,
+          entryMethod: cisPackage.entryMethod,
+          documentType: document.documentType,
+          parserVersion,
+        },
+      }),
+    });
+
+    const leadUpdateData: Prisma.LeadUpdateInput = {
+      ...(lead.cisSentAt ? {} : { cisSentAt: now }),
+      ...(lead.cisSubmittedAt ? {} : { cisSubmittedAt: now }),
+    };
+    const shouldAdvanceLeadStage =
+      lead.stage !== LeadStage.CIS_SENT
+      && lead.stage !== LeadStage.CIS_SIGNED
+      && lead.stage !== LeadStage.ONBOARDING_COMPLETED
+      && lead.stage !== LeadStage.CUSTOMER_ACTIVE;
+    if (shouldAdvanceLeadStage) {
+      leadUpdateData.stage = LeadStage.CIS_SENT;
+    }
+
+    if (Object.keys(leadUpdateData).length > 0) {
+      await tx.lead.update({
+        where: { id: leadId },
+        data: leadUpdateData,
+      });
+    }
+
+    if (shouldAdvanceLeadStage) {
+      await tx.leadStageEvent.create({
+        data: {
+          leadId,
+          actorUserId: actor.userId,
+          fromStage: lead.stage,
+          toStage: LeadStage.CIS_SENT,
+          note: 'Scanned CIS fallback registered for internal review.',
+          metadata: toJsonValue({
+            cisPackageId: cisPackage.id,
+            parsedDraftId: parsedDraft.id,
+            documentId: document.id,
+          }),
+        },
+      });
+    }
+
+    return {
+      cisPackage: toCisPackageDetail(actor, cisPackage),
+      document: toCisDocumentRecord(document),
+      parsedDraft: toCisParsedDraftRecord(parsedDraft),
+    } satisfies UploadLeadCisScanResult;
+  });
+
+  return result;
+}
+
+export async function applyCisParsedDraft(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+  draftId: string,
+  input: ApplyCisParsedDraftRequest = {},
+): Promise<CisPackageDetail> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const note = optionalTrimmed(input.note);
+
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      include: {
+        lead: true,
+        formData: true,
+        internalReview: true,
+        financeDecision: true,
+        events: {
+          orderBy: {
+            occurredAt: 'desc',
+          },
+        },
+      },
+    });
+    if (!existing) {
+      throw new Error(`CIS package not found: ${cisPackageId}`);
+    }
+
+    const draft = await tx.cisParsedDraft.findFirst({
+      where: {
+        id: draftId,
+        cisPackageId,
+      },
+      include: {
+        document: true,
+      },
+    });
+    if (!draft) {
+      throw new Error(`CIS parsed draft not found: ${draftId}`);
+    }
+
+    const safeFieldPayload = toCisFormDraftInput(draft.safeFieldPayload);
+    if (!safeFieldPayload || Object.keys(safeFieldPayload).length === 0) {
+      throw new Error('This parsed draft does not contain any safe fields to apply');
+    }
+
+    const mergedForm = mergeFormData(existing.formData, safeFieldPayload, false);
+    const now = new Date();
+    const updated = await tx.cisPackage.update({
+      where: { id: existing.id },
+      data: {
+        entryMethod: CisEntryMethod.SCANNED_PDF,
+        status: shouldUseReviewInProgress(existing.status) ? CisPackageStatus.REVIEW_IN_PROGRESS : existing.status,
+        submittedAt: existing.submittedAt ?? now,
+        reviewStartedAt: existing.reviewStartedAt ?? now,
+        formData: {
+          upsert: {
+            create: toCisFormCreateInput(mergedForm, now),
+            update: toCisFormUpdateInput(mergedForm, now),
+          },
+        },
+      },
+      include: {
+        lead: true,
+        formData: true,
+        internalReview: true,
+        financeDecision: true,
+        events: {
+          orderBy: {
+            occurredAt: 'desc',
+          },
+        },
+      },
+    });
+
+    await tx.cisParsedDraft.update({
+      where: { id: draft.id },
+      data: {
+        parseStatus: CisParseStatus.PARSED,
+      },
+    });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId: updated.id,
+        eventType: 'parsed_draft_applied',
+        fromStatus: existing.status,
+        toStatus: updated.status,
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        note: note ?? null,
+        metadata: toJsonValue({
+          parsedDraftId: draft.id,
+          documentId: draft.documentId,
+          parserVersion: draft.parserVersion,
+          paymentFieldsDetected: draft.paymentFieldsDetected,
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: CIS_PACKAGE_ENTITY_TYPE,
+        entityId: updated.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId: updated.leadId,
+          operation: 'cis_parsed_draft_apply',
+          parsedDraftId: draft.id,
+          documentId: draft.documentId,
+          paymentFieldsDetected: draft.paymentFieldsDetected,
+        },
+        afterData: {
+          status: updated.status,
+          entryMethod: updated.entryMethod,
+          parserVersion: draft.parserVersion,
+          appliedFieldCount: Object.keys(safeFieldPayload).length,
+        },
+      }),
+    });
+
+    if (!existing.lead.cisSubmittedAt) {
+      await tx.lead.update({
+        where: { id: existing.leadId },
+        data: {
+          cisSubmittedAt: now,
+        },
+      });
+    }
+
+    return updated;
+  });
+
+  return toCisPackageDetail(actor, cisPackage);
 }
 
 export async function reviewAndSignOffCis(
@@ -475,7 +936,7 @@ export async function reviewAndSignOffCis(
     return updated;
   });
 
-  return toCisPackageDetail(cisPackage);
+  return toCisPackageDetail(actor, cisPackage);
 }
 
 export async function submitCisToFinance(
@@ -585,7 +1046,7 @@ export async function submitCisToFinance(
     return updated;
   });
 
-  return toCisPackageDetail(cisPackage);
+  return toCisPackageDetail(actor, cisPackage);
 }
 
 export async function listFinanceQueue(
@@ -647,7 +1108,7 @@ export async function listFinanceQueue(
     });
 
   return {
-    items: filtered,
+    items: filtered.map((item) => maskFinanceQueueItem(actor, item)),
     total: filtered.length,
   };
 }
@@ -773,7 +1234,7 @@ export async function recordFinanceDecision(
     return updated as CisPackageWithRelations;
   });
 
-  return toCisPackageDetail(cisPackage);
+  return toCisPackageDetail(actor, cisPackage);
 }
 
 export async function getPublicCisPackage(token: string): Promise<CisPublicPackage | null> {
@@ -1235,12 +1696,12 @@ function toCisFormUpdateInput(form: MutableCisFormSnapshot, now: Date): Prisma.C
   };
 }
 
-function toCisPackageDetail(cisPackage: CisPackageWithRelations): CisPackageDetail {
+function toCisPackageDetail(actor: AuthenticatedActor, cisPackage: CisPackageWithRelations): CisPackageDetail {
   return {
     ...toCisPackageSummary(cisPackage),
     formData: toCisFormRecord(cisPackage.formData),
     ...(cisPackage.internalReview ? { internalReview: toCisInternalReviewRecord(cisPackage.internalReview) } : {}),
-    ...(cisPackage.financeDecision ? { financeDecision: toCisFinanceDecisionRecord(cisPackage.financeDecision) } : {}),
+    ...(cisPackage.financeDecision ? { financeDecision: toCisFinanceDecisionRecord(actor, cisPackage.financeDecision) } : {}),
     events: cisPackage.events.map(toCisPackageEventSummary),
   };
 }
@@ -1312,14 +1773,21 @@ function toCisInternalReviewRecord(
 }
 
 function toCisFinanceDecisionRecord(
+  actor: AuthenticatedActor,
   financeDecision: Prisma.CisFinanceDecisionGetPayload<Record<string, never>>,
 ): CisFinanceDecisionRecord {
+  const canViewFinancialTerms = canViewCisFinancials(actor);
+
   return {
     status: toCisFinanceDecisionStatusKey(financeDecision.status),
     ...(financeDecision.submittedByUserId ? { submittedByUserId: financeDecision.submittedByUserId } : {}),
     ...(financeDecision.submittedAt ? { submittedAt: financeDecision.submittedAt.toISOString() } : {}),
-    ...(financeDecision.creditLineAmountCents !== null ? { creditLineAmount: financeDecision.creditLineAmountCents / 100 } : {}),
-    ...(financeDecision.paymentTerms ? { paymentTerms: toCisPaymentTermsKey(financeDecision.paymentTerms) } : {}),
+    ...(canViewFinancialTerms && financeDecision.creditLineAmountCents !== null
+      ? { creditLineAmount: financeDecision.creditLineAmountCents / 100 }
+      : {}),
+    ...(canViewFinancialTerms && financeDecision.paymentTerms
+      ? { paymentTerms: toCisPaymentTermsKey(financeDecision.paymentTerms) }
+      : {}),
     ...(financeDecision.submissionNotes ? { submissionNotes: financeDecision.submissionNotes } : {}),
     ...(financeDecision.requestedInfoNotes ? { requestedInfoNotes: financeDecision.requestedInfoNotes } : {}),
     ...(financeDecision.decisionNotes ? { decisionNotes: financeDecision.decisionNotes } : {}),
@@ -1329,7 +1797,9 @@ function toCisFinanceDecisionRecord(
 }
 
 function toFinanceQueueItem(cisPackage: CisPackageWithRelations): FinanceQueueItem {
-  const financeDecision = cisPackage.financeDecision ? toCisFinanceDecisionRecord(cisPackage.financeDecision) : undefined;
+  const financeDecision = cisPackage.financeDecision
+    ? toRawCisFinanceDecisionRecord(cisPackage.financeDecision)
+    : undefined;
   const internalReview = cisPackage.internalReview ? toCisInternalReviewRecord(cisPackage.internalReview) : undefined;
   const financeDecisionStatus = financeDecision?.status
     ?? (cisPackage.status === CisPackageStatus.SALES_SIGNED_OFF ? 'awaiting_submission' : 'not_submitted');
@@ -1359,6 +1829,72 @@ function toFinanceQueueItem(cisPackage: CisPackageWithRelations): FinanceQueueIt
     ...(internalReview?.salesReviewNotes ? { salesReviewNotes: internalReview.salesReviewNotes } : {}),
     ...(internalReview?.financeCoverNotes ? { financeCoverNotes: internalReview.financeCoverNotes } : {}),
     ...(financeDecision?.decisionNotes ? { decisionNotes: financeDecision.decisionNotes } : {}),
+  };
+}
+
+function maskFinanceQueueItem(actor: AuthenticatedActor, item: FinanceQueueItem): FinanceQueueItem {
+  if (canViewCisFinancials(actor)) {
+    return item;
+  }
+
+  const { creditLineAmount: _creditLineAmount, paymentTerms: _paymentTerms, ...masked } = item;
+  return masked;
+}
+
+function toRawCisFinanceDecisionRecord(
+  financeDecision: Prisma.CisFinanceDecisionGetPayload<Record<string, never>>,
+): CisFinanceDecisionRecord {
+  return {
+    status: toCisFinanceDecisionStatusKey(financeDecision.status),
+    ...(financeDecision.submittedByUserId ? { submittedByUserId: financeDecision.submittedByUserId } : {}),
+    ...(financeDecision.submittedAt ? { submittedAt: financeDecision.submittedAt.toISOString() } : {}),
+    ...(financeDecision.creditLineAmountCents !== null ? { creditLineAmount: financeDecision.creditLineAmountCents / 100 } : {}),
+    ...(financeDecision.paymentTerms ? { paymentTerms: toCisPaymentTermsKey(financeDecision.paymentTerms) } : {}),
+    ...(financeDecision.submissionNotes ? { submissionNotes: financeDecision.submissionNotes } : {}),
+    ...(financeDecision.requestedInfoNotes ? { requestedInfoNotes: financeDecision.requestedInfoNotes } : {}),
+    ...(financeDecision.decisionNotes ? { decisionNotes: financeDecision.decisionNotes } : {}),
+    ...(financeDecision.decidedByUserId ? { decidedByUserId: financeDecision.decidedByUserId } : {}),
+    ...(financeDecision.decidedAt ? { decidedAt: financeDecision.decidedAt.toISOString() } : {}),
+  };
+}
+
+function canViewCisFinancials(actor: AuthenticatedActor) {
+  return canPerformAction(actor.role, 'customer.financials_view');
+}
+
+function toCisDocumentRecord(document: Prisma.CisDocumentGetPayload<Record<string, never>>): CisDocumentRecord {
+  return {
+    id: document.id,
+    cisPackageId: document.cisPackageId,
+    documentType: toCisDocumentTypeKey(document.documentType),
+    storageKey: document.storageKey,
+    fileName: document.fileName,
+    mimeType: document.mimeType,
+    ...(document.uploadedByUserId ? { uploadedByUserId: document.uploadedByUserId } : {}),
+    uploadedAt: document.uploadedAt.toISOString(),
+    ...(document.sha256 ? { sha256: document.sha256 } : {}),
+    createdAt: document.createdAt.toISOString(),
+    updatedAt: document.updatedAt.toISOString(),
+  };
+}
+
+function toCisParsedDraftRecord(draft: CisParsedDraftWithRelations): CisParsedDraftRecord {
+  const safeFieldPayload = toCisFormDraftInput(draft.safeFieldPayload);
+  return {
+    id: draft.id,
+    cisPackageId: draft.cisPackageId,
+    documentId: draft.documentId,
+    documentFileName: draft.document.fileName,
+    documentType: toCisDocumentTypeKey(draft.document.documentType),
+    parserVersion: draft.parserVersion,
+    parseStatus: toCisParseStatusKey(draft.parseStatus),
+    ...(draft.rawExtractionText ? { rawExtractionText: draft.rawExtractionText } : {}),
+    ...(isJsonObject(draft.rawStructuredPayload) ? { rawStructuredPayload: draft.rawStructuredPayload } : {}),
+    ...(isJsonObject(draft.fieldConfidenceMap) ? { fieldConfidenceMap: draft.fieldConfidenceMap } : {}),
+    ...(safeFieldPayload ? { safeFieldPayload } : {}),
+    paymentFieldsDetected: draft.paymentFieldsDetected,
+    createdAt: draft.createdAt.toISOString(),
+    updatedAt: draft.updatedAt.toISOString(),
   };
 }
 
@@ -1481,6 +2017,14 @@ function assignOptionalPaymentMethod(target: MutableCisFormSnapshot, value: unkn
   record.paymentMethod = value;
 }
 
+function toCisDocumentTypeKey(value: CisDocumentType): CisDocumentRecord['documentType'] {
+  return value.toLowerCase() as CisDocumentRecord['documentType'];
+}
+
+function toCisParseStatusKey(value: CisParseStatus): CisParsedDraftRecord['parseStatus'] {
+  return value.toLowerCase() as CisParsedDraftRecord['parseStatus'];
+}
+
 function toCisPackageStatusKey(value: CisPackageStatus): CisPackageSummary['status'] {
   return value.toLowerCase() as CisPackageSummary['status'];
 }
@@ -1528,6 +2072,26 @@ function optionalTrimmed(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
+function requireTrimmed(value: string | undefined, label: string) {
+  const trimmed = optionalTrimmed(value);
+  if (!trimmed) {
+    throw new Error(`${label} is required`);
+  }
+
+  return trimmed;
+}
+
+function buildScannedCisStorageKey(leadId: string, fileName: string) {
+  const safeName = fileName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const suffix = crypto.randomBytes(6).toString('hex');
+  return `cis-scans/${leadId}/${suffix}-${safeName || 'scan.pdf'}`;
+}
+
 function looksLikeEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -1541,6 +2105,112 @@ function toJsonValue(value: Record<string, unknown>) {
 
 function setNullable<T>(value: T | undefined) {
   return value ?? null;
+}
+
+function normalizeSafeFieldPayload(input: CisFormDraftInput | undefined): CisFormDraftInput | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  const normalized = mergeFormData(null, stripPaymentFieldsFromDraftInput(input), false);
+  return snapshotToDraftInput(normalized);
+}
+
+function stripPaymentFieldsFromDraftInput(input: CisFormDraftInput): CisFormDraftInput {
+  const {
+    paymentMethod: _paymentMethod,
+    achAuthorized: _achAuthorized,
+    cardOnFileAuthorized: _cardOnFileAuthorized,
+    ...rest
+  } = input;
+  return rest;
+}
+
+function detectPaymentFieldCapture(input: CisFormDraftInput | undefined) {
+  if (!input) {
+    return false;
+  }
+
+  return input.paymentMethod !== undefined
+    || input.achAuthorized !== undefined
+    || input.cardOnFileAuthorized !== undefined;
+}
+
+function snapshotToDraftInput(snapshot: MutableCisFormSnapshot): CisFormDraftInput {
+  return {
+    ...(snapshot.companyWebsite ? { companyWebsite: snapshot.companyWebsite } : {}),
+    ...(snapshot.numOfTechs !== undefined ? { numOfTechs: snapshot.numOfTechs } : {}),
+    ...(snapshot.numOfInstallTechs !== undefined ? { numOfInstallTechs: snapshot.numOfInstallTechs } : {}),
+    ...(snapshot.numOfSalespeopleAdvisors !== undefined ? { numOfSalespeopleAdvisors: snapshot.numOfSalespeopleAdvisors } : {}),
+    ...(snapshot.affinityGroupOrFranchise ? { affinityGroupOrFranchise: snapshot.affinityGroupOrFranchise } : {}),
+    ...(snapshot.isPrivateEquity !== undefined ? { isPrivateEquity: snapshot.isPrivateEquity } : {}),
+    ...(snapshot.parentCompanyName ? { parentCompanyName: snapshot.parentCompanyName } : {}),
+    ...(snapshot.primaryContactName ? { primaryContactName: snapshot.primaryContactName } : {}),
+    ...(snapshot.primaryContactTitle ? { primaryContactTitle: snapshot.primaryContactTitle } : {}),
+    ...(snapshot.primaryContactEmail ? { primaryContactEmail: snapshot.primaryContactEmail } : {}),
+    ...(snapshot.primaryContactCellPhone ? { primaryContactCellPhone: snapshot.primaryContactCellPhone } : {}),
+    ...(snapshot.ownerManagerName ? { ownerManagerName: snapshot.ownerManagerName } : {}),
+    ...(snapshot.ownerManagerTitle ? { ownerManagerTitle: snapshot.ownerManagerTitle } : {}),
+    ...(snapshot.ownerManagerEmail ? { ownerManagerEmail: snapshot.ownerManagerEmail } : {}),
+    ...(snapshot.ownerManagerCellPhone ? { ownerManagerCellPhone: snapshot.ownerManagerCellPhone } : {}),
+    ...(snapshot.legalCompanyName ? { legalCompanyName: snapshot.legalCompanyName } : {}),
+    ...(snapshot.physicalAddress ? { physicalAddress: snapshot.physicalAddress } : {}),
+    ...(snapshot.physicalCity ? { physicalCity: snapshot.physicalCity } : {}),
+    ...(snapshot.physicalState ? { physicalState: snapshot.physicalState } : {}),
+    ...(snapshot.physicalZip ? { physicalZip: snapshot.physicalZip } : {}),
+    ...(snapshot.physicalCountryCode ? { physicalCountryCode: snapshot.physicalCountryCode } : {}),
+    ...(snapshot.billingAddress ? { billingAddress: snapshot.billingAddress } : {}),
+    ...(snapshot.billingCity ? { billingCity: snapshot.billingCity } : {}),
+    ...(snapshot.billingState ? { billingState: snapshot.billingState } : {}),
+    ...(snapshot.billingZip ? { billingZip: snapshot.billingZip } : {}),
+    ...(snapshot.billingCountryCode ? { billingCountryCode: snapshot.billingCountryCode } : {}),
+    ...(snapshot.companyPhone ? { companyPhone: snapshot.companyPhone } : {}),
+    ...(snapshot.typeOfBusiness ? { typeOfBusiness: snapshot.typeOfBusiness } : {}),
+    ...(snapshot.yearsInBusiness !== undefined ? { yearsInBusiness: snapshot.yearsInBusiness } : {}),
+    ...(snapshot.monthsInBusiness !== undefined ? { monthsInBusiness: snapshot.monthsInBusiness } : {}),
+    ...(snapshot.orderingContactName ? { orderingContactName: snapshot.orderingContactName } : {}),
+    ...(snapshot.orderingContactCellPhone ? { orderingContactCellPhone: snapshot.orderingContactCellPhone } : {}),
+    ...(snapshot.orderingContactEmail ? { orderingContactEmail: snapshot.orderingContactEmail } : {}),
+    ...(snapshot.apContactName ? { apContactName: snapshot.apContactName } : {}),
+    ...(snapshot.apDirectPhone ? { apDirectPhone: snapshot.apDirectPhone } : {}),
+    ...(snapshot.apEmail ? { apEmail: snapshot.apEmail } : {}),
+    ...(snapshot.resaleCertificateAttached !== undefined ? { resaleCertificateAttached: snapshot.resaleCertificateAttached } : {}),
+    ...(snapshot.signatureCapturedAt ? { hasSignature: true } : {}),
+  };
+}
+
+function isJsonObject(value: Prisma.JsonValue | null | undefined): value is Prisma.JsonObject {
+  return Boolean(value) && !Array.isArray(value) && typeof value === 'object';
+}
+
+function toCisFormDraftInput(value: Prisma.JsonValue | null | undefined): CisFormDraftInput | undefined {
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+
+  return value as unknown as CisFormDraftInput;
+}
+
+function buildScopedCisPackageWhere(actor: AuthenticatedActor, cisPackageId: string): Prisma.CisPackageWhereInput {
+  const leadScope = buildLeadRecordScope(actor);
+  return leadScope
+    ? {
+        id: cisPackageId,
+        lead: leadScope,
+      }
+    : { id: cisPackageId };
+}
+
+function shouldUseReviewInProgress(status: CisPackageStatus | null | undefined) {
+  return (
+    status === undefined
+    || status === null
+    || status === CisPackageStatus.NOT_SENT
+    || status === CisPackageStatus.LINK_SENT
+    || status === CisPackageStatus.DRAFT_IN_PROGRESS
+    || status === CisPackageStatus.SUBMITTED
+    || status === CisPackageStatus.REVIEW_IN_PROGRESS
+  );
 }
 
 function buildMutableSnapshotFromFormData(formData: NonNullable<CisPackageWithRelations['formData']>): MutableCisFormSnapshot {

@@ -59,6 +59,7 @@ import type {
   CisPublicPackage,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
+  ListCisParsedDraftsResponse,
   CaptureWebsiteLeadRequest,
   CommitLeadImportRunRequest,
   CreateLeadRequest,
@@ -124,6 +125,9 @@ import type {
   UpdateWebsiteLeadNotificationRecipientRequest,
   UpdateWebsiteLeadSiteRequest,
   SubmitPublicCisRequest,
+  UploadCisScanRequest,
+  UploadCisScanResponse,
+  ApplyCisParsedDraftRequest,
   TerritoryPolicySummary,
   ListRegionsResponse,
   ListShippingCentersResponse,
@@ -1263,6 +1267,44 @@ export async function issueLeadCisLink(
   action: 'send-link' | 'resend-link' = 'send-link',
 ) {
   return requestJson<CisLinkIssueResponse>(apiBaseUrl, `/api/v1/leads/${leadId}/cis/${action}`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function uploadLeadCisScan(
+  apiBaseUrl: string,
+  accessToken: string,
+  leadId: string,
+  input: UploadCisScanRequest,
+) {
+  return requestJson<UploadCisScanResponse>(apiBaseUrl, `/api/v1/leads/${leadId}/cis/upload-scan`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function listCisParsedDrafts(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+) {
+  return requestJson<ListCisParsedDraftsResponse>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/parsed-drafts`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function applyCisParsedDraft(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  draftId: string,
+  input: ApplyCisParsedDraftRequest = {},
+) {
+  return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/parsed-drafts/${draftId}/apply`, {
     method: 'POST',
     accessToken,
     body: input,

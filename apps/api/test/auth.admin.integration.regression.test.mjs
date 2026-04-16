@@ -11,13 +11,16 @@ let loadAppConfig;
 let createPulseServer;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
+let authenticateAccessToken;
+let createAdminUser;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ createAdminUser } = await import('../dist/modules/admin/service.js'));
   await prisma.$connect();
 });
 
@@ -49,6 +52,13 @@ async function createAdminAuth() {
     },
     {},
   );
+}
+
+async function createAdminActor() {
+  const auth = await createAdminAuth();
+  const actor = await authenticateAccessToken(auth.tokens.accessToken);
+  assert.ok(actor, 'expected a bootstrap admin actor');
+  return { auth, actor };
 }
 
 test('admin integrations surface Microsoft Entra status and default auth settings', SERIAL, async () => {
@@ -168,6 +178,63 @@ test('admin role catalog exposes simple access-profile summaries for CRM setup',
     assert.ok(operationsAdmin.workspaceHighlights.includes('admin'));
     assert.ok(Array.isArray(operationsAdmin.actionHighlights));
     assert.ok(operationsAdmin.actionHighlights.includes('admin.user_manage'));
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('forbidden admin routes leave an authorization audit trail for the calling actor', SERIAL, async () => {
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { actor: adminActor } = await createAdminActor();
+
+    await createAdminUser(adminActor, {
+      email: 'finance.audit+forbidden@dynamicaqs.com',
+      firstName: 'Fiona',
+      lastName: 'Audit',
+      role: 'FINANCE',
+      isActive: true,
+      password: 'FinanceAudit!123',
+    });
+
+    const financeAuth = await loginWithPassword(
+      config,
+      {
+        email: 'finance.audit+forbidden@dynamicaqs.com',
+        password: 'FinanceAudit!123',
+      },
+      {},
+    );
+
+    const port = runtime.server.address().port;
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/admin/users`, {
+      headers: {
+        authorization: `Bearer ${financeAuth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(response.status, 403);
+
+    const auditEntry = await prisma.auditEntry.findFirst({
+      where: {
+        entityType: 'AUTHORIZATION_ATTEMPT',
+        entityId: '/api/v1/admin/users',
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    assert.ok(auditEntry);
+    assert.equal(auditEntry.action, 'REJECT');
+    assert.equal(auditEntry.actorUserId !== null, true);
+    assert.equal(auditEntry.metadata?.module, 'admin');
+    assert.equal(auditEntry.metadata?.actionKey, 'admin.user_view');
+    assert.equal(auditEntry.metadata?.result, 'access_denied');
+    assert.equal(auditEntry.metadata?.actorRole, 'FINANCE');
   } finally {
     await runtime.close();
   }

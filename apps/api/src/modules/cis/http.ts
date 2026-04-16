@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  ApplyCisParsedDraftRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
   CisReviewSignoffRequest,
@@ -8,6 +9,7 @@ import type {
   ListFinanceQueueRequest,
   SavePublicCisDraftRequest,
   SubmitPublicCisRequest,
+  UploadCisScanRequest,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import {
@@ -29,24 +31,29 @@ import {
   getLeadCisPackage,
   getPublicCisPackage,
   issueCisLink,
+  listCisParsedDrafts,
   listFinanceQueue,
+  applyCisParsedDraft,
   recordFinanceDecision,
   reviewAndSignOffCis,
   savePublicCisDraft,
   submitCisToFinance,
   submitPublicCis,
+  uploadLeadCisScan,
 } from './service.js';
 
 export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config: AppConfig) {
   const pathname = url.pathname;
   const method = req.method ?? 'GET';
 
-  const internalLeadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/cis(?:\/(send-link|resend-link))?$/);
+  const internalLeadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/cis(?:\/(send-link|resend-link|upload-scan))?$/);
   const financeQueueRoute = pathname === '/api/v1/cis/finance-queue';
   const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision))?$/);
+  const parsedDraftCollectionMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts$/);
+  const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
 
-  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !publicBaseMatch) {
+  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !publicBaseMatch) {
     return false;
   }
 
@@ -129,6 +136,20 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
         const response = await issueCisLink(actor, leadId, body, config);
         return jsonResponse(res, 200, response);
       }
+
+      if (action === 'upload-scan') {
+        if (method !== 'POST') {
+          return methodNotAllowedResponse(res, method, ['POST']);
+        }
+
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'cis',
+          action: 'lead.intake_manage',
+        });
+        const body = (await readJsonBody(req)) as UploadCisScanRequest;
+        const response = await uploadLeadCisScan(actor, leadId, body);
+        return jsonResponse(res, 200, response);
+      }
     }
 
     if (financeQueueRoute) {
@@ -144,6 +165,44 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
       const response = decisionStatus
         ? await listFinanceQueue(actor, { decisionStatus: decisionStatus as NonNullable<ListFinanceQueueRequest['decisionStatus']> })
         : await listFinanceQueue(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (parsedDraftCollectionMatch) {
+      const cisPackageId = parsedDraftCollectionMatch[1];
+      if (!cisPackageId) {
+        return false;
+      }
+
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'cis',
+        action: 'lead.view',
+      });
+      const response = await listCisParsedDrafts(actor, cisPackageId);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (parsedDraftApplyMatch) {
+      const cisPackageId = parsedDraftApplyMatch[1];
+      const draftId = parsedDraftApplyMatch[2];
+      if (!cisPackageId || !draftId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'cis',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req)) as ApplyCisParsedDraftRequest;
+      const response = await applyCisParsedDraft(actor, cisPackageId, draftId, body);
       return jsonResponse(res, 200, response);
     }
 

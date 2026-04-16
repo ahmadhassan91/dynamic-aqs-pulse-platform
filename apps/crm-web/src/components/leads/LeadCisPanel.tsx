@@ -6,6 +6,7 @@ import type {
   CisFinanceDecisionRequest,
   CisFinanceDecisionStatusKey,
   CisPackageDetail,
+  CisParsedDraftRecord,
   CisPaymentMethodKey,
   CisPaymentTermsKey,
   LeadDetail,
@@ -15,6 +16,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   CopyButton,
   Divider,
   Group,
@@ -42,11 +44,14 @@ import {
   IconSend,
 } from '@tabler/icons-react';
 import {
+  applyCisParsedDraft,
   fetchLeadCisPackage,
   issueLeadCisLink,
+  listCisParsedDrafts,
   recordLeadCisFinanceDecision,
   reviewLeadCisPackage,
   submitLeadCisToFinance,
+  uploadLeadCisScan,
 } from '@/lib/pulse-api';
 
 type LeadCisPanelProps = {
@@ -113,6 +118,16 @@ export function LeadCisPanel({
   const [requestedInfoNotes, setRequestedInfoNotes] = useState('');
   const [creditLineAmount, setCreditLineAmount] = useState('');
   const [paymentTerms, setPaymentTerms] = useState<CisPaymentTermsKey>('NET_30');
+  const [parsedDrafts, setParsedDrafts] = useState<CisParsedDraftRecord[]>([]);
+  const [parsedDraftsError, setParsedDraftsError] = useState<string | null>(null);
+  const [isLoadingParsedDrafts, setIsLoadingParsedDrafts] = useState(false);
+  const [scanFileName, setScanFileName] = useState('');
+  const [scanParserVersion, setScanParserVersion] = useState('manual-review-v1');
+  const [scanRawExtractionText, setScanRawExtractionText] = useState('');
+  const [scanSafeFieldPayloadJson, setScanSafeFieldPayloadJson] = useState('{\n  "legalCompanyName": "",\n  "primaryContactName": "",\n  "primaryContactEmail": ""\n}');
+  const [scanPaymentFieldsDetected, setScanPaymentFieldsDetected] = useState(false);
+  const [isRegisteringScan, setIsRegisteringScan] = useState(false);
+  const [applyingParsedDraftId, setApplyingParsedDraftId] = useState<string | null>(null);
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [isSigningOff, setIsSigningOff] = useState(false);
   const [isSubmittingFinance, setIsSubmittingFinance] = useState(false);
@@ -126,7 +141,8 @@ export function LeadCisPanel({
   useEffect(() => {
     setRecipientEmail(lead.email ?? '');
     setLinkNote('');
-  }, [lead.email, lead.id]);
+    setScanFileName(`${lead.companyName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'lead'}-cis-scan.pdf`);
+  }, [lead.companyName, lead.email, lead.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,6 +201,45 @@ export function LeadCisPanel({
     setPaymentTerms(cisPackage.financeDecision?.paymentTerms ?? 'NET_30');
   }, [cisPackage]);
 
+  const cisPackageId = cisPackage?.id;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadParsedDrafts() {
+      if (!cisPackageId) {
+        setParsedDrafts([]);
+        setParsedDraftsError(null);
+        return;
+      }
+
+      setIsLoadingParsedDrafts(true);
+      setParsedDraftsError(null);
+
+      try {
+        const response = await listCisParsedDrafts(apiBaseUrl, accessToken, cisPackageId);
+        if (!cancelled) {
+          setParsedDrafts(response.items);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setParsedDrafts([]);
+          setParsedDraftsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingParsedDrafts(false);
+        }
+      }
+    }
+
+    void loadParsedDrafts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, apiBaseUrl, cisPackageId]);
+
   const paymentMethod = cisPackage?.formData.paymentMethod;
   const requiresCreditTerms =
     paymentMethod !== undefined
@@ -202,6 +257,78 @@ export function LeadCisPanel({
   async function reloadCis() {
     const response = await fetchLeadCisPackage(apiBaseUrl, accessToken, lead.id);
     setCisPackage(response);
+    if (response) {
+      await reloadParsedDraftsByPackageId(response.id);
+    } else {
+      setParsedDrafts([]);
+      setParsedDraftsError(null);
+    }
+  }
+
+  async function reloadParsedDraftsByPackageId(cisPackageId: string) {
+    const response = await listCisParsedDrafts(apiBaseUrl, accessToken, cisPackageId);
+    setParsedDrafts(response.items);
+    setParsedDraftsError(null);
+  }
+
+  async function handleRegisterScannedDraft() {
+    if (!canManageCis || leadLifecycleLocked) {
+      return;
+    }
+
+    setIsRegisteringScan(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const safeFieldPayload = parseOptionalJsonObject(scanSafeFieldPayloadJson, 'Safe field payload');
+      const request = {
+        fileName: scanFileName.trim(),
+        ...(scanParserVersion.trim() ? { parserVersion: scanParserVersion.trim() } : {}),
+        ...(scanRawExtractionText.trim() ? { rawExtractionText: scanRawExtractionText.trim() } : {}),
+        ...(safeFieldPayload ? { safeFieldPayload: safeFieldPayload as unknown as NonNullable<Parameters<typeof uploadLeadCisScan>[3]['safeFieldPayload']> } : {}),
+        paymentFieldsDetected: scanPaymentFieldsDetected,
+      };
+      const response = await uploadLeadCisScan(apiBaseUrl, accessToken, lead.id, request);
+
+      setCisPackage(response.cisPackage);
+      await reloadParsedDraftsByPackageId(response.cisPackage.id);
+      setActionMessage(
+        response.parsedDraft.paymentFieldsDetected
+          ? 'Scanned CIS parse registered. Payment fields were flagged and kept out of canonical CIS data.'
+          : 'Scanned CIS parse registered and ready for reviewed apply.',
+      );
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRegisteringScan(false);
+    }
+  }
+
+  async function handleApplyParsedDraft(parsedDraftId: string) {
+    if (!cisPackage || !canManageCis || leadLifecycleLocked) {
+      return;
+    }
+
+    setApplyingParsedDraftId(parsedDraftId);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await applyCisParsedDraft(apiBaseUrl, accessToken, cisPackage.id, parsedDraftId, {
+        note: 'Applied from scanned CIS fallback review.',
+      });
+
+      setCisPackage(response);
+      await reloadParsedDraftsByPackageId(response.id);
+      setActionMessage('Reviewed parsed draft applied into the CIS package.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setApplyingParsedDraftId(null);
+    }
   }
 
   async function handleIssueLink(action: 'send-link' | 'resend-link') {
@@ -315,6 +442,144 @@ export function LeadCisPanel({
     }
   }
 
+  const scannedCisFallbackCard = canManageCis ? (
+    <Card withBorder radius="xl" p="lg">
+      <Stack gap="md">
+        <Group justify="space-between" align="center">
+          <Group gap="xs">
+            <ThemeIcon size="lg" color="orange" variant="light" radius="xl">
+              <IconFileDescription size={18} />
+            </ThemeIcon>
+            <div>
+              <Text fw={700}>Scanned CIS fallback</Text>
+              <Text size="xs" c="dimmed">
+                Register a scanned CIS parse draft when the prospect returns a PDF instead of finishing the digital link.
+              </Text>
+            </div>
+          </Group>
+          <Badge variant="light" color={parsedDrafts.length > 0 ? 'orange' : 'gray'}>
+            {parsedDrafts.length > 0 ? `${parsedDrafts.length} draft${parsedDrafts.length === 1 ? '' : 's'}` : 'No drafts yet'}
+          </Badge>
+        </Group>
+
+        <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+          OCR/vision drafts can populate safe company and contact fields, but payment fields stay excluded and must be handled through the hosted/tokenized payment path.
+        </Alert>
+
+        {parsedDraftsError ? (
+          <Alert color="red" icon={<IconAlertCircle size={16} />}>
+            {parsedDraftsError}
+          </Alert>
+        ) : null}
+
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput
+            label="Scan file name"
+            value={scanFileName}
+            onChange={(event) => setScanFileName(event.currentTarget.value)}
+            placeholder="dealer-cis-scan.pdf"
+            disabled={leadLifecycleLocked || isRegisteringScan}
+          />
+          <TextInput
+            label="Parser version"
+            value={scanParserVersion}
+            onChange={(event) => setScanParserVersion(event.currentTarget.value)}
+            placeholder="manual-review-v1"
+            disabled={leadLifecycleLocked || isRegisteringScan}
+          />
+        </SimpleGrid>
+
+        <Textarea
+          label="Raw extraction text"
+          value={scanRawExtractionText}
+          onChange={(event) => setScanRawExtractionText(event.currentTarget.value)}
+          placeholder="Paste OCR or transcription text here when a scanned CIS is reviewed internally."
+          minRows={3}
+          disabled={leadLifecycleLocked || isRegisteringScan}
+        />
+
+        <Textarea
+          label="Safe field payload (JSON)"
+          value={scanSafeFieldPayloadJson}
+          onChange={(event) => setScanSafeFieldPayloadJson(event.currentTarget.value)}
+          placeholder='{\n  "legalCompanyName": "Dynamic Dealer",\n  "primaryContactName": "Taylor Smith"\n}'
+          minRows={8}
+          disabled={leadLifecycleLocked || isRegisteringScan}
+        />
+
+        <Checkbox
+          label="Payment fields were present on the scanned form and must stay out of canonical CIS data"
+          checked={scanPaymentFieldsDetected}
+          onChange={(event) => setScanPaymentFieldsDetected(event.currentTarget.checked)}
+          disabled={leadLifecycleLocked || isRegisteringScan}
+        />
+
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            {cisPackage
+              ? 'This will attach a reviewed parse draft to the active CIS package.'
+              : 'This can start the CIS fallback flow even before a digital link package exists.'}
+          </Text>
+          <Button
+            leftSection={<IconFileDescription size={16} />}
+            onClick={() => {
+              void handleRegisterScannedDraft();
+            }}
+            loading={isRegisteringScan}
+            disabled={leadLifecycleLocked}
+          >
+            Register scanned parse
+          </Button>
+        </Group>
+
+        {isLoadingParsedDrafts ? (
+          <Text size="sm" c="dimmed">Loading parsed drafts...</Text>
+        ) : null}
+
+        {parsedDrafts.map((draft) => (
+          <Card key={draft.id} withBorder radius="xl" p="md" className="premium-subhero-panel">
+            <Stack gap="sm">
+              <Group justify="space-between" align="flex-start">
+                <div>
+                  <Text fw={700}>{draft.documentFileName}</Text>
+                  <Text size="xs" c="dimmed">
+                    {formatCisEvent(draft.parseStatus)} • {draft.parserVersion} • {formatOptionalDate(draft.createdAt)}
+                  </Text>
+                </div>
+                <Badge variant="light" color={draft.paymentFieldsDetected ? 'orange' : 'teal'}>
+                  {draft.paymentFieldsDetected ? 'Payment fields flagged' : 'Safe fields only'}
+                </Badge>
+              </Group>
+              <Text size="sm" c="dimmed">
+                Safe fields: {draft.safeFieldPayload ? Object.keys(draft.safeFieldPayload).join(', ') || 'No mapped fields yet' : 'No mapped fields yet'}
+              </Text>
+              {draft.rawExtractionText ? (
+                <Text size="sm" c="dimmed">
+                  Extraction preview: {draft.rawExtractionText.slice(0, 180)}{draft.rawExtractionText.length > 180 ? '…' : ''}
+                </Text>
+              ) : null}
+              <Group justify="space-between" align="center">
+                <Text size="sm" c="dimmed">
+                  Parsed drafts are applied into the live CIS package only after internal review.
+                </Text>
+                <Button
+                  variant="light"
+                  onClick={() => {
+                    void handleApplyParsedDraft(draft.id);
+                  }}
+                  loading={applyingParsedDraftId === draft.id}
+                  disabled={leadLifecycleLocked || !draft.safeFieldPayload || Object.keys(draft.safeFieldPayload).length === 0}
+                >
+                  Apply reviewed draft
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+        ))}
+      </Stack>
+    </Card>
+  ) : null;
+
   return (
     <Paper withBorder radius="xl" p="lg" className="premium-drawer-card">
       <Stack gap="md">
@@ -357,70 +622,73 @@ export function LeadCisPanel({
         {isLoading ? <Text size="sm" c="dimmed">Loading CIS package...</Text> : null}
 
         {!isLoading && !loadError && !cisPackage ? (
-          <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
-            <Stack gap="md">
-              <Group justify="space-between" align="center">
-                <Group gap="xs">
-                  <ThemeIcon size="lg" color="blue" variant="light" radius="xl">
-                    <IconLink size={18} />
-                  </ThemeIcon>
-                  <div>
-                    <Text fw={700}>Step 1. Send & Track CIS</Text>
-                    <Text size="xs" c="dimmed">Issue the prospect-facing CIS from the lead workspace.</Text>
-                  </div>
+          <>
+            <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Group gap="xs">
+                    <ThemeIcon size="lg" color="blue" variant="light" radius="xl">
+                      <IconLink size={18} />
+                    </ThemeIcon>
+                    <div>
+                      <Text fw={700}>Step 1. Send & Track CIS</Text>
+                      <Text size="xs" c="dimmed">Issue the prospect-facing CIS from the lead workspace.</Text>
+                    </div>
+                  </Group>
+                  <Badge variant="light" color={canIssueCis ? 'blue' : 'orange'}>
+                    {canIssueCis ? 'Ready' : 'Blocked'}
+                  </Badge>
                 </Group>
-                <Badge variant="light" color={canIssueCis ? 'blue' : 'orange'}>
-                  {canIssueCis ? 'Ready' : 'Blocked'}
-                </Badge>
-              </Group>
 
-              {!canIssueCis ? (
-                <Alert color="orange" icon={<IconAlertCircle size={16} />}>
-                  CIS is gated until discovery is complete. Move the lead into Discovery Completed first, then issue the digital link from here.
-                </Alert>
-              ) : null}
+                {!canIssueCis ? (
+                  <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                    CIS is gated until discovery is complete. Move the lead into Discovery Completed first, then issue the digital link from here.
+                  </Alert>
+                ) : null}
 
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <TextInput
-                  label="Recipient email"
-                  value={recipientEmail}
-                  onChange={(event) => setRecipientEmail(event.currentTarget.value)}
-                  placeholder="prospect@example.com"
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                  <TextInput
+                    label="Recipient email"
+                    value={recipientEmail}
+                    onChange={(event) => setRecipientEmail(event.currentTarget.value)}
+                    placeholder="prospect@example.com"
+                    disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
+                  />
+                  <TextInput
+                    label="Current lead stage"
+                    value={formatLeadStage(lead.stage)}
+                    disabled
+                  />
+                </SimpleGrid>
+
+                <Textarea
+                  label="Internal send note"
+                  value={linkNote}
+                  onChange={(event) => setLinkNote(event.currentTarget.value)}
+                  placeholder="Capture any context that should travel with the CIS send event."
+                  minRows={3}
                   disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
                 />
-                <TextInput
-                  label="Current lead stage"
-                  value={formatLeadStage(lead.stage)}
-                  disabled
-                />
-              </SimpleGrid>
 
-              <Textarea
-                label="Internal send note"
-                value={linkNote}
-                onChange={(event) => setLinkNote(event.currentTarget.value)}
-                placeholder="Capture any context that should travel with the CIS send event."
-                minRows={3}
-                disabled={!canManageCis || leadLifecycleLocked || isSendingLink}
-              />
-
-              <Group justify="space-between">
-                <Text size="sm" c="dimmed">
-                  Contact: {lead.contactDisplayName || 'Not captured yet'}
-                </Text>
-                <Button
-                  leftSection={<IconSend size={16} />}
-                  onClick={() => {
-                    void handleIssueLink('send-link');
-                  }}
-                  loading={isSendingLink}
-                  disabled={!canManageCis || leadLifecycleLocked || !canIssueCis}
-                >
-                  Send CIS link
-                </Button>
-              </Group>
-            </Stack>
-          </Card>
+                <Group justify="space-between">
+                  <Text size="sm" c="dimmed">
+                    Contact: {lead.contactDisplayName || 'Not captured yet'}
+                  </Text>
+                  <Button
+                    leftSection={<IconSend size={16} />}
+                    onClick={() => {
+                      void handleIssueLink('send-link');
+                    }}
+                    loading={isSendingLink}
+                    disabled={!canManageCis || leadLifecycleLocked || !canIssueCis}
+                  >
+                    Send CIS link
+                  </Button>
+                </Group>
+              </Stack>
+            </Card>
+            {scannedCisFallbackCard}
+          </>
         ) : null}
 
         {cisPackage ? (
@@ -780,6 +1048,8 @@ export function LeadCisPanel({
               </Stack>
             </Card>
 
+            {scannedCisFallbackCard}
+
             {cisPackage.events.length > 0 ? (
               <Card withBorder radius="xl" p="lg">
                 <Stack gap="sm">
@@ -911,4 +1181,28 @@ function formatAddress(address?: string, city?: string, state?: string, zip?: st
 
 function formatCisEvent(eventType: string) {
   return eventType.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+}
+
+function parseOptionalJsonObject(value: string, label: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `${label} must be valid JSON: ${error.message}`
+        : `${label} must be valid JSON`,
+    );
+  }
+
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error(`${label} must be a JSON object`);
+  }
+
+  return parsed as Record<string, unknown>;
 }

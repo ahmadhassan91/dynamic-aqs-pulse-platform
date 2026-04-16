@@ -13,8 +13,6 @@ let ensureWebsiteLeadConfigSeeded;
 let ensureTerritoryPolicySeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
-let authenticateAccessToken;
-let createAdminUser;
 let createLead;
 let issueCisLink;
 let getCisPackageDetail;
@@ -25,6 +23,9 @@ let reviewAndSignOffCis;
 let submitCisToFinance;
 let listFinanceQueue;
 let recordFinanceDecision;
+let uploadLeadCisScan;
+let listCisParsedDrafts;
+let applyCisParsedDraft;
 
 const SERIAL = { concurrency: false };
 
@@ -35,8 +36,7 @@ test.before(async () => {
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
-  ({ createAdminUser } = await import('../dist/modules/admin/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({
     issueCisLink,
     getCisPackageDetail,
@@ -47,6 +47,9 @@ test.before(async () => {
     submitCisToFinance,
     listFinanceQueue,
     recordFinanceDecision,
+    uploadLeadCisScan,
+    listCisParsedDrafts,
+    applyCisParsedDraft,
   } = await import('../dist/modules/cis/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -78,34 +81,41 @@ async function createBootstrapAdminContext() {
     {},
   );
 
-  const actor = await authenticateAccessToken(auth.tokens.accessToken);
-  assert.ok(actor, 'expected a bootstrap admin actor');
-
-  return { actor, auth };
+  return {
+    actor: {
+      userId: auth.identity.userId,
+      sessionId: auth.session.sessionId,
+      role: auth.identity.role,
+      actorType: auth.identity.actorType,
+      email: auth.identity.email,
+      displayName: auth.identity.displayName ?? process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME ?? 'Pulse Bootstrap Admin',
+    },
+    auth,
+  };
 }
 
-async function createRoleActor(adminActor, role, email, password) {
-  await createAdminUser(adminActor, {
-    email,
-    firstName: role.split('_')[0],
-    lastName: 'Regression',
-    role,
-    isActive: true,
-    password,
+async function createRoleActor(role, email) {
+  const user = await prisma.user.create({
+    data: {
+      email,
+      displayName: `${role.split('_')[0]} Regression`,
+      roleCode: role,
+      userType: 'INTERNAL',
+      isActive: true,
+    },
   });
 
-  const auth = await loginWithPassword(
-    config,
-    {
-      email,
-      password,
+  return {
+    actor: {
+      userId: user.id,
+      sessionId: `test-${user.id}`,
+      role,
+      actorType: 'internal',
+      email: user.email,
+      displayName: user.displayName,
     },
-    {},
-  );
-
-  const actor = await authenticateAccessToken(auth.tokens.accessToken);
-  assert.ok(actor, `expected actor for ${role}`);
-  return { actor, auth };
+    auth: null,
+  };
 }
 
 function extractPublicToken(publicUrl) {
@@ -133,6 +143,8 @@ function buildValidSubmissionForm(overrides = {}) {
 }
 
 async function createLeadWithCis(adminActor, companyName) {
+  await ensureTerritoryPolicySeeded();
+
   const lead = await createLead(adminActor, {
     companyName,
     contactDisplayName: `${companyName} Contact`,
@@ -186,16 +198,16 @@ async function createFinancePendingPackage(adminActor, salesActor, companyName, 
 test('cis and finance regression suite', SERIAL, async () => {
   const { actor: adminActor } = await createBootstrapAdminContext();
   const { actor: salesActor } = await createRoleActor(
-    adminActor,
     'SALES_BD_REP',
     'sales.rep+cis-suite@dynamicaqs.com',
-    'SalesSuite!123',
   );
   const { actor: financeActor } = await createRoleActor(
-    adminActor,
     'FINANCE',
     'finance.user+cis-suite@dynamicaqs.com',
-    'FinanceSuite!123',
+  );
+  const { actor: leadershipActor } = await createRoleActor(
+    'SALES_BD_LEADERSHIP',
+    'sales.leadership+cis-suite@dynamicaqs.com',
   );
 
   const resendLead = await createLead(adminActor, {
@@ -250,6 +262,68 @@ test('cis and finance regression suite', SERIAL, async () => {
   const storedDraft = await getPublicCisPackage(draftFixture.token);
   assert.ok(storedDraft);
   assert.equal(storedDraft.formData.primaryContactName, 'Taylor Draft');
+
+  const scannedLead = await createLead(adminActor, {
+    companyName: 'Scanned Package HVAC',
+    contactDisplayName: 'Scanned Package Contact',
+    email: 'scanned.package@example.com',
+    phone: '555-212-3232',
+    serviceTechCount: 6,
+    state: 'FL',
+  });
+
+  const scannedUpload = await uploadLeadCisScan(adminActor, scannedLead.id, {
+    fileName: 'scanned-cis.pdf',
+    parserVersion: 'ocr-regression-v1',
+    rawExtractionText: 'Primary contact Taylor Parse, legal company Scanned Package HVAC LLC.',
+    safeFieldPayload: {
+      legalCompanyName: 'Scanned Package HVAC LLC',
+      primaryContactName: 'Taylor Parse',
+      primaryContactEmail: 'taylor.parse@example.com',
+      paymentMethod: 'CREDIT_CARD',
+      cardOnFileAuthorized: true,
+      achAuthorized: true,
+    },
+  });
+
+  assert.equal(scannedUpload.cisPackage.entryMethod, 'scanned_pdf');
+  assert.equal(scannedUpload.cisPackage.status, 'review_in_progress');
+  assert.equal(scannedUpload.parsedDraft.parseStatus, 'needs_review');
+  assert.equal(scannedUpload.parsedDraft.paymentFieldsDetected, true);
+  assert.equal(scannedUpload.parsedDraft.safeFieldPayload?.legalCompanyName, 'Scanned Package HVAC LLC');
+  assert.equal(scannedUpload.parsedDraft.safeFieldPayload?.paymentMethod, undefined);
+  assert.equal(scannedUpload.parsedDraft.safeFieldPayload?.cardOnFileAuthorized, undefined);
+
+  const scannedLeadAfterUpload = await prisma.lead.findUnique({
+    where: { id: scannedLead.id },
+  });
+  assert.equal(scannedLeadAfterUpload?.stage, 'CIS_SENT');
+  assert.ok(scannedLeadAfterUpload?.cisSentAt);
+  assert.ok(scannedLeadAfterUpload?.cisSubmittedAt);
+
+  const listedDrafts = await listCisParsedDrafts(adminActor, scannedUpload.cisPackage.id);
+  assert.equal(listedDrafts.items.length, 1);
+  assert.equal(listedDrafts.items[0].documentFileName, 'scanned-cis.pdf');
+
+  await assert.rejects(
+    applyCisParsedDraft(financeActor, scannedUpload.cisPackage.id, scannedUpload.parsedDraft.id, {}),
+    /lead\.intake_manage/,
+  );
+
+  const appliedScanned = await applyCisParsedDraft(adminActor, scannedUpload.cisPackage.id, scannedUpload.parsedDraft.id, {
+    note: 'Reviewed OCR fallback draft.',
+  });
+
+  assert.equal(appliedScanned.formData.legalCompanyName, 'Scanned Package HVAC LLC');
+  assert.equal(appliedScanned.formData.primaryContactName, 'Taylor Parse');
+  assert.equal(appliedScanned.formData.primaryContactEmail, 'taylor.parse@example.com');
+  assert.equal(appliedScanned.formData.paymentMethod, undefined);
+  assert.equal(appliedScanned.formData.cardOnFileAuthorized, undefined);
+
+  const storedParsedDraft = await prisma.cisParsedDraft.findUnique({
+    where: { id: scannedUpload.parsedDraft.id },
+  });
+  assert.equal(storedParsedDraft?.parseStatus, 'PARSED');
 
   const validationFixture = await createLeadWithCis(adminActor, 'Validation Industrial Air');
   await assert.rejects(
@@ -375,6 +449,24 @@ test('cis and finance regression suite', SERIAL, async () => {
   queue = await listFinanceQueue(financeActor, { decisionStatus: 'approved' });
   assert.equal(queue.total, 1);
   assert.equal(queue.items[0]?.cisPackageId, branchFixture.cisPackageId);
+  assert.equal(queue.items[0]?.creditLineAmount, 10000);
+  assert.equal(queue.items[0]?.paymentTerms, 'NET_30');
+
+  const leadershipQueue = await listFinanceQueue(leadershipActor, { decisionStatus: 'approved' });
+  assert.equal(leadershipQueue.total, 1);
+  assert.equal(leadershipQueue.items[0]?.cisPackageId, branchFixture.cisPackageId);
+  assert.equal(leadershipQueue.items[0]?.creditLineAmount, undefined);
+  assert.equal(leadershipQueue.items[0]?.paymentTerms, undefined);
+
+  const leadershipDetail = await getCisPackageDetail(leadershipActor, branchFixture.cisPackageId);
+  assert.ok(leadershipDetail);
+  assert.equal(leadershipDetail.financeDecision?.creditLineAmount, undefined);
+  assert.equal(leadershipDetail.financeDecision?.paymentTerms, undefined);
+
+  const financeDetail = await getCisPackageDetail(financeActor, branchFixture.cisPackageId);
+  assert.ok(financeDetail);
+  assert.equal(financeDetail.financeDecision?.creditLineAmount, 10000);
+  assert.equal(financeDetail.financeDecision?.paymentTerms, 'NET_30');
 
   const declineFixture = await createFinancePendingPackage(adminActor, salesActor, 'Decline Queue Air');
   await assert.rejects(
@@ -403,16 +495,12 @@ test('cis and finance regression suite', SERIAL, async () => {
 test('only finance roles can record finance decisions on queued CIS packages', SERIAL, async () => {
   const { actor: adminActor } = await createBootstrapAdminContext();
   const { actor: salesActor } = await createRoleActor(
-    adminActor,
     'SALES_BD_REP',
     'sales.rep+cis-denial@dynamicaqs.com',
-    'SalesDenial!123',
   );
   const { actor: financeActor } = await createRoleActor(
-    adminActor,
     'FINANCE',
     'finance.user+cis-denial@dynamicaqs.com',
-    'FinanceDenial!123',
   );
 
   const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Finance Role Gate');

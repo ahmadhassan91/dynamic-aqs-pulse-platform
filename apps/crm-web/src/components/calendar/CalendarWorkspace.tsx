@@ -58,7 +58,7 @@ import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
-type CalendarViewMode = 'month' | 'week' | 'list';
+type CalendarViewMode = 'day' | 'week' | 'month' | 'list';
 type CalendarFilterMode = 'all' | 'discovery' | 'training' | 'visits' | 'audits';
 
 const EVENT_TYPE_META: Record<
@@ -116,6 +116,10 @@ function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function startOfHour(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours());
+}
+
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
@@ -140,7 +144,11 @@ function endOfMonth(date: Date) {
 }
 
 function formatDayKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 function formatDateTime(value: string) {
@@ -169,6 +177,13 @@ function formatWeekday(value: Date) {
   }).format(value);
 }
 
+function formatTime(value: Date | string) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(typeof value === 'string' ? new Date(value) : value);
+}
+
 function normalizeStatusLabel(value: CalendarEventSummary['status']) {
   return value.replace(/_/g, ' ');
 }
@@ -178,6 +193,14 @@ function isActivationKey(key: string) {
 }
 
 function resolveRange(anchorDate: Date, view: CalendarViewMode) {
+  if (view === 'day') {
+    const start = startOfDay(anchorDate);
+    return {
+      start,
+      end: addDays(start, 1),
+    };
+  }
+
   if (view === 'week') {
     return {
       start: startOfWeek(anchorDate),
@@ -200,6 +223,10 @@ function resolveRange(anchorDate: Date, view: CalendarViewMode) {
 }
 
 function shiftAnchorDate(anchorDate: Date, view: CalendarViewMode, direction: -1 | 1) {
+  if (view === 'day') {
+    return addDays(anchorDate, direction);
+  }
+
   if (view === 'week') {
     return addDays(anchorDate, direction * 7);
   }
@@ -209,6 +236,15 @@ function shiftAnchorDate(anchorDate: Date, view: CalendarViewMode, direction: -1
   }
 
   return new Date(anchorDate.getFullYear(), anchorDate.getMonth() + direction, 1);
+}
+
+function buildDaySlots(anchorDate: Date) {
+  const dayStart = startOfDay(anchorDate);
+  return Array.from({ length: 12 }, (_, index) => {
+    const slot = new Date(dayStart);
+    slot.setHours(8 + index, 0, 0, 0);
+    return slot;
+  });
 }
 
 function buildMonthCells(anchorDate: Date) {
@@ -273,7 +309,7 @@ export function CalendarWorkspace() {
   const range = useMemo(() => resolveRange(anchorDate, view), [anchorDate, view]);
 
   const openSchedulerForDate = useCallback((date: Date) => {
-    setSchedulerAnchorDate(startOfDay(date));
+    setSchedulerAnchorDate(new Date(date));
   }, []);
 
   const loadWorkspace = useCallback(async () => {
@@ -396,8 +432,18 @@ export function CalendarWorkspace() {
     () => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(anchorDate), index)),
     [anchorDate],
   );
+  const daySlots = useMemo(() => buildDaySlots(anchorDate), [anchorDate]);
+  const selectedDayKey = useMemo(() => formatDayKey(anchorDate), [anchorDate]);
+  const selectedDayItems = useMemo(
+    () => itemsByDay.get(selectedDayKey) ?? [],
+    [itemsByDay, selectedDayKey],
+  );
 
   const rangeLabel = useMemo(() => {
+    if (view === 'day') {
+      return formatWeekday(anchorDate);
+    }
+
     if (view === 'month') {
       return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(anchorDate);
     }
@@ -593,6 +639,7 @@ export function CalendarWorkspace() {
                 value={view}
                 onChange={(value) => setView(value as CalendarViewMode)}
                 data={[
+                  { value: 'day', label: 'Day' },
                   { value: 'month', label: 'Month' },
                   { value: 'week', label: 'Week' },
                   { value: 'list', label: 'List' },
@@ -758,6 +805,155 @@ export function CalendarWorkspace() {
         <SimpleGrid cols={{ base: 1, xl: 3 }} spacing="lg" verticalSpacing="lg">
           <Paper withBorder radius="xl" p="lg" style={{ gridColumn: 'span 2' }}>
             <Stack gap="md">
+              {view === 'day' ? (
+                <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md">
+                  <Paper withBorder radius="lg" p="md">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={0}>
+                          <Text fw={700}>Daily schedule lane</Text>
+                          <Text size="sm" c="dimmed">
+                            Click any slot to open the centralized scheduler at that exact time.
+                          </Text>
+                        </Stack>
+                        <Badge color="blue" variant="light">
+                          {selectedDayItems.length} event{selectedDayItems.length === 1 ? '' : 's'}
+                        </Badge>
+                      </Group>
+
+                      {daySlots.map((slot) => {
+                        const items = selectedDayItems.filter((item) => {
+                          const startsAt = new Date(item.startsAt);
+                          return (
+                            startsAt.getHours() === slot.getHours()
+                            && startsAt.getDate() === slot.getDate()
+                            && startsAt.getMonth() === slot.getMonth()
+                            && startsAt.getFullYear() === slot.getFullYear()
+                          );
+                        });
+
+                        return (
+                          <Card
+                            key={slot.toISOString()}
+                            withBorder
+                            radius="lg"
+                            p="sm"
+                            onClick={() => openSchedulerForDate(slot)}
+                            onKeyDown={(event) => {
+                              if (isActivationKey(event.key)) {
+                                event.preventDefault();
+                                openSchedulerForDate(slot);
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            style={{ cursor: 'pointer', textAlign: 'left' }}
+                          >
+                            <Stack gap="xs">
+                              <Group justify="space-between" align="center">
+                                <Text fw={700}>{formatTime(slot)}</Text>
+                                <Text size="xs" c="dimmed">
+                                  {items.length === 0 ? 'Open slot' : `${items.length} scheduled`}
+                                </Text>
+                              </Group>
+                              {items.length === 0 ? (
+                                <Text size="sm" c="dimmed">
+                                  No scheduled activity in this slot. Click to launch the scheduler.
+                                </Text>
+                              ) : (
+                                items.map((item) => {
+                                  const meta = getEventMeta(item.eventType);
+                                  return (
+                                    <Box
+                                      key={item.id}
+                                      component="button"
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSelectedEventId(item.id);
+                                      }}
+                                      style={{
+                                        border: '1px solid rgba(226, 232, 240, 0.9)',
+                                        borderRadius: 12,
+                                        padding: '10px 12px',
+                                        textAlign: 'left',
+                                        background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      <Group justify="space-between" align="flex-start" gap="sm">
+                                        <Badge color={meta.color} variant="light">
+                                          {meta.label}
+                                        </Badge>
+                                        <Text size="xs" c="dimmed">
+                                          {formatTime(item.startsAt)}
+                                        </Text>
+                                      </Group>
+                                      <Text mt={6} fw={600} size="sm">
+                                        {item.title}
+                                      </Text>
+                                      <Text size="xs" c="dimmed">
+                                        {item.assignedToName ?? item.contactName ?? item.accountName ?? item.leadName ?? 'Pulse activity'}
+                                      </Text>
+                                    </Box>
+                                  );
+                                })
+                              )}
+                            </Stack>
+                          </Card>
+                        );
+                      })}
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="lg" p="md">
+                    <Stack gap="sm">
+                      <Text fw={700}>Selected day summary</Text>
+                      <Text size="sm" c="dimmed">
+                        Keep the centralized calendar focused on the day while still launching the owning workflow.
+                      </Text>
+                      {selectedDayItems.length === 0 ? (
+                        <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
+                          Nothing is scheduled for this day yet. Click any slot on the left to book discovery or training work.
+                        </Alert>
+                      ) : (
+                        selectedDayItems.map((item) => {
+                          const meta = getEventMeta(item.eventType);
+                          return (
+                            <Card
+                              key={item.id}
+                              withBorder
+                              radius="lg"
+                              p="sm"
+                              style={{
+                                cursor: 'pointer',
+                                background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
+                              }}
+                              onClick={() => setSelectedEventId(item.id)}
+                            >
+                              <Group justify="space-between" align="flex-start" gap="sm">
+                                <Stack gap={2}>
+                                  <Badge color={meta.color} variant="light" w="fit-content">
+                                    {meta.label}
+                                  </Badge>
+                                  <Text fw={600}>{item.title}</Text>
+                                  <Text size="sm" c="dimmed">
+                                    {formatDateTime(item.startsAt)}
+                                  </Text>
+                                </Stack>
+                                <Badge color={getStatusColor(item.status)} variant="dot">
+                                  {normalizeStatusLabel(item.status)}
+                                </Badge>
+                              </Group>
+                            </Card>
+                          );
+                        })
+                      )}
+                    </Stack>
+                  </Paper>
+                </SimpleGrid>
+              ) : null}
+
               {view === 'month' ? (
                 <>
                   <SimpleGrid cols={7} spacing="xs">
@@ -796,9 +992,14 @@ export function CalendarWorkspace() {
                           }}
                         >
                           <Stack gap={6}>
-                            <Text fw={700} size="sm" {...(!inCurrentMonth ? { c: 'dimmed' as const } : {})}>
-                              {day.getDate()}
-                            </Text>
+                            <Group justify="space-between" align="center">
+                              <Text fw={700} size="sm" {...(!inCurrentMonth ? { c: 'dimmed' as const } : {})}>
+                                {day.getDate()}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {items.length === 0 ? 'Open' : `${items.length} evt`}
+                              </Text>
+                            </Group>
                             {items.slice(0, 3).map((item) => {
                               const meta = getEventMeta(item.eventType);
                               return (
@@ -819,9 +1020,14 @@ export function CalendarWorkspace() {
                                     cursor: 'pointer',
                                   }}
                                 >
-                                  <Text size="xs" fw={700} c={`${meta.color}.7`}>
-                                    {meta.shortLabel}
-                                  </Text>
+                                  <Group justify="space-between" gap="xs">
+                                    <Text size="xs" fw={700} c={`${meta.color}.7`}>
+                                      {meta.shortLabel}
+                                    </Text>
+                                    <Text size="xs" c="dimmed">
+                                      {formatTime(item.startsAt)}
+                                    </Text>
+                                  </Group>
                                   <Text size="xs" lineClamp={2}>
                                     {item.title}
                                   </Text>
@@ -896,13 +1102,13 @@ export function CalendarWorkspace() {
                                     <Badge color={meta.color} variant="light">
                                       {meta.label}
                                     </Badge>
-                                    <Text size="xs" c="dimmed">{formatDateTime(item.startsAt)}</Text>
+                                    <Text size="xs" c="dimmed">{formatTime(item.startsAt)}</Text>
                                   </Group>
                                   <Text mt={6} fw={600} size="sm">
                                     {item.title}
                                   </Text>
                                   <Text size="xs" c="dimmed">
-                                    {item.assignedToName ?? item.contactName ?? 'Unassigned'}
+                                    {item.assignedToName ?? item.contactName ?? item.accountName ?? item.leadName ?? 'Unassigned'}
                                   </Text>
                                 </Box>
                               );

@@ -248,6 +248,67 @@ test('calendar workspace classifies completed site visits separately from traini
   assert.equal(workspace.items[0]?.status, 'completed');
 });
 
+test('calendar workspace only returns event families the actor can access', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const lead = await createLead(actor, {
+    companyName: 'Scoped Discovery HVAC',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-08-10T15:00:00.000Z'),
+    },
+  });
+
+  const fixture = await createTrainingAccountFixture('scope');
+  const onboardingType = await prisma.trainingType.findUnique({
+    where: { code: 'onboarding' },
+  });
+
+  assert.ok(onboardingType, 'expected seeded onboarding training type');
+
+  await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-08-12T16:00:00.000Z',
+    durationMinutes: 90,
+    attendeeCount: 5,
+    title: 'Scoped Training Session',
+  });
+
+  const adminCsrAuth = await createInternalRoleSession('ADMIN_CSR_OPS', 'calendar-admin-csr@pulse.local');
+  const trainingOpsAuth = await createInternalRoleSession('TRAINING_OPS', 'calendar-training-ops@pulse.local');
+
+  const adminCsrActor = await authenticateAccessToken(adminCsrAuth.auth.tokens.accessToken);
+  const trainingOpsActor = await authenticateAccessToken(trainingOpsAuth.auth.tokens.accessToken);
+
+  assert.ok(adminCsrActor, 'expected ADMIN_CSR_OPS actor');
+  assert.ok(trainingOpsActor, 'expected TRAINING_OPS actor');
+
+  const adminCsrWorkspace = await getCalendarWorkspace(adminCsrActor, {
+    startDate: '2026-08-01T00:00:00.000Z',
+    endDate: '2026-08-31T23:59:59.999Z',
+  }, config);
+
+  assert.equal(adminCsrWorkspace.summary.discoveryCallCount, 1);
+  assert.equal(adminCsrWorkspace.summary.virtualTrainingCount, 0);
+  assert.deepEqual(adminCsrWorkspace.items.map((item) => item.eventType), ['discovery_call']);
+
+  const trainingOpsWorkspace = await getCalendarWorkspace(trainingOpsActor, {
+    startDate: '2026-08-01T00:00:00.000Z',
+    endDate: '2026-08-31T23:59:59.999Z',
+  }, config);
+
+  assert.equal(trainingOpsWorkspace.summary.discoveryCallCount, 0);
+  assert.equal(trainingOpsWorkspace.summary.virtualTrainingCount, 1);
+  assert.deepEqual(trainingOpsWorkspace.items.map((item) => item.eventType), ['virtual_training']);
+});
+
 test('calendar workspace requires auth on the route and rejects oversized ranges', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const runtime = await createPulseServer(loadAppConfig(process.env));

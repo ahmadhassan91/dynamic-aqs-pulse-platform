@@ -35,7 +35,11 @@ type CalendarScheduleMode = 'discovery' | 'training';
 
 function toInitialLocalDateTimeInput(value: Date) {
   const next = new Date(value);
-  next.setHours(10, 0, 0, 0);
+  if (next.getHours() === 0 && next.getMinutes() === 0) {
+    next.setHours(10, 0, 0, 0);
+  } else {
+    next.setSeconds(0, 0);
+  }
   const offsetMs = next.getTimezoneOffset() * 60_000;
   return new Date(next.getTime() - offsetMs).toISOString().slice(0, 16);
 }
@@ -120,39 +124,42 @@ export function CalendarSchedulerModal({
     let cancelled = false;
     setIsLoading(true);
 
-    const jobs: Promise<[LeadSummary[], TrainingAccountSummary[], TrainingCatalogResponse | null, TrainingTrainerSummary[]]> =
-      Promise.all([
-        canScheduleDiscovery
-          ? fetchLeads(apiBaseUrl, accessToken, { lifecycleStatus: 'active', limit: 100 }).then((response) => response.items)
-          : Promise.resolve([]),
-        canScheduleTraining
-          ? fetchTrainingAccounts(apiBaseUrl, accessToken, { limit: 100 }).then((response) => response.items)
-          : Promise.resolve([]),
-        canScheduleTraining
-          ? fetchTrainingCatalog(apiBaseUrl, accessToken)
-          : Promise.resolve(null),
-        canScheduleTraining
-          ? fetchTrainingTrainers(apiBaseUrl, accessToken).then((response) => response.items)
-          : Promise.resolve([]),
-      ]);
-
-    jobs
-      .then(([leadItems, accountItems, catalogResponse, trainerItems]) => {
+    Promise.allSettled([
+      canScheduleDiscovery
+        ? fetchLeads(apiBaseUrl, accessToken, { lifecycleStatus: 'active', limit: 100 }).then((response) => response.items)
+        : Promise.resolve([]),
+      canScheduleTraining
+        ? fetchTrainingAccounts(apiBaseUrl, accessToken, { limit: 100 }).then((response) => response.items)
+        : Promise.resolve([]),
+      canScheduleTraining
+        ? fetchTrainingCatalog(apiBaseUrl, accessToken)
+        : Promise.resolve(null),
+      canScheduleTraining
+        ? fetchTrainingTrainers(apiBaseUrl, accessToken).then((response) => response.items)
+        : Promise.resolve([]),
+    ])
+      .then(([leadResult, accountResult, catalogResult, trainerResult]) => {
         if (cancelled) {
           return;
         }
 
-        setLeadOptions(leadItems);
-        setTrainingAccounts(accountItems);
-        setTrainingCatalog(catalogResponse);
-        setTrainers(trainerItems);
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
+        if (leadResult.status === 'fulfilled') {
+          setLeadOptions(leadResult.value);
+        }
+        if (accountResult.status === 'fulfilled') {
+          setTrainingAccounts(accountResult.value);
+        }
+        if (catalogResult.status === 'fulfilled') {
+          setTrainingCatalog(catalogResult.value);
+        }
+        if (trainerResult.status === 'fulfilled') {
+          setTrainers(trainerResult.value);
         }
 
-        setLoadError(toUserFacingLoadError(error));
+        const firstRejected = [leadResult, accountResult, catalogResult, trainerResult].find((result) => result.status === 'rejected');
+        if (firstRejected?.status === 'rejected') {
+          setLoadError(toUserFacingLoadError(firstRejected.reason));
+        }
       })
       .finally(() => {
         if (!cancelled) {

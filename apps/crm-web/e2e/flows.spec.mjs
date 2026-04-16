@@ -34,6 +34,17 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(trainingOverview.getByText('IAQ Certification Curriculum', { exact: true }).last()).toBeVisible();
   await expect(trainingOverview.getByText('Product Installations', { exact: true }).last()).toBeVisible();
 
+  await page.goto('/calendar');
+  await expect(page.getByRole('heading', { name: 'Centralized operating calendar' })).toBeVisible();
+  await page.getByText('Day', { exact: true }).click({ force: true });
+  await expect(page.getByText('Daily schedule lane')).toBeVisible();
+  await page.getByText('Open slot').first().click({ force: true });
+  await expect(page.getByRole('heading', { name: 'Centralized scheduler' })).toBeVisible();
+  await page.getByText('Week', { exact: true }).click({ force: true });
+  await expect(page.getByText('The centralized calendar now launches real discovery and training scheduling.')).toBeVisible();
+  await page.getByText('Month', { exact: true }).click({ force: true });
+  await expect(page.getByText('Open').first()).toBeVisible();
+
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'System Administration' })).toBeVisible();
 });

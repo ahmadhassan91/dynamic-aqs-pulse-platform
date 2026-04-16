@@ -1,6 +1,8 @@
+import { canAccessModule } from '@pulse/auth';
 import type {
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
+  CalendarEventSummary,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
@@ -13,7 +15,10 @@ export async function getCalendarWorkspace(
   config: AppConfig,
 ): Promise<CalendarWorkspaceResponse> {
   const { rangeStart, rangeEnd } = parseCalendarRange(input);
-  const items = await listCalendarEvents(rangeStart, rangeEnd);
+  const items = filterCalendarEventsForActor(
+    actor,
+    await listCalendarEvents(rangeStart, rangeEnd),
+  );
   const outlook = await getOutlookWorkspaceState(actor, config, items);
 
   const mappedItems = items.map((item) => {
@@ -44,4 +49,27 @@ export async function getCalendarWorkspace(
     },
     items: mappedItems,
   };
+}
+
+function filterCalendarEventsForActor(
+  actor: AuthenticatedActor,
+  items: CalendarEventSummary[],
+) {
+  return items.filter((item) => canActorViewCalendarEvent(actor, item));
+}
+
+function canActorViewCalendarEvent(
+  actor: AuthenticatedActor,
+  item: CalendarEventSummary,
+) {
+  switch (item.sourceModule) {
+    case 'leads':
+      return canAccessModule(actor.role, 'leads');
+    case 'training':
+      return canAccessModule(actor.role, 'training');
+    case 'territories':
+      return canAccessModule(actor.role, 'territories');
+    default:
+      return false;
+  }
 }

@@ -85,6 +85,7 @@ import { findLeadRegionOption } from '@pulse/contracts';
 import { createHash } from 'node:crypto';
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import {
@@ -354,18 +355,33 @@ const LEAD_STAGE_ORDER: Record<LeadStage, number> = {
 };
 
 export async function ensureLeadRoutingPolicySeeded() {
-  await prisma.leadRoutingPolicy.upsert({
-    where: {
-      id: 'default',
-    },
-    update: {},
-    create: {
-      id: 'default',
-      routingBasis: LeadRoutingBasis.SERVICE_TECH_COUNT,
-      strategicGrowthMax: 5,
-      notes: 'Meetings-backed default as of March 13, 2026: route using service technician count, not truck count.',
-    },
-  });
+  try {
+    await prisma.leadRoutingPolicy.upsert({
+      where: {
+        id: 'default',
+      },
+      update: {},
+      create: {
+        id: 'default',
+        routingBasis: LeadRoutingBasis.SERVICE_TECH_COUNT,
+        strategicGrowthMax: 5,
+        notes: 'Meetings-backed default as of March 13, 2026: route using service technician count, not truck count.',
+      },
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError
+      && error.code === 'P2002'
+    ) {
+      await prisma.leadRoutingPolicy.update({
+        where: { id: 'default' },
+        data: {},
+      });
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function listLeads(actor: AuthenticatedActor, query: ListLeadsRequest = {}): Promise<ListLeadsResponse> {
@@ -374,6 +390,7 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
+  const scopeWhere = buildLeadRecordScope(actor);
   const where: Prisma.LeadWhereInput = {
     lifecycleStatus: query.lifecycleStatus
       ? toLeadLifecycleStatusEnum(query.lifecycleStatus)
@@ -404,7 +421,7 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
 
   const [items, total] = await Promise.all([
     prisma.lead.findMany({
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       orderBy: [
         { updatedAt: 'desc' },
         { createdAt: 'desc' },
@@ -412,7 +429,7 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
       take: limit,
       include: LEAD_SUMMARY_INCLUDE,
     }),
-    prisma.lead.count({ where }),
+    prisma.lead.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
   ]);
 
   return {
@@ -431,6 +448,7 @@ export async function listWebsiteFormLeads(
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
   const sourceSiteId = optionalTrimmed(query.sourceSiteId);
+  const scopeWhere = buildLeadRecordScope(actor);
   const where: Prisma.LeadWhereInput = {
     leadCaptureMethod: LeadCaptureMethod.DIRECT_WEB_FORM,
     lifecycleStatus: query.lifecycleStatus
@@ -450,6 +468,7 @@ export async function listWebsiteFormLeads(
 
   const activePipelineWhere: Prisma.LeadWhereInput = {
     AND: [
+      ...(scopeWhere ? [scopeWhere] : []),
       where,
       {
         stage: {
@@ -464,7 +483,7 @@ export async function listWebsiteFormLeads(
 
   const [items, total, activePipelineCount, siteGroups, aggregate] = await Promise.all([
     prisma.lead.findMany({
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       orderBy: [
         { createdAt: 'desc' },
         { updatedAt: 'desc' },
@@ -472,14 +491,14 @@ export async function listWebsiteFormLeads(
       take: limit,
       include: LEAD_SUMMARY_INCLUDE,
     }),
-    prisma.lead.count({ where }),
+    prisma.lead.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
     prisma.lead.count({ where: activePipelineWhere }),
     prisma.lead.groupBy({
       by: ['sourceSiteId', 'sourceSiteName'],
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
     }),
     prisma.lead.aggregate({
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       _max: {
         createdAt: true,
       },
@@ -963,10 +982,11 @@ export async function listLeadHistoryFeed(
 export async function getLeadDetail(actor: AuthenticatedActor, leadId: string): Promise<LeadDetail | null> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
+  const scopeWhere = buildLeadRecordScope(actor);
 
   const [lead, policy] = await Promise.all([
-    prisma.lead.findUnique({
-      where: { id: leadId },
+    prisma.lead.findFirst({
+      where: scopeWhere ? { AND: [scopeWhere, { id: leadId }] } : { id: leadId },
       include: LEAD_DETAIL_INCLUDE,
     }),
     prisma.leadRoutingPolicy.findUnique({
@@ -2807,11 +2827,20 @@ async function resolveLeadDependencies(
 }
 
 async function getRoutingPolicy(tx: Prisma.TransactionClient): Promise<LeadRoutingPolicyRecord> {
-  const policy = await tx.leadRoutingPolicy.findUnique({
+  let policy = await tx.leadRoutingPolicy.findUnique({
     where: {
       id: 'default',
     },
   });
+
+  if (!policy) {
+    await ensureLeadRoutingPolicySeeded();
+    policy = await tx.leadRoutingPolicy.findUnique({
+      where: {
+        id: 'default',
+      },
+    });
+  }
 
   if (!policy) {
     throw new Error('Lead routing policy is not seeded');

@@ -5,6 +5,8 @@ import type {
   CalendarWorkspaceRequest,
   SyncCalendarOutlookEventRequest,
 } from '@pulse/contracts';
+import type { AuthenticatedActor } from '../auth/types.js';
+import { buildLeadRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
 
 export const MAX_CALENDAR_RANGE_DAYS = 180;
 
@@ -27,10 +29,14 @@ export function parseCalendarRange(input: CalendarWorkspaceRequest) {
   };
 }
 
-export async function listCalendarEvents(rangeStart: Date, rangeEnd: Date): Promise<CalendarEventSummary[]> {
+export async function listCalendarEvents(
+  actor: AuthenticatedActor,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<CalendarEventSummary[]> {
   const [leadEvents, trainingEvents] = await Promise.all([
-    listLeadCalendarEvents(rangeStart, rangeEnd),
-    listTrainingCalendarEvents(rangeStart, rangeEnd),
+    listLeadCalendarEvents(actor, rangeStart, rangeEnd),
+    listTrainingCalendarEvents(actor, rangeStart, rangeEnd),
   ]);
 
   return [...leadEvents, ...trainingEvents].sort((left, right) => {
@@ -153,24 +159,36 @@ export async function resolveCalendarEventForSync(
   return item;
 }
 
-async function listLeadCalendarEvents(rangeStart: Date, rangeEnd: Date): Promise<CalendarEventSummary[]> {
+async function listLeadCalendarEvents(
+  actor: AuthenticatedActor,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<CalendarEventSummary[]> {
+  const scopeWhere = buildLeadRecordScope(actor);
   const leads = await prisma.lead.findMany({
     where: {
-      lifecycleStatus: {
-        not: 'CLOSED',
-      },
-      OR: [
+      AND: [
+        ...(scopeWhere ? [scopeWhere] : []),
         {
-          discoveryScheduledAt: {
-            gte: rangeStart,
-            lte: rangeEnd,
+          lifecycleStatus: {
+            not: 'CLOSED',
           },
         },
         {
-          discoveryCompletedAt: {
-            gte: rangeStart,
-            lte: rangeEnd,
-          },
+          OR: [
+            {
+              discoveryScheduledAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+            {
+              discoveryCompletedAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+          ],
         },
       ],
     },
@@ -206,21 +224,31 @@ async function listLeadCalendarEvents(rangeStart: Date, rangeEnd: Date): Promise
   });
 }
 
-async function listTrainingCalendarEvents(rangeStart: Date, rangeEnd: Date): Promise<CalendarEventSummary[]> {
+async function listTrainingCalendarEvents(
+  actor: AuthenticatedActor,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<CalendarEventSummary[]> {
+  const scopeWhere = buildTrainingSessionRecordScope(actor);
   const sessions = await prisma.trainingSession.findMany({
     where: {
-      OR: [
+      AND: [
+        ...(scopeWhere ? [scopeWhere] : []),
         {
-          scheduledAt: {
-            gte: rangeStart,
-            lte: rangeEnd,
-          },
-        },
-        {
-          completedAt: {
-            gte: rangeStart,
-            lte: rangeEnd,
-          },
+          OR: [
+            {
+              scheduledAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+            {
+              completedAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+          ],
         },
       ],
     },

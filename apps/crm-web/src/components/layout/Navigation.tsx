@@ -157,6 +157,7 @@ export function Navigation() {
         { label: 'Admin Dashboard', link: '/admin' },
         { label: 'User Management', link: '/admin/users' },
         { label: 'Roles & Permissions', link: '/admin/roles' },
+        { label: 'Integrations', link: '/admin/integrations' },
         { label: 'Activity Monitor', link: '/admin/activity' },
       ],
     });

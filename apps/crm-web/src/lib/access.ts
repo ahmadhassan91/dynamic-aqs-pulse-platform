@@ -80,7 +80,8 @@ export function canAccessModule(role: AuthRole | string | null | undefined, modu
     return false;
   }
 
-  return (ROLE_DEFAULT_MODULE_ACCESS_CATALOG[normalizedRole] ?? []).includes(module);
+  const moduleCatalog = ROLE_DEFAULT_MODULE_ACCESS_CATALOG ?? {};
+  return (moduleCatalog[normalizedRole] ?? []).includes(module);
 }
 
 export function canPerformAction(role: AuthRole | string | null | undefined, action: WorkspaceActionKey) {
@@ -89,7 +90,8 @@ export function canPerformAction(role: AuthRole | string | null | undefined, act
     return false;
   }
 
-  return (ROLE_DEFAULT_ACTION_ACCESS_CATALOG[normalizedRole] ?? []).includes(action);
+  const actionCatalog = ROLE_DEFAULT_ACTION_ACCESS_CATALOG ?? {};
+  return (actionCatalog[normalizedRole] ?? []).includes(action);
 }
 
 export function getAccessibleLandingTargets(role: AuthRole | string | null | undefined) {

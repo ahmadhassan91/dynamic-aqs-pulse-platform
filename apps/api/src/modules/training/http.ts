@@ -1,4 +1,3 @@
-import { AuthorizationError } from '@pulse/auth';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type { AppConfig } from '../../config.js';
@@ -26,7 +25,11 @@ import {
   readJsonBody,
   unauthorizedResponse,
 } from '../../utils/http.js';
-import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
+import {
+  isAuthenticationError,
+  isAuthorizationError,
+  requireAuthenticatedActor,
+} from '../auth/request.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import {
   cancelTrainingSession,
@@ -379,12 +382,12 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
       });
     }
   } catch (error) {
-    if (error instanceof AuthenticationError) {
+    if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
     }
 
-    if (error instanceof AuthorizationError) {
-      return forbiddenResponse(res, error.message);
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
     }
 
     const message = error instanceof Error ? error.message : String(error);
@@ -413,12 +416,12 @@ async function withTrainingAuth(
     const actor = await requireAuthenticatedActor(req, permission);
     return await handler(actor);
   } catch (error) {
-    if (error instanceof AuthenticationError) {
+    if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
     }
 
-    if (error instanceof AuthorizationError) {
-      return forbiddenResponse(res, error.message);
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
     }
 
     return badRequestResponse(res, error instanceof Error ? error.message : String(error));

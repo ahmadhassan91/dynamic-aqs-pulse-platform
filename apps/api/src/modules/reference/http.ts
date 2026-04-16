@@ -1,4 +1,3 @@
-import { AuthorizationError } from '@pulse/auth';
 import type {
   CreateLeadSourceRequest,
   LeadSourceImportRow,
@@ -18,7 +17,11 @@ import {
   readJsonBody,
   unauthorizedResponse,
 } from '../../utils/http.js';
-import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
+import {
+  isAuthenticationError,
+  isAuthorizationError,
+  requireAuthenticatedActor,
+} from '../auth/request.js';
 import {
   createLeadSource,
   importLeadSources,
@@ -189,12 +192,12 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
       return jsonResponse(res, 200, response);
     }
   } catch (error) {
-    if (error instanceof AuthenticationError) {
+    if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
     }
 
-    if (error instanceof AuthorizationError) {
-      return forbiddenResponse(res, error.message);
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
     }
 
     const message = error instanceof Error ? error.message : String(error);

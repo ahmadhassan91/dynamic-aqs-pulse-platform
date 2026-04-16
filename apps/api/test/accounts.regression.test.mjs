@@ -13,7 +13,6 @@ let ensureWebsiteLeadConfigSeeded;
 let ensureTerritoryPolicySeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
-let authenticateAccessToken;
 let createLead;
 let createAccount;
 let updateAccount;
@@ -45,7 +44,7 @@ test.before(async () => {
     listAccounts,
     getAccountDetail,
   } = await import('../dist/modules/accounts/service.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
@@ -76,9 +75,35 @@ async function createAdminActor() {
     {},
   );
 
-  const actor = await authenticateAccessToken(auth.tokens.accessToken);
-  assert.ok(actor, 'expected a bootstrap admin actor');
-  return actor;
+  return {
+    userId: auth.identity.userId,
+    sessionId: auth.session.sessionId,
+    role: auth.identity.role,
+    actorType: auth.identity.actorType,
+    email: auth.identity.email,
+    displayName: auth.identity.displayName ?? process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME ?? 'Pulse Bootstrap Admin',
+  };
+}
+
+async function createScopedActor(role, email, displayName) {
+  const user = await prisma.user.create({
+    data: {
+      email,
+      displayName,
+      roleCode: role,
+      userType: 'INTERNAL',
+      isActive: true,
+    },
+  });
+
+  return {
+    userId: user.id,
+    sessionId: `test-${user.id}`,
+    role,
+    actorType: 'internal',
+    email: user.email,
+    displayName: user.displayName,
+  };
 }
 
 test('accounts list and detail expose converted lead territory assignment context', SERIAL, async () => {
@@ -201,6 +226,84 @@ test('direct customer creation is reserved for super admin or migration workflow
   });
 
   assert.equal(created.displayName, 'Migration Seed Account');
+});
+
+test('territory-scoped customer visibility stays simple for territory managers', SERIAL, async () => {
+  const adminActor = await createAdminActor();
+  const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.scope.accounts@pulse.local', 'TM Scoped');
+  const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.other.accounts@pulse.local', 'TM Other');
+  const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.scope.accounts@pulse.local', 'RD Scoped');
+
+  const region = await prisma.region.create({
+    data: {
+      code: 'rg_scope_accounts',
+      name: 'Scoped Accounts Region',
+      directorUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const ownedTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_owned_accounts',
+      name: 'TM Owned Accounts Territory',
+      regionId: region.id,
+      managerUserId: tmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const otherTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_other_accounts',
+      name: 'TM Other Accounts Territory',
+      regionId: region.id,
+      managerUserId: otherTmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const visibleAccount = await prisma.account.create({
+    data: {
+      displayName: 'Scoped Visible Dealer',
+      legalName: 'Scoped Visible Dealer LLC',
+      territoryId: ownedTerritory.id,
+      assignedTmUserId: tmActor.userId,
+      assignedRdUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const hiddenAccount = await prisma.account.create({
+    data: {
+      displayName: 'Scoped Hidden Dealer',
+      legalName: 'Scoped Hidden Dealer LLC',
+      territoryId: otherTerritory.id,
+      assignedTmUserId: otherTmActor.userId,
+      assignedRdUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const visibleList = await listAccounts(tmActor, {});
+  assert.equal(visibleList.total, 1);
+  assert.deepEqual(visibleList.items.map((item) => item.id), [visibleAccount.id]);
+
+  const visibleDetail = await getAccountDetail(tmActor, visibleAccount.id);
+  assert.ok(visibleDetail);
+  assert.equal(visibleDetail.id, visibleAccount.id);
+
+  const hiddenDetail = await getAccountDetail(tmActor, hiddenAccount.id);
+  assert.equal(hiddenDetail, null);
+
+  const adminList = await listAccounts(adminActor, {});
+  assert.equal(adminList.total, 2);
 });
 
 test('account contact maintenance supports primary reassignment and soft deactivation', SERIAL, async () => {

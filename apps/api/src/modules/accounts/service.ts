@@ -17,6 +17,7 @@ import type {
   UpdateContactRequest,
 } from '@pulse/contracts/accounts';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildAccountRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { syncAccountTerritoryAssignment } from '../territories/service.js';
 
@@ -32,6 +33,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
   const search = query.search?.trim();
   const includeInactive = query.includeInactive ?? false;
   const lifecycleStatus = query.lifecycleStatus ? toAccountLifecycleStatusEnum(query.lifecycleStatus) : undefined;
+  const scopeWhere = buildAccountRecordScope(actor);
 
   const where: Prisma.AccountWhereInput = {};
   if (!includeInactive) {
@@ -50,7 +52,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
 
   const [items, total] = await Promise.all([
     prisma.account.findMany({
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       orderBy: [
         { displayName: 'asc' },
         { createdAt: 'asc' },
@@ -83,7 +85,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
         },
       },
     }),
-    prisma.account.count({ where }),
+    prisma.account.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
   ]);
 
   return {
@@ -413,9 +415,10 @@ export async function updateAccountLifecycle(
 export async function getAccountDetail(actor: AuthenticatedActor, accountId: string): Promise<AccountDetail | null> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.view');
+  const scopeWhere = buildAccountRecordScope(actor);
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
+  const account = await prisma.account.findFirst({
+    where: scopeWhere ? { AND: [scopeWhere, { id: accountId }] } : { id: accountId },
     include: {
       territory: {
         include: {

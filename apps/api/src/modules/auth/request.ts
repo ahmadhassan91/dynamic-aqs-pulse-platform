@@ -11,6 +11,15 @@ export class AuthenticationError extends Error {
   }
 }
 
+export function isAuthenticationError(error: unknown): error is AuthenticationError {
+  return error instanceof AuthenticationError
+    || (error instanceof Error && error.name === 'AuthenticationError');
+}
+
+export function isAuthorizationError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AuthorizationError';
+}
+
 export async function requireAuthenticatedActor(
   req: IncomingMessage,
   permission?: {

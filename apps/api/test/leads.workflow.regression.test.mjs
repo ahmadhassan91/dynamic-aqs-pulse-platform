@@ -13,8 +13,8 @@ let ensureWebsiteLeadConfigSeeded;
 let ensureTerritoryPolicySeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
-let authenticateAccessToken;
 let createLead;
+let listLeads;
 let getLeadDetail;
 let getLeadRoutingPolicy;
 let listLeadWorkflowQueue;
@@ -36,6 +36,7 @@ test.before(async () => {
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
     createLead,
+    listLeads,
     getLeadDetail,
     getLeadRoutingPolicy,
     listLeadWorkflowQueue,
@@ -48,7 +49,7 @@ test.before(async () => {
     updateLeadRoutingPolicy,
   } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
@@ -79,9 +80,50 @@ async function createAdminActor() {
     {},
   );
 
-  const actor = await authenticateAccessToken(auth.tokens.accessToken);
-  assert.ok(actor, 'expected a bootstrap admin actor');
-  return actor;
+  return {
+    userId: auth.identity.userId,
+    sessionId: auth.session.sessionId,
+    role: auth.identity.role,
+    actorType: auth.identity.actorType,
+    email: auth.identity.email,
+    displayName: auth.identity.displayName ?? process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME ?? 'Pulse Bootstrap Admin',
+  };
+}
+
+async function createScopedActor(role, email, displayName) {
+  const user = await prisma.user.create({
+    data: {
+      email,
+      displayName,
+      roleCode: role,
+      userType: 'INTERNAL',
+      isActive: true,
+    },
+  });
+
+  return {
+    userId: user.id,
+    sessionId: `test-${user.id}`,
+    role,
+    actorType: 'internal',
+    email: user.email,
+    displayName: user.displayName,
+  };
+}
+
+function subtractBusinessDays(value, businessDays) {
+  const result = new Date(value.getTime());
+  let remaining = businessDays;
+
+  while (remaining > 0) {
+    result.setDate(result.getDate() - 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) {
+      remaining -= 1;
+    }
+  }
+
+  return result;
 }
 
 test('lead routing policy defaults are PRD-backed and new leads inherit the initial contact due date', SERIAL, async () => {
@@ -216,7 +258,7 @@ test('routing policy updates change queue stale thresholds and CIS follow-up tim
     note: 'CIS issued from workflow timing regression.',
   });
 
-  const threeBusinessDaysAgo = new Date(Date.now() - (5 * 24 * 3600000));
+  const threeBusinessDaysAgo = subtractBusinessDays(new Date(), 3);
   await prisma.lead.update({
     where: { id: cisLead.id },
     data: {
@@ -257,6 +299,115 @@ test('manual intake normalizes approved regions and preserves marketing metadata
   assert.ok(detail);
   assert.equal(detail.sourceCampaign, 'digital_ad');
   assert.equal(detail.leadRating, 'warm');
+});
+
+test('territory-scoped lead visibility stays simple for territory managers', SERIAL, async () => {
+  const adminActor = await createAdminActor();
+  const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.scope.leads@pulse.local', 'TM Scoped');
+  const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.other.leads@pulse.local', 'TM Other');
+  const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.scope.leads@pulse.local', 'RD Scoped');
+
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const region = await prisma.region.create({
+    data: {
+      code: 'rg_scope_leads',
+      name: 'Scoped Leads Region',
+      directorUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const ownedTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_owned_leads',
+      name: 'TM Owned Leads Territory',
+      regionId: region.id,
+      managerUserId: tmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const otherTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_other_leads',
+      name: 'TM Other Leads Territory',
+      regionId: region.id,
+      managerUserId: otherTmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const visibleLead = await createLead(adminActor, {
+    companyName: 'Scoped Visible Lead',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  const hiddenLead = await createLead(adminActor, {
+    companyName: 'Scoped Hidden Lead',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: visibleLead.id },
+    data: {
+      territory: {
+        connect: {
+          id: ownedTerritory.id,
+        },
+      },
+      assignedTmUser: {
+        connect: {
+          id: tmActor.userId,
+        },
+      },
+      assignedTmName: tmActor.displayName,
+      assignedRdUser: {
+        connect: {
+          id: rdActor.userId,
+        },
+      },
+    },
+  });
+
+  await prisma.lead.update({
+    where: { id: hiddenLead.id },
+    data: {
+      territory: {
+        connect: {
+          id: otherTerritory.id,
+        },
+      },
+      assignedTmUser: {
+        connect: {
+          id: otherTmActor.userId,
+        },
+      },
+      assignedTmName: otherTmActor.displayName,
+      assignedRdUser: {
+        connect: {
+          id: rdActor.userId,
+        },
+      },
+    },
+  });
+
+  const tmVisibleLeads = await listLeads(tmActor, {});
+  assert.equal(tmVisibleLeads.total, 1);
+  assert.deepEqual(tmVisibleLeads.items.map((item) => item.id), [visibleLead.id]);
+
+  const tmVisibleDetail = await getLeadDetail(tmActor, visibleLead.id);
+  assert.ok(tmVisibleDetail);
+  assert.equal(tmVisibleDetail.id, visibleLead.id);
+
+  const tmHiddenDetail = await getLeadDetail(tmActor, hiddenLead.id);
+  assert.equal(tmHiddenDetail, null);
 });
 
 test('manual intake rejects unsupported state or province values', SERIAL, async () => {

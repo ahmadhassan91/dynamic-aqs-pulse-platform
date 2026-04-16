@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
-import { AuthorizationError } from '@pulse/auth';
 import type {
   CreateRegionRequest,
   CreateShippingCenterRequest,
@@ -21,7 +20,11 @@ import {
   readJsonBody,
   unauthorizedResponse,
 } from '../../utils/http.js';
-import { AuthenticationError, requireAuthenticatedActor } from '../auth/request.js';
+import {
+  isAuthenticationError,
+  isAuthorizationError,
+  requireAuthenticatedActor,
+} from '../auth/request.js';
 import {
   createRegion,
   createShippingCenter,
@@ -318,11 +321,11 @@ async function withTerritoryAuth(
     const actor = await requireAuthenticatedActor(req, { module: 'territories' });
     return await handler(actor);
   } catch (error) {
-    if (error instanceof AuthenticationError) {
+    if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
     }
-    if (error instanceof AuthorizationError) {
-      return forbiddenResponse(res, error.message);
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
     }
     return badRequestResponse(res, error instanceof Error ? error.message : String(error));
   }

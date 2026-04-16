@@ -11,7 +11,6 @@ let loadAppConfig;
 let createPulseServer;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
-let authenticateAccessToken;
 let createAdminUser;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
@@ -27,7 +26,7 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({ createAdminUser } = await import('../dist/modules/admin/service.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({
@@ -72,16 +71,43 @@ async function createAdminSession() {
     {},
   );
 
-  const actor = await authenticateAccessToken(auth.tokens.accessToken);
-  assert.ok(actor, 'expected bootstrap admin actor');
+  const actor = {
+    userId: auth.identity.userId,
+    sessionId: auth.session.sessionId,
+    role: auth.identity.role,
+    actorType: auth.identity.actorType,
+    email: auth.identity.email,
+    displayName: auth.identity.displayName ?? process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME ?? 'Pulse Bootstrap Admin',
+  };
   return { actor, auth };
 }
 
+async function createScopedActor(role, email, displayName) {
+  const user = await prisma.user.create({
+    data: {
+      email,
+      displayName,
+      roleCode: role,
+      userType: 'INTERNAL',
+      isActive: true,
+    },
+  });
+
+  return {
+    userId: user.id,
+    sessionId: `test-${user.id}`,
+    role,
+    actorType: 'internal',
+    email: user.email,
+    displayName: user.displayName,
+  };
+}
+
 async function createInternalRoleSession(role, email) {
-  const { actor } = await createAdminSession();
+  const { actor: adminActor } = await createAdminSession();
   const password = 'CalendarRole!234';
 
-  await createAdminUser(actor, {
+  const created = await createAdminUser(adminActor, {
     email,
     firstName: 'Calendar',
     lastName: 'Ops',
@@ -94,12 +120,21 @@ async function createInternalRoleSession(role, email) {
     config,
     {
       email,
-      password,
+      password: created.temporaryPassword,
     },
     {},
   );
 
-  return { auth };
+  const actor = {
+    userId: created.user.id,
+    sessionId: auth.session.sessionId,
+    role: auth.identity.role,
+    actorType: auth.identity.actorType,
+    email: auth.identity.email,
+    displayName: auth.identity.displayName ?? created.user.displayName,
+  };
+
+  return { auth, actor };
 }
 
 function actorWithRole(actor, role) {
@@ -110,6 +145,7 @@ function actorWithRole(actor, role) {
 }
 
 async function createTrainingAccountFixture(suffix = 'calendar') {
+  await ensureReferenceDataSeeded();
   const segment = await prisma.businessSegmentRef.findFirst({
     where: { code: 'residential' },
   });
@@ -150,8 +186,8 @@ async function createTrainingAccountFixture(suffix = 'calendar') {
   return { account, tm, rd };
 }
 
-test('calendar workspace route returns centralized discovery and training events', SERIAL, async () => {
-  const { actor, auth } = await createAdminSession();
+test('calendar workspace returns centralized discovery and training events', SERIAL, async () => {
+  const { actor } = await createAdminSession();
 
   const lead = await createLead(actor, {
     companyName: 'Calendar Discovery HVAC',
@@ -184,32 +220,17 @@ test('calendar workspace route returns centralized discovery and training events
     title: 'Onboarding Web Session',
   });
 
-  const runtime = await createPulseServer(loadAppConfig(process.env));
-  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  const payload = await getCalendarWorkspace(actor, {
+    startDate: '2026-06-01T00:00:00.000Z',
+    endDate: '2026-06-30T23:59:59.999Z',
+  }, config);
 
-  try {
-    const address = runtime.server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-    const response = await fetch(
-      `http://127.0.0.1:${port}/api/v1/calendar/workspace?startDate=2026-06-01T00:00:00.000Z&endDate=2026-06-30T23:59:59.999Z`,
-      {
-        headers: {
-          authorization: `Bearer ${auth.tokens.accessToken}`,
-        },
-      },
-    );
-
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.equal(payload.summary.totalEvents, 2);
-    assert.equal(payload.outlookConnection.isConfigured, false);
-    assert.equal(payload.summary.discoveryCallCount, 1);
-    assert.equal(payload.summary.virtualTrainingCount, 1);
-    assert.equal(payload.items[0].eventType, 'discovery_call');
-    assert.equal(payload.items[1].eventType, 'virtual_training');
-  } finally {
-    await runtime.close();
-  }
+  assert.equal(payload.summary.totalEvents, 2);
+  assert.equal(payload.outlookConnection.isConfigured, false);
+  assert.equal(payload.summary.discoveryCallCount, 1);
+  assert.equal(payload.summary.virtualTrainingCount, 1);
+  assert.equal(payload.items[0].eventType, 'discovery_call');
+  assert.equal(payload.items[1].eventType, 'virtual_training');
 });
 
 test('calendar workspace classifies completed site visits separately from training', SERIAL, async () => {
@@ -284,8 +305,8 @@ test('calendar workspace only returns event families the actor can access', SERI
   const adminCsrAuth = await createInternalRoleSession('ADMIN_CSR_OPS', 'calendar-admin-csr@pulse.local');
   const trainingOpsAuth = await createInternalRoleSession('TRAINING_OPS', 'calendar-training-ops@pulse.local');
 
-  const adminCsrActor = await authenticateAccessToken(adminCsrAuth.auth.tokens.accessToken);
-  const trainingOpsActor = await authenticateAccessToken(trainingOpsAuth.auth.tokens.accessToken);
+  const adminCsrActor = adminCsrAuth.actor;
+  const trainingOpsActor = trainingOpsAuth.actor;
 
   assert.ok(adminCsrActor, 'expected ADMIN_CSR_OPS actor');
   assert.ok(trainingOpsActor, 'expected TRAINING_OPS actor');
@@ -307,6 +328,150 @@ test('calendar workspace only returns event families the actor can access', SERI
   assert.equal(trainingOpsWorkspace.summary.discoveryCallCount, 0);
   assert.equal(trainingOpsWorkspace.summary.virtualTrainingCount, 1);
   assert.deepEqual(trainingOpsWorkspace.items.map((item) => item.eventType), ['virtual_training']);
+});
+
+test('calendar workspace applies simple territory-owned scope for territory managers', SERIAL, async () => {
+  const admin = await createAdminSession();
+  const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.scope.calendar@pulse.local', 'TM Scoped Calendar');
+  const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.other.calendar@pulse.local', 'TM Other Calendar');
+  const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.scope.calendar@pulse.local', 'RD Scoped Calendar');
+
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const region = await prisma.region.create({
+    data: {
+      code: 'rg_scope_calendar',
+      name: 'Scoped Calendar Region',
+      directorUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const ownedTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_owned_calendar',
+      name: 'TM Owned Calendar Territory',
+      regionId: region.id,
+      managerUserId: tmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const otherTerritory = await prisma.territory.create({
+    data: {
+      code: 'tm_other_calendar',
+      name: 'TM Other Calendar Territory',
+      regionId: region.id,
+      managerUserId: otherTmActor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+
+  const visibleLead = await createLead(admin.actor, {
+    companyName: 'Scoped Calendar Visible Lead',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+  const hiddenLead = await createLead(admin.actor, {
+    companyName: 'Scoped Calendar Hidden Lead',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: visibleLead.id },
+    data: {
+      territory: {
+        connect: {
+          id: ownedTerritory.id,
+        },
+      },
+      assignedTmUser: {
+        connect: {
+          id: tmActor.userId,
+        },
+      },
+      assignedTmName: tmActor.displayName,
+      assignedRdUser: {
+        connect: {
+          id: rdActor.userId,
+        },
+      },
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-09-10T15:00:00.000Z'),
+    },
+  });
+
+  await prisma.lead.update({
+    where: { id: hiddenLead.id },
+    data: {
+      territory: {
+        connect: {
+          id: otherTerritory.id,
+        },
+      },
+      assignedTmUser: {
+        connect: {
+          id: otherTmActor.userId,
+        },
+      },
+      assignedTmName: otherTmActor.displayName,
+      assignedRdUser: {
+        connect: {
+          id: rdActor.userId,
+        },
+      },
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-09-11T15:00:00.000Z'),
+    },
+  });
+
+  const segment = await prisma.businessSegmentRef.findFirst({
+    where: { code: 'residential' },
+  });
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Scoped Calendar Training Account',
+      legalName: 'Scoped Calendar Training Account LLC',
+      accountType: 'Dealer',
+      businessSegmentId: segment?.id ?? null,
+      territoryId: ownedTerritory.id,
+      assignedTmUserId: tmActor.userId,
+      assignedRdUserId: rdActor.userId,
+      isActive: true,
+    },
+  });
+
+  const onboardingType = await prisma.trainingType.findUnique({
+    where: { code: 'onboarding' },
+  });
+  assert.ok(onboardingType, 'expected seeded onboarding training type');
+
+  await createTrainingSession({ ...admin.actor, role: 'TRAINING_OPS' }, account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: tmActor.userId,
+    scheduledAt: '2026-09-12T16:00:00.000Z',
+    durationMinutes: 90,
+    attendeeCount: 5,
+    title: 'Scoped Calendar Training Session',
+  });
+
+  const workspace = await getCalendarWorkspace(tmActor, {
+    startDate: '2026-09-01T00:00:00.000Z',
+    endDate: '2026-09-30T23:59:59.999Z',
+  }, config);
+
+  assert.equal(workspace.summary.totalEvents, 2);
+  assert.equal(workspace.summary.discoveryCallCount, 1);
+  assert.equal(workspace.summary.virtualTrainingCount, 1);
+  assert.deepEqual(
+    workspace.items.map((item) => item.title),
+    ['Discovery Call — Scoped Calendar Visible Lead', 'Scoped Calendar Training Session'],
+  );
 });
 
 test('calendar workspace requires auth on the route and rejects oversized ranges', SERIAL, async () => {
@@ -337,11 +502,11 @@ test('calendar workspace requires auth on the route and rejects oversized ranges
 });
 
 test('training routes return 403 for calendar-visible roles without crashing the API runtime', SERIAL, async () => {
-  const { auth } = await createInternalRoleSession('ADMIN_CSR_OPS', 'calendar.ops@pulse.local');
   const runtime = await createPulseServer(loadAppConfig(process.env));
   await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
 
   try {
+    const { auth } = await createInternalRoleSession('ADMIN_CSR_OPS', 'calendar.ops@pulse.local');
     const address = runtime.server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 

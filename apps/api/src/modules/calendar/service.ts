@@ -17,7 +17,7 @@ export async function getCalendarWorkspace(
   const { rangeStart, rangeEnd } = parseCalendarRange(input);
   const items = filterCalendarEventsForActor(
     actor,
-    await listCalendarEvents(rangeStart, rangeEnd),
+    await listCalendarEvents(actor, rangeStart, rangeEnd),
   );
   const outlook = await getOutlookWorkspaceState(actor, config, items);
 

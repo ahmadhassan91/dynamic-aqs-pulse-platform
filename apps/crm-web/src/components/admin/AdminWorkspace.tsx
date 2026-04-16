@@ -65,7 +65,10 @@ import {
   updateAdminMicrosoftEntraIntegrationSettings as updateAdminMicrosoftEntraIntegrationSettingsRequest,
   updateAdminUser as updateAdminUserRequest,
 } from '@/lib/pulse-api';
-import { AUTH_ROLE_CATALOG } from '@/lib/auth-catalog';
+import {
+  AUTH_ROLE_CATALOG,
+  getRoleDisplayName,
+} from '@/lib/auth-catalog';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
@@ -344,7 +347,7 @@ export function AdminWorkspace({
   const totalPages = usersResponse ? Math.max(1, Math.ceil(usersResponse.total / usersResponse.limit)) : 1;
 
   const roleOptions = useMemo(
-    () => authRoleCatalog.map((entry) => ({ value: entry, label: entry.replace(/_/g, ' ') })),
+    () => authRoleCatalog.map((entry) => ({ value: entry, label: getRoleDisplayName(entry) })),
     [],
   );
 
@@ -852,7 +855,10 @@ export function AdminWorkspace({
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm">{user.role.replace(/_/g, ' ')}</Text>
+                            <Stack gap={0}>
+                              <Text size="sm" fw={500}>{getRoleDisplayName(user.role)}</Text>
+                              <Text size="xs" c="dimmed">{user.role}</Text>
+                            </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Badge color={statusColor(user.status)} variant="light">
@@ -925,45 +931,97 @@ export function AdminWorkspace({
           </Tabs.Panel>
 
           <Tabs.Panel value="roles" pt="md">
-            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-              {(rolesCatalog?.roles ?? []).map((roleSummary) => (
-                <Card key={roleSummary.role} shadow="sm" padding="lg" radius="md" withBorder>
-                  <Stack gap="md">
-                    <Group justify="space-between">
-                      <Stack gap={2}>
-                        <Title order={4}>{roleSummary.role.replace(/_/g, ' ')}</Title>
-                        <Text size="sm" c="dimmed">
-                          {roleSummary.modules.length} modules · {roleSummary.actions.length} actions
-                        </Text>
+            <Stack gap="md">
+              <Alert color="blue" variant="light">
+                Use these as ready-made access profiles, not a complex permission matrix. Most teams should assign one
+                clear profile per user and keep special exceptions rare.
+              </Alert>
+
+              <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+                {(rolesCatalog?.roles ?? []).map((roleSummary) => (
+                  <Card key={roleSummary.role} shadow="sm" padding="lg" radius="md" withBorder>
+                    <Stack gap="md">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Title order={4}>{roleSummary.displayName}</Title>
+                          <Text size="sm" c="dimmed">{roleSummary.summary}</Text>
+                        </Stack>
+                        <Badge color="grape" variant="light">Access Profile</Badge>
+                      </Group>
+
+                      <Paper p="sm" radius="md" withBorder>
+                        <Text fw={600} size="sm">Best for</Text>
+                        <Text size="sm" c="dimmed">{roleSummary.bestFor}</Text>
+                      </Paper>
+
+                      <Paper p="sm" radius="md" withBorder>
+                        <Text fw={600} size="sm">Scope</Text>
+                        <Text size="sm" c="dimmed">{roleSummary.scopeSummary}</Text>
+                      </Paper>
+
+                      <Stack gap="xs">
+                        <Text fw={600} size="sm">Everyday workspaces</Text>
+                        <Group gap="xs">
+                          {roleSummary.workspaceHighlights.map((module) => (
+                            <Badge key={module} variant="light" color="blue">
+                              {formatWorkspaceLabel(module)}
+                            </Badge>
+                          ))}
+                        </Group>
                       </Stack>
-                      <Badge color="grape" variant="light">Role Matrix</Badge>
-                    </Group>
 
-                    <Stack gap="xs">
-                      <Text fw={600} size="sm">Modules</Text>
-                      <Group gap="xs">
-                        {roleSummary.modules.map((module) => (
-                          <Badge key={module} variant="light" color="blue">
-                            {module}
-                          </Badge>
-                        ))}
-                      </Group>
-                    </Stack>
+                      {roleSummary.actionHighlights.length > 0 ? (
+                        <Stack gap="xs">
+                          <Text fw={600} size="sm">Typical capabilities</Text>
+                          <Group gap="xs">
+                            {roleSummary.actionHighlights.map((action) => (
+                              <Badge key={action} variant="light" color="gray">
+                                {formatActionLabel(action)}
+                              </Badge>
+                            ))}
+                          </Group>
+                        </Stack>
+                      ) : null}
 
-                    <Stack gap="xs">
-                      <Text fw={600} size="sm">Actions</Text>
-                      <Group gap="xs">
-                        {roleSummary.actions.map((action) => (
-                          <Badge key={action} variant="light" color="gray">
-                            {action}
-                          </Badge>
-                        ))}
-                      </Group>
+                      <details>
+                        <summary>
+                          <Text span size="sm" fw={600}>
+                            Show full access footprint
+                          </Text>
+                        </summary>
+                        <Stack gap="sm" mt="sm">
+                          <Stack gap="xs">
+                            <Text fw={600} size="sm">
+                              Full modules ({roleSummary.modules.length})
+                            </Text>
+                            <Group gap="xs">
+                              {roleSummary.modules.map((module) => (
+                                <Badge key={module} variant="light" color="blue">
+                                  {formatWorkspaceLabel(module)}
+                                </Badge>
+                              ))}
+                            </Group>
+                          </Stack>
+
+                          <Stack gap="xs">
+                            <Text fw={600} size="sm">
+                              Full actions ({roleSummary.actions.length})
+                            </Text>
+                            <Group gap="xs">
+                              {roleSummary.actions.map((action) => (
+                                <Badge key={action} variant="light" color="gray">
+                                  {formatActionLabel(action)}
+                                </Badge>
+                              ))}
+                            </Group>
+                          </Stack>
+                        </Stack>
+                      </details>
                     </Stack>
-                  </Stack>
-                </Card>
-              ))}
-            </SimpleGrid>
+                  </Card>
+                ))}
+              </SimpleGrid>
+            </Stack>
           </Tabs.Panel>
 
           <Tabs.Panel value="activity" pt="md">
@@ -1127,6 +1185,52 @@ function statusColor(status: AdminUserStatus) {
       return 'gray';
     default:
       return 'gray';
+  }
+}
+
+function formatWorkspaceLabel(module: string) {
+  return module
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatActionLabel(action: string) {
+  switch (action) {
+    case 'admin.user_manage':
+      return 'Manage users';
+    case 'admin.integration_manage':
+      return 'Manage integrations';
+    case 'reports.executive':
+      return 'Executive reporting';
+    case 'lead.intake_manage':
+      return 'Lead intake';
+    case 'lead.finance_queue_view':
+      return 'Finance queue';
+    case 'lead.finance_decide':
+      return 'Finance decisions';
+    case 'lead.portal_setup':
+      return 'Dealer setup';
+    case 'territory.admin':
+      return 'Territory administration';
+    case 'territory.reassign':
+      return 'Territory reassignment';
+    case 'training.catalog_manage':
+      return 'Training catalog';
+    case 'training.schedule':
+      return 'Training scheduling';
+    case 'customer.financials_view':
+      return 'Customer financials';
+    case 'customer.edit':
+      return 'Edit customers';
+    case 'contact.create':
+      return 'Create contacts';
+    case 'consignment.manage':
+      return 'Consignment management';
+    default:
+      return action
+        .replace(/\./g, ' / ')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
   }
 }
 

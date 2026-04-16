@@ -86,6 +86,9 @@ export function CalendarSchedulerModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [accessNotice, setAccessNotice] = useState<string | null>(null);
+  const [discoveryAvailable, setDiscoveryAvailable] = useState(canScheduleDiscovery);
+  const [trainingAvailable, setTrainingAvailable] = useState(canScheduleTraining);
   const [leadOptions, setLeadOptions] = useState<LeadSummary[]>([]);
   const [trainingAccounts, setTrainingAccounts] = useState<TrainingAccountSummary[]>([]);
   const [trainingCatalog, setTrainingCatalog] = useState<TrainingCatalogResponse | null>(null);
@@ -104,6 +107,10 @@ export function CalendarSchedulerModal({
     if (!opened) {
       return;
     }
+
+    setDiscoveryAvailable(canScheduleDiscovery);
+    setTrainingAvailable(canScheduleTraining);
+    setAccessNotice(null);
 
     if (!canScheduleDiscovery && canScheduleTraining) {
       setMode('training');
@@ -143,6 +150,25 @@ export function CalendarSchedulerModal({
           return;
         }
 
+        const leadDenied = leadResult.status === 'rejected'
+          && /cannot access module leads|lead\.intake_manage/i.test(String(leadResult.reason));
+        const trainingDenied = [accountResult, catalogResult, trainerResult].some(
+          (result) => result.status === 'rejected'
+            && /cannot access module training|training\.schedule/i.test(String(result.reason)),
+        );
+
+        if (leadDenied) {
+          setDiscoveryAvailable(false);
+          setLeadOptions([]);
+        }
+
+        if (trainingDenied) {
+          setTrainingAvailable(false);
+          setTrainingAccounts([]);
+          setTrainingCatalog(null);
+          setTrainers([]);
+        }
+
         if (leadResult.status === 'fulfilled') {
           setLeadOptions(leadResult.value);
         }
@@ -156,10 +182,38 @@ export function CalendarSchedulerModal({
           setTrainers(trainerResult.value);
         }
 
-        const firstRejected = [leadResult, accountResult, catalogResult, trainerResult].find((result) => result.status === 'rejected');
+        if (leadDenied || trainingDenied) {
+          const notices: string[] = [];
+          if (leadDenied) {
+            notices.push('Discovery scheduling is unavailable for this role in the current session.');
+          }
+          if (trainingDenied) {
+            notices.push('Training scheduling is unavailable for this role in the current session.');
+          }
+          setAccessNotice(notices.join(' '));
+        }
+
+        const firstRejected = [leadResult, accountResult, catalogResult, trainerResult].find(
+          (result) => result.status === 'rejected'
+            && !/cannot access module leads|lead\.intake_manage|cannot access module training|training\.schedule/i.test(String(result.reason)),
+        );
         if (firstRejected?.status === 'rejected') {
           setLoadError(toUserFacingLoadError(firstRejected.reason));
+        } else {
+          setLoadError(null);
         }
+
+        setMode((currentMode) => {
+          if (currentMode === 'training' && trainingDenied && !leadDenied && canScheduleDiscovery) {
+            return 'discovery';
+          }
+
+          if (currentMode === 'discovery' && leadDenied && !trainingDenied && canScheduleTraining) {
+            return 'training';
+          }
+
+          return currentMode;
+        });
       })
       .finally(() => {
         if (!cancelled) {
@@ -223,8 +277,8 @@ export function CalendarSchedulerModal({
   }, [mode, selectedTrainingType, title]);
 
   const canSubmit = mode === 'discovery'
-    ? Boolean(leadId && scheduledAt)
-    : Boolean(accountId && trainingTypeId && trainerUserId && title.trim() && scheduledAt && Number(durationMinutes) > 0);
+    ? discoveryAvailable && Boolean(leadId && scheduledAt)
+    : trainingAvailable && Boolean(accountId && trainingTypeId && trainerUserId && title.trim() && scheduledAt && Number(durationMinutes) > 0);
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -297,18 +351,22 @@ export function CalendarSchedulerModal({
           <Alert color="red">{loadError}</Alert>
         ) : null}
 
-        {(canScheduleDiscovery || canScheduleTraining) ? (
+        {accessNotice ? (
+          <Alert color="yellow">{accessNotice}</Alert>
+        ) : null}
+
+        {(discoveryAvailable || trainingAvailable) ? (
           <SegmentedControl
             value={mode}
             onChange={(value) => setMode(value as CalendarScheduleMode)}
             data={[
-              ...(canScheduleDiscovery ? [{ value: 'discovery', label: 'Discovery call' }] : []),
-              ...(canScheduleTraining ? [{ value: 'training', label: 'Training session' }] : []),
+              ...(discoveryAvailable ? [{ value: 'discovery', label: 'Discovery call' }] : []),
+              ...(trainingAvailable ? [{ value: 'training', label: 'Training session' }] : []),
             ]}
           />
         ) : null}
 
-        {!canScheduleDiscovery && !canScheduleTraining ? (
+        {!discoveryAvailable && !trainingAvailable ? (
           <Alert color="yellow">
             Your current Pulse role does not have calendar scheduling permissions for discovery or training workflows.
           </Alert>
@@ -322,7 +380,7 @@ export function CalendarSchedulerModal({
           disabled={isLoading}
         />
 
-        {mode === 'discovery' ? (
+        {mode === 'discovery' && discoveryAvailable ? (
           <>
             <Select
               label="Lead"
@@ -343,7 +401,9 @@ export function CalendarSchedulerModal({
               disabled={isLoading}
             />
           </>
-        ) : (
+        ) : null}
+
+        {mode === 'training' && trainingAvailable ? (
           <>
             <Select
               label="Account"
@@ -425,7 +485,7 @@ export function CalendarSchedulerModal({
               </Grid.Col>
             </Grid>
           </>
-        )}
+        ) : null}
 
         <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit || isLoading}>
           {mode === 'discovery' ? 'Schedule discovery' : 'Schedule training'}

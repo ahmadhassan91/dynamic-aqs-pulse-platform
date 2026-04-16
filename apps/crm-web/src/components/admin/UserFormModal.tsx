@@ -12,7 +12,12 @@ import {
   TextInput,
 } from '@mantine/core';
 import type { AdminUserSummary, AuthRole } from '@pulse/contracts';
-import { AUTH_ROLE_CATALOG } from '@/lib/auth-catalog';
+import {
+  AUTH_ROLE_CATALOG,
+  getRoleDisplayName,
+  getRoleScopeSummary,
+  getRoleSummary,
+} from '@/lib/auth-catalog';
 
 type UserFormValues = {
   email: string;
@@ -42,6 +47,8 @@ export function UserFormModal({
 }) {
   const [values, setValues] = useState<UserFormValues>(() => buildInitialValues(user));
   const [validationError, setValidationError] = useState<string | null>(null);
+  const selectedRoleSummary = getRoleSummary(values.role);
+  const selectedRoleScopeSummary = getRoleScopeSummary(values.role);
 
   return (
     <Modal opened={opened} onClose={onClose} title={user ? 'Edit User' : 'Create New User'} size="md">
@@ -104,11 +111,18 @@ export function UserFormModal({
 
           <Select
             label="Role"
-            data={authRoleCatalog.map((role) => ({ value: role, label: role.replace(/_/g, ' ') }))}
+            data={authRoleCatalog.map((role) => ({ value: role, label: getRoleDisplayName(role) }))}
             value={values.role}
             onChange={(value) => setValues((current) => ({ ...current, role: (value as AuthRole) || current.role }))}
             required
           />
+
+          {selectedRoleSummary ? (
+            <Alert color="blue" variant="light">
+              {selectedRoleSummary}
+              {selectedRoleScopeSummary ? ` ${selectedRoleScopeSummary}` : ''}
+            </Alert>
+          ) : null}
 
           {!user ? (
             <TextInput

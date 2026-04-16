@@ -84,6 +84,15 @@ export const WORKSPACE_ACTIONS = [
 
 export type WorkspaceActionKey = (typeof WORKSPACE_ACTIONS)[number];
 
+export interface RoleProfileDefinition {
+  displayName: string;
+  summary: string;
+  bestFor: string;
+  scopeSummary: string;
+  workspaceHighlights: WorkspaceModuleKey[];
+  actionHighlights: WorkspaceActionKey[];
+}
+
 export interface AuthIdentity {
   userId: string;
   role: AuthRole;
@@ -188,6 +197,89 @@ export interface PermissionCheck {
   module: WorkspaceModuleKey;
   action?: WorkspaceActionKey;
 }
+
+export const ROLE_PROFILE_CATALOG: Record<AuthRole, RoleProfileDefinition> = {
+  EXECUTIVE: {
+    displayName: 'Executive',
+    summary: 'High-level oversight across pipeline, customers, territories, training, and integrations.',
+    bestFor: 'Company leaders who need broad visibility and reporting without working every operational queue themselves.',
+    scopeSummary: 'Full cross-module visibility with executive reporting and administrative awareness.',
+    workspaceHighlights: ['calendar', 'leads', 'customers', 'territories', 'training', 'reports'],
+    actionHighlights: ['reports.executive', 'admin.audit_view', 'admin.integration_view'],
+  },
+  SUPER_ADMIN: {
+    displayName: 'Super Admin',
+    summary: 'Full operational and administrative access across the entire Pulse workspace.',
+    bestFor: 'Platform owners and implementation leads responsible for setup, rollout, and support.',
+    scopeSummary: 'Unrestricted module and action access, including user, integration, territory, and training administration.',
+    workspaceHighlights: ['admin', 'calendar', 'leads', 'customers', 'territories', 'training'],
+    actionHighlights: ['admin.user_manage', 'admin.integration_manage', 'territory.admin', 'training.catalog_manage'],
+  },
+  SALES_BD_REP: {
+    displayName: 'Sales / BD Rep',
+    summary: 'Day-to-day lead and customer handling with intake, follow-up, and account maintenance.',
+    bestFor: 'Frontline sales and business development users working active leads and converted customers.',
+    scopeSummary: 'Operational access focused on leads, customers, contacts, and locations without admin or finance decisioning.',
+    workspaceHighlights: ['calendar', 'leads', 'customers', 'reports'],
+    actionHighlights: ['lead.intake_manage', 'customer.edit', 'contact.create'],
+  },
+  SALES_BD_LEADERSHIP: {
+    displayName: 'Sales Leadership',
+    summary: 'Lead pipeline oversight with stronger reporting and limited administrative visibility.',
+    bestFor: 'Sales leaders who monitor reps, queues, and operating health without becoming full admins.',
+    scopeSummary: 'Lead and customer visibility plus queue/reporting access, with audit-level admin read access.',
+    workspaceHighlights: ['calendar', 'leads', 'customers', 'reports', 'admin'],
+    actionHighlights: ['lead.finance_queue_view', 'admin.audit_view', 'reports.builder'],
+  },
+  FINANCE: {
+    displayName: 'Finance',
+    summary: 'Focused access for CIS review, finance queue decisions, and customer financial context.',
+    bestFor: 'Finance reviewers and decision makers who should stay out of unrelated operational modules.',
+    scopeSummary: 'Read-heavy lead and customer visibility with finance-specific action authority.',
+    workspaceHighlights: ['calendar', 'leads', 'customers', 'reports'],
+    actionHighlights: ['lead.finance_queue_view', 'lead.finance_decide', 'customer.financials_view'],
+  },
+  ADMIN_CSR_OPS: {
+    displayName: 'Operations Admin',
+    summary: 'Central operations profile for intake, customer maintenance, portal setup, and admin support.',
+    bestFor: 'CSR and operations staff who keep lead, customer, admin, and dealer setup workflows moving.',
+    scopeSummary: 'Broad operational access across lead and customer workflows, without territory or training specialist ownership.',
+    workspaceHighlights: ['admin', 'calendar', 'leads', 'customers', 'dealer_portal'],
+    actionHighlights: ['admin.user_manage', 'admin.integration_manage', 'lead.portal_setup', 'consignment.manage'],
+  },
+  TERRITORY_MANAGER: {
+    displayName: 'Territory Manager',
+    summary: 'Field-facing role for territory ownership, customer coverage, and scheduled training delivery.',
+    bestFor: 'Territory owners who work accounts directly and need map, coverage, and training scheduling access.',
+    scopeSummary: 'Operational visibility centered on owned coverage, customer maintenance, and reassignment tasks.',
+    workspaceHighlights: ['calendar', 'territories', 'territory_map', 'customers', 'training', 'leads'],
+    actionHighlights: ['territory.reassign', 'training.schedule', 'customer.edit'],
+  },
+  REGIONAL_DIRECTOR: {
+    displayName: 'Regional Director',
+    summary: 'Regional oversight for territory health, staffing, escalation, and training execution.',
+    bestFor: 'Regional leaders who supervise TM coverage and step into exceptions or reassignment decisions.',
+    scopeSummary: 'Broad visibility across territory, customer, and training workflows with admin-like territory control.',
+    workspaceHighlights: ['calendar', 'territories', 'territory_map', 'customers', 'training', 'reports'],
+    actionHighlights: ['territory.admin', 'territory.reassign', 'training.schedule'],
+  },
+  TRAINING_OPS: {
+    displayName: 'Training Ops',
+    summary: 'Specialist profile for catalog governance, scheduling, certification, and training delivery.',
+    bestFor: 'Training coordinators and trainers responsible for program execution and certification records.',
+    scopeSummary: 'Training-centered access without broader lead, territory, or admin responsibilities.',
+    workspaceHighlights: ['calendar', 'training', 'reports'],
+    actionHighlights: ['training.catalog_manage', 'training.schedule'],
+  },
+  DEALER_PORTAL_USER: {
+    displayName: 'Dealer Portal User',
+    summary: 'Dealer-facing access limited to portal surfaces and personal calendar visibility.',
+    bestFor: 'External dealer users who should only see the dealer portal experience.',
+    scopeSummary: 'External-facing, tightly bounded access with no internal CRM administration or operational workflow control.',
+    workspaceHighlights: ['dealer_portal', 'calendar'],
+    actionHighlights: [],
+  },
+};
 
 export const ROLE_DEFAULT_MODULE_ACCESS: Record<AuthRole, readonly WorkspaceModuleKey[]> = {
   EXECUTIVE: WORKSPACE_MODULES,

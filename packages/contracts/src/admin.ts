@@ -101,8 +101,14 @@ export interface ImportAdminUsersResponse {
 
 export interface AdminRoleAccessSummary {
   role: AuthRole;
+  displayName: string;
+  summary: string;
+  bestFor: string;
+  scopeSummary: string;
   modules: WorkspaceModuleKey[];
   actions: WorkspaceActionKey[];
+  workspaceHighlights: WorkspaceModuleKey[];
+  actionHighlights: WorkspaceActionKey[];
 }
 
 export interface AdminRoleAccessCatalogResponse {

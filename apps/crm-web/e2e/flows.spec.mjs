@@ -47,6 +47,11 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'System Administration' })).toBeVisible();
+
+  await page.goto('/admin/roles');
+  await expect(page.getByText('Use these as ready-made access profiles')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Operations Admin' })).toBeVisible();
+  await expect(page.getByText('Show full access footprint').first()).toBeVisible();
 });
 
 test('public native website form submits a real lead into Pulse CRM', async ({ page }) => {

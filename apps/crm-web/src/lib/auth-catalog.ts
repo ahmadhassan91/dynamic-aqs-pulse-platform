@@ -1,148 +1,49 @@
 'use client';
 
-import type { AuthRole, WorkspaceActionKey, WorkspaceModuleKey } from '@pulse/contracts';
+import type { AuthRole } from '@pulse/contracts';
+import {
+  AUTH_ROLES,
+  ROLE_DEFAULT_ACTION_ACCESS,
+  ROLE_DEFAULT_MODULE_ACCESS,
+  ROLE_PROFILE_CATALOG as CONTRACT_ROLE_PROFILE_CATALOG,
+} from '@pulse/contracts';
 
-export const AUTH_ROLE_CATALOG = [
-  'EXECUTIVE',
-  'SUPER_ADMIN',
-  'SALES_BD_REP',
-  'SALES_BD_LEADERSHIP',
-  'FINANCE',
-  'ADMIN_CSR_OPS',
-  'TERRITORY_MANAGER',
-  'REGIONAL_DIRECTOR',
-  'TRAINING_OPS',
-  'DEALER_PORTAL_USER',
-] as const satisfies readonly AuthRole[];
+export const AUTH_ROLE_CATALOG = AUTH_ROLES;
+export const ROLE_DEFAULT_MODULE_ACCESS_CATALOG = ROLE_DEFAULT_MODULE_ACCESS;
+export const ROLE_DEFAULT_ACTION_ACCESS_CATALOG = ROLE_DEFAULT_ACTION_ACCESS;
+export const ROLE_PROFILE_CATALOG = CONTRACT_ROLE_PROFILE_CATALOG;
 
-export const ROLE_DEFAULT_MODULE_ACCESS_CATALOG: Record<AuthRole, readonly WorkspaceModuleKey[]> = {
-  EXECUTIVE: [
-    'home',
-    'calendar',
-    'leads',
-    'cis',
-    'customers',
-    'territories',
-    'territory_map',
-    'training',
-    'product_management',
-    'dealer_portal',
-    'consignment',
-    'digital_assets',
-    'mobile',
-    'communication',
-    'reports',
-    'admin',
-    'notifications',
-    'settings',
-    'integrations',
-  ],
-  SUPER_ADMIN: [
-    'home',
-    'calendar',
-    'leads',
-    'cis',
-    'customers',
-    'territories',
-    'territory_map',
-    'training',
-    'product_management',
-    'dealer_portal',
-    'consignment',
-    'digital_assets',
-    'mobile',
-    'communication',
-    'reports',
-    'admin',
-    'notifications',
-    'settings',
-    'integrations',
-  ],
-  SALES_BD_REP: ['home', 'calendar', 'leads', 'cis', 'customers', 'digital_assets', 'communication', 'reports', 'notifications'],
-  SALES_BD_LEADERSHIP: ['home', 'calendar', 'leads', 'cis', 'customers', 'digital_assets', 'communication', 'reports', 'notifications', 'admin'],
-  FINANCE: ['home', 'calendar', 'leads', 'cis', 'customers', 'reports', 'notifications'],
-  ADMIN_CSR_OPS: ['home', 'calendar', 'leads', 'cis', 'customers', 'dealer_portal', 'consignment', 'digital_assets', 'reports', 'admin', 'notifications'],
-  TERRITORY_MANAGER: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'mobile', 'communication', 'reports', 'notifications'],
-  REGIONAL_DIRECTOR: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'mobile', 'communication', 'reports', 'notifications', 'settings'],
-  TRAINING_OPS: ['home', 'calendar', 'training', 'reports', 'notifications', 'settings'],
-  DEALER_PORTAL_USER: ['home', 'calendar', 'dealer_portal', 'notifications'],
-};
+function normalizeRoleInput(role: AuthRole | string | null | undefined): AuthRole | null {
+  if (!role) {
+    return null;
+  }
 
-export const ROLE_DEFAULT_ACTION_ACCESS_CATALOG: Record<AuthRole, readonly WorkspaceActionKey[]> = {
-  EXECUTIVE: [
-    'reference.view',
-    'reference.manage',
-    'admin.user_view',
-    'admin.user_manage',
-    'admin.role_view',
-    'admin.audit_view',
-    'admin.system_health_view',
-    'admin.integration_view',
-    'admin.integration_manage',
-    'lead.view',
-    'customer.view',
-    'customer.create',
-    'customer.edit',
-    'customer.activity_log',
-    'customer.financials_view',
-    'contact.view',
-    'contact.create',
-    'location.view',
-    'location.create',
-    'lead.intake_manage',
-    'lead.finance_queue_view',
-    'lead.finance_decide',
-    'lead.portal_setup',
-    'lead.consignment_approve',
-    'territory.admin',
-    'territory.reassign',
-    'training.catalog_manage',
-    'training.schedule',
-    'consignment.manage',
-    'consignment.sync',
-    'reports.builder',
-    'reports.executive',
-  ],
-  SUPER_ADMIN: [
-    'reference.view',
-    'reference.manage',
-    'admin.user_view',
-    'admin.user_manage',
-    'admin.role_view',
-    'admin.audit_view',
-    'admin.system_health_view',
-    'admin.integration_view',
-    'admin.integration_manage',
-    'lead.view',
-    'customer.view',
-    'customer.create',
-    'customer.edit',
-    'customer.activity_log',
-    'customer.financials_view',
-    'contact.view',
-    'contact.create',
-    'location.view',
-    'location.create',
-    'lead.intake_manage',
-    'lead.finance_queue_view',
-    'lead.finance_decide',
-    'lead.portal_setup',
-    'lead.consignment_approve',
-    'territory.admin',
-    'territory.reassign',
-    'training.catalog_manage',
-    'training.schedule',
-    'consignment.manage',
-    'consignment.sync',
-    'reports.builder',
-    'reports.executive',
-  ],
-  SALES_BD_REP: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'reports.builder'],
-  SALES_BD_LEADERSHIP: ['reference.view', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.finance_queue_view', 'reports.builder'],
-  FINANCE: ['reference.view', 'lead.view', 'customer.view', 'customer.financials_view', 'contact.view', 'location.view', 'lead.finance_queue_view', 'lead.finance_decide', 'reports.builder'],
-  ADMIN_CSR_OPS: ['reference.view', 'reference.manage', 'admin.user_view', 'admin.user_manage', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view', 'admin.integration_manage', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.portal_setup', 'lead.consignment_approve', 'consignment.manage', 'consignment.sync', 'reports.builder'],
-  TERRITORY_MANAGER: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.consignment_approve', 'territory.reassign', 'training.schedule', 'reports.builder'],
-  REGIONAL_DIRECTOR: ['reference.view', 'lead.view', 'customer.view', 'contact.view', 'location.view', 'territory.admin', 'territory.reassign', 'training.schedule', 'reports.builder'],
-  TRAINING_OPS: ['reference.view', 'training.catalog_manage', 'training.schedule', 'reports.builder'],
-  DEALER_PORTAL_USER: [],
-};
+  return AUTH_ROLE_CATALOG.includes(role as AuthRole) ? (role as AuthRole) : null;
+}
+
+export function getRoleDisplayName(role: AuthRole | string | null | undefined) {
+  const normalizedRole = normalizeRoleInput(role);
+  if (!normalizedRole) {
+    return 'Unknown role';
+  }
+
+  return ROLE_PROFILE_CATALOG[normalizedRole]?.displayName ?? normalizedRole.replace(/_/g, ' ');
+}
+
+export function getRoleSummary(role: AuthRole | string | null | undefined) {
+  const normalizedRole = normalizeRoleInput(role);
+  if (!normalizedRole) {
+    return '';
+  }
+
+  return ROLE_PROFILE_CATALOG[normalizedRole]?.summary ?? '';
+}
+
+export function getRoleScopeSummary(role: AuthRole | string | null | undefined) {
+  const normalizedRole = normalizeRoleInput(role);
+  if (!normalizedRole) {
+    return '';
+  }
+
+  return ROLE_PROFILE_CATALOG[normalizedRole]?.scopeSummary ?? '';
+}

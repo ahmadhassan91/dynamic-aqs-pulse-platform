@@ -142,3 +142,33 @@ test('admin can update Microsoft Entra access policy and persisted settings are 
     await runtime.close();
   }
 });
+
+test('admin role catalog exposes simple access-profile summaries for CRM setup', SERIAL, async () => {
+  const auth = await createAdminAuth();
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/admin/access/roles`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const operationsAdmin = payload.roles.find((entry) => entry.role === 'ADMIN_CSR_OPS');
+    assert.ok(operationsAdmin);
+    assert.equal(operationsAdmin.displayName, 'Operations Admin');
+    assert.match(operationsAdmin.summary, /central operations/i);
+    assert.match(operationsAdmin.scopeSummary, /lead and customer workflows/i);
+    assert.ok(Array.isArray(operationsAdmin.workspaceHighlights));
+    assert.ok(operationsAdmin.workspaceHighlights.includes('admin'));
+    assert.ok(Array.isArray(operationsAdmin.actionHighlights));
+    assert.ok(operationsAdmin.actionHighlights.includes('admin.user_manage'));
+  } finally {
+    await runtime.close();
+  }
+});

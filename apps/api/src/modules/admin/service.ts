@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync } from 'node:crypto';
 import {
   AUTH_ROLES,
+  ROLE_PROFILE_CATALOG,
   ROLE_DEFAULT_ACTION_ACCESS,
   ROLE_DEFAULT_MODULE_ACCESS,
   type AdminIntegrationStatusResponse,
@@ -379,8 +380,14 @@ export async function listAdminRoleAccess(): Promise<AdminRoleAccessCatalogRespo
   return {
     roles: AUTH_ROLES.map((role) => ({
       role,
+      displayName: ROLE_PROFILE_CATALOG[role].displayName,
+      summary: ROLE_PROFILE_CATALOG[role].summary,
+      bestFor: ROLE_PROFILE_CATALOG[role].bestFor,
+      scopeSummary: ROLE_PROFILE_CATALOG[role].scopeSummary,
       modules: [...ROLE_DEFAULT_MODULE_ACCESS[role]],
       actions: [...ROLE_DEFAULT_ACTION_ACCESS[role]],
+      workspaceHighlights: [...ROLE_PROFILE_CATALOG[role].workspaceHighlights],
+      actionHighlights: [...ROLE_PROFILE_CATALOG[role].actionHighlights],
     })),
   };
 }

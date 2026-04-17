@@ -1073,6 +1073,125 @@ test('finance can finalize a successful Moneris hosted capture into a permanent 
   assert.equal(finalized.paymentCaptureAttempts.find((attempt) => attempt.id === launched.attempt.id)?.status, 'consumed');
 });
 
+test('reading CIS detail expires stale Moneris hosted capture attempts before returning the package', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-detail-expire-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-detail-expire';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-detail-expire@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-detail-expire@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Detail Expire HVAC', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before detail-read expiry reconciliation.',
+  });
+
+  await prisma.cisPaymentCaptureAttempt.update({
+    where: { id: launched.attempt.id },
+    data: {
+      expiresAt: new Date(Date.now() - 60_000),
+    },
+  });
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+
+  assert.ok(detail);
+  assert.equal(detail.paymentCaptureAttempts[0]?.status, 'expired');
+  assert.ok(detail.events.some((event) => event.eventType === 'payment_capture_expired'));
+
+  const storedAttempt = await prisma.cisPaymentCaptureAttempt.findUniqueOrThrow({
+    where: { id: launched.attempt.id },
+  });
+  assert.equal(storedAttempt.status, 'EXPIRED');
+});
+
+test('recording the same Moneris hosted success twice stays idempotent instead of failing on replay', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-idempotent-success-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-idempotent-success';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-idempotent-success@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-idempotent-success@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Idempotent Replay Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before replay-safe Moneris result recording.',
+  });
+
+  const first = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      responseCode: '001',
+      temporaryToken: 'moneris-idempotent-temp-token',
+      bin: '424242',
+      note: 'First tokenized Moneris success.',
+    },
+  );
+
+  const replayed = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      responseCode: '001',
+      temporaryToken: 'moneris-idempotent-temp-token',
+      bin: '424242',
+      note: 'Replayed tokenized Moneris success.',
+    },
+  );
+
+  assert.equal(first.attempt.status, 'token_received');
+  assert.equal(replayed.attempt.status, 'token_received');
+  assert.equal(replayed.attempt.providerResultCode, '001');
+  assert.equal(replayed.attempt.hasTemporaryToken, true);
+  assert.equal(
+    replayed.cisPackage.events.filter((event) => event.eventType === 'payment_capture_token_received').length,
+    1,
+  );
+});
+
 test('finance cannot finalize a Moneris capture attempt into a vault reference until a tokenized result exists', SERIAL, async () => {
   process.env.APP_ENCRYPTION_KEY = 'cis-moneris-guard-key';
   process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-guard';

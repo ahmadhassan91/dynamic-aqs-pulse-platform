@@ -316,19 +316,27 @@ export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: strin
   assertActionAccess(actor.role, 'lead.view');
   const leadScope = buildLeadRecordScope(actor);
 
-  const cisPackage = await prisma.cisPackage.findFirst({
-    where: leadScope
-      ? {
-          leadId,
-          lead: leadScope,
-        }
-      : {
-          leadId,
-        },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    include: CIS_PACKAGE_INCLUDE,
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: leadScope
+        ? {
+            leadId,
+            lead: leadScope,
+          }
+        : {
+            leadId,
+          },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    return refreshExpiredCaptureAttemptsForPackage(tx, actor, existing);
   });
 
   return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
@@ -339,16 +347,24 @@ export async function getCisPackageDetail(actor: AuthenticatedActor, cisPackageI
   assertActionAccess(actor.role, 'lead.view');
   const leadScope = buildLeadRecordScope(actor);
 
-  const cisPackage = await prisma.cisPackage.findFirst({
-    where: leadScope
-      ? {
-          id: cisPackageId,
-          lead: leadScope,
-        }
-      : {
-          id: cisPackageId,
-        },
-    include: CIS_PACKAGE_INCLUDE,
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: leadScope
+        ? {
+            id: cisPackageId,
+            lead: leadScope,
+          }
+        : {
+            id: cisPackageId,
+          },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    return refreshExpiredCaptureAttemptsForPackage(tx, actor, existing);
   });
 
   return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
@@ -1354,6 +1370,9 @@ export async function recordMonerisHostedCaptureResult(
     }
 
     if (attempt.status !== CisPaymentCaptureAttemptStatus.LAUNCHED) {
+      if (isIdempotentMonerisHostedCaptureReplay(attempt, responseCode, errorMessage, providerBin, temporaryToken)) {
+        return existing;
+      }
       throw new Error('CIS payment capture attempt is no longer awaiting a Moneris tokenization result');
     }
 
@@ -2625,6 +2644,55 @@ async function expireStalePaymentCaptureAttempts(
       }),
     });
   }
+}
+
+async function refreshExpiredCaptureAttemptsForPackage(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  cisPackage: CisPackageWithRelations,
+) {
+  const now = new Date();
+  const hasExpiredAttempts = cisPackage.paymentCaptureAttempts.some(
+    (attempt) => {
+      const expiresAt = attempt.expiresAt;
+      return (attempt.status === CisPaymentCaptureAttemptStatus.LAUNCHED || attempt.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED)
+        && expiresAt !== null
+        && expiresAt !== undefined
+        && expiresAt < now;
+    },
+  );
+
+  if (!hasExpiredAttempts) {
+    return cisPackage;
+  }
+
+  await expireStalePaymentCaptureAttempts(tx, actor, cisPackage.id, cisPackage.leadId, now);
+  return tx.cisPackage.findUniqueOrThrow({
+    where: { id: cisPackage.id },
+    include: CIS_PACKAGE_INCLUDE,
+  });
+}
+
+function isIdempotentMonerisHostedCaptureReplay(
+  attempt: Prisma.CisPaymentCaptureAttemptGetPayload<Record<string, never>>,
+  responseCode: string | undefined,
+  errorMessage: string | undefined,
+  providerBin: string | undefined,
+  temporaryToken: string | undefined,
+) {
+  const replaySucceeded = responseCode === '001' && Boolean(temporaryToken);
+
+  if (attempt.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED && !replaySucceeded) {
+    return false;
+  }
+  if (attempt.status === CisPaymentCaptureAttemptStatus.FAILED && replaySucceeded) {
+    return false;
+  }
+
+  return (attempt.providerResultCode ?? undefined) === responseCode
+    && (attempt.providerErrorMessage ?? undefined) === errorMessage
+    && (attempt.providerBin ?? undefined) === providerBin
+    && Boolean(attempt.temporaryTokenEncrypted) === Boolean(temporaryToken);
 }
 
 function toCisPaymentVaultProviderEnum(value: RecordCisPaymentVaultReferenceRequest['provider']) {

@@ -1369,17 +1369,26 @@ export async function recordMonerisHostedCaptureResult(
       throw new Error('CIS payment capture attempt is not a Moneris attempt');
     }
 
-    if (attempt.status !== CisPaymentCaptureAttemptStatus.LAUNCHED) {
-      if (isIdempotentMonerisHostedCaptureReplay(attempt, responseCode, errorMessage, providerBin, temporaryToken)) {
-        return existing;
-      }
-      throw new Error('CIS payment capture attempt is no longer awaiting a Moneris tokenization result');
+    const reconciliation = resolveMonerisHostedCaptureReconciliation(
+      existing,
+      attempt,
+      succeeded,
+      responseCode,
+      errorMessage,
+      providerBin,
+      temporaryToken,
+    );
+    if (reconciliation.kind === 'idempotent') {
+      return existing;
+    }
+    if (reconciliation.kind === 'rejected') {
+      throw new Error(reconciliation.message);
     }
 
     const updatedAttempt = await tx.cisPaymentCaptureAttempt.update({
       where: { id: attempt.id },
       data: {
-        status: succeeded ? CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED : CisPaymentCaptureAttemptStatus.FAILED,
+        status: reconciliation.targetStatus,
         completedByUserId: actor.userId,
         ...(note ? { resultNote: note } : {}),
         ...(responseCode ? { providerResultCode: responseCode } : {}),
@@ -1397,13 +1406,19 @@ export async function recordMonerisHostedCaptureResult(
     await tx.cisPackageEvent.create({
       data: {
         cisPackageId: existing.id,
-        eventType: succeeded ? 'payment_capture_token_received' : 'payment_capture_failed',
+        eventType: reconciliation.isReconciled
+          ? 'payment_capture_reconciled'
+          : succeeded
+            ? 'payment_capture_token_received'
+            : 'payment_capture_failed',
         actorUserId: actor.userId,
         actorType: actor.actorType,
         note: note ?? null,
         metadata: toJsonValue({
           provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
           captureAttemptId: updatedAttempt.id,
+          ...(reconciliation.isReconciled ? { fromStatus: toCisPaymentCaptureAttemptStatusKey(attempt.status) } : {}),
+          toStatus: toCisPaymentCaptureAttemptStatusKey(updatedAttempt.status),
           ...(responseCode ? { responseCode } : {}),
           ...(errorMessage ? { errorMessage } : {}),
           ...(providerBin ? { bin: providerBin } : {}),
@@ -1425,7 +1440,14 @@ export async function recordMonerisHostedCaptureResult(
           actorType: actor.actorType,
           leadId: existing.leadId,
           provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
-          operation: 'cis.payment_capture.moneris.result',
+          operation: reconciliation.isReconciled ? 'cis.payment_capture.moneris.reconcile' : 'cis.payment_capture.moneris.result',
+        },
+        beforeData: {
+          status: attempt.status,
+          ...(attempt.providerResultCode ? { responseCode: attempt.providerResultCode } : {}),
+          ...(attempt.providerErrorMessage ? { errorMessage: attempt.providerErrorMessage } : {}),
+          ...(attempt.providerBin ? { bin: attempt.providerBin } : {}),
+          hasTemporaryToken: Boolean(attempt.temporaryTokenEncrypted),
         },
         afterData: {
           status: toCisPaymentCaptureAttemptStatusKey(updatedAttempt.status),
@@ -1453,6 +1475,18 @@ export async function recordMonerisHostedCaptureResult(
     attempt: toCisPaymentCaptureAttemptRecord(attempt),
   };
 }
+
+type MonerisHostedCaptureReconciliation =
+  | { kind: 'idempotent' }
+  | {
+      kind: 'apply';
+      targetStatus: CisPaymentCaptureAttemptStatus;
+      isReconciled: boolean;
+    }
+  | {
+      kind: 'rejected';
+      message: string;
+    };
 
 export async function recordCisPaymentVaultReference(
   actor: AuthenticatedActor,
@@ -2670,6 +2704,70 @@ async function refreshExpiredCaptureAttemptsForPackage(
   return tx.cisPackage.findUniqueOrThrow({
     where: { id: cisPackage.id },
     include: CIS_PACKAGE_INCLUDE,
+  });
+}
+
+function resolveMonerisHostedCaptureReconciliation(
+  cisPackage: CisPackageWithRelations,
+  attempt: Prisma.CisPaymentCaptureAttemptGetPayload<Record<string, never>>,
+  succeeded: boolean,
+  responseCode: string | undefined,
+  errorMessage: string | undefined,
+  providerBin: string | undefined,
+  temporaryToken: string | undefined,
+): MonerisHostedCaptureReconciliation {
+  if (isIdempotentMonerisHostedCaptureReplay(attempt, responseCode, errorMessage, providerBin, temporaryToken)) {
+    return { kind: 'idempotent' };
+  }
+
+  if (attempt.status === CisPaymentCaptureAttemptStatus.LAUNCHED) {
+    return {
+      kind: 'apply',
+      targetStatus: succeeded ? CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED : CisPaymentCaptureAttemptStatus.FAILED,
+      isReconciled: false,
+    };
+  }
+
+  if (attempt.status === CisPaymentCaptureAttemptStatus.EXPIRED) {
+    if (hasNewerActiveOrConsumedMonerisCaptureAttempt(cisPackage, attempt.id)) {
+      return {
+        kind: 'rejected',
+        message: 'A newer Moneris hosted capture attempt is already active for this CIS package',
+      };
+    }
+
+    return {
+      kind: 'apply',
+      targetStatus: succeeded ? CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED : CisPaymentCaptureAttemptStatus.FAILED,
+      isReconciled: true,
+    };
+  }
+
+  return {
+    kind: 'rejected',
+    message: 'CIS payment capture attempt is no longer awaiting a Moneris tokenization result',
+  };
+}
+
+function hasNewerActiveOrConsumedMonerisCaptureAttempt(
+  cisPackage: CisPackageWithRelations,
+  attemptId: string,
+) {
+  const currentAttempt = cisPackage.paymentCaptureAttempts.find((item) => item.id === attemptId);
+  if (!currentAttempt) {
+    return false;
+  }
+
+  return cisPackage.paymentCaptureAttempts.some((item) => {
+    if (item.id === attemptId || item.provider !== CisPaymentVaultProvider.MONERIS) {
+      return false;
+    }
+    if (item.createdAt <= currentAttempt.createdAt) {
+      return false;
+    }
+    return item.status === CisPaymentCaptureAttemptStatus.LAUNCHED
+      || item.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED
+      || item.status === CisPaymentCaptureAttemptStatus.CONSUMED;
   });
 }
 

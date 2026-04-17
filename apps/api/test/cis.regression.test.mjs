@@ -1192,6 +1192,125 @@ test('recording the same Moneris hosted success twice stays idempotent instead o
   );
 });
 
+test('a late Moneris success can reconcile an expired hosted capture attempt into a tokenized result', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-expired-reconcile-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-expired-reconcile';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-expired-reconcile@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-expired-reconcile@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Expired Reconcile Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before late Moneris success reconciliation.',
+  });
+
+  await prisma.cisPaymentCaptureAttempt.update({
+    where: { id: launched.attempt.id },
+    data: {
+      status: 'EXPIRED',
+      completedAt: new Date('2026-04-17T04:00:00.000Z'),
+    },
+  });
+
+  const reconciled = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      responseCode: '001',
+      temporaryToken: 'moneris-expired-reconcile-token',
+      bin: '424242',
+      note: 'Late provider success after local expiry.',
+    },
+  );
+
+  assert.equal(reconciled.attempt.status, 'token_received');
+  assert.equal(reconciled.attempt.providerResultCode, '001');
+  assert.equal(reconciled.attempt.hasTemporaryToken, true);
+  assert.ok(reconciled.cisPackage.events.some((event) => event.eventType === 'payment_capture_reconciled'));
+});
+
+test('an expired Moneris attempt cannot reconcile after a newer hosted capture has already launched', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-newer-attempt-guard-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-newer-attempt-guard';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-newer-attempt-guard@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-newer-attempt-guard@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Newer Attempt Guard Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const firstLaunch = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Initial hosted capture before expiry.',
+  });
+
+  await prisma.cisPaymentCaptureAttempt.update({
+    where: { id: firstLaunch.attempt.id },
+    data: {
+      status: 'EXPIRED',
+      completedAt: new Date('2026-04-17T05:00:00.000Z'),
+    },
+  });
+
+  const replacementLaunch = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Replacement hosted capture after expiry.',
+  });
+
+  await assert.rejects(
+    () =>
+      recordMonerisHostedCaptureResult(financeActor, config, fixture.cisPackageId, firstLaunch.attempt.id, {
+        responseCode: '001',
+        temporaryToken: 'moneris-stale-expired-token',
+        bin: '401288',
+        note: 'Late provider success after a newer attempt already launched.',
+      }),
+    /newer Moneris hosted capture attempt is already active/i,
+  );
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+  assert.ok(detail.paymentCaptureAttempts.some((attempt) => attempt.id === firstLaunch.attempt.id && attempt.status === 'expired'));
+  assert.ok(detail.paymentCaptureAttempts.some((attempt) => attempt.id === replacementLaunch.attempt.id && attempt.status === 'launched'));
+});
+
 test('finance cannot finalize a Moneris capture attempt into a vault reference until a tokenized result exists', SERIAL, async () => {
   process.env.APP_ENCRYPTION_KEY = 'cis-moneris-guard-key';
   process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-guard';

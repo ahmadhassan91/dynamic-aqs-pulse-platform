@@ -196,9 +196,26 @@ export interface CisPackageDetail extends CisPackageSummary {
   formData: CisFormDataRecord;
   internalReview?: CisInternalReviewRecord;
   financeDecision?: CisFinanceDecisionRecord;
+  paymentCaptureHealth: CisPaymentCaptureHealthRecord;
   paymentCaptureAttempts: CisPaymentCaptureAttemptRecord[];
   paymentVaultReferences: CisPaymentVaultReferenceRecord[];
   events: CisPackageEventSummary[];
+}
+
+export interface CisPaymentCaptureHealthRecord {
+  activeAttemptCount: number;
+  launchedAttemptCount: number;
+  tokenReceivedAttemptCount: number;
+  expiredAttemptCount: number;
+  failedAttemptCount: number;
+  cancelledAttemptCount: number;
+  consumedAttemptCount: number;
+  replayedCallbackCount: number;
+  needsFinanceRelaunch: boolean;
+  latestAttemptStatus?: CisPaymentCaptureAttemptStatusKey;
+  latestAttemptProvider?: CisPaymentVaultProviderKey;
+  lastExpiredAt?: string;
+  lastCallbackReplayAt?: string;
 }
 
 export interface CisPaymentCaptureAttemptRecord {

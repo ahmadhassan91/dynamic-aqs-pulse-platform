@@ -19,6 +19,7 @@ import {
 } from '@pulse/db';
 import type {
   ApplyCisParsedDraftRequest,
+  CisPaymentCaptureHealthRecord,
   CancelMonerisHostedPaymentCaptureRequest,
   CancelMonerisHostedPaymentCaptureResponse,
   CisPaymentCaptureAttemptRecord,
@@ -127,6 +128,7 @@ type MonerisHostedCaptureResultContext = {
   actorRole?: string;
   sourceSystem: string;
   operationBase: 'result' | 'callback_result';
+  callbackPayloadHash?: string;
 };
 
 type MonerisHostedCaptureExpirationContext = {
@@ -1526,6 +1528,7 @@ export async function processMonerisHostedCaptureCallbackJob(
       actorType: 'service',
       sourceSystem: 'moneris-webhook',
       operationBase: 'callback_result',
+      ...(payload.payloadHash ? { callbackPayloadHash: payload.payloadHash } : {}),
     },
     {
       id: payload.cisPackageId,
@@ -1679,6 +1682,61 @@ async function recordMonerisHostedCaptureResultInternal(
       temporaryToken,
     );
     if (reconciliation.kind === 'idempotent') {
+      if (context.operationBase === 'callback_result') {
+        await tx.cisPackageEvent.create({
+          data: {
+            cisPackageId: existing.id,
+            eventType: 'payment_capture_callback_replayed',
+            actorType: context.actorType,
+            metadata: toJsonValue({
+              provider: toCisPaymentVaultProviderKey(attempt.provider),
+              captureAttemptId: attempt.id,
+              ...(responseCode ? { responseCode } : {}),
+              ...(providerBin ? { bin: providerBin } : {}),
+              hasTemporaryToken: Boolean(temporaryToken),
+              ...(context.callbackPayloadHash ? { payloadHash: context.callbackPayloadHash } : {}),
+            }),
+          },
+        });
+
+        await tx.auditEntry.create({
+          data: buildAuditEntryData({
+            actorUserId: context.actorUserId,
+            action: AuditAction.UPDATE,
+            entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
+            entityId: attempt.id,
+            sourceSystem: context.sourceSystem,
+            metadata: {
+              ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+              ...(context.actorRole ? { actorRole: context.actorRole } : {}),
+              actorType: context.actorType,
+              leadId: existing.leadId,
+              provider: toCisPaymentVaultProviderKey(attempt.provider),
+              operation: 'cis.payment_capture.moneris.callback_replay',
+              ...(context.callbackPayloadHash ? { payloadHash: context.callbackPayloadHash } : {}),
+            },
+            beforeData: {
+              status: attempt.status,
+              ...(attempt.providerResultCode ? { responseCode: attempt.providerResultCode } : {}),
+              ...(attempt.providerErrorMessage ? { errorMessage: attempt.providerErrorMessage } : {}),
+              ...(attempt.providerBin ? { bin: attempt.providerBin } : {}),
+              hasTemporaryToken: Boolean(attempt.temporaryTokenEncrypted),
+            },
+            afterData: {
+              status: attempt.status,
+              replayIgnored: true,
+              ...(responseCode ? { responseCode } : {}),
+              ...(providerBin ? { bin: providerBin } : {}),
+              hasTemporaryToken: Boolean(temporaryToken),
+            },
+          }),
+        });
+
+        return tx.cisPackage.findUniqueOrThrow({
+          where: { id: existing.id },
+          include: CIS_PACKAGE_INCLUDE,
+        });
+      }
       return existing;
     }
     if (reconciliation.kind === 'rejected') {
@@ -2406,6 +2464,7 @@ function toCisPackageDetail(actor: AuthenticatedActor, cisPackage: CisPackageWit
     formData: toCisFormRecord(cisPackage.formData),
     ...(cisPackage.internalReview ? { internalReview: toCisInternalReviewRecord(cisPackage.internalReview) } : {}),
     ...(cisPackage.financeDecision ? { financeDecision: toCisFinanceDecisionRecord(actor, cisPackage.financeDecision) } : {}),
+    paymentCaptureHealth: toCisPaymentCaptureHealthRecord(cisPackage),
     paymentCaptureAttempts: cisPackage.paymentCaptureAttempts.map(toCisPaymentCaptureAttemptRecord),
     paymentVaultReferences: cisPackage.paymentVaultReferences.map(toCisPaymentVaultReferenceRecord),
     events: cisPackage.events.map(toCisPackageEventSummary),
@@ -2639,6 +2698,47 @@ function toCisPaymentCaptureAttemptRecord(
     hasTemporaryToken: Boolean(attempt.temporaryTokenEncrypted),
     createdAt: attempt.createdAt.toISOString(),
     updatedAt: attempt.updatedAt.toISOString(),
+  };
+}
+
+function toCisPaymentCaptureHealthRecord(
+  cisPackage: CisPackageWithRelations,
+): CisPaymentCaptureHealthRecord {
+  const attempts = cisPackage.paymentCaptureAttempts;
+  const latestAttempt = attempts[0];
+  const activeAttemptCount = attempts.filter((attempt) =>
+    attempt.status === CisPaymentCaptureAttemptStatus.LAUNCHED
+    || attempt.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED).length;
+  const launchedAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.LAUNCHED).length;
+  const tokenReceivedAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED).length;
+  const expiredAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.EXPIRED).length;
+  const failedAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.FAILED).length;
+  const cancelledAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.CANCELLED).length;
+  const consumedAttemptCount = attempts.filter((attempt) => attempt.status === CisPaymentCaptureAttemptStatus.CONSUMED).length;
+  const replayEvents = cisPackage.events.filter((event) => event.eventType === 'payment_capture_callback_replayed');
+  const latestExpiredEvent = cisPackage.events.find((event) => event.eventType === 'payment_capture_expired');
+  const latestReplayEvent = replayEvents[0];
+
+  return {
+    activeAttemptCount,
+    launchedAttemptCount,
+    tokenReceivedAttemptCount,
+    expiredAttemptCount,
+    failedAttemptCount,
+    cancelledAttemptCount,
+    consumedAttemptCount,
+    replayedCallbackCount: replayEvents.length,
+    needsFinanceRelaunch:
+      cisPackage.paymentStatus === CisPaymentStatus.VAULT_PENDING
+      && activeAttemptCount === 0
+      && expiredAttemptCount > 0
+      && cisPackage.paymentVaultReferences.length === 0,
+    ...(latestAttempt ? {
+      latestAttemptStatus: toCisPaymentCaptureAttemptStatusKey(latestAttempt.status),
+      latestAttemptProvider: toCisPaymentVaultProviderKey(latestAttempt.provider),
+    } : {}),
+    ...(latestExpiredEvent ? { lastExpiredAt: latestExpiredEvent.occurredAt.toISOString() } : {}),
+    ...(latestReplayEvent ? { lastCallbackReplayAt: latestReplayEvent.occurredAt.toISOString() } : {}),
   };
 }
 

@@ -1115,6 +1115,10 @@ test('Moneris callback worker stays idempotent when the same callback payload is
   const attempt = detail.paymentCaptureAttempts.find((item) => item.id === launched.attempt.id);
   assert.equal(attempt?.status, 'token_received');
   assert.equal(attempt?.providerResultCode, '001');
+  assert.equal(detail.paymentCaptureHealth.replayedCallbackCount, 1);
+  assert.equal(detail.paymentCaptureHealth.tokenReceivedAttemptCount, 1);
+  assert.ok(detail.paymentCaptureHealth.lastCallbackReplayAt);
+  assert.ok(detail.events.some((event) => event.eventType === 'payment_capture_callback_replayed'));
   assert.equal(
     detail.events.filter((event) => event.eventType === 'payment_capture_token_received').length,
     1,
@@ -1656,6 +1660,12 @@ test('Moneris cleanup worker expires stale hosted capture attempts across CIS pa
   const secondDetail = await getCisPackageDetail(financeActor, secondFixture.cisPackageId);
   assert.ok(firstDetail.paymentCaptureAttempts.some((attempt) => attempt.id === firstLaunch.attempt.id && attempt.status === 'expired'));
   assert.ok(secondDetail.paymentCaptureAttempts.some((attempt) => attempt.id === secondLaunch.attempt.id && attempt.status === 'expired'));
+  assert.equal(firstDetail.paymentCaptureHealth.expiredAttemptCount, 1);
+  assert.equal(secondDetail.paymentCaptureHealth.expiredAttemptCount, 1);
+  assert.equal(firstDetail.paymentCaptureHealth.needsFinanceRelaunch, true);
+  assert.equal(secondDetail.paymentCaptureHealth.needsFinanceRelaunch, true);
+  assert.ok(firstDetail.paymentCaptureHealth.lastExpiredAt);
+  assert.ok(secondDetail.paymentCaptureHealth.lastExpiredAt);
   assert.ok(firstDetail.events.some((event) => event.eventType === 'payment_capture_expired' && event.actorType === 'service'));
   assert.ok(secondDetail.events.some((event) => event.eventType === 'payment_capture_expired' && event.actorType === 'service'));
 });

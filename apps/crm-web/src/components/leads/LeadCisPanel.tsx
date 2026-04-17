@@ -1399,12 +1399,49 @@ export function LeadCisPanel({
                       Pulse does not store raw card or bank details here. This lane tracks hosted capture progress and masked/tokenized vault outcomes only.
                     </Alert>
 
+                    {cisPackage.paymentCaptureHealth.replayedCallbackCount > 0 ? (
+                      <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                        Moneris retried the callback {cisPackage.paymentCaptureHealth.replayedCallbackCount} time{cisPackage.paymentCaptureHealth.replayedCallbackCount === 1 ? '' : 's'} for this CIS package. Pulse ignored the duplicate payload safely and kept one authoritative tokenization outcome.
+                      </Alert>
+                    ) : null}
+
+                    {cisPackage.paymentCaptureHealth.needsFinanceRelaunch ? (
+                      <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                        The latest hosted capture attempt expired without a permanent vault reference. Finance should relaunch a fresh secure capture when the prospect is ready.
+                      </Alert>
+                    ) : null}
+
                     <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
                       <ReadOnlyField label="Payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
                       <ReadOnlyField label="Vault references" value={String(cisPackage.paymentVaultReferences.length)} />
                       <ReadOnlyField
                         label="Latest hosted attempt"
                         value={latestCaptureAttempt ? `${formatCaptureAttemptStatus(latestCaptureAttempt.status)} • ${formatDateTimeLabel(latestCaptureAttempt.createdAt)}` : '—'}
+                      />
+                    </SimpleGrid>
+
+                    <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
+                      <ReadOnlyField
+                        label="Active attempts"
+                        value={String(cisPackage.paymentCaptureHealth.activeAttemptCount)}
+                      />
+                      <ReadOnlyField
+                        label="Expired attempts"
+                        value={String(cisPackage.paymentCaptureHealth.expiredAttemptCount)}
+                      />
+                      <ReadOnlyField
+                        label="Replay-safe callbacks"
+                        value={String(cisPackage.paymentCaptureHealth.replayedCallbackCount)}
+                      />
+                      <ReadOnlyField
+                        label="Last cleanup / replay"
+                        value={
+                          cisPackage.paymentCaptureHealth.lastCallbackReplayAt
+                            ? `Replay ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastCallbackReplayAt)}`
+                            : cisPackage.paymentCaptureHealth.lastExpiredAt
+                              ? `Cleanup ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastExpiredAt)}`
+                              : '—'
+                        }
                       />
                     </SimpleGrid>
 

@@ -31,7 +31,9 @@ let completeTrainingSession;
 let cancelTrainingSession;
 let createTrainingFollowUpTask;
 let completeTrainingFollowUpTask;
+let listTrainingOperationalQueue;
 const SERIAL = { concurrency: false };
+let uniqueFixtureCounter = 0;
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
@@ -58,6 +60,7 @@ test.before(async () => {
     cancelTrainingSession,
     createTrainingFollowUpTask,
     completeTrainingFollowUpTask,
+    listTrainingOperationalQueue,
   } = await import('../dist/modules/training/service.js'));
 
   config = loadAppConfig(process.env);
@@ -99,6 +102,16 @@ function actorWithRole(actor, role) {
   };
 }
 
+function actorForUser(actor, user, role) {
+  return {
+    ...actor,
+    userId: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role,
+  };
+}
+
 async function createUser(roleCode, email, displayName, { trainerProfileActive } = {}) {
   return prisma.user.create({
     data: {
@@ -119,8 +132,10 @@ async function createUser(roleCode, email, displayName, { trainerProfileActive }
 }
 
 async function createTrainingAccountFixture(actor, suffix = 'training') {
-  const tm = await createUser('TERRITORY_MANAGER', `tm-${suffix}@pulse.local`, `TM ${suffix}`);
-  const rd = await createUser('REGIONAL_DIRECTOR', `rd-${suffix}@pulse.local`, `RD ${suffix}`);
+  uniqueFixtureCounter += 1;
+  const token = `${suffix}-${uniqueFixtureCounter}`;
+  const tm = await createUser('TERRITORY_MANAGER', `tm-${token}@pulse.local`, `TM ${suffix}`);
+  const rd = await createUser('REGIONAL_DIRECTOR', `rd-${token}@pulse.local`, `RD ${suffix}`);
   const segment = await prisma.businessSegmentRef.findFirst({
     where: { code: 'residential' },
   });
@@ -671,4 +686,169 @@ test('training session listing supports overdue filtering', SERIAL, async () => 
   assert.equal(overdueOnly.total, 1);
   assert.equal(overdueOnly.items[0]?.title, 'Overdue session');
   assert.equal(overdueOnly.overdueCount, 1);
+});
+
+test('centralized training ops queue surfaces expiring and expired certifications, overdue cadence, and unresolved execution exceptions', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'ops');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'iaq_certification_curriculum' } });
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(certificationType);
+  assert.ok(onboardingType);
+
+  await prisma.accountTrainingProgram.create({
+    data: {
+      accountId: fixture.account.id,
+      trainingTypeId: onboardingType.id,
+      title: 'Quarterly cadence',
+      status: 'ACTIVE',
+      cadenceDays: 90,
+      nextDueAt: new Date('2026-04-01T00:00:00.000Z'),
+      ownerTmUserId: fixture.tm.id,
+      ownerRdUserId: fixture.rd.id,
+      startedAt: new Date('2026-01-01T00:00:00.000Z'),
+      isRequired: true,
+    },
+  });
+
+  await prisma.trainingCertificationRecord.createMany({
+    data: [
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: 'Soon to expire',
+        status: 'ACTIVE',
+        awardedAt: new Date('2025-10-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-05-05T00:00:00.000Z'),
+      },
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: 'Already expired',
+        status: 'EXPIRED',
+        awardedAt: new Date('2025-04-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-04-05T00:00:00.000Z'),
+      },
+    ],
+  });
+
+  await prisma.trainingSession.createMany({
+    data: [
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        trainerUserId: fixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'SCHEDULED',
+        title: 'Overdue training session',
+        scheduledAt: new Date('2026-04-10T10:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 2,
+      },
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        trainerUserId: fixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'COMPLETED',
+        title: 'Pending certification call',
+        scheduledAt: new Date('2026-04-12T10:00:00.000Z'),
+        completedAt: new Date('2026-04-12T11:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 3,
+        certificationOutcome: 'PENDING_DECISION',
+      },
+      {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        trainerUserId: fixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'COMPLETED',
+        title: 'Awarded without proof',
+        scheduledAt: new Date('2026-04-13T10:00:00.000Z'),
+        completedAt: new Date('2026-04-13T11:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 3,
+        certificationOutcome: 'AWARDED',
+      },
+    ],
+  });
+
+  const queue = await listTrainingOperationalQueue(actor, {
+    certificationWindowDays: 30,
+  });
+
+  assert.equal(queue.expiringCertifications.length, 1);
+  assert.equal(queue.expiringCertifications[0]?.title, 'Soon to expire');
+  assert.equal(queue.expiredCertifications.length, 1);
+  assert.equal(queue.expiredCertifications[0]?.title, 'Already expired');
+  assert.equal(queue.overduePrograms.length, 1);
+  assert.equal(queue.overduePrograms[0]?.accountId, fixture.account.id);
+  assert.equal(queue.unresolvedExecutionExceptions.length, 3);
+  assert.ok(queue.unresolvedExecutionExceptions.some((entry) => entry.type === 'session_overdue'));
+  assert.ok(queue.unresolvedExecutionExceptions.some((entry) => entry.type === 'certification_decision_pending'));
+  assert.ok(queue.unresolvedExecutionExceptions.some((entry) => entry.type === 'proof_missing'));
+});
+
+test('centralized training ops queue scopes records for TM and RD actors and supports owner filters for training ops', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const westFixture = await createTrainingAccountFixture(actor, 'west');
+  const eastFixture = await createTrainingAccountFixture(actor, 'east');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'product_installations' } });
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(certificationType);
+  assert.ok(onboardingType);
+
+  for (const fixture of [westFixture, eastFixture]) {
+    await prisma.accountTrainingProgram.create({
+      data: {
+        accountId: fixture.account.id,
+        trainingTypeId: onboardingType.id,
+        title: `Program ${fixture.account.displayName}`,
+        status: 'ACTIVE',
+        cadenceDays: 30,
+        nextDueAt: new Date('2026-04-01T00:00:00.000Z'),
+        ownerTmUserId: fixture.tm.id,
+        ownerRdUserId: fixture.rd.id,
+        startedAt: new Date('2026-03-01T00:00:00.000Z'),
+        isRequired: true,
+      },
+    });
+
+    await prisma.trainingCertificationRecord.create({
+      data: {
+        accountId: fixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: `Certification ${fixture.account.displayName}`,
+        status: 'ACTIVE',
+        awardedAt: new Date('2025-10-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-05-01T00:00:00.000Z'),
+      },
+    });
+  }
+
+  const tmQueue = await listTrainingOperationalQueue(actorForUser(actor, westFixture.tm, 'TERRITORY_MANAGER'), {
+    certificationWindowDays: 30,
+  });
+  assert.equal(tmQueue.expiringCertifications.length, 1);
+  assert.equal(tmQueue.expiringCertifications[0]?.accountId, westFixture.account.id);
+  assert.equal(tmQueue.overduePrograms.length, 1);
+  assert.equal(tmQueue.overduePrograms[0]?.accountId, westFixture.account.id);
+
+  const rdQueue = await listTrainingOperationalQueue(actorForUser(actor, eastFixture.rd, 'REGIONAL_DIRECTOR'), {
+    certificationWindowDays: 30,
+  });
+  assert.equal(rdQueue.expiringCertifications.length, 1);
+  assert.equal(rdQueue.expiringCertifications[0]?.accountId, eastFixture.account.id);
+
+  const trainingOpsQueue = await listTrainingOperationalQueue(actorWithRole(actor, 'TRAINING_OPS'), {
+    certificationWindowDays: 30,
+    ownerTmUserId: eastFixture.tm.id,
+  });
+  assert.equal(trainingOpsQueue.expiringCertifications.length, 1);
+  assert.equal(trainingOpsQueue.expiringCertifications[0]?.accountId, eastFixture.account.id);
+  assert.equal(trainingOpsQueue.overduePrograms.length, 1);
+  assert.equal(trainingOpsQueue.overduePrograms[0]?.accountId, eastFixture.account.id);
 });

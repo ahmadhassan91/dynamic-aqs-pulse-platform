@@ -35,6 +35,7 @@ Live baseline:
 - real training session scheduling, rescheduling, completion, cancellation/no-show, and follow-up task flows
 - mobile-ready execution flow with explicit check-in, required checkout notes, proof metadata, and certification outcomes
 - account certification records plus execution exception read models
+- centralized `Exceptions & Recertification` queue for expiring/expired certifications, overdue cadence, and unresolved execution exceptions with TM/RD filters
 - prototype-aligned `/training` workspace plus customer-detail `Training` tab
 - dedicated module regression suite covering scheduling/execution edge cases
 
@@ -49,6 +50,14 @@ If provider prerequisites are still parked:
 - build `Training Slice D0: Reporting + Certification Ops`
 
 This keeps training moving without forcing a blocked provider integration.
+
+### D0 Progress
+
+`Training D0.1: centralized exceptions + recertification queue` is now implemented.
+
+That means the next provider-free training slice is narrower:
+
+- `Training D0.2: certification operations + reporting`
 
 ## Slice D1 Scope
 
@@ -67,9 +76,9 @@ This keeps training moving without forcing a blocked provider integration.
 
 ## Optional Provider-Free Depth Before D1
 
-- training overdue dashboard depth
-- certification expiry / recertification queue
-- richer TM / RD / leadership training exception views
+- certification revoke / renew operations
+- training overdue dashboard depth beyond the queue
+- richer TM / RD / leadership training reporting
 - deeper account/territory training reporting
 
 ## What We Still Need Later

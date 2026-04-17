@@ -43,9 +43,12 @@ import type {
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
   ListTrainingAccountStatusKey,
+  ListTrainingOperationalQueueResponse,
   ListTrainingSessionsResponse,
   ListTrainingSessionStatusKey,
   TrainingCatalogResponse,
+  TrainingOperationalCertificationQueueItem,
+  TrainingOperationalExceptionQueueItem,
   TrainingOverviewResponse,
   TrainingSessionSummary,
   TrainingTrainerSummary,
@@ -110,6 +113,49 @@ function formatDateTime(value?: string) {
   }).format(new Date(value));
 }
 
+async function fetchTrainingOperationalQueue(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: {
+    ownerTmUserId?: string;
+    ownerRdUserId?: string;
+    certificationWindowDays?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  if (query.ownerTmUserId) {
+    params.set('ownerTmUserId', query.ownerTmUserId);
+  }
+  if (query.ownerRdUserId) {
+    params.set('ownerRdUserId', query.ownerRdUserId);
+  }
+  if (query.certificationWindowDays) {
+    params.set('certificationWindowDays', String(query.certificationWindowDays));
+  }
+
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/training/ops${params.toString() ? `?${params.toString()}` : ''}`,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+      cache: 'no-store',
+    },
+  );
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(
+      payload?.error?.message
+      || payload?.detail
+      || payload?.message
+      || `Training ops queue request failed (${response.status})`,
+    );
+  }
+
+  return response.json() as Promise<ListTrainingOperationalQueueResponse>;
+}
+
 function trainingStatusColor(session: TrainingSessionSummary) {
   if (session.executionState === 'checked_in') {
     return 'orange';
@@ -129,6 +175,26 @@ function trainingStatusColor(session: TrainingSessionSummary) {
   return 'blue';
 }
 
+function exceptionSeverityColor(severity: TrainingOperationalExceptionQueueItem['severity']) {
+  if (severity === 'high') {
+    return 'red';
+  }
+  if (severity === 'medium') {
+    return 'orange';
+  }
+  return 'blue';
+}
+
+function certificationQueueColor(item: TrainingOperationalCertificationQueueItem) {
+  if (item.daysUntilExpiry < 0 || item.status === 'expired') {
+    return 'red';
+  }
+  if (item.daysUntilExpiry <= 14) {
+    return 'orange';
+  }
+  return 'blue';
+}
+
 export function TrainingWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
@@ -139,10 +205,14 @@ export function TrainingWorkspace() {
   const [catalog, setCatalog] = useState<TrainingCatalogResponse | null>(null);
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof fetchTrainingAccounts>> | null>(null);
   const [sessions, setSessions] = useState<ListTrainingSessionsResponse | null>(null);
+  const [operationalQueue, setOperationalQueue] = useState<ListTrainingOperationalQueueResponse | null>(null);
   const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ListTrainingAccountStatusKey>('all');
   const [sessionStatusFilter, setSessionStatusFilter] = useState<ListTrainingSessionStatusKey>('all');
+  const [opsTmFilter, setOpsTmFilter] = useState<string | null>(null);
+  const [opsRdFilter, setOpsRdFilter] = useState<string | null>(null);
+  const [opsCertificationWindowDays, setOpsCertificationWindowDays] = useState<string>('45');
   const [includeVisits, setIncludeVisits] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -170,7 +240,7 @@ export function TrainingWorkspace() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers] = await Promise.all([
+      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers, nextOperationalQueue] = await Promise.all([
         fetchTrainingOverview(apiBaseUrl, accessToken),
         fetchTrainingCatalog(apiBaseUrl, accessToken),
         fetchTrainingAccounts(apiBaseUrl, accessToken, {
@@ -184,6 +254,11 @@ export function TrainingWorkspace() {
           limit: 100,
         }),
         fetchTrainingTrainers(apiBaseUrl, accessToken),
+        fetchTrainingOperationalQueue(apiBaseUrl, accessToken, {
+          ...(opsTmFilter ? { ownerTmUserId: opsTmFilter } : {}),
+          ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
+          certificationWindowDays: Number(opsCertificationWindowDays || 45),
+        }),
       ]);
 
       setOverview(nextOverview);
@@ -191,12 +266,24 @@ export function TrainingWorkspace() {
       setAccounts(nextAccounts);
       setSessions(nextSessions);
       setTrainers(nextTrainers.items);
+      setOperationalQueue(nextOperationalQueue);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, apiBaseUrl, auth, includeVisits, search, sessionStatusFilter, statusFilter]);
+  }, [
+    accessToken,
+    apiBaseUrl,
+    auth,
+    includeVisits,
+    opsCertificationWindowDays,
+    opsRdFilter,
+    opsTmFilter,
+    search,
+    sessionStatusFilter,
+    statusFilter,
+  ]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -216,6 +303,18 @@ export function TrainingWorkspace() {
     () => (catalog?.trainingTypes ?? []).filter((entry) => entry.isCertificationTrack),
     [catalog],
   );
+
+  const tmFilterOptions = useMemo(() => (
+    trainers
+      .filter((entry) => entry.roleCode === 'TERRITORY_MANAGER')
+      .map((entry) => ({ value: entry.userId, label: entry.displayName }))
+  ), [trainers]);
+
+  const rdFilterOptions = useMemo(() => (
+    trainers
+      .filter((entry) => entry.roleCode === 'REGIONAL_DIRECTOR')
+      .map((entry) => ({ value: entry.userId, label: entry.displayName }))
+  ), [trainers]);
 
   const sessionItems = sessions?.items ?? [];
 
@@ -364,6 +463,7 @@ export function TrainingWorkspace() {
               <Tabs.Tab value="overview">Overview</Tabs.Tab>
               <Tabs.Tab value="accounts">Accounts &amp; Training</Tabs.Tab>
               <Tabs.Tab value="sessions">Sessions</Tabs.Tab>
+              <Tabs.Tab value="ops">Exceptions &amp; Recertification</Tabs.Tab>
               <Tabs.Tab value="catalog">Catalog</Tabs.Tab>
             </Tabs.List>
 
@@ -640,6 +740,290 @@ export function TrainingWorkspace() {
                     </Stack>
                   </Paper>
                 ) : null}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="ops" pt="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-end">
+                  <Group align="flex-end">
+                    <Select
+                      label="Territory manager"
+                      placeholder="All TMs"
+                      clearable
+                      data={tmFilterOptions}
+                      value={opsTmFilter}
+                      onChange={setOpsTmFilter}
+                      searchable
+                    />
+                    <Select
+                      label="Regional director"
+                      placeholder="All RDs"
+                      clearable
+                      data={rdFilterOptions}
+                      value={opsRdFilter}
+                      onChange={setOpsRdFilter}
+                      searchable
+                    />
+                    <Select
+                      label="Expiry window"
+                      value={opsCertificationWindowDays}
+                      onChange={(value) => setOpsCertificationWindowDays(value ?? '45')}
+                      data={[
+                        { value: '30', label: 'Next 30 days' },
+                        { value: '45', label: 'Next 45 days' },
+                        { value: '60', label: 'Next 60 days' },
+                        { value: '90', label: 'Next 90 days' },
+                      ]}
+                    />
+                  </Group>
+                  <Badge color={(operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? 'red' : 'blue'} variant="light">
+                    {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0} unresolved exceptions
+                  </Badge>
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                  <Card withBorder radius="md" p="md">
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expiring certifications</Text>
+                    <Text fw={700} size="xl">{operationalQueue?.summary.expiringCertificationCount ?? 0}</Text>
+                  </Card>
+                  <Card withBorder radius="md" p="md">
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expired certifications</Text>
+                    <Text
+                      fw={700}
+                      size="xl"
+                      {...((operationalQueue?.summary.expiredCertificationCount ?? 0) > 0 ? { c: 'red' as const } : {})}
+                    >
+                      {operationalQueue?.summary.expiredCertificationCount ?? 0}
+                    </Text>
+                  </Card>
+                  <Card withBorder radius="md" p="md">
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue cadence</Text>
+                    <Text
+                      fw={700}
+                      size="xl"
+                      {...((operationalQueue?.summary.overdueProgramCount ?? 0) > 0 ? { c: 'orange' as const } : {})}
+                    >
+                      {operationalQueue?.summary.overdueProgramCount ?? 0}
+                    </Text>
+                  </Card>
+                  <Card withBorder radius="md" p="md">
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Execution exceptions</Text>
+                    <Text
+                      fw={700}
+                      size="xl"
+                      {...((operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? { c: 'red' as const } : {})}
+                    >
+                      {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0}
+                    </Text>
+                  </Card>
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, xl: 2 }}>
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Expiring certifications</Title>
+                        <Badge color="blue" variant="light">{operationalQueue?.expiringCertifications.length ?? 0}</Badge>
+                      </Group>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Certification</Table.Th>
+                            <Table.Th>Expires</Table.Th>
+                            <Table.Th>Owner</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(operationalQueue?.expiringCertifications ?? []).length > 0 ? operationalQueue?.expiringCertifications.map((item) => (
+                            <Table.Tr key={item.certificationId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.title}</Text>
+                                  <Text size="sm" c="dimmed">{item.trainingTypeName ?? item.trainingTypeCode ?? 'Certification track'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Text>{formatDate(item.expiresAt)}</Text>
+                                  <Badge color={certificationQueueColor(item)} variant="light">
+                                    {item.daysUntilExpiry} days
+                                  </Badge>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={4}>
+                                <Text c="dimmed">No certifications are nearing expiry in the current window.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Expired certifications</Title>
+                        <Badge color="red" variant="light">{operationalQueue?.expiredCertifications.length ?? 0}</Badge>
+                      </Group>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Certification</Table.Th>
+                            <Table.Th>Expired</Table.Th>
+                            <Table.Th>Owner</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(operationalQueue?.expiredCertifications ?? []).length > 0 ? operationalQueue?.expiredCertifications.map((item) => (
+                            <Table.Tr key={item.certificationId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.title}</Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Text>{formatDate(item.expiresAt)}</Text>
+                                  <Badge color="red" variant="light">
+                                    {Math.abs(item.daysUntilExpiry)} days past due
+                                  </Badge>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={4}>
+                                <Text c="dimmed">No expired certifications are currently in queue.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Overdue cadence queue</Title>
+                        <Badge color="orange" variant="light">{operationalQueue?.overduePrograms.length ?? 0}</Badge>
+                      </Group>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Program</Table.Th>
+                            <Table.Th>Next due</Table.Th>
+                            <Table.Th>Owner</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(operationalQueue?.overduePrograms ?? []).length > 0 ? operationalQueue?.overduePrograms.map((item) => (
+                            <Table.Tr key={item.programId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.title}</Text>
+                                  <Text size="sm" c="dimmed">{item.trainingTypeName ?? item.trainingTypeCode ?? 'Training program'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Text>{formatDate(item.nextDueAt)}</Text>
+                                  <Badge color="orange" variant="light">
+                                    {item.daysOverdue} days overdue
+                                  </Badge>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={4}>
+                                <Text c="dimmed">No overdue training cadence items are currently in queue.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Execution exceptions</Title>
+                        <Badge color="red" variant="light">{operationalQueue?.unresolvedExecutionExceptions.length ?? 0}</Badge>
+                      </Group>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Issue</Table.Th>
+                            <Table.Th>Severity</Table.Th>
+                            <Table.Th>Action</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(operationalQueue?.unresolvedExecutionExceptions ?? []).length > 0 ? operationalQueue?.unresolvedExecutionExceptions.map((item) => (
+                            <Table.Tr key={`${item.sessionId}-${item.type}`}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName ?? 'Account'}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.title}</Text>
+                                  <Text size="sm" c="dimmed">{item.detail}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color={exceptionSeverityColor(item.severity)} variant="light">
+                                  {item.severity}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>
+                                <Button component={Link} href={`/customers/${item.accountId}?tab=training-history`} size="xs" variant="default">
+                                  Open Account
+                                </Button>
+                              </Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={4}>
+                                <Text c="dimmed">No unresolved training execution exceptions are currently in queue.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+                </SimpleGrid>
               </Stack>
             </Tabs.Panel>
 

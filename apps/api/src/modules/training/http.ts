@@ -13,6 +13,7 @@ import type {
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
   ListTrainingAccountsRequest,
+  ListTrainingOperationalQueueRequest,
   ListTrainingSessionsRequest,
   UpdateTrainingSessionScheduleRequest,
 } from '@pulse/contracts';
@@ -45,6 +46,7 @@ import {
   getAccountTrainingHistory,
   listTrainingAccounts,
   listTrainingCatalog,
+  listTrainingOperationalQueue,
   listTrainingOverview,
   listTrainingSessions,
   listTrainingTrainers,
@@ -57,6 +59,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
   const isTrainingRoute =
     pathname === '/api/v1/training/overview'
     || pathname === '/api/v1/training/catalog'
+    || pathname === '/api/v1/training/ops'
     || pathname === '/api/v1/training/trainers'
     || pathname === '/api/v1/training/sessions'
     || pathname === '/api/v1/training/catalog/categories'
@@ -96,6 +99,36 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
 
       return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
         const response = await listTrainingCatalog(actor);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/ops') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const query: ListTrainingOperationalQueueRequest = {};
+        const ownerTmUserId = url.searchParams.get('ownerTmUserId')?.trim();
+        const ownerRdUserId = url.searchParams.get('ownerRdUserId')?.trim();
+        const certificationWindowDays = parseInteger(url.searchParams.get('certificationWindowDays'));
+        const limit = parseInteger(url.searchParams.get('limit'));
+
+        if (ownerTmUserId) {
+          query.ownerTmUserId = ownerTmUserId;
+        }
+        if (ownerRdUserId) {
+          query.ownerRdUserId = ownerRdUserId;
+        }
+        if (certificationWindowDays !== undefined) {
+          query.certificationWindowDays = certificationWindowDays;
+        }
+        if (limit !== undefined) {
+          query.limit = limit;
+        }
+
+        const response = await listTrainingOperationalQueue(actor, query);
         return jsonResponse(res, 200, response);
       });
     }

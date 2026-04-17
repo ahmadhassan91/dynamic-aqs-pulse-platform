@@ -31,6 +31,8 @@ import type {
   CreateTrainingTypeRequest,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
+  ListTrainingOperationalQueueRequest,
+  ListTrainingOperationalQueueResponse,
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   ListTrainingTrainersResponse,
@@ -43,6 +45,9 @@ import type {
   TrainingCertificationStatusKey,
   TrainingCertificationSummary,
   TrainingExecutionExceptionSeverityKey,
+  TrainingOperationalCadenceQueueItem,
+  TrainingOperationalCertificationQueueItem,
+  TrainingOperationalExceptionQueueItem,
   TrainingExecutionExceptionSummary,
   TrainingExecutionExceptionTypeKey,
   TrainingFollowUpTaskStatusKey,
@@ -570,6 +575,13 @@ const trainingAccountArgs = Prisma.validator<Prisma.AccountDefaultArgs>()({
         email: true,
       },
     },
+    assignedRdUser: {
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+      },
+    },
     trainingPrograms: {
       include: trainingProgramArgs.include,
       orderBy: [{ nextDueAt: 'asc' }, { createdAt: 'asc' }],
@@ -671,37 +683,37 @@ async function ensureTrainingSeededInternal() {
       throw new Error(`Missing training category seed: ${trainingType.categoryCode}`);
     }
 
-    await prisma.trainingType.createMany({
-      data: [
-        {
-          categoryId: category.id,
-          code: trainingType.code,
-          name: trainingType.name,
-          description: trainingType.description,
-          family: trainingType.family,
-          deliveryMode: trainingType.deliveryMode,
-          defaultDurationMinutes: trainingType.defaultDurationMinutes,
-          countsTowardHours: trainingType.countsTowardHours,
-          isCustomerFacing: trainingType.isCustomerFacing,
-          isCertificationTrack: trainingType.isCertificationTrack,
-          sortOrder: trainingType.sortOrder,
-          isActive: true,
-        },
-      ],
-      skipDuplicates: true,
+    const typeRecord = await prisma.trainingType.upsert({
+      where: { code: trainingType.code },
+      update: {
+        categoryId: category.id,
+        name: trainingType.name,
+        ...(trainingType.description ? { description: trainingType.description } : {}),
+        family: trainingType.family,
+        deliveryMode: trainingType.deliveryMode,
+        defaultDurationMinutes: trainingType.defaultDurationMinutes,
+        countsTowardHours: trainingType.countsTowardHours,
+        isCustomerFacing: trainingType.isCustomerFacing,
+        isCertificationTrack: trainingType.isCertificationTrack,
+        sortOrder: trainingType.sortOrder,
+        isActive: true,
+      },
+      create: {
+        categoryId: category.id,
+        code: trainingType.code,
+        name: trainingType.name,
+        ...(trainingType.description ? { description: trainingType.description } : {}),
+        family: trainingType.family,
+        deliveryMode: trainingType.deliveryMode,
+        defaultDurationMinutes: trainingType.defaultDurationMinutes,
+        countsTowardHours: trainingType.countsTowardHours,
+        isCustomerFacing: trainingType.isCustomerFacing,
+        isCertificationTrack: trainingType.isCertificationTrack,
+        sortOrder: trainingType.sortOrder,
+        isActive: true,
+      },
+      select: { id: true, code: true, name: true },
     });
-  }
-
-  const trainingTypes = await prisma.trainingType.findMany({
-    select: { id: true, code: true, name: true },
-  });
-  const typeMap = new Map(trainingTypes.map((entry) => [entry.code, entry]));
-
-  for (const trainingType of DEFAULT_TRAINING_TYPES) {
-    const typeRecord = typeMap.get(trainingType.code);
-    if (!typeRecord) {
-      throw new Error(`Missing training type seed: ${trainingType.code}`);
-    }
 
     const override = DEFAULT_TRAINING_TEMPLATE_OVERRIDES.get(trainingType.code);
     const templateSeed: TemplateSeed = {
@@ -713,20 +725,27 @@ async function ensureTrainingSeededInternal() {
       materialsSummary: override?.materialsSummary,
     };
 
-    await prisma.trainingTemplate.createMany({
-      data: [
-        {
-          trainingTypeId: typeRecord.id,
-          code: templateSeed.code,
-          title: templateSeed.title,
-          ...(templateSeed.description ? { description: templateSeed.description } : {}),
-          ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
-          ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
-          proofRequirement: templateSeed.proofRequirement,
-          isActive: true,
-        },
-      ],
-      skipDuplicates: true,
+    await prisma.trainingTemplate.upsert({
+      where: { code: templateSeed.code },
+      update: {
+        trainingTypeId: typeRecord.id,
+        title: templateSeed.title,
+        ...(templateSeed.description ? { description: templateSeed.description } : {}),
+        ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
+        ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
+        proofRequirement: templateSeed.proofRequirement,
+        isActive: true,
+      },
+      create: {
+        trainingTypeId: typeRecord.id,
+        code: templateSeed.code,
+        title: templateSeed.title,
+        ...(templateSeed.description ? { description: templateSeed.description } : {}),
+        ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
+        ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
+        proofRequirement: templateSeed.proofRequirement,
+        isActive: true,
+      },
     });
 
     const cadenceOverride = DEFAULT_TRAINING_CADENCE_OVERRIDES.get(trainingType.code);
@@ -737,7 +756,17 @@ async function ensureTrainingSeededInternal() {
       },
     });
 
-    if (!existingCadencePolicy) {
+    if (existingCadencePolicy) {
+      await prisma.trainingCadencePolicy.update({
+        where: { id: existingCadencePolicy.id },
+        data: {
+          cadenceDays: cadenceOverride?.cadenceDays ?? 180,
+          isRequired: cadenceOverride?.isRequired ?? trainingType.countsTowardHours,
+          appliesToAllAccounts: true,
+          isActive: true,
+        },
+      });
+    } else {
       await prisma.trainingCadencePolicy.create({
         data: {
           trainingTypeId: typeRecord.id,
@@ -1307,6 +1336,59 @@ export async function listTrainingSessions(
     overdueCount: items.filter((item) => item.isOverdue).length,
     openFollowUpTaskCount: items.reduce((sum, item) => sum + item.openFollowUpTaskCount, 0),
     executionExceptions,
+  };
+}
+
+export async function listTrainingOperationalQueue(
+  actor: AuthenticatedActor,
+  query: ListTrainingOperationalQueueRequest = {},
+): Promise<ListTrainingOperationalQueueResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const scope = resolveTrainingOperationalQueueScope(actor, query);
+  const accounts = await prisma.account.findMany({
+    where: {
+      isActive: true,
+      ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
+      ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
+      OR: [
+        { trainingPrograms: { some: {} } },
+        { trainingSessions: { some: {} } },
+        { trainingCertifications: { some: {} } },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    take: scope.limit,
+    include: trainingAccountArgs.include,
+  });
+
+  const expiringCertifications = accounts
+    .flatMap((account) => buildExpiringTrainingCertificationQueueItems(account, scope.certificationWindowDays))
+    .sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry || compareQueueAccountNames(left.accountName, right.accountName));
+  const expiredCertifications = accounts
+    .flatMap(buildExpiredTrainingCertificationQueueItems)
+    .sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry || compareQueueAccountNames(left.accountName, right.accountName));
+  const overduePrograms = accounts
+    .flatMap(buildOverdueTrainingProgramQueueItems)
+    .sort((left, right) => right.daysOverdue - left.daysOverdue || compareQueueAccountNames(left.accountName, right.accountName));
+  const unresolvedExecutionExceptions = accounts
+    .flatMap(buildTrainingOperationalExceptionQueueItems)
+    .sort((left, right) => (
+      severityWeight(right.severity) - severityWeight(left.severity)
+      || compareQueueAccountNames(left.accountName, right.accountName)
+    ));
+
+  return {
+    expiringCertifications: expiringCertifications.slice(0, scope.limit),
+    expiredCertifications: expiredCertifications.slice(0, scope.limit),
+    overduePrograms: overduePrograms.slice(0, scope.limit),
+    unresolvedExecutionExceptions: unresolvedExecutionExceptions.slice(0, scope.limit),
+    summary: {
+      expiringCertificationCount: expiringCertifications.length,
+      expiredCertificationCount: expiredCertifications.length,
+      overdueProgramCount: overduePrograms.length,
+      unresolvedExecutionExceptionCount: unresolvedExecutionExceptions.length,
+    },
   };
 }
 
@@ -2460,6 +2542,181 @@ function buildTrainingExecutionExceptions(items: TrainingSessionSummary[]): Trai
 
     return exceptions;
   });
+}
+
+function resolveTrainingOperationalQueueScope(
+  actor: AuthenticatedActor,
+  query: ListTrainingOperationalQueueRequest,
+) {
+  const certificationWindowDays = query.certificationWindowDays && query.certificationWindowDays > 0
+    ? query.certificationWindowDays
+    : 45;
+  const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 200) : 100;
+
+  if (actor.role === 'TERRITORY_MANAGER') {
+    return {
+      ownerTmUserId: actor.userId,
+      ownerRdUserId: undefined,
+      certificationWindowDays,
+      limit,
+    };
+  }
+
+  if (actor.role === 'REGIONAL_DIRECTOR') {
+    return {
+      ownerTmUserId: undefined,
+      ownerRdUserId: actor.userId,
+      certificationWindowDays,
+      limit,
+    };
+  }
+
+  return {
+    ownerTmUserId: query.ownerTmUserId?.trim() || undefined,
+    ownerRdUserId: query.ownerRdUserId?.trim() || undefined,
+    certificationWindowDays,
+    limit,
+  };
+}
+
+function buildExpiringTrainingCertificationQueueItems(
+  account: TrainingAccountRecord,
+  certificationWindowDays: number,
+): TrainingOperationalCertificationQueueItem[] {
+  const now = Date.now();
+  const windowEnd = now + certificationWindowDays * 24 * 60 * 60 * 1000;
+
+  return account.trainingCertifications
+    .filter((certification) => {
+      if (!certification.expiresAt) {
+        return false;
+      }
+
+      const expiresAt = certification.expiresAt.getTime();
+      return certification.status === TrainingCertificationStatus.ACTIVE
+        && expiresAt >= now
+        && expiresAt <= windowEnd;
+    })
+    .map((certification) => toTrainingOperationalCertificationQueueItem(account, certification));
+}
+
+function buildExpiredTrainingCertificationQueueItems(
+  account: TrainingAccountRecord,
+): TrainingOperationalCertificationQueueItem[] {
+  const now = Date.now();
+
+  return account.trainingCertifications
+    .filter((certification) => {
+      if (!certification.expiresAt) {
+        return false;
+      }
+
+      const isExpiredByDate = certification.expiresAt.getTime() < now;
+      return certification.status === TrainingCertificationStatus.EXPIRED
+        || (certification.status === TrainingCertificationStatus.ACTIVE && isExpiredByDate);
+    })
+    .map((certification) => toTrainingOperationalCertificationQueueItem(account, certification));
+}
+
+function buildOverdueTrainingProgramQueueItems(
+  account: TrainingAccountRecord,
+): TrainingOperationalCadenceQueueItem[] {
+  return account.trainingPrograms
+    .filter((program) => isProgramOverdue(program.status, program.nextDueAt))
+    .map((program) => {
+      const ownerTmUserId = program.ownerTmUserId ?? account.assignedTmUserId ?? undefined;
+      const ownerTmName = program.ownerTmUser?.displayName ?? account.assignedTmUser?.displayName;
+      const ownerRdUserId = program.ownerRdUserId ?? account.assignedRdUserId ?? undefined;
+      const ownerRdName = program.ownerRdUser?.displayName ?? account.assignedRdUser?.displayName;
+
+      return {
+        programId: program.id,
+        accountId: account.id,
+        accountName: account.displayName,
+        ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+        ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+        ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+        ...(ownerTmUserId ? { ownerTmUserId } : {}),
+        ...(ownerTmName ? { ownerTmName } : {}),
+        ...(ownerRdUserId ? { ownerRdUserId } : {}),
+        ...(ownerRdName ? { ownerRdName } : {}),
+        ...(program.trainingTypeId ? { trainingTypeId: program.trainingTypeId } : {}),
+        ...(program.trainingType?.code ? { trainingTypeCode: program.trainingType.code } : {}),
+        ...(program.trainingType?.name ? { trainingTypeName: program.trainingType.name } : {}),
+        title: program.title,
+        nextDueAt: (program.nextDueAt ?? new Date()).toISOString(),
+        ...(program.lastCompletedAt ? { lastCompletedAt: program.lastCompletedAt.toISOString() } : {}),
+        ...(program.cadenceDays !== null ? { cadenceDays: program.cadenceDays } : {}),
+        isRequired: program.isRequired,
+        daysOverdue: program.nextDueAt ? daysBetween(program.nextDueAt, new Date()) : 0,
+      };
+    });
+}
+
+function buildTrainingOperationalExceptionQueueItems(
+  account: TrainingAccountRecord,
+): TrainingOperationalExceptionQueueItem[] {
+  return account.trainingSessions.flatMap((session) => {
+    const summary = toTrainingSessionSummary(session);
+    return buildTrainingExecutionExceptions([summary]).map((exception) => ({
+      ...exception,
+      ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+      ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+      ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+      ...(account.assignedTmUserId ? { ownerTmUserId: account.assignedTmUserId } : {}),
+      ...(account.assignedTmUser?.displayName ? { ownerTmName: account.assignedTmUser.displayName } : {}),
+      ...(account.assignedRdUserId ? { ownerRdUserId: account.assignedRdUserId } : {}),
+      ...(account.assignedRdUser?.displayName ? { ownerRdName: account.assignedRdUser.displayName } : {}),
+      ...(summary.trainerUserId ? { trainerUserId: summary.trainerUserId } : {}),
+      ...(summary.trainerName ? { trainerName: summary.trainerName } : {}),
+    }));
+  });
+}
+
+function toTrainingOperationalCertificationQueueItem(
+  account: TrainingAccountRecord,
+  certification: TrainingAccountRecord['trainingCertifications'][number],
+): TrainingOperationalCertificationQueueItem {
+  return {
+    certificationId: certification.id,
+    accountId: account.id,
+    accountName: account.displayName,
+    ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+    ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+    ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+    ...(account.assignedTmUserId ? { ownerTmUserId: account.assignedTmUserId } : {}),
+    ...(account.assignedTmUser?.displayName ? { ownerTmName: account.assignedTmUser.displayName } : {}),
+    ...(account.assignedRdUserId ? { ownerRdUserId: account.assignedRdUserId } : {}),
+    ...(account.assignedRdUser?.displayName ? { ownerRdName: account.assignedRdUser.displayName } : {}),
+    ...(certification.trainingTypeId ? { trainingTypeId: certification.trainingTypeId } : {}),
+    ...(certification.trainingType?.code ? { trainingTypeCode: certification.trainingType.code } : {}),
+    ...(certification.trainingType?.name ? { trainingTypeName: certification.trainingType.name } : {}),
+    ...(certification.certificationCode ? { certificationCode: certification.certificationCode } : {}),
+    title: certification.title,
+    status: toTrainingCertificationStatusKey(certification.status),
+    awardedAt: certification.awardedAt.toISOString(),
+    expiresAt: (certification.expiresAt ?? certification.awardedAt).toISOString(),
+    daysUntilExpiry: certification.expiresAt ? daysBetween(new Date(), certification.expiresAt) : 0,
+  };
+}
+
+function daysBetween(start: Date, end: Date) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.ceil((end.getTime() - start.getTime()) / millisecondsPerDay);
+}
+
+function compareQueueAccountNames(left: string | undefined, right: string | undefined) {
+  return (left ?? '').localeCompare(right ?? '');
+}
+
+function severityWeight(severity: TrainingExecutionExceptionSeverityKey) {
+  if (severity === 'high') {
+    return 3;
+  }
+  if (severity === 'medium') {
+    return 2;
+  }
+  return 1;
 }
 
 function hasTrainingExecutionException(item: TrainingSessionSummary) {

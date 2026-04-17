@@ -380,6 +380,82 @@ export interface TrainingExecutionExceptionSummary {
   trainingTypeCode?: string;
 }
 
+export interface TrainingOperationalCertificationQueueItem {
+  certificationId: string;
+  accountId: string;
+  accountName: string;
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  ownerTmUserId?: string;
+  ownerTmName?: string;
+  ownerRdUserId?: string;
+  ownerRdName?: string;
+  trainingTypeId?: string;
+  trainingTypeCode?: string;
+  trainingTypeName?: string;
+  certificationCode?: string;
+  title: string;
+  status: TrainingCertificationStatusKey;
+  awardedAt: string;
+  expiresAt: string;
+  daysUntilExpiry: number;
+}
+
+export interface TrainingOperationalCadenceQueueItem {
+  programId: string;
+  accountId: string;
+  accountName: string;
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  ownerTmUserId?: string;
+  ownerTmName?: string;
+  ownerRdUserId?: string;
+  ownerRdName?: string;
+  trainingTypeId?: string;
+  trainingTypeCode?: string;
+  trainingTypeName?: string;
+  title: string;
+  nextDueAt: string;
+  lastCompletedAt?: string;
+  cadenceDays?: number;
+  isRequired: boolean;
+  daysOverdue: number;
+}
+
+export interface TrainingOperationalExceptionQueueItem extends TrainingExecutionExceptionSummary {
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  ownerTmUserId?: string;
+  ownerTmName?: string;
+  ownerRdUserId?: string;
+  ownerRdName?: string;
+  trainerUserId?: string;
+  trainerName?: string;
+}
+
+export interface ListTrainingOperationalQueueRequest {
+  ownerTmUserId?: string;
+  ownerRdUserId?: string;
+  certificationWindowDays?: number;
+  limit?: number;
+}
+
+export interface ListTrainingOperationalQueueResponse {
+  expiringCertifications: TrainingOperationalCertificationQueueItem[];
+  expiredCertifications: TrainingOperationalCertificationQueueItem[];
+  overduePrograms: TrainingOperationalCadenceQueueItem[];
+  unresolvedExecutionExceptions: TrainingOperationalExceptionQueueItem[];
+  summary: {
+    expiringCertificationCount: number;
+    expiredCertificationCount: number;
+    overdueProgramCount: number;
+    unresolvedExecutionExceptionCount: number;
+  };
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;

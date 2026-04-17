@@ -82,3 +82,13 @@ export const SYSTEM_HEALTH_CHECK_QUEUE: QueueDefinition = {
     retryLimit: 1,
   },
 };
+
+export const MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE: QueueDefinition = {
+  name: 'cis.moneris-hosted-capture-callback',
+  tier: 'HIGH',
+  description: 'Processes guarded Moneris hosted-capture callback payloads into CIS payment-attempt truth',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 5,
+  },
+};

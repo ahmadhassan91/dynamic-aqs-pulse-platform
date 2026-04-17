@@ -87,6 +87,7 @@ export type AppMonerisHostedTokenizationConfig = {
   profileId?: string | undefined;
   iframeUrl: string;
   iframeOrigin: string;
+  callbackSecret?: string | undefined;
   encryptionKey?: string | undefined;
   tokenTtlMinutes: number;
 };
@@ -129,6 +130,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       : 'https://mpg1t.moneris.io/HPPtoken/index.php');
   const monerisIframeOrigin = optionalString(env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN)
     ?? safeUrlOrigin(monerisIframeUrl);
+  const monerisCallbackSecret = optionalString(env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET);
   const entraLoginRedirectUri = optionalString(env.MICROSOFT_ENTRA_LOGIN_REDIRECT_URI);
   const entraLoginScopes = parseScopes(env.MICROSOFT_ENTRA_LOGIN_SCOPES, [
     'openid',
@@ -236,6 +238,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       profileId: monerisProfileId,
       iframeUrl: monerisIframeUrl,
       iframeOrigin: monerisIframeOrigin,
+      callbackSecret: monerisCallbackSecret,
       encryptionKey: outlookEncryptionKey,
       tokenTtlMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES, 30),
     },

@@ -54,6 +54,7 @@ import type {
   UploadCisScanResponse,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
+import type { QueueJob } from '../../queue/contracts.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import { encryptSecret } from '../../utils/secrets.js';
@@ -107,6 +108,24 @@ type UploadLeadCisScanResult = {
   cisPackage: CisPackageDetail;
   document: CisDocumentRecord;
   parsedDraft: CisParsedDraftRecord;
+};
+
+export type MonerisHostedCaptureCallbackJobData = {
+  cisPackageId: string;
+  attemptId: string;
+  rawPayload: string;
+  contentType?: string;
+  receivedAt: string;
+  remoteAddress?: string;
+};
+
+type MonerisHostedCaptureResultContext = {
+  actorUserId?: string;
+  actorType: string;
+  sessionId?: string;
+  actorRole?: string;
+  sourceSystem: string;
+  operationBase: 'result' | 'callback_result';
 };
 
 type MutableCisFormSnapshot = {
@@ -1445,6 +1464,69 @@ export async function recordMonerisHostedCaptureResult(
   assertMonerisHostedTokenizationConfigured(config);
   await assertCisPaymentCaptureTrackingEnabled();
 
+  const result = await recordMonerisHostedCaptureResultInternal(
+    config,
+    cisPackageId,
+    attemptId,
+    input,
+    {
+      actorUserId: actor.userId,
+      actorType: actor.actorType,
+      sessionId: actor.sessionId,
+      actorRole: actor.role,
+      sourceSystem: 'pulse-api',
+      operationBase: 'result',
+    },
+    buildScopedCisPackageWhere(actor, cisPackageId),
+  );
+
+  return {
+    cisPackage: toCisPackageDetail(actor, result.cisPackage),
+    attempt: toCisPaymentCaptureAttemptRecord(result.attempt),
+  };
+}
+
+export async function processMonerisHostedCaptureCallbackJob(
+  config: AppConfig,
+  job: QueueJob<unknown>,
+) {
+  const payload = parseMonerisHostedCaptureCallbackJobData(job.payload.data);
+  await recordMonerisHostedCaptureResultInternal(
+    config,
+    payload.cisPackageId,
+    payload.attemptId,
+    {
+      rawProviderPayload: payload.rawPayload,
+      note: 'Processed from guarded Moneris callback ingress.',
+    },
+    {
+      actorType: 'service',
+      sourceSystem: 'moneris-webhook',
+      operationBase: 'callback_result',
+    },
+    {
+      id: payload.cisPackageId,
+    },
+  );
+
+  return {
+    ok: true,
+    cisPackageId: payload.cisPackageId,
+    attemptId: payload.attemptId,
+    processedAt: new Date().toISOString(),
+  };
+}
+
+async function recordMonerisHostedCaptureResultInternal(
+  config: AppConfig,
+  cisPackageId: string,
+  attemptId: string,
+  input: RecordMonerisHostedCaptureResultRequest,
+  context: MonerisHostedCaptureResultContext,
+  cisPackageWhere: Prisma.CisPackageWhereInput,
+) {
+  assertMonerisHostedTokenizationConfigured(config);
+
   const note = optionalTrimmed(input.note);
   const normalizedResult = normalizeMonerisHostedCaptureResult({
     responseCode: optionalTrimmed(input.responseCode),
@@ -1458,7 +1540,7 @@ export async function recordMonerisHostedCaptureResult(
   const temporaryToken = normalizedResult.temporaryToken;
   const providerBin = normalizedResult.bin;
   const rawProviderPayload = normalizedResult.rawProviderPayload
-    ? toBoundedJsonValue(input.rawProviderPayload, {
+    ? toBoundedJsonValue(normalizedResult.rawProviderPayload, {
         field: 'cis.paymentCapture.rawProviderPayload',
         maxBytes: JSON_SIZE_LIMITS.cisMetadataBytes,
       })
@@ -1468,7 +1550,7 @@ export async function recordMonerisHostedCaptureResult(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: cisPackageWhere,
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1510,7 +1592,7 @@ export async function recordMonerisHostedCaptureResult(
       where: { id: attempt.id },
       data: {
         status: reconciliation.targetStatus,
-        completedByUserId: actor.userId,
+        ...(context.actorUserId ? { completedByUserId: context.actorUserId } : {}),
         ...(note ? { resultNote: note } : {}),
         ...(responseCode ? { providerResultCode: responseCode } : {}),
         ...(errorMessage ? { providerErrorMessage: errorMessage } : {}),
@@ -1532,8 +1614,8 @@ export async function recordMonerisHostedCaptureResult(
           : succeeded
             ? 'payment_capture_token_received'
             : 'payment_capture_failed',
-        actorUserId: actor.userId,
-        actorType: actor.actorType,
+        ...(context.actorUserId ? { actorUserId: context.actorUserId } : {}),
+        actorType: context.actorType,
         note: note ?? null,
         metadata: toJsonValue({
           provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
@@ -1551,17 +1633,20 @@ export async function recordMonerisHostedCaptureResult(
 
     await tx.auditEntry.create({
       data: buildAuditEntryData({
-        actorUserId: actor.userId,
+        actorUserId: context.actorUserId,
         action: AuditAction.UPDATE,
         entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
         entityId: updatedAttempt.id,
+        sourceSystem: context.sourceSystem,
         metadata: {
-          sessionId: actor.sessionId,
-          actorRole: actor.role,
-          actorType: actor.actorType,
+          ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+          ...(context.actorRole ? { actorRole: context.actorRole } : {}),
+          actorType: context.actorType,
           leadId: existing.leadId,
           provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
-          operation: reconciliation.isReconciled ? 'cis.payment_capture.moneris.reconcile' : 'cis.payment_capture.moneris.result',
+          operation: reconciliation.isReconciled
+            ? `cis.payment_capture.moneris.${context.operationBase === 'callback_result' ? 'callback_reconcile' : 'reconcile'}`
+            : `cis.payment_capture.moneris.${context.operationBase}`,
         },
         beforeData: {
           status: attempt.status,
@@ -1591,10 +1676,7 @@ export async function recordMonerisHostedCaptureResult(
     throw new Error('Hosted capture attempt could not be loaded after result recording');
   }
 
-  return {
-    cisPackage: toCisPackageDetail(actor, cisPackage),
-    attempt: toCisPaymentCaptureAttemptRecord(attempt),
-  };
+  return { cisPackage, attempt };
 }
 
 type MonerisHostedCaptureReconciliation =
@@ -2899,6 +2981,30 @@ function findActiveMonerisHostedCaptureAttempt(cisPackage: CisPackageWithRelatio
       item.status === CisPaymentCaptureAttemptStatus.LAUNCHED
       || item.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED
     ));
+}
+
+function parseMonerisHostedCaptureCallbackJobData(value: unknown): MonerisHostedCaptureCallbackJobData {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid Moneris hosted capture callback payload');
+  }
+
+  const record = value as Record<string, unknown>;
+  const cisPackageId = optionalTrimmed(typeof record.cisPackageId === 'string' ? record.cisPackageId : undefined);
+  const attemptId = optionalTrimmed(typeof record.attemptId === 'string' ? record.attemptId : undefined);
+  const rawPayload = typeof record.rawPayload === 'string' ? record.rawPayload : '';
+
+  if (!cisPackageId || !attemptId) {
+    throw new Error('Moneris hosted capture callback payload is missing required identifiers');
+  }
+
+  return {
+    cisPackageId,
+    attemptId,
+    rawPayload,
+    ...(typeof record.contentType === 'string' ? { contentType: record.contentType } : {}),
+    ...(typeof record.receivedAt === 'string' ? { receivedAt: record.receivedAt } : { receivedAt: new Date().toISOString() }),
+    ...(typeof record.remoteAddress === 'string' ? { remoteAddress: record.remoteAddress } : {}),
+  };
 }
 
 function isIdempotentMonerisHostedCaptureReplay(

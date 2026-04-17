@@ -289,7 +289,7 @@ export interface RecordMonerisHostedCaptureResultRequest {
   temporaryToken?: string;
   bin?: string;
   note?: string;
-  rawProviderPayload?: Record<string, unknown>;
+  rawProviderPayload?: unknown;
 }
 
 export interface RecordMonerisHostedCaptureResultResponse {

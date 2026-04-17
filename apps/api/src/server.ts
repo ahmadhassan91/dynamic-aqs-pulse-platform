@@ -8,6 +8,7 @@ import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleCalendarRoutes } from './modules/calendar/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
+import { processMonerisHostedCaptureCallbackJob } from './modules/cis/service.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
 import { ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded } from './modules/leads/service.js';
@@ -18,7 +19,7 @@ import { handleTerritoryRoutes } from './modules/territories/http.js';
 import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
 import { handleTrainingRoutes } from './modules/training/http.js';
 import { ensureTrainingSeeded } from './modules/training/service.js';
-import { SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
+import { MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, SYSTEM_HEALTH_CHECK_QUEUE } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
 import type { QueueJobEnvelope, QueueManager } from './queue/contracts.js';
 import { createWorkerRuntime } from './worker/worker-runtime.js';
@@ -66,6 +67,9 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
     correlationId: job.payload.correlationId,
     processedAt: new Date().toISOString(),
   }));
+  workers.register(MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, async (job) => (
+    processMonerisHostedCaptureCallbackJob(config, job)
+  ));
 
   await prisma.$connect();
   await ensureReferenceDataSeeded();
@@ -210,7 +214,10 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
-  const cisRouteHandled = await handleCisRoutes(req, res, url, ctx.config);
+  const cisRouteHandled = await handleCisRoutes(req, res, url, {
+    config: ctx.config,
+    queue: ctx.queue,
+  });
   if (cisRouteHandled !== false) {
     return;
   }

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
@@ -17,6 +18,8 @@ import type {
   UploadCisScanRequest,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
+import type { QueueManager } from '../../queue/contracts.js';
+import { MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE } from '../../queue/definitions.js';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -24,6 +27,8 @@ import {
   methodNotAllowedResponse,
   notFoundResponse,
   readJsonBody,
+  readTextBody,
+  serviceUnavailableResponse,
   unauthorizedResponse,
 } from '../../utils/http.js';
 import {
@@ -52,7 +57,16 @@ import {
   uploadLeadCisScan,
 } from './service.js';
 
-export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config: AppConfig) {
+export async function handleCisRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  context: {
+    config: AppConfig;
+    queue: QueueManager;
+  },
+) {
+  const { config, queue } = context;
   const pathname = url.pathname;
   const method = req.method ?? 'GET';
 
@@ -63,9 +77,10 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
   const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
   const hostedCaptureResultMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-result$/);
   const hostedCaptureCancelMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-cancel$/);
+  const hostedCaptureCallbackMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-callback$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
 
-  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !hostedCaptureCancelMatch && !publicBaseMatch) {
+  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !hostedCaptureCancelMatch && !hostedCaptureCallbackMatch && !publicBaseMatch) {
     return false;
   }
 
@@ -366,6 +381,49 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
       const response = await cancelMonerisHostedPaymentCapture(actor, cisPackageId, attemptId, body);
       return jsonResponse(res, 200, response);
     }
+
+    if (hostedCaptureCallbackMatch) {
+      const cisPackageId = hostedCaptureCallbackMatch[1];
+      const attemptId = hostedCaptureCallbackMatch[2];
+      if (!cisPackageId || !attemptId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const configuredSecret = config.monerisHostedTokenization.callbackSecret;
+      if (!configuredSecret) {
+        return serviceUnavailableResponse(res, 'Moneris callback ingress is not configured for this environment');
+      }
+
+      const requestSecret = readHeader(req, 'x-pulse-callback-secret');
+      if (!secretsMatch(requestSecret, configuredSecret)) {
+        return unauthorizedResponse(res, 'Invalid Moneris callback secret');
+      }
+
+      const rawPayload = await readTextBody(req);
+      const receipt = await queue.enqueue(MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, {
+        jobType: MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE.name,
+        triggeredBy: 'moneris',
+        triggerSource: 'webhook',
+        correlationId: crypto.randomUUID(),
+        data: {
+          cisPackageId,
+          attemptId,
+          rawPayload,
+          contentType: readHeader(req, 'content-type'),
+          receivedAt: new Date().toISOString(),
+          remoteAddress: req.socket.remoteAddress,
+        },
+      });
+
+      return jsonResponse(res, 202, {
+        accepted: true,
+        job: receipt,
+      });
+    }
   } catch (error) {
     if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
@@ -385,4 +443,23 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
   }
 
   return false;
+}
+
+function readHeader(req: IncomingMessage, name: string) {
+  const raw = req.headers[name]?.toString().trim();
+  return raw ? raw : undefined;
+}
+
+function secretsMatch(left: string | undefined, right: string | undefined) {
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }

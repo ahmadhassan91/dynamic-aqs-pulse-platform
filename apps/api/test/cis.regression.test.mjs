@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyTestEnvironment, ensureTestDatabaseReady, resetDatabase } from './support/runtime.mjs';
@@ -8,6 +9,8 @@ ensureTestDatabaseReady();
 let prisma;
 let config;
 let loadAppConfig;
+let handleCisRoutes;
+let processMonerisHostedCaptureCallbackJob;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
@@ -63,7 +66,9 @@ test.before(async () => {
     startMonerisHostedPaymentCapture,
     cancelMonerisHostedPaymentCapture,
     recordMonerisHostedCaptureResult,
+    processMonerisHostedCaptureCallbackJob,
   } = await import('../dist/modules/cis/service.js'));
+  ({ handleCisRoutes } = await import('../dist/modules/cis/http.js'));
   ({ updatePaymentIntegrationAdminSettings } = await import('../dist/modules/cis/policy.js'));
 
   config = loadAppConfig(process.env);
@@ -81,6 +86,7 @@ test.beforeEach(async () => {
   delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_URL;
   delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN;
   delete process.env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET;
   await resetDatabase(prisma);
   config = loadAppConfig(process.env);
   await ensureReferenceDataSeeded();
@@ -212,6 +218,54 @@ async function createFinancePendingPackage(adminActor, salesActor, companyName, 
   assert.equal(detail.status, 'finance_pending');
 
   return fixture;
+}
+
+async function startRuntimeServer(runtime) {
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  const address = runtime.server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Expected runtime server to bind to a TCP port');
+  }
+  return address.port;
+}
+
+async function startCisRouteHarness(config, queue) {
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    const handled = await handleCisRoutes(req, res, url, { config, queue });
+    if (handled === false) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'NOT_FOUND' }));
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Expected CIS route harness to bind to a TCP port');
+  }
+
+  return {
+    port: address.port,
+    close: async () => {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve(undefined))));
+    },
+  };
+}
+
+async function waitFor(check, timeoutMs = 5_000, intervalMs = 100) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = await check();
+    if (result) {
+      return result;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`Condition did not become true within ${timeoutMs}ms`);
 }
 
 test('cis and finance regression suite', SERIAL, async () => {
@@ -754,6 +808,243 @@ test('finance can cancel an active Moneris hosted capture and then launch a repl
 
   assert.equal(replacement.attempt.status, 'launched');
   assert.notEqual(replacement.attempt.id, launched.attempt.id);
+});
+
+test('Moneris callback worker can reconcile a hosted capture result into CIS payment truth', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-callback-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-callback';
+  process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET = 'moneris-callback-secret';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-callback@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-callback@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Callback Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before callback worker reconciliation.',
+  });
+
+  await processMonerisHostedCaptureCallbackJob(config, {
+    id: 'job-moneris-callback',
+    type: 'cis.moneris-hosted-capture-callback',
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+    signal: new AbortController().signal,
+    payload: {
+      jobType: 'cis.moneris-hosted-capture-callback',
+      triggeredBy: 'moneris',
+      triggerSource: 'webhook',
+      correlationId: 'correlation-moneris-callback',
+      data: {
+        cisPackageId: fixture.cisPackageId,
+        attemptId: launched.attempt.id,
+        rawPayload: 'response_code=001&data_key=moneris-callback-token&bin_number=424242',
+        receivedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+  const attempt = detail.paymentCaptureAttempts.find((item) => item.id === launched.attempt.id);
+  assert.equal(attempt?.status, 'token_received');
+  assert.equal(attempt?.providerResultCode, '001');
+  assert.equal(attempt?.hasTemporaryToken, true);
+  assert.ok(detail.events.some((event) => event.eventType === 'payment_capture_token_received' && event.actorType === 'service'));
+});
+
+test('Moneris callback ingress rejects an invalid shared secret', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-callback-reject-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-callback-reject';
+  process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET = 'moneris-callback-secret-reject';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-callback-reject@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-callback-reject@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Callback Reject Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before callback secret rejection.',
+  });
+
+  const enqueued = [];
+  const harness = await startCisRouteHarness(config, {
+    register() {},
+    async start() {},
+    async stop() {},
+    async status() {
+      return {
+        ok: true,
+        state: 'running',
+        runtime: 'pg-boss',
+        schema: 'pgboss',
+        deadLetterQueue: 'pulse.dead-letter',
+        registeredQueues: 0,
+        registeredWorkers: 0,
+        queueStats: [],
+      };
+    },
+    async enqueue(definition, payload) {
+      enqueued.push({ definition, payload });
+      return {
+        id: 'queued-moneris-callback',
+        type: typeof definition === 'string' ? definition : definition.name,
+        tier: typeof definition === 'string' ? 'HIGH' : definition.tier,
+        correlationId: payload.correlationId,
+        enqueuedAt: new Date().toISOString(),
+      };
+    },
+  });
+
+  try {
+    const callbackResponse = await fetch(
+      `http://127.0.0.1:${harness.port}/api/v1/cis/${fixture.cisPackageId}/payment-capture-attempts/${launched.attempt.id}/moneris-callback`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-pulse-callback-secret': 'wrong-secret',
+        },
+        body: JSON.stringify({
+          response_code: '001',
+          data_key: 'should-not-be-recorded',
+        }),
+      },
+    );
+
+    assert.equal(callbackResponse.status, 401);
+    assert.equal(enqueued.length, 0);
+
+    const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+    const attempt = detail.paymentCaptureAttempts.find((item) => item.id === launched.attempt.id);
+    assert.equal(attempt?.status, 'launched');
+    assert.equal(attempt?.hasTemporaryToken, false);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('Moneris callback ingress accepts a valid shared secret and enqueues the callback payload', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-callback-accept-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-callback-accept';
+  process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET = 'moneris-callback-secret-accept';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-callback-accept@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-callback-accept@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Callback Accept Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before callback enqueue acceptance.',
+  });
+
+  const enqueued = [];
+  const harness = await startCisRouteHarness(config, {
+    register() {},
+    async start() {},
+    async stop() {},
+    async status() {
+      return {
+        ok: true,
+        state: 'running',
+        runtime: 'pg-boss',
+        schema: 'pgboss',
+        deadLetterQueue: 'pulse.dead-letter',
+        registeredQueues: 0,
+        registeredWorkers: 0,
+        queueStats: [],
+      };
+    },
+    async enqueue(definition, payload) {
+      enqueued.push({ definition, payload });
+      return {
+        id: 'queued-moneris-callback-accept',
+        type: typeof definition === 'string' ? definition : definition.name,
+        tier: typeof definition === 'string' ? 'HIGH' : definition.tier,
+        correlationId: payload.correlationId,
+        enqueuedAt: new Date().toISOString(),
+      };
+    },
+  });
+
+  try {
+    const callbackResponse = await fetch(
+      `http://127.0.0.1:${harness.port}/api/v1/cis/${fixture.cisPackageId}/payment-capture-attempts/${launched.attempt.id}/moneris-callback`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'x-pulse-callback-secret': 'moneris-callback-secret-accept',
+        },
+        body: 'response_code=001&data_key=callback-route-token&bin_number=555555',
+      },
+    );
+
+    assert.equal(callbackResponse.status, 202);
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0].payload.triggerSource, 'webhook');
+    assert.equal(enqueued[0].payload.data.cisPackageId, fixture.cisPackageId);
+    assert.equal(enqueued[0].payload.data.attemptId, launched.attempt.id);
+    assert.match(enqueued[0].payload.data.rawPayload, /callback-route-token/);
+  } finally {
+    await harness.close();
+  }
 });
 
 test('Moneris hosted capture launch is blocked when provider runtime is selected without Moneris config', SERIAL, async () => {

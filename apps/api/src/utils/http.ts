@@ -59,7 +59,7 @@ export function serviceUnavailableResponse(res: ServerResponse, detail: unknown,
   });
 }
 
-export async function readJsonBody(req: IncomingMessage, maxBytes = 1_000_000): Promise<unknown> {
+export async function readTextBody(req: IncomingMessage, maxBytes = 1_000_000): Promise<string> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
 
@@ -74,10 +74,15 @@ export async function readJsonBody(req: IncomingMessage, maxBytes = 1_000_000): 
   }
 
   if (chunks.length === 0) {
-    return {};
+    return '';
   }
 
   const raw = Buffer.concat(chunks).toString('utf8').trim();
+  return raw;
+}
+
+export async function readJsonBody(req: IncomingMessage, maxBytes = 1_000_000): Promise<unknown> {
+  const raw = await readTextBody(req, maxBytes);
   if (!raw) {
     return {};
   }

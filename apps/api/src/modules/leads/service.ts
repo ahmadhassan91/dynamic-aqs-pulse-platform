@@ -12,6 +12,7 @@ import {
   LeadRoutingBasis,
   LeadRoutingTeam,
   LeadStage,
+  GroupClassification,
   TerritoryAssignmentMethod,
   Prisma,
   prisma,
@@ -89,6 +90,13 @@ import { buildLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import {
+  deriveGroupClassification,
+  resolveAffinityGroupAxis,
+  resolveOwnershipGroupAxis,
+  toGroupAxisSelectionKey,
+  toGroupClassificationKey,
+} from '../reference/group-classification.js';
+import {
   tryAutoSyncCalendarEventToOutlook,
   tryAutoUnsyncCalendarEventFromOutlook,
 } from '../calendar/outlook.js';
@@ -131,6 +139,8 @@ const DEFAULT_WEBSITE_LEAD_SOURCE_CODE = 'branded_website';
 const LEAD_SUMMARY_INCLUDE = {
   businessSegment: true,
   leadSource: true,
+  affinityGroup: true,
+  ownershipGroup: true,
   territory: {
     include: {
       region: {
@@ -248,7 +258,13 @@ type NormalizedLeadInput = {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  affinityGroupSelection?: import('@pulse/contracts').GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
   affinityGroupName?: string;
+  ownershipGroupSelection?: import('@pulse/contracts').GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
   ownershipGroupName?: string;
   privateLabelName?: string;
   leadOwnerName?: string;
@@ -278,7 +294,13 @@ type LeadInputSource = {
   installTechCount?: unknown;
   truckCount?: unknown;
   salesPersonCount?: unknown;
+  affinityGroupSelection?: unknown;
+  affinityGroupId?: unknown;
+  affinityGroupCode?: unknown;
   affinityGroupName?: unknown;
+  ownershipGroupSelection?: unknown;
+  ownershipGroupId?: unknown;
+  ownershipGroupCode?: unknown;
   ownershipGroupName?: unknown;
   privateLabelName?: unknown;
   leadOwnerName?: unknown;
@@ -414,8 +436,8 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
       { contactDisplayName: { contains: search, mode: Prisma.QueryMode.insensitive } },
       { email: { contains: search, mode: Prisma.QueryMode.insensitive } },
       { phone: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      { affinityGroupName: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      { ownershipGroupName: { contains: search, mode: Prisma.QueryMode.insensitive } },
+      { affinityGroup: { is: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
+      { ownershipGroup: { is: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
     ];
   }
 
@@ -713,7 +735,7 @@ export async function resolveWebsiteLeadSubmission(
             sessionId: actor.sessionId,
             actorRole: actor.role,
             actorType: actor.actorType,
-            trigger: 'manual',
+            trigger: 'public_capture',
           },
           {
             sourceMetadata: buildWebsiteLeadSubmissionSourceMetadata(submission),
@@ -1392,14 +1414,8 @@ export async function createLead(actor: AuthenticatedActor, input: CreateLeadReq
     leadCaptureMethod: LeadCaptureMethod.MANUAL_ENTRY,
   });
 
-  const normalizedManualLead = {
-    ...normalized,
-    affinityGroupName: normalized.affinityGroupName ?? 'Independent',
-    ownershipGroupName: normalized.ownershipGroupName ?? 'Independent',
-  };
-
   const lead = await prisma.$transaction((tx) =>
-    createLeadRecord(tx, normalizedManualLead, {
+    createLeadRecord(tx, normalized, {
       actorUserId: actor.userId,
       sessionId: actor.sessionId,
       actorRole: actor.role,
@@ -1470,7 +1486,13 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
     ...(input.installTechCount !== undefined ? { installTechCount: input.installTechCount } : {}),
     ...(input.truckCount !== undefined ? { truckCount: input.truckCount } : {}),
     ...(input.salesPersonCount !== undefined ? { salesPersonCount: input.salesPersonCount } : {}),
+    ...(input.affinityGroupSelection !== undefined ? { affinityGroupSelection: input.affinityGroupSelection } : {}),
+    ...(input.affinityGroupId !== undefined ? { affinityGroupId: input.affinityGroupId } : {}),
+    ...(input.affinityGroupCode !== undefined ? { affinityGroupCode: input.affinityGroupCode } : {}),
     ...(input.affinityGroupName !== undefined ? { affinityGroupName: input.affinityGroupName } : {}),
+    ...(input.ownershipGroupSelection !== undefined ? { ownershipGroupSelection: input.ownershipGroupSelection } : {}),
+    ...(input.ownershipGroupId !== undefined ? { ownershipGroupId: input.ownershipGroupId } : {}),
+    ...(input.ownershipGroupCode !== undefined ? { ownershipGroupCode: input.ownershipGroupCode } : {}),
     ...(input.ownershipGroupName !== undefined ? { ownershipGroupName: input.ownershipGroupName } : {}),
     ...(input.privateLabelName !== undefined ? { privateLabelName: input.privateLabelName } : {}),
     ...(notes ? { notes } : {}),
@@ -2687,6 +2709,9 @@ async function createLeadRecord(
     resolveLeadDependencies(tx, input.businessSegmentCode, input.leadSourceCode),
     getRoutingPolicy(tx),
   ]);
+  const classification = await resolveLeadClassification(tx, input, {
+    requireExplicitSelection: context.trigger === 'manual',
+  });
 
   const routing = resolveRoutingDecision(input, policy);
   const now = new Date();
@@ -2715,8 +2740,11 @@ async function createLeadRecord(
       ...(input.installTechCount !== undefined ? { installTechCount: input.installTechCount } : {}),
       ...(input.truckCount !== undefined ? { truckCount: input.truckCount } : {}),
       ...(input.salesPersonCount !== undefined ? { salesPersonCount: input.salesPersonCount } : {}),
-      ...(input.affinityGroupName !== undefined ? { affinityGroupName: input.affinityGroupName } : {}),
-      ...(input.ownershipGroupName !== undefined ? { ownershipGroupName: input.ownershipGroupName } : {}),
+      affinityGroupSelection: classification.affinity.selection,
+      ownershipGroupSelection: classification.ownership.selection,
+      ...(classification.affinity.id ? { affinityGroupId: classification.affinity.id } : {}),
+      ...(classification.ownership.id ? { ownershipGroupId: classification.ownership.id } : {}),
+      ...(classification.groupClassification ? { groupClassification: classification.groupClassification } : {}),
       ...(input.privateLabelName !== undefined ? { privateLabelName: input.privateLabelName } : {}),
       routingBasisSnapshot: routing.routingBasis,
       routingThresholdSnapshot: routing.threshold,
@@ -2792,6 +2820,39 @@ async function createLeadRecord(
   });
 
   return hydratedLead;
+}
+
+async function resolveLeadClassification(
+  tx: Prisma.TransactionClient,
+  input: NormalizedLeadInput,
+  options: {
+    requireExplicitSelection: boolean;
+  },
+) {
+  const affinity = await resolveAffinityGroupAxis({
+    tx,
+    kind: 'affinity',
+    selection: input.affinityGroupSelection,
+    id: input.affinityGroupId,
+    code: input.affinityGroupCode,
+    name: input.affinityGroupName,
+    requireExplicitSelection: options.requireExplicitSelection,
+  });
+  const ownership = await resolveOwnershipGroupAxis({
+    tx,
+    kind: 'ownership',
+    selection: input.ownershipGroupSelection,
+    id: input.ownershipGroupId,
+    code: input.ownershipGroupCode,
+    name: input.ownershipGroupName,
+    requireExplicitSelection: options.requireExplicitSelection,
+  });
+
+  return {
+    affinity,
+    ownership,
+    groupClassification: deriveGroupClassification(affinity.selection, ownership.selection),
+  };
 }
 
 async function resolveLeadDependencies(
@@ -3258,7 +3319,13 @@ function normalizeLeadInput(
   const sourceBrandTag = optionalTrimmed(asString(input.sourceBrandTag));
   const sourceCampaign = optionalTrimmed(asString(input.sourceCampaign));
   const leadRating = optionalTrimmed(asString(input.leadRating));
+  const affinityGroupSelection = normalizeOptionalGroupAxisSelection(asString(input.affinityGroupSelection), 'affinityGroupSelection');
+  const affinityGroupId = optionalTrimmed(asString(input.affinityGroupId));
+  const affinityGroupCode = optionalTrimmed(asString(input.affinityGroupCode));
   const affinityGroupName = optionalTrimmed(asString(input.affinityGroupName));
+  const ownershipGroupSelection = normalizeOptionalGroupAxisSelection(asString(input.ownershipGroupSelection), 'ownershipGroupSelection');
+  const ownershipGroupId = optionalTrimmed(asString(input.ownershipGroupId));
+  const ownershipGroupCode = optionalTrimmed(asString(input.ownershipGroupCode));
   const ownershipGroupName = optionalTrimmed(asString(input.ownershipGroupName));
   const privateLabelName = optionalTrimmed(asString(input.privateLabelName));
   const leadOwnerName = optionalTrimmed(asString(input.leadOwnerName));
@@ -3298,7 +3365,13 @@ function normalizeLeadInput(
     ...(installTechCount !== undefined ? { installTechCount } : {}),
     ...(truckCount !== undefined ? { truckCount } : {}),
     ...(salesPersonCount !== undefined ? { salesPersonCount } : {}),
+    ...(affinityGroupSelection !== undefined ? { affinityGroupSelection } : {}),
+    ...(affinityGroupId !== undefined ? { affinityGroupId } : {}),
+    ...(affinityGroupCode !== undefined ? { affinityGroupCode } : {}),
     ...(affinityGroupName !== undefined ? { affinityGroupName } : {}),
+    ...(ownershipGroupSelection !== undefined ? { ownershipGroupSelection } : {}),
+    ...(ownershipGroupId !== undefined ? { ownershipGroupId } : {}),
+    ...(ownershipGroupCode !== undefined ? { ownershipGroupCode } : {}),
     ...(ownershipGroupName !== undefined ? { ownershipGroupName } : {}),
     ...(privateLabelName !== undefined ? { privateLabelName } : {}),
     ...(leadOwnerName !== undefined ? { leadOwnerName } : {}),
@@ -3415,6 +3488,15 @@ function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): We
 }
 
 function buildLeadInputFromWebsiteSubmission(submission: WebsiteLeadSubmissionWithRefs): LeadInputSource {
+  const affinityGroupSelection = normalizeOptionalGroupAxisSelection(
+    getJsonRecordString(submission.payload, 'affinityGroupSelection'),
+    'affinityGroupSelection',
+  );
+  const ownershipGroupSelection = normalizeOptionalGroupAxisSelection(
+    getJsonRecordString(submission.payload, 'ownershipGroupSelection'),
+    'ownershipGroupSelection',
+  );
+
   return {
     ...(submission.companyName ? { companyName: submission.companyName } : {}),
     ...(submission.contactFirstName ? { contactFirstName: submission.contactFirstName } : {}),
@@ -3435,6 +3517,14 @@ function buildLeadInputFromWebsiteSubmission(submission: WebsiteLeadSubmissionWi
     ...(submission.installTechCount !== null && submission.installTechCount !== undefined ? { installTechCount: submission.installTechCount } : {}),
     ...(submission.truckCount !== null && submission.truckCount !== undefined ? { truckCount: submission.truckCount } : {}),
     ...(submission.salesPersonCount !== null && submission.salesPersonCount !== undefined ? { salesPersonCount: submission.salesPersonCount } : {}),
+    ...(affinityGroupSelection !== undefined ? { affinityGroupSelection } : {}),
+    ...(getJsonRecordString(submission.payload, 'affinityGroupId') ? { affinityGroupId: getJsonRecordString(submission.payload, 'affinityGroupId') } : {}),
+    ...(getJsonRecordString(submission.payload, 'affinityGroupCode') ? { affinityGroupCode: getJsonRecordString(submission.payload, 'affinityGroupCode') } : {}),
+    ...(getJsonRecordString(submission.payload, 'affinityGroupName') ? { affinityGroupName: getJsonRecordString(submission.payload, 'affinityGroupName') } : {}),
+    ...(ownershipGroupSelection !== undefined ? { ownershipGroupSelection } : {}),
+    ...(getJsonRecordString(submission.payload, 'ownershipGroupId') ? { ownershipGroupId: getJsonRecordString(submission.payload, 'ownershipGroupId') } : {}),
+    ...(getJsonRecordString(submission.payload, 'ownershipGroupCode') ? { ownershipGroupCode: getJsonRecordString(submission.payload, 'ownershipGroupCode') } : {}),
+    ...(getJsonRecordString(submission.payload, 'ownershipGroupName') ? { ownershipGroupName: getJsonRecordString(submission.payload, 'ownershipGroupName') } : {}),
     ...(getJsonRecordString(submission.payload, 'campaign') ? { sourceCampaign: getJsonRecordString(submission.payload, 'campaign') } : {}),
   };
 }
@@ -4097,12 +4187,19 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(lead.installTechCount !== null && lead.installTechCount !== undefined ? { installTechCount: lead.installTechCount } : {}),
     ...(lead.truckCount !== null && lead.truckCount !== undefined ? { truckCount: lead.truckCount } : {}),
     ...(lead.salesPersonCount !== null && lead.salesPersonCount !== undefined ? { salesPersonCount: lead.salesPersonCount } : {}),
+    affinityGroupSelection: toGroupAxisSelectionKey(lead.affinityGroupSelection),
+    ...(lead.affinityGroupId ? { affinityGroupId: lead.affinityGroupId } : {}),
+    ...(lead.affinityGroup?.code ? { affinityGroupCode: lead.affinityGroup.code } : {}),
     lifecycleStatus: toLeadLifecycleStatusKey(lead.lifecycleStatus),
     ...(lifecycleChangedAt ? { lifecycleChangedAt } : {}),
     ...(lead.lifecycleReasonCode ? { lifecycleReasonCode: toLeadLifecycleReasonCodeKey(lead.lifecycleReasonCode) } : {}),
     ...(lead.lifecycleReasonNote ? { lifecycleReasonNote: lead.lifecycleReasonNote } : {}),
-    ...(lead.affinityGroupName ? { affinityGroupName: lead.affinityGroupName } : {}),
-    ...(lead.ownershipGroupName ? { ownershipGroupName: lead.ownershipGroupName } : {}),
+    ...(lead.affinityGroup?.name ? { affinityGroupName: lead.affinityGroup.name } : {}),
+    ownershipGroupSelection: toGroupAxisSelectionKey(lead.ownershipGroupSelection),
+    ...(lead.ownershipGroupId ? { ownershipGroupId: lead.ownershipGroupId } : {}),
+    ...(lead.ownershipGroup?.code ? { ownershipGroupCode: lead.ownershipGroup.code } : {}),
+    ...(lead.ownershipGroup?.name ? { ownershipGroupName: lead.ownershipGroup.name } : {}),
+    ...(lead.groupClassification ? { groupClassification: toGroupClassificationKey(lead.groupClassification) } : {}),
     ...(lead.privateLabelName ? { privateLabelName: lead.privateLabelName } : {}),
     ...(lead.leadOwnerName ? { leadOwnerName: lead.leadOwnerName } : {}),
     ...(lead.territoryId ? { territoryId: lead.territoryId } : {}),
@@ -4623,6 +4720,19 @@ function normalizeOptionalWebsiteCustomerStatus(value: unknown) {
     return normalized;
   }
   throw new Error('customerStatus must be new_customer or existing_customer');
+}
+
+function normalizeOptionalGroupAxisSelection(value: string | undefined, fieldName: string) {
+  const normalized = optionalTrimmed(value)?.toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized === 'unknown' || normalized === 'none' || normalized === 'group') {
+    return normalized;
+  }
+
+  throw new Error(`${fieldName} must be unknown, none, or group`);
 }
 
 function normalizeCode(value: string) {

@@ -128,6 +128,8 @@ import type {
   ResetPasswordResponse,
   ReassignAccountTerritoryRequest,
   ReassignLeadTerritoryRequest,
+  AffinityGroupReferenceSummary,
+  OwnershipGroupReferenceSummary,
   ReferenceValueSummary,
   ScheduleLeadDiscoveryRequest,
   SavePublicCisDraftRequest,
@@ -503,6 +505,20 @@ export async function fetchBusinessSegments(apiBaseUrl: string, accessToken: str
 
 export async function fetchLeadSources(apiBaseUrl: string, accessToken: string) {
   return requestJson<ReferenceListResponse<ReferenceValueSummary>>(apiBaseUrl, '/api/v1/reference/lead-sources', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAffinityGroups(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ReferenceListResponse<AffinityGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/affinity-groups', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchOwnershipGroups(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ReferenceListResponse<OwnershipGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/ownership-groups', {
     method: 'GET',
     accessToken,
   });

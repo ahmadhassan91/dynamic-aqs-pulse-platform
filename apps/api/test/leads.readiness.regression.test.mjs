@@ -47,6 +47,25 @@ test.before(async () => {
   const configModule = await import('../dist/config.js');
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead } = await import('../dist/modules/leads/service.js'));
+
+  createLead = ((rawCreateLead) => (actor, input, ...rest) => {
+    const hasExplicitClassification = input.affinityGroupSelection !== undefined
+      || input.affinityGroupId !== undefined
+      || input.affinityGroupCode !== undefined
+      || input.affinityGroupName !== undefined
+      || input.ownershipGroupSelection !== undefined
+      || input.ownershipGroupId !== undefined
+      || input.ownershipGroupCode !== undefined
+      || input.ownershipGroupName !== undefined;
+
+    return rawCreateLead(actor, hasExplicitClassification
+      ? input
+      : {
+          affinityGroupSelection: 'none',
+          ownershipGroupSelection: 'none',
+          ...input,
+        }, ...rest);
+  })(createLead);
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({
     getLeadReadiness,
@@ -162,8 +181,9 @@ async function createFinanceReviewedLead(actor, decision = 'approved') {
     phone: '555-000-1111',
     state: 'TX',
     serviceTechCount: 7,
-    affinityGroupName: 'AireServ',
-    ownershipGroupName: 'Franchise Group',
+    affinityGroupSelection: 'group',
+    affinityGroupCode: 'AIRESERV',
+    ownershipGroupSelection: 'none',
   });
 
   const issued = await issueCisLink(actor, lead.id, {

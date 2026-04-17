@@ -48,6 +48,25 @@ test.before(async () => {
     updateLeadLifecycle,
     updateLeadRoutingPolicy,
   } = await import('../dist/modules/leads/service.js'));
+
+  createLead = ((rawCreateLead) => (actor, input, ...rest) => {
+    const hasExplicitClassification = input.affinityGroupSelection !== undefined
+      || input.affinityGroupId !== undefined
+      || input.affinityGroupCode !== undefined
+      || input.affinityGroupName !== undefined
+      || input.ownershipGroupSelection !== undefined
+      || input.ownershipGroupId !== undefined
+      || input.ownershipGroupCode !== undefined
+      || input.ownershipGroupName !== undefined;
+
+    return rawCreateLead(actor, hasExplicitClassification
+      ? input
+      : {
+          affinityGroupSelection: 'none',
+          ownershipGroupSelection: 'none',
+          ...input,
+        }, ...rest);
+  })(createLead);
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
 

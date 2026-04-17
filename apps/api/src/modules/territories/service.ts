@@ -1749,6 +1749,13 @@ const TERRITORY_INCLUDE = {
 } satisfies Prisma.TerritoryInclude;
 
 const LEAD_TERRITORY_INCLUDE = {
+  affinityGroup: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+    },
+  },
   territory: {
     include: {
       region: {
@@ -2589,7 +2596,7 @@ function toTerritoryMapLeadPin(
     ...(lead.shippingCenterId ? { shippingCenterId: lead.shippingCenterId } : {}),
     ...(lead.shippingCenter?.code ? { shippingCenterCode: lead.shippingCenter.code } : {}),
     ...(lead.shippingCenter?.name ? { shippingCenterName: lead.shippingCenter.name } : {}),
-    ...(lead.affinityGroupName ? { affinityGroupName: lead.affinityGroupName } : {}),
+    ...(lead.affinityGroup?.name ? { affinityGroupName: lead.affinityGroup.name } : {}),
     lifecycleStatus: normalizeLeadLifecycleStatusKey(lead.lifecycleStatus),
     stage: normalizeLeadStageKey(lead.stage),
     ...(lead.sourceDetail ? { sourceLabel: lead.sourceDetail } : {}),

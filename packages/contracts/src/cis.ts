@@ -1,3 +1,5 @@
+import type { GroupAxisSelectionKey } from './leads.js';
+
 export const CIS_PACKAGE_STATUSES = [
   'not_sent',
   'link_sent',
@@ -113,6 +115,14 @@ export interface CisFormDraftInput {
   numOfTechs?: number;
   numOfInstallTechs?: number;
   numOfSalespeopleAdvisors?: number;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
+  affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
+  ownershipGroupName?: string;
   affinityGroupOrFranchise?: string;
   isPrivateEquity?: boolean;
   parentCompanyName?: string;

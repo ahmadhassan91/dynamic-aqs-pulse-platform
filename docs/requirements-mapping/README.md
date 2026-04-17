@@ -22,6 +22,8 @@ Supporting hardening plan:
 - [Module Hardening Plan To 90 Percent](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/MODULE_HARDENING_PLAN_TO_90_PERCENT_2026-04-16.md)
 - [Dynamic Team Decision Agenda And Log](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/DYNAMIC_TEAM_DECISION_AGENDA_AND_LOG_2026-04-16.md)
 - [Can Do Now Vs Dynamic Decision Tracker](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/CAN_DO_NOW_VS_DYNAMIC_DECISION_TRACKER_2026-04-16.md)
+- [Affinity / Ownership / Independent Discovery And Ingest Plan](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/AFFINITY_OWNERSHIP_INDEPENDENT_DISCOVERY_AND_INGEST_PLAN_2026-04-18.md)
+- [Account Group Classification Kernel Implementation](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/ACCOUNT_GROUP_CLASSIFICATION_KERNEL_2026-04-18.md)
 
 Prior checkpoint maps retained for reference:
 - [Users, Roles, Permissions 2026-04-15](/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/requirements-mapping/USERS_ROLES_PERMISSIONS_REQUIREMENTS_MAP_2026-04-15.md)

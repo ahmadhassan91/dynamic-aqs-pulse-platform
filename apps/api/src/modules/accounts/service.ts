@@ -24,12 +24,48 @@ import type { CisPaymentVaultProviderKey } from '@pulse/contracts/cis';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAccountRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import {
+  deriveGroupClassification,
+  resolveAffinityGroupAxis,
+  resolveOwnershipGroupAxis,
+  toGroupAxisSelectionKey,
+  toGroupClassificationKey,
+} from '../reference/group-classification.js';
 import { syncAccountTerritoryAssignment } from '../territories/service.js';
 
 const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
 const LOCATION_ENTITY_TYPE = 'ACCOUNT_LOCATION';
 const CONTACT_ENTITY_TYPE = 'CONTACT';
 const ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE = 'ACCOUNT_PAYMENT_METHOD';
+
+const ACCOUNT_SUMMARY_INCLUDE = {
+  affinityGroup: true,
+  ownershipGroup: true,
+  territory: {
+    include: {
+      region: true,
+    },
+  },
+  shippingCenter: true,
+  assignedTmUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+  assignedRdUser: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+  _count: {
+    select: {
+      contacts: true,
+      locations: true,
+    },
+  },
+} satisfies Prisma.AccountInclude;
 
 export async function listAccounts(actor: AuthenticatedActor, query: ListAccountsRequest = {}): Promise<ListAccountsResponse> {
   assertModuleAccess(actor.role, 'customers');
@@ -64,32 +100,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
         { createdAt: 'asc' },
       ],
       take: limit,
-      include: {
-        territory: {
-          include: {
-            region: true,
-          },
-        },
-        shippingCenter: true,
-        assignedTmUser: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-        assignedRdUser: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-        _count: {
-          select: {
-            contacts: true,
-            locations: true,
-          },
-        },
-      },
+      include: ACCOUNT_SUMMARY_INCLUDE,
     }),
     prisma.account.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
   ]);
@@ -119,11 +130,17 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
   const lifecycleStatus = isActive ? AccountLifecycleStatus.ACTIVE : AccountLifecycleStatus.INACTIVE;
 
   const account = await prisma.$transaction(async (tx) => {
+    const classification = await resolveAccountClassificationInput(tx, input);
     const created = await tx.account.create({
       data: {
         displayName,
         ...(legalName !== undefined ? { legalName } : {}),
         ...(accountType !== undefined ? { accountType } : {}),
+        affinityGroupSelection: classification.affinity.selection,
+        ownershipGroupSelection: classification.ownership.selection,
+        ...(classification.affinity.id ? { affinityGroupId: classification.affinity.id } : {}),
+        ...(classification.ownership.id ? { ownershipGroupId: classification.ownership.id } : {}),
+        ...(classification.groupClassification ? { groupClassification: classification.groupClassification } : {}),
         lifecycleStatus,
         lifecycleStatusChangedAt: new Date(),
         isActive,
@@ -172,32 +189,7 @@ export async function updateAccount(
 
   const account = await prisma.account.findUnique({
     where: { id: accountId },
-    include: {
-      territory: {
-        include: {
-          region: true,
-        },
-      },
-      shippingCenter: true,
-      assignedTmUser: {
-        select: {
-          id: true,
-          displayName: true,
-        },
-      },
-      assignedRdUser: {
-        select: {
-          id: true,
-          displayName: true,
-        },
-      },
-      _count: {
-        select: {
-          contacts: true,
-          locations: true,
-        },
-      },
-    },
+    include: ACCOUNT_SUMMARY_INCLUDE,
   });
 
   if (!account) {
@@ -226,6 +218,28 @@ export async function updateAccount(
     data.isActive = input.isActive;
   }
 
+  const classification = await resolveAccountClassificationInput(prisma, input);
+  if (input.affinityGroupSelection !== undefined || input.affinityGroupId !== undefined || input.affinityGroupCode !== undefined || input.affinityGroupName !== undefined) {
+    data.affinityGroupSelection = classification.affinity.selection;
+    data.affinityGroup = classification.affinity.id ? { connect: { id: classification.affinity.id } } : { disconnect: true };
+  }
+  if (input.ownershipGroupSelection !== undefined || input.ownershipGroupId !== undefined || input.ownershipGroupCode !== undefined || input.ownershipGroupName !== undefined) {
+    data.ownershipGroupSelection = classification.ownership.selection;
+    data.ownershipGroup = classification.ownership.id ? { connect: { id: classification.ownership.id } } : { disconnect: true };
+  }
+  if (
+    input.affinityGroupSelection !== undefined
+    || input.affinityGroupId !== undefined
+    || input.affinityGroupCode !== undefined
+    || input.affinityGroupName !== undefined
+    || input.ownershipGroupSelection !== undefined
+    || input.ownershipGroupId !== undefined
+    || input.ownershipGroupCode !== undefined
+    || input.ownershipGroupName !== undefined
+  ) {
+    data.groupClassification = classification.groupClassification;
+  }
+
   if (Object.keys(data).length === 0) {
     return toAccountSummary(account);
   }
@@ -234,32 +248,7 @@ export async function updateAccount(
     const next = await tx.account.update({
       where: { id: accountId },
       data,
-      include: {
-        territory: {
-          include: {
-            region: true,
-          },
-        },
-        shippingCenter: true,
-        assignedTmUser: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-        assignedRdUser: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-        _count: {
-          select: {
-            contacts: true,
-            locations: true,
-          },
-        },
-      },
+      include: ACCOUNT_SUMMARY_INCLUDE,
     });
 
     await tx.auditEntry.create({
@@ -426,6 +415,8 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
   const account = await prisma.account.findFirst({
     where: scopeWhere ? { AND: [scopeWhere, { id: accountId }] } : { id: accountId },
     include: {
+      affinityGroup: true,
+      ownershipGroup: true,
       territory: {
         include: {
           region: true,
@@ -1492,6 +1483,11 @@ function toAccountSummary(account: {
   displayName: string;
   legalName: string | null;
   accountType: string | null;
+  affinityGroupSelection: import('@pulse/db').GroupAxisSelection;
+  affinityGroupId?: string | null;
+  ownershipGroupSelection: import('@pulse/db').GroupAxisSelection;
+  ownershipGroupId?: string | null;
+  groupClassification?: import('@pulse/db').GroupClassification | null;
   territoryId?: string | null;
   territoryAssignmentMethod?: TerritoryAssignmentMethod | null;
   territoryAssignedAt?: Date | null;
@@ -1529,6 +1525,16 @@ function toAccountSummary(account: {
     id: string;
     displayName: string;
   } | null;
+  affinityGroup?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  ownershipGroup?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
   _count: {
     contacts: number;
     locations: number;
@@ -1537,6 +1543,8 @@ function toAccountSummary(account: {
   const summary: AccountSummary = {
     id: account.id,
     displayName: account.displayName,
+    affinityGroupSelection: toGroupAxisSelectionKey(account.affinityGroupSelection),
+    ownershipGroupSelection: toGroupAxisSelectionKey(account.ownershipGroupSelection),
     lifecycleStatus: toAccountLifecycleStatusKey(account.lifecycleStatus),
     isActive: account.isActive,
     contactCount: account._count.contacts,
@@ -1556,6 +1564,23 @@ function toAccountSummary(account: {
   }
   if (account.accountType) {
     summary.accountType = account.accountType;
+  }
+  if (account.affinityGroup?.id) {
+    summary.affinityGroupId = account.affinityGroup.id;
+    summary.affinityGroupCode = account.affinityGroup.code;
+    summary.affinityGroupName = account.affinityGroup.name;
+  } else if (account.affinityGroupId) {
+    summary.affinityGroupId = account.affinityGroupId;
+  }
+  if (account.ownershipGroup?.id) {
+    summary.ownershipGroupId = account.ownershipGroup.id;
+    summary.ownershipGroupCode = account.ownershipGroup.code;
+    summary.ownershipGroupName = account.ownershipGroup.name;
+  } else if (account.ownershipGroupId) {
+    summary.ownershipGroupId = account.ownershipGroupId;
+  }
+  if (account.groupClassification) {
+    summary.groupClassification = toGroupClassificationKey(account.groupClassification);
   }
   if (account.territory?.id) {
     summary.territoryId = account.territory.id;
@@ -1740,6 +1765,45 @@ function toAccountLocationSummary(location: {
     ...(location.state ? { state: location.state } : {}),
     ...(location.postalCode ? { postalCode: location.postalCode } : {}),
     ...(location.countryCode ? { countryCode: location.countryCode } : {}),
+  };
+}
+
+async function resolveAccountClassificationInput(
+  tx: Prisma.TransactionClient,
+  input: {
+    affinityGroupSelection?: string;
+    affinityGroupId?: string | null;
+    affinityGroupCode?: string;
+    affinityGroupName?: string;
+    ownershipGroupSelection?: string;
+    ownershipGroupId?: string | null;
+    ownershipGroupCode?: string;
+    ownershipGroupName?: string;
+  },
+) {
+  const affinity = await resolveAffinityGroupAxis({
+    tx,
+    kind: 'affinity',
+    selection: input.affinityGroupSelection as import('@pulse/contracts').GroupAxisSelectionKey | undefined,
+    id: input.affinityGroupId ?? undefined,
+    code: input.affinityGroupCode,
+    name: input.affinityGroupName,
+    requireExplicitSelection: false,
+  });
+  const ownership = await resolveOwnershipGroupAxis({
+    tx,
+    kind: 'ownership',
+    selection: input.ownershipGroupSelection as import('@pulse/contracts').GroupAxisSelectionKey | undefined,
+    id: input.ownershipGroupId ?? undefined,
+    code: input.ownershipGroupCode,
+    name: input.ownershipGroupName,
+    requireExplicitSelection: false,
+  });
+
+  return {
+    affinity,
+    ownership,
+    groupClassification: deriveGroupClassification(affinity.selection, ownership.selection),
   };
 }
 

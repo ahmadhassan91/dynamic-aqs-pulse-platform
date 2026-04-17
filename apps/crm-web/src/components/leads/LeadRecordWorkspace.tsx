@@ -631,8 +631,9 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <DetailItem label="Capture Method" value={formatCaptureMethod(lead.leadCaptureMethod)} />
                   </Grid.Col>
                   <Grid.Col span={{ base: 12, md: 6 }}>
-                    <DetailItem label="Affinity Group" value={lead.affinityGroupName ?? 'Independent'} />
-                    <DetailItem label="Ownership Group" value={lead.ownershipGroupName ?? 'Independent'} />
+                    <DetailItem label="Affinity Group" value={formatGroupAxisLabel(lead.affinityGroupSelection, lead.affinityGroupName)} />
+                    <DetailItem label="Ownership Group" value={formatGroupAxisLabel(lead.ownershipGroupSelection, lead.ownershipGroupName)} />
+                    <DetailItem label="Group Classification" value={formatGroupClassificationLabel(lead.groupClassification)} />
                     <DetailItem label="Private Label" value={lead.privateLabelName ?? 'Dynamic AQS'} />
                     <DetailItem label="Source Site" value={lead.sourceSiteName ?? lead.sourceSiteId ?? 'N/A'} />
                     <DetailItem label="Brand Tag" value={lead.sourceBrandTag ?? 'N/A'} />
@@ -1016,7 +1017,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <ReadinessRow label="Fast-Track Reason" ready={lead.discoveryCallSkipped ? Boolean(lead.discoveryFastTrackReason) : true} />
                     <DetailCompact label="Routing Team" value={formatRoutingTeam(lead.routingTeam)} />
                     <DetailCompact label="Service Tech Count" value={String(lead.serviceTechCount)} />
-                    <DetailCompact label="Affinity" value={lead.affinityGroupName ?? 'Independent'} />
+                    <DetailCompact label="Affinity" value={formatGroupAxisLabel(lead.affinityGroupSelection, lead.affinityGroupName)} />
                     <DetailCompact label="State" value={lead.state ?? 'N/A'} />
                     <Alert color="blue" variant="light" mt="sm">
                       <Text size="xs">
@@ -1163,6 +1164,36 @@ function formatCaptureMethod(value: LeadDetail['leadCaptureMethod']) {
     case 'manual_entry':
     default:
       return 'Manual Entry';
+  }
+}
+
+function formatGroupAxisLabel(
+  selection: LeadDetail['affinityGroupSelection'] | LeadDetail['ownershipGroupSelection'],
+  groupName?: string,
+) {
+  switch (selection) {
+    case 'group':
+      return groupName ?? 'Governed group';
+    case 'none':
+      return 'Independent / No group';
+    case 'unknown':
+    default:
+      return 'Unknown / Not assessed';
+  }
+}
+
+function formatGroupClassificationLabel(classification?: LeadDetail['groupClassification']) {
+  switch (classification) {
+    case 'independent':
+      return 'Independent';
+    case 'affinity_only':
+      return 'Affinity only';
+    case 'ownership_only':
+      return 'Ownership only';
+    case 'hybrid':
+      return 'Hybrid';
+    default:
+      return 'Pending classification';
   }
 }
 

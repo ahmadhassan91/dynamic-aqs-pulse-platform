@@ -55,6 +55,23 @@ export const LEAD_CAPTURE_METHODS = [
 
 export type LeadCaptureMethodKey = (typeof LEAD_CAPTURE_METHODS)[number];
 
+export const GROUP_AXIS_SELECTIONS = [
+  'unknown',
+  'none',
+  'group',
+] as const;
+
+export type GroupAxisSelectionKey = (typeof GROUP_AXIS_SELECTIONS)[number];
+
+export const GROUP_CLASSIFICATIONS = [
+  'independent',
+  'affinity_only',
+  'ownership_only',
+  'hybrid',
+] as const;
+
+export type GroupClassificationKey = (typeof GROUP_CLASSIFICATIONS)[number];
+
 export const WEBSITE_LEAD_FORM_TYPES = [
   'homeowner',
   'contractor',
@@ -274,12 +291,19 @@ export interface LeadSummary {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  affinityGroupSelection: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
   lifecycleStatus: LeadLifecycleStatusKey;
   lifecycleChangedAt?: string;
   lifecycleReasonCode?: LeadLifecycleReasonCodeKey;
   lifecycleReasonNote?: string;
   affinityGroupName?: string;
+  ownershipGroupSelection: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
   ownershipGroupName?: string;
+  groupClassification?: GroupClassificationKey;
   privateLabelName?: string;
   stage: LeadStageKey;
   routingBasis: LeadRoutingBasisKey;
@@ -766,7 +790,13 @@ export interface CreateLeadRequest {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
   affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
   ownershipGroupName?: string;
   privateLabelName?: string;
   leadOwnerName?: string;
@@ -799,11 +829,17 @@ export interface CaptureWebsiteLeadRequest {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
   inquiryTopic?: string;
   referralSource?: string;
   referralDetail?: string;
   message?: string;
   affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
   ownershipGroupName?: string;
   privateLabelName?: string;
   notes?: string;
@@ -824,7 +860,11 @@ export interface ImportLeadRowInput {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupCode?: string;
   affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupCode?: string;
   ownershipGroupName?: string;
   privateLabelName?: string;
   notes?: string;

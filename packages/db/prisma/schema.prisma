@@ -29,6 +29,34 @@ enum ClassificationExceptionStatus {
   DISMISSED
 }
 
+enum GroupAxisSelection {
+  UNKNOWN
+  NONE
+  GROUP
+}
+
+enum GroupClassification {
+  INDEPENDENT
+  AFFINITY_ONLY
+  OWNERSHIP_ONLY
+  HYBRID
+}
+
+enum AffinityGroupType {
+  BUYING_GROUP
+  COACHING_NETWORK
+  FRANCHISE
+  COMMUNITY
+  OTHER
+}
+
+enum OwnershipGroupType {
+  PRIVATE_EQUITY
+  COMMON_OWNER
+  FRANCHISE_SYSTEM
+  OTHER
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -1019,6 +1047,50 @@ model BusinessSegmentRef {
   @@index([sortOrder])
 }
 
+model AffinityGroupRef {
+  id          String            @id @default(uuid()) @db.Uuid
+  code        String            @unique
+  name        String
+  shortName   String?
+  description String?
+  groupType   AffinityGroupType
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  leads       Lead[]
+  accounts    Account[]
+  cisFormData CisFormData[]
+
+  @@index([isActive])
+  @@index([groupType])
+  @@index([sortOrder])
+}
+
+model OwnershipGroupRef {
+  id            String             @id @default(uuid()) @db.Uuid
+  code          String             @unique
+  name          String
+  shortName     String?
+  description   String?
+  ownershipType OwnershipGroupType
+  isActive      Boolean            @default(true)
+  sortOrder     Int                @default(0)
+  notes         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  leads         Lead[]
+  accounts      Account[]
+  cisFormData   CisFormData[]
+
+  @@index([isActive])
+  @@index([ownershipType])
+  @@index([sortOrder])
+}
+
 model LeadSourceRef {
   id               String    @id @default(uuid()) @db.Uuid
   code             String    @unique
@@ -1148,8 +1220,11 @@ model Lead {
   installTechCount         Int?
   truckCount               Int?
   salesPersonCount         Int?
-  affinityGroupName        String?
-  ownershipGroupName       String?
+  affinityGroupSelection   GroupAxisSelection @default(UNKNOWN)
+  affinityGroupId          String?           @db.Uuid
+  ownershipGroupSelection  GroupAxisSelection @default(UNKNOWN)
+  ownershipGroupId         String?           @db.Uuid
+  groupClassification      GroupClassification?
   privateLabelName         String?
   routingBasisSnapshot     LeadRoutingBasis
   routingThresholdSnapshot Int
@@ -1191,6 +1266,8 @@ model Lead {
 
   businessSegment          BusinessSegmentRef @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
   leadSource               LeadSourceRef      @relation(fields: [leadSourceId], references: [id], onDelete: Restrict)
+  affinityGroup            AffinityGroupRef?  @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup           OwnershipGroupRef? @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
   territory                Territory?         @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   shippingCenter           ShippingCenter?    @relation("LeadShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
   assignedTmUser           User?              @relation("LeadAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
@@ -1207,6 +1284,9 @@ model Lead {
 
   @@index([businessSegmentId])
   @@index([leadSourceId])
+  @@index([affinityGroupId])
+  @@index([ownershipGroupId])
+  @@index([groupClassification])
   @@index([stage])
   @@index([lifecycleStatus])
   @@index([routingTeam])
@@ -1545,8 +1625,12 @@ model CisFormData {
   numOfInstallTechs          Int?
   numOfSalespeopleAdvisors   Int?
   affinityGroupOrFranchise   String?
-  isPrivateEquity            Boolean           @default(false)
+  isPrivateEquity            Boolean            @default(false)
   parentCompanyName          String?
+  affinityGroupSelection     GroupAxisSelection @default(UNKNOWN)
+  affinityGroupId            String?            @db.Uuid
+  ownershipGroupSelection    GroupAxisSelection @default(UNKNOWN)
+  ownershipGroupId           String?            @db.Uuid
   primaryContactName         String?
   primaryContactTitle        String?
   primaryContactEmail        String?
@@ -1587,7 +1671,11 @@ model CisFormData {
   updatedAt                 DateTime          @updatedAt
 
   cisPackage                CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  affinityGroup             AffinityGroupRef?  @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup            OwnershipGroupRef? @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
 
+  @@index([affinityGroupId])
+  @@index([ownershipGroupId])
   @@index([paymentMethod])
   @@index([submittedByProspectAt])
 }
@@ -1739,6 +1827,11 @@ model Account {
   accountType                String?
   businessSegmentId          String?                 @db.Uuid
   businessSegmentSource      SegmentAssignmentSource?
+  affinityGroupSelection     GroupAxisSelection      @default(UNKNOWN)
+  affinityGroupId            String?                 @db.Uuid
+  ownershipGroupSelection    GroupAxisSelection      @default(UNKNOWN)
+  ownershipGroupId           String?                 @db.Uuid
+  groupClassification        GroupClassification?
   isMixedBusinessAccount     Boolean                 @default(false)
   classificationDriftFlag     Boolean                 @default(false)
   financeAuthorityMode       String?
@@ -1758,6 +1851,8 @@ model Account {
   updatedAt                  DateTime                @updatedAt
 
   businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  affinityGroup             AffinityGroupRef?       @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup            OwnershipGroupRef?      @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
   sourceLead                 Lead?                   @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
   territory                  Territory?              @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   shippingCenter             ShippingCenter?         @relation("AccountShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
@@ -1778,6 +1873,9 @@ model Account {
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
+  @@index([affinityGroupId])
+  @@index([ownershipGroupId])
+  @@index([groupClassification])
   @@index([territoryId])
   @@index([shippingCenterId])
   @@index([assignedTmUserId])

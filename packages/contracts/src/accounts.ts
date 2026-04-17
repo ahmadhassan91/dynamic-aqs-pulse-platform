@@ -1,4 +1,5 @@
 import type { CisPaymentVaultProviderKey } from './cis.js';
+import type { GroupAxisSelectionKey, GroupClassificationKey } from './leads.js';
 import type { TerritoryAssignmentMethodKey } from './territories.js';
 
 export const ACCOUNT_LIFECYCLE_STATUSES = [
@@ -17,6 +18,15 @@ export interface AccountSummary {
   displayName: string;
   legalName?: string;
   accountType?: string;
+  affinityGroupSelection: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
+  affinityGroupName?: string;
+  ownershipGroupSelection: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
+  ownershipGroupName?: string;
+  groupClassification?: GroupClassificationKey;
   territoryId?: string;
   territoryCode?: string;
   territoryName?: string;
@@ -118,6 +128,14 @@ export interface CreateAccountRequest {
   displayName: string;
   legalName?: string;
   accountType?: string;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupId?: string;
+  affinityGroupCode?: string;
+  affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupId?: string;
+  ownershipGroupCode?: string;
+  ownershipGroupName?: string;
   isActive?: boolean;
 }
 
@@ -125,6 +143,14 @@ export interface UpdateAccountRequest {
   displayName?: string;
   legalName?: string | null;
   accountType?: string | null;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupId?: string | null;
+  affinityGroupCode?: string;
+  affinityGroupName?: string;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupId?: string | null;
+  ownershipGroupCode?: string;
+  ownershipGroupName?: string;
   isActive?: boolean;
 }
 

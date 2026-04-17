@@ -24,11 +24,13 @@ import {
 } from '../auth/request.js';
 import {
   createLeadSource,
+  listAffinityGroups,
   importLeadSources,
   importLeadStages,
   listBusinessSegments,
   listLeadStages,
   listLeadSources,
+  listOwnershipGroups,
   updateBusinessSegment,
   updateLeadStage,
   updateLeadSource,
@@ -39,9 +41,11 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
   const method = req.method ?? 'GET';
   const isReferenceRoute =
     pathname === '/api/v1/reference/business-segments'
+    || pathname === '/api/v1/reference/affinity-groups'
     || pathname === '/api/v1/reference/lead-stages'
     || pathname === '/api/v1/reference/lead-stages/import'
     || pathname === '/api/v1/reference/lead-sources'
+    || pathname === '/api/v1/reference/ownership-groups'
     || pathname === '/api/v1/reference/lead-sources/import'
     || /^\/api\/v1\/reference\/business-segments\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/reference\/lead-stages\/[^/]+$/.test(pathname)
@@ -61,6 +65,18 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
         action: 'reference.view',
       });
       const response = await listBusinessSegments(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/reference/affinity-groups') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.view',
+      });
+      const response = await listAffinityGroups(actor);
       return jsonResponse(res, 200, response);
     }
 
@@ -107,6 +123,18 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
         action: 'reference.view',
       });
       const response = await listLeadStages(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/reference/ownership-groups') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.view',
+      });
+      const response = await listOwnershipGroups(actor);
       return jsonResponse(res, 200, response);
     }
 

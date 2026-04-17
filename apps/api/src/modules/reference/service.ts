@@ -1,10 +1,14 @@
 import { assertActionAccess } from '@pulse/auth';
 import { AuditAction, LeadStage, prisma } from '@pulse/db';
 import type {
+  AffinityGroupReferenceSummary,
+  AffinityGroupTypeKey,
   CreateLeadSourceRequest,
   LeadSourceImportRow,
   LeadStageReferenceSummary,
   LeadStageImportRow,
+  OwnershipGroupReferenceSummary,
+  OwnershipGroupTypeKey,
   ReferenceImportRequest,
   ReferenceImportResponse,
   ReferenceListResponse,
@@ -38,6 +42,82 @@ const DEFAULT_LEAD_SOURCES = [
   { code: 'ownership_roster', name: 'Ownership / PE Roster', description: 'Lead sourced from ownership or private-equity roster data.', sortOrder: 70 },
   { code: 'manual_entry', name: 'Manual Entry', description: 'Lead created manually by BD or admin staff.', sortOrder: 80 },
 ] as const;
+
+const DEFAULT_AFFINITY_GROUPS = [
+  {
+    code: 'NEXSTAR',
+    name: 'Nexstar Network',
+    shortName: 'Nexstar',
+    description: 'Buying group and best-practice network membership.',
+    groupType: 'buying_group',
+    sortOrder: 10,
+  },
+  {
+    code: 'CERTAINPATH',
+    name: 'CertainPath',
+    shortName: 'CertainPath',
+    description: 'Coaching and business-development network.',
+    groupType: 'coaching_network',
+    sortOrder: 20,
+  },
+  {
+    code: 'EGIA',
+    name: 'EGIA',
+    shortName: 'EGIA',
+    description: 'Industry education and coaching network.',
+    groupType: 'coaching_network',
+    sortOrder: 30,
+  },
+  {
+    code: 'AIRESERV',
+    name: 'AireServ',
+    shortName: 'AireServ',
+    description: 'Franchise network membership.',
+    groupType: 'franchise',
+    sortOrder: 40,
+  },
+  {
+    code: 'ONE_HOUR',
+    name: 'One Hour Heating & Air Conditioning',
+    shortName: 'One Hour',
+    description: 'Franchise network membership.',
+    groupType: 'franchise',
+    sortOrder: 50,
+  },
+] as const satisfies ReadonlyArray<{
+  code: string;
+  name: string;
+  shortName: string;
+  description: string;
+  groupType: AffinityGroupTypeKey;
+  sortOrder: number;
+}>;
+
+const DEFAULT_OWNERSHIP_GROUPS = [
+  {
+    code: 'REDWOOD_SERVICES',
+    name: 'Redwood Services',
+    shortName: 'Redwood',
+    description: 'Private equity / common ownership overlay.',
+    ownershipType: 'private_equity',
+    sortOrder: 10,
+  },
+  {
+    code: 'APOLLO',
+    name: 'Apollo',
+    shortName: 'Apollo',
+    description: 'Private equity ownership overlay.',
+    ownershipType: 'private_equity',
+    sortOrder: 20,
+  },
+] as const satisfies ReadonlyArray<{
+  code: string;
+  name: string;
+  shortName: string;
+  description: string;
+  ownershipType: OwnershipGroupTypeKey;
+  sortOrder: number;
+}>;
 
 const DEFAULT_LEAD_STAGES = [
   {
@@ -154,6 +234,32 @@ async function ensureReferenceDataSeededInternal() {
       })),
       skipDuplicates: true,
     });
+
+    await tx.affinityGroupRef.createMany({
+      data: DEFAULT_AFFINITY_GROUPS.map((item) => ({
+        code: item.code,
+        name: item.name,
+        shortName: item.shortName,
+        description: item.description,
+        groupType: toAffinityGroupTypeEnum(item.groupType),
+        isActive: true,
+        sortOrder: item.sortOrder,
+      })),
+      skipDuplicates: true,
+    });
+
+    await tx.ownershipGroupRef.createMany({
+      data: DEFAULT_OWNERSHIP_GROUPS.map((item) => ({
+        code: item.code,
+        name: item.name,
+        shortName: item.shortName,
+        description: item.description,
+        ownershipType: toOwnershipGroupTypeEnum(item.ownershipType),
+        isActive: true,
+        sortOrder: item.sortOrder,
+      })),
+      skipDuplicates: true,
+    });
   });
 }
 
@@ -242,6 +348,36 @@ export async function listLeadStages(actor: AuthenticatedActor): Promise<Referen
 
   return {
     items: items.map(toLeadStageReferenceSummary),
+  };
+}
+
+export async function listAffinityGroups(actor: AuthenticatedActor): Promise<ReferenceListResponse<AffinityGroupReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.view');
+
+  const items = await prisma.affinityGroupRef.findMany({
+    orderBy: [
+      { sortOrder: 'asc' },
+      { name: 'asc' },
+    ],
+  });
+
+  return {
+    items: items.map(toAffinityGroupReferenceSummary),
+  };
+}
+
+export async function listOwnershipGroups(actor: AuthenticatedActor): Promise<ReferenceListResponse<OwnershipGroupReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.view');
+
+  const items = await prisma.ownershipGroupRef.findMany({
+    orderBy: [
+      { sortOrder: 'asc' },
+      { name: 'asc' },
+    ],
+  });
+
+  return {
+    items: items.map(toOwnershipGroupReferenceSummary),
   };
 }
 
@@ -721,6 +857,62 @@ function toLeadStageReferenceSummary(value: {
   return summary;
 }
 
+function toAffinityGroupReferenceSummary(value: {
+  id: string;
+  code: string;
+  name: string;
+  shortName: string | null;
+  description: string | null;
+  groupType: import('@pulse/db').AffinityGroupType;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): AffinityGroupReferenceSummary {
+  const summary: AffinityGroupReferenceSummary = {
+    ...toReferenceValueSummary(value),
+    groupType: toAffinityGroupTypeKey(value.groupType),
+  };
+
+  if (value.shortName) {
+    summary.shortName = value.shortName;
+  }
+  if (value.notes) {
+    summary.notes = value.notes;
+  }
+
+  return summary;
+}
+
+function toOwnershipGroupReferenceSummary(value: {
+  id: string;
+  code: string;
+  name: string;
+  shortName: string | null;
+  description: string | null;
+  ownershipType: import('@pulse/db').OwnershipGroupType;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): OwnershipGroupReferenceSummary {
+  const summary: OwnershipGroupReferenceSummary = {
+    ...toReferenceValueSummary(value),
+    ownershipType: toOwnershipGroupTypeKey(value.ownershipType),
+  };
+
+  if (value.shortName) {
+    summary.shortName = value.shortName;
+  }
+  if (value.notes) {
+    summary.notes = value.notes;
+  }
+
+  return summary;
+}
+
 function toReferenceValueAuditPayload(value: {
   code: string;
   name: string;
@@ -757,6 +949,62 @@ function toLeadStageAuditPayload(value: {
     isTerminal: value.isTerminal,
     sortOrder: value.sortOrder,
   };
+}
+
+function toAffinityGroupTypeEnum(value: AffinityGroupTypeKey) {
+  switch (value) {
+    case 'buying_group':
+      return 'BUYING_GROUP';
+    case 'coaching_network':
+      return 'COACHING_NETWORK';
+    case 'franchise':
+      return 'FRANCHISE';
+    case 'community':
+      return 'COMMUNITY';
+    case 'other':
+      return 'OTHER';
+  }
+}
+
+function toOwnershipGroupTypeEnum(value: OwnershipGroupTypeKey) {
+  switch (value) {
+    case 'private_equity':
+      return 'PRIVATE_EQUITY';
+    case 'common_owner':
+      return 'COMMON_OWNER';
+    case 'franchise_system':
+      return 'FRANCHISE_SYSTEM';
+    case 'other':
+      return 'OTHER';
+  }
+}
+
+function toAffinityGroupTypeKey(value: import('@pulse/db').AffinityGroupType): AffinityGroupTypeKey {
+  switch (value) {
+    case 'BUYING_GROUP':
+      return 'buying_group';
+    case 'COACHING_NETWORK':
+      return 'coaching_network';
+    case 'FRANCHISE':
+      return 'franchise';
+    case 'COMMUNITY':
+      return 'community';
+    case 'OTHER':
+      return 'other';
+  }
+}
+
+function toOwnershipGroupTypeKey(value: import('@pulse/db').OwnershipGroupType): OwnershipGroupTypeKey {
+  switch (value) {
+    case 'PRIVATE_EQUITY':
+      return 'private_equity';
+    case 'COMMON_OWNER':
+      return 'common_owner';
+    case 'FRANCHISE_SYSTEM':
+      return 'franchise_system';
+    case 'OTHER':
+      return 'other';
+  }
 }
 
 function baseReferenceAuditMetadata(actor: AuthenticatedActor) {

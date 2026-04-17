@@ -44,6 +44,37 @@ export interface LeadStageReferenceSummary extends ReferenceValueSummary {
   isTerminal: boolean;
 }
 
+export const AFFINITY_GROUP_TYPES = [
+  'buying_group',
+  'coaching_network',
+  'franchise',
+  'community',
+  'other',
+] as const;
+
+export type AffinityGroupTypeKey = (typeof AFFINITY_GROUP_TYPES)[number];
+
+export const OWNERSHIP_GROUP_TYPES = [
+  'private_equity',
+  'common_owner',
+  'franchise_system',
+  'other',
+] as const;
+
+export type OwnershipGroupTypeKey = (typeof OWNERSHIP_GROUP_TYPES)[number];
+
+export interface AffinityGroupReferenceSummary extends ReferenceValueSummary {
+  shortName?: string;
+  groupType: AffinityGroupTypeKey;
+  notes?: string;
+}
+
+export interface OwnershipGroupReferenceSummary extends ReferenceValueSummary {
+  shortName?: string;
+  ownershipType: OwnershipGroupTypeKey;
+  notes?: string;
+}
+
 export interface UpdateLeadStageReferenceRequest extends UpdateReferenceValueRequest {
   dashboardLabel?: string;
   isTerminal?: boolean;

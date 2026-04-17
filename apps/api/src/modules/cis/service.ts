@@ -74,7 +74,12 @@ const ACTIVE_EDITABLE_CIS_STATUSES = new Set<CisPackageStatus>([
 ]);
 
 const CIS_PACKAGE_INCLUDE = {
-  lead: true,
+  lead: {
+    include: {
+      affinityGroup: true,
+      ownershipGroup: true,
+    },
+  },
   formData: true,
   internalReview: true,
   financeDecision: true,
@@ -206,6 +211,10 @@ export async function issueCisLink(
   const cisPackage: CisPackageWithRelations = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findUnique({
       where: { id: leadId },
+      include: {
+        affinityGroup: true,
+        ownershipGroup: true,
+      },
     });
     if (!lead) {
       throw new Error(`Lead not found: ${leadId}`);
@@ -485,6 +494,10 @@ export async function uploadLeadCisScan(
             ],
           }
         : { id: leadId },
+      include: {
+        affinityGroup: true,
+        ownershipGroup: true,
+      },
     });
     if (!lead) {
       throw new Error(`Lead not found: ${leadId}`);
@@ -2198,15 +2211,18 @@ function buildLeadPrefill(lead: {
   serviceTechCount: number;
   installTechCount: number | null;
   salesPersonCount: number | null;
-  affinityGroupName: string | null;
-  ownershipGroupName: string | null;
+  affinityGroupSelection: import('@pulse/db').GroupAxisSelection;
+  affinityGroup: { name: string } | null;
+  ownershipGroupSelection: import('@pulse/db').GroupAxisSelection;
+  ownershipGroup: { name: string } | null;
 }) {
   return {
     numOfTechs: lead.serviceTechCount,
     ...(lead.installTechCount !== null ? { numOfInstallTechs: lead.installTechCount } : {}),
     ...(lead.salesPersonCount !== null ? { numOfSalespeopleAdvisors: lead.salesPersonCount } : {}),
-    ...(lead.affinityGroupName ? { affinityGroupOrFranchise: lead.affinityGroupName } : {}),
-    ...(lead.ownershipGroupName ? { parentCompanyName: lead.ownershipGroupName } : {}),
+    ...(lead.affinityGroup?.name ? { affinityGroupOrFranchise: lead.affinityGroup.name } : {}),
+    ...(lead.ownershipGroupSelection === 'GROUP' ? { isPrivateEquity: true } : {}),
+    ...(lead.ownershipGroup?.name ? { parentCompanyName: lead.ownershipGroup.name } : {}),
     primaryContactName: lead.contactDisplayName,
     ...(lead.email ? { primaryContactEmail: lead.email } : {}),
     ...(lead.phone ? { primaryContactCellPhone: lead.phone } : {}),

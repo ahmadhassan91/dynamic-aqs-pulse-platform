@@ -83,6 +83,9 @@ try {
     phone: '555-200-1000',
     state: 'TX',
     serviceTechCount: 4,
+    affinityGroupSelection: 'group',
+    affinityGroupCode: 'AIRESERV',
+    ownershipGroupSelection: 'none',
   });
 
   const issuedCis = await issueCisLink(adminActor, cisLead.id, {

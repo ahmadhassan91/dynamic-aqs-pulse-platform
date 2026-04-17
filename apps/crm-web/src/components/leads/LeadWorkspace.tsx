@@ -43,11 +43,14 @@ import {
   IconWorld,
 } from '@tabler/icons-react';
 import {
+  type AffinityGroupReferenceSummary,
   type CreateLeadRequest,
+  type GroupAxisSelectionKey,
   type LeadRoutingPolicySummary,
   type LeadRoutingTeamKey,
   type LeadStageKey,
   type LeadSummary,
+  type OwnershipGroupReferenceSummary,
   type ReferenceValueSummary,
 } from '@pulse/contracts';
 import {
@@ -56,7 +59,14 @@ import {
   APP_LEAD_REGION_OPTIONS,
   findAppLeadRegionOption,
 } from '@/lib/lead-form-options';
-import { createLead, fetchLeadRoutingPolicy, fetchLeadSources, fetchLeads } from '@/lib/pulse-api';
+import {
+  createLead,
+  fetchAffinityGroups,
+  fetchLeadRoutingPolicy,
+  fetchLeadSources,
+  fetchLeads,
+  fetchOwnershipGroups,
+} from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type LeadWorkspaceTab = 'overview' | 'pipeline' | 'analytics';
@@ -67,8 +77,10 @@ type LeadCreateFormState = {
   email: string;
   phone: string;
   state: string;
-  affinityGroupName: string;
-  ownershipGroupName: string;
+  affinityGroupSelection: GroupAxisSelectionKey;
+  affinityGroupCode: string;
+  ownershipGroupSelection: GroupAxisSelectionKey;
+  ownershipGroupCode: string;
   sourceCampaign: string;
   leadRating: string;
   leadSourceCode: string;
@@ -100,8 +112,10 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
   email: '',
   phone: '',
   state: '',
-  affinityGroupName: '',
-  ownershipGroupName: '',
+  affinityGroupSelection: 'unknown',
+  affinityGroupCode: '',
+  ownershipGroupSelection: 'unknown',
+  ownershipGroupCode: '',
   sourceCampaign: '',
   leadRating: '',
   leadSourceCode: 'manual_entry',
@@ -113,6 +127,11 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
 const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
 const leadMarketingSourceOptions = APP_LEAD_MARKETING_SOURCES;
 const leadRatingOptions = APP_LEAD_RATINGS;
+const groupAxisSelectionOptions = [
+  { value: 'unknown', label: 'Unknown / not assessed' },
+  { value: 'none', label: 'Independent / no group' },
+  { value: 'group', label: 'Select governed group' },
+] satisfies ReadonlyArray<{ value: GroupAxisSelectionKey; label: string }>;
 
 const leadRegionSelectData = leadRegionOptions.map((option) => ({
   value: option.value,
@@ -129,6 +148,8 @@ export function LeadWorkspace({
   const [activeTab, setActiveTab] = useState<LeadWorkspaceTab>(initialTab);
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
+  const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
+  const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,6 +175,8 @@ export function LeadWorkspace({
   useEffect(() => {
     if (!auth) {
       setLeadSources([]);
+      setAffinityGroups([]);
+      setOwnershipGroups([]);
       setRoutingPolicy(null);
       return;
     }
@@ -165,8 +188,10 @@ export function LeadWorkspace({
       setReferenceError(null);
 
       try {
-        const [leadSourceResponse, routingPolicyResponse] = await Promise.all([
+        const [leadSourceResponse, affinityGroupResponse, ownershipGroupResponse, routingPolicyResponse] = await Promise.all([
           fetchLeadSources(apiBaseUrl, accessToken),
+          fetchAffinityGroups(apiBaseUrl, accessToken),
+          fetchOwnershipGroups(apiBaseUrl, accessToken),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
         ]);
 
@@ -175,6 +200,8 @@ export function LeadWorkspace({
         }
 
         setLeadSources(leadSourceResponse.items);
+        setAffinityGroups(affinityGroupResponse.items);
+        setOwnershipGroups(ownershipGroupResponse.items);
         setRoutingPolicy(routingPolicyResponse);
         setCreateLeadForm((current) => ({
           ...current,
@@ -301,20 +328,34 @@ export function LeadWorkspace({
     setCreateLeadError(null);
 
     try {
+      if (createLeadForm.affinityGroupSelection === 'group' && !createLeadForm.affinityGroupCode) {
+        setCreateLeadError('Choose an affinity group when the affinity selection is set to a governed group.');
+        setIsCreatingLead(false);
+        return;
+      }
+
+      if (createLeadForm.ownershipGroupSelection === 'group' && !createLeadForm.ownershipGroupCode) {
+        setCreateLeadError('Choose an ownership group when the ownership selection is set to a governed group.');
+        setIsCreatingLead(false);
+        return;
+      }
+
       const regionOption = findAppLeadRegionOption(createLeadForm.state);
       const payload: CreateLeadRequest = {
         companyName: createLeadForm.companyName.trim(),
         serviceTechCount: createLeadForm.serviceTechCount,
         leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
+        affinityGroupSelection: createLeadForm.affinityGroupSelection,
+        ownershipGroupSelection: createLeadForm.ownershipGroupSelection,
         ...(createLeadForm.contactDisplayName.trim() ? { contactDisplayName: createLeadForm.contactDisplayName.trim() } : {}),
         ...(createLeadForm.email.trim() ? { email: createLeadForm.email.trim() } : {}),
         ...(createLeadForm.phone.trim() ? { phone: createLeadForm.phone.trim() } : {}),
         ...(createLeadForm.state.trim() ? { state: createLeadForm.state.trim() } : {}),
-        ...(createLeadForm.affinityGroupName.trim()
-          ? { affinityGroupName: createLeadForm.affinityGroupName.trim() }
+        ...(createLeadForm.affinityGroupSelection === 'group' && createLeadForm.affinityGroupCode
+          ? { affinityGroupCode: createLeadForm.affinityGroupCode }
           : {}),
-        ...(createLeadForm.ownershipGroupName.trim()
-          ? { ownershipGroupName: createLeadForm.ownershipGroupName.trim() }
+        ...(createLeadForm.ownershipGroupSelection === 'group' && createLeadForm.ownershipGroupCode
+          ? { ownershipGroupCode: createLeadForm.ownershipGroupCode }
           : {}),
         ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
         ...(createLeadForm.sourceCampaign ? { sourceCampaign: createLeadForm.sourceCampaign } : {}),
@@ -794,18 +835,54 @@ export function LeadWorkspace({
               onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadRating: value ?? '' }))}
               data={leadRatingOptions}
             />
-            <TextInput
-              label="Affinity group / franchise"
-              placeholder="AireServ, One Hour, Independent..."
-              value={createLeadForm.affinityGroupName ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, affinityGroupName: event.currentTarget.value }))}
+            <Select
+              label="Affinity group status"
+              value={createLeadForm.affinityGroupSelection}
+              onChange={(value) =>
+                setCreateLeadForm((current) => ({
+                  ...current,
+                  affinityGroupSelection: (value as GroupAxisSelectionKey | null) ?? 'unknown',
+                  affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
+                }))}
+              data={groupAxisSelectionOptions}
             />
-            <TextInput
-              label="Ownership / private equity group"
-              placeholder="Parent company or Independent..."
-              value={createLeadForm.ownershipGroupName ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, ownershipGroupName: event.currentTarget.value }))}
+            <Select
+              label="Ownership group status"
+              value={createLeadForm.ownershipGroupSelection}
+              onChange={(value) =>
+                setCreateLeadForm((current) => ({
+                  ...current,
+                  ownershipGroupSelection: (value as GroupAxisSelectionKey | null) ?? 'unknown',
+                  ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
+                }))}
+              data={groupAxisSelectionOptions}
             />
+            {createLeadForm.affinityGroupSelection === 'group' ? (
+              <Select
+                searchable
+                label="Affinity group"
+                placeholder="Choose affinity group..."
+                value={createLeadForm.affinityGroupCode || null}
+                onChange={(value) => setCreateLeadForm((current) => ({ ...current, affinityGroupCode: value ?? '' }))}
+                data={affinityGroups.map((group) => ({
+                  value: group.code,
+                  label: group.name,
+                }))}
+              />
+            ) : null}
+            {createLeadForm.ownershipGroupSelection === 'group' ? (
+              <Select
+                searchable
+                label="Ownership group"
+                placeholder="Choose ownership group..."
+                value={createLeadForm.ownershipGroupCode || null}
+                onChange={(value) => setCreateLeadForm((current) => ({ ...current, ownershipGroupCode: value ?? '' }))}
+                data={ownershipGroups.map((group) => ({
+                  value: group.code,
+                  label: group.name,
+                }))}
+              />
+            ) : null}
             <NumberInput
               label="Service tech count"
               value={createLeadForm.serviceTechCount ?? 0}

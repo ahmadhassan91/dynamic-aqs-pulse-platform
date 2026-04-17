@@ -178,6 +178,10 @@ export function LeadCisPanel({
   const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
   const canIssueCis = SENDABLE_LEAD_STAGES.has(lead.stage);
   const leadLifecycleLocked = lead.lifecycleStatus !== 'active';
+  const latestTokenizedCaptureAttempt = useMemo(
+    () => cisPackage?.paymentCaptureAttempts.find((attempt) => attempt.status === 'token_received') ?? null,
+    [cisPackage],
+  );
 
   useEffect(() => {
     setRecipientEmail(lead.email ?? '');
@@ -231,13 +235,13 @@ export function LeadCisPanel({
       setVaultToken('');
       setVaultCustomerRef('');
       setVaultLast4('');
-    setVaultBrand('');
-    setVaultStatus('vaulted');
-    setVaultAuthorizationCapturedAt('');
-    setVaultReferenceNote('');
-    setHostedCaptureLaunch(null);
-    return;
-  }
+      setVaultBrand('');
+      setVaultStatus('vaulted');
+      setVaultAuthorizationCapturedAt('');
+      setVaultReferenceNote('');
+      setHostedCaptureLaunch(null);
+      return;
+    }
 
     setSalesReviewNotes(cisPackage.internalReview?.salesReviewNotes ?? '');
     setFinanceCoverNotes(cisPackage.internalReview?.financeCoverNotes ?? '');
@@ -251,7 +255,7 @@ export function LeadCisPanel({
     );
     setPaymentTerms(cisPackage.financeDecision?.paymentTerms ?? 'NET_30');
     setPaymentCaptureNote('');
-    setVaultProvider(cisPackage.paymentVaultReferences[0]?.provider ?? 'unknown');
+    setVaultProvider(latestTokenizedCaptureAttempt?.provider ?? cisPackage.paymentVaultReferences[0]?.provider ?? 'unknown');
     setVaultToken('');
     setVaultCustomerRef('');
     setVaultLast4('');
@@ -259,7 +263,7 @@ export function LeadCisPanel({
     setVaultStatus('vaulted');
     setVaultAuthorizationCapturedAt('');
     setVaultReferenceNote('');
-  }, [cisPackage]);
+  }, [cisPackage, latestTokenizedCaptureAttempt]);
 
   const cisPackageId = cisPackage?.id;
 
@@ -585,8 +589,12 @@ export function LeadCisPanel({
     setActionMessage(null);
 
     try {
+      const sourceCaptureAttemptId = latestTokenizedCaptureAttempt?.provider === 'moneris'
+        ? latestTokenizedCaptureAttempt.id
+        : undefined;
       const response = await recordLeadCisPaymentVaultReference(apiBaseUrl, accessToken, cisPackage.id, {
-        provider: vaultProvider,
+        ...(sourceCaptureAttemptId ? { sourceCaptureAttemptId } : {}),
+        ...(!sourceCaptureAttemptId || vaultProvider !== 'unknown' ? { provider: vaultProvider } : {}),
         ...(vaultToken.trim() ? { vaultToken: vaultToken.trim() } : {}),
         ...(vaultCustomerRef.trim() ? { vaultCustomerRef: vaultCustomerRef.trim() } : {}),
         ...(vaultLast4.trim() ? { last4: vaultLast4.trim() } : {}),
@@ -604,7 +612,11 @@ export function LeadCisPanel({
       setVaultStatus('vaulted');
       setVaultAuthorizationCapturedAt('');
       setVaultReferenceNote('');
-      setActionMessage('Tokenized vault reference recorded on the CIS package.');
+      setActionMessage(
+        sourceCaptureAttemptId
+          ? 'Moneris hosted capture finalized into a permanent CIS vault reference.'
+          : 'Tokenized vault reference recorded on the CIS package.',
+      );
       onLeadChanged();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -1400,6 +1412,7 @@ export function LeadCisPanel({
                                 </Group>
                                 <Text size="sm" c="dimmed">
                                   Stored as masked/tokenized provider data only. Vault token present: {reference.hasVaultToken ? 'Yes' : 'No'} • Customer ref present: {reference.hasVaultCustomerRef ? 'Yes' : 'No'}
+                                  {reference.sourceCaptureAttemptId ? ' • Linked to hosted capture attempt' : ''}
                                 </Text>
                               </Stack>
                               <Text size="sm" c="dimmed">
@@ -1465,6 +1478,12 @@ export function LeadCisPanel({
                               Record the provider reference after hosted capture succeeds. Raw payment details still stay outside Pulse.
                             </Text>
 
+                            {latestTokenizedCaptureAttempt?.provider === 'moneris' ? (
+                              <Alert color="teal" icon={<IconCheck size={16} />}>
+                                Moneris returned a temporary token for the latest hosted attempt. Recording the vault reference below will finalize that hosted attempt into a permanent CIS vault record.
+                              </Alert>
+                            ) : null}
+
                             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                               <Select
                                 label="Provider"
@@ -1475,7 +1494,7 @@ export function LeadCisPanel({
                                   }
                                 }}
                                 data={PAYMENT_VAULT_PROVIDER_OPTIONS}
-                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference || latestTokenizedCaptureAttempt?.provider === 'moneris'}
                               />
                               <Select
                                 label="Vault status"
@@ -1544,7 +1563,7 @@ export function LeadCisPanel({
                               loading={isRecordingVaultReference}
                               disabled={!canTrackHostedPaymentCapture}
                             >
-                              Record vault reference
+                              {latestTokenizedCaptureAttempt?.provider === 'moneris' ? 'Finalize Moneris vault reference' : 'Record vault reference'}
                             </Button>
                           </Stack>
                         </Card>

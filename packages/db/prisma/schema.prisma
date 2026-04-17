@@ -1655,6 +1655,7 @@ model CisParsedDraft {
 model CisPaymentVaultReference {
   id                       String                  @id @default(uuid()) @db.Uuid
   cisPackageId             String                  @db.Uuid
+  sourceCaptureAttemptId   String?                 @db.Uuid
   provider                 CisPaymentVaultProvider @default(UNKNOWN)
   vaultToken               String?
   vaultCustomerRef         String?
@@ -1666,10 +1667,12 @@ model CisPaymentVaultReference {
   updatedAt                DateTime                @updatedAt
 
   cisPackage               CisPackage              @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  sourceCaptureAttempt     CisPaymentCaptureAttempt? @relation("CisCaptureAttemptVaultReferences", fields: [sourceCaptureAttemptId], references: [id], onDelete: SetNull)
   promotedAccountReferences AccountPaymentVaultReference[]
 
   @@index([cisPackageId, createdAt])
   @@index([provider])
+  @@index([sourceCaptureAttemptId])
 }
 
 model CisPaymentCaptureAttempt {
@@ -1693,6 +1696,7 @@ model CisPaymentCaptureAttempt {
   updatedAt                DateTime                      @updatedAt
 
   cisPackage               CisPackage                    @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  vaultReferences          CisPaymentVaultReference[]    @relation("CisCaptureAttemptVaultReferences")
 
   @@index([cisPackageId, createdAt])
   @@index([status])

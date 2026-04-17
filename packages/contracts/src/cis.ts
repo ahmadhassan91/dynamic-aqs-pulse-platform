@@ -220,6 +220,7 @@ export interface CisPaymentCaptureAttemptRecord {
 export interface CisPaymentVaultReferenceRecord {
   id: string;
   provider: CisPaymentVaultProviderKey;
+  sourceCaptureAttemptId?: string;
   last4?: string;
   brand?: string;
   authorizationCapturedAt?: string;
@@ -289,6 +290,7 @@ export interface RecordMonerisHostedCaptureResultResponse {
 
 export interface RecordCisPaymentVaultReferenceRequest {
   provider?: CisPaymentVaultProviderKey;
+  sourceCaptureAttemptId?: string;
   vaultToken?: string;
   vaultCustomerRef?: string;
   last4?: string;

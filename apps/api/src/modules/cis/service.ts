@@ -1202,6 +1202,8 @@ export async function startMonerisHostedPaymentCapture(
       throw new Error('CIS package must be finance-pending or finance-approved before starting Moneris hosted capture');
     }
 
+    await expireStalePaymentCaptureAttempts(tx, actor, existing.id, existing.leadId, launchedAt);
+
     const updated = existing.paymentStatus === CisPaymentStatus.VAULT_PENDING
       ? existing
       : await tx.cisPackage.update({
@@ -1434,7 +1436,8 @@ export async function recordCisPaymentVaultReference(
   assertActionAccess(actor.role, 'lead.finance_decide');
 
   await assertCisPaymentCaptureTrackingEnabled();
-  const provider = toCisPaymentVaultProviderEnum(input.provider);
+  const sourceCaptureAttemptId = optionalTrimmed(input.sourceCaptureAttemptId);
+  const requestedProvider = toCisPaymentVaultProviderEnum(input.provider);
   const vaultToken = optionalTrimmed(input.vaultToken);
   const vaultCustomerRef = optionalTrimmed(input.vaultCustomerRef);
   const last4 = optionalTrimmed(input.last4);
@@ -1461,9 +1464,40 @@ export async function recordCisPaymentVaultReference(
       throw new Error('CIS package must be finance-pending or finance-approved before recording a vault reference');
     }
 
+    const sourceCaptureAttempt = sourceCaptureAttemptId
+      ? await tx.cisPaymentCaptureAttempt.findFirst({
+          where: {
+            id: sourceCaptureAttemptId,
+            cisPackageId: existing.id,
+          },
+        })
+      : null;
+
+    if (sourceCaptureAttemptId && !sourceCaptureAttempt) {
+      throw new Error(`CIS payment capture attempt not found: ${sourceCaptureAttemptId}`);
+    }
+
+    if (sourceCaptureAttempt && sourceCaptureAttempt.status !== CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED) {
+      throw new Error('CIS payment capture attempt must have a tokenized result before it can be finalized into a vault reference');
+    }
+
+    if (sourceCaptureAttempt && !sourceCaptureAttempt.temporaryTokenEncrypted) {
+      throw new Error('CIS payment capture attempt must have a tokenized result before it can be finalized into a vault reference');
+    }
+
+    if (
+      sourceCaptureAttempt
+      && requestedProvider !== CisPaymentVaultProvider.UNKNOWN
+      && requestedProvider !== sourceCaptureAttempt.provider
+    ) {
+      throw new Error('provider does not match the selected CIS payment capture attempt');
+    }
+
+    const provider = sourceCaptureAttempt?.provider ?? requestedProvider;
     const vaultReference = await tx.cisPaymentVaultReference.create({
       data: {
         cisPackageId: existing.id,
+        ...(sourceCaptureAttempt ? { sourceCaptureAttemptId: sourceCaptureAttempt.id } : {}),
         provider,
         ...(vaultToken ? { vaultToken } : {}),
         ...(vaultCustomerRef ? { vaultCustomerRef } : {}),
@@ -1482,6 +1516,56 @@ export async function recordCisPaymentVaultReference(
       include: CIS_PACKAGE_INCLUDE,
     });
 
+    if (sourceCaptureAttempt) {
+      await tx.cisPaymentCaptureAttempt.update({
+        where: { id: sourceCaptureAttempt.id },
+        data: {
+          status: CisPaymentCaptureAttemptStatus.CONSUMED,
+          completedByUserId: sourceCaptureAttempt.completedByUserId ?? actor.userId,
+          completedAt: sourceCaptureAttempt.completedAt ?? new Date(),
+        },
+      });
+
+      await tx.cisPackageEvent.create({
+        data: {
+          cisPackageId: updated.id,
+          eventType: 'payment_capture_consumed',
+          actorUserId: actor.userId,
+          actorType: actor.actorType,
+          note: note ?? null,
+          metadata: toJsonValue({
+            provider: toCisPaymentVaultProviderKey(sourceCaptureAttempt.provider),
+            captureAttemptId: sourceCaptureAttempt.id,
+            vaultReferenceId: vaultReference.id,
+          }),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.UPDATE,
+          entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
+          entityId: sourceCaptureAttempt.id,
+          metadata: {
+            sessionId: actor.sessionId,
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            leadId: updated.leadId,
+            provider: toCisPaymentVaultProviderKey(sourceCaptureAttempt.provider),
+            operation: 'cis.payment_capture.consume',
+          },
+          beforeData: {
+            status: sourceCaptureAttempt.status,
+          },
+          afterData: {
+            status: CisPaymentCaptureAttemptStatus.CONSUMED,
+            vaultReferenceId: vaultReference.id,
+          },
+        }),
+      });
+    }
+
     await tx.cisPackageEvent.create({
       data: {
         cisPackageId: updated.id,
@@ -1494,6 +1578,7 @@ export async function recordCisPaymentVaultReference(
           paymentStatus: toCisPaymentStatusKey(updated.paymentStatus),
           hasVaultToken: Boolean(vaultToken),
           hasVaultCustomerRef: Boolean(vaultCustomerRef),
+          ...(sourceCaptureAttempt ? { sourceCaptureAttemptId: sourceCaptureAttempt.id } : {}),
           ...(last4 ? { last4 } : {}),
           ...(brand ? { brand } : {}),
         }),
@@ -1517,6 +1602,7 @@ export async function recordCisPaymentVaultReference(
         afterData: {
           paymentStatus: updated.paymentStatus,
           status,
+          ...(sourceCaptureAttempt ? { sourceCaptureAttemptId: sourceCaptureAttempt.id } : {}),
           hasVaultToken: Boolean(vaultToken),
           hasVaultCustomerRef: Boolean(vaultCustomerRef),
           ...(last4 ? { last4 } : {}),
@@ -2163,6 +2249,7 @@ function toCisPaymentVaultReferenceRecord(
   return {
     id: reference.id,
     provider: toCisPaymentVaultProviderKey(reference.provider),
+    ...(reference.sourceCaptureAttemptId ? { sourceCaptureAttemptId: reference.sourceCaptureAttemptId } : {}),
     ...(reference.last4 ? { last4: reference.last4 } : {}),
     ...(reference.brand ? { brand: reference.brand } : {}),
     ...(reference.authorizationCapturedAt ? { authorizationCapturedAt: reference.authorizationCapturedAt.toISOString() } : {}),
@@ -2457,6 +2544,79 @@ function buildMonerisHostedIframeUrl(config: AppConfig) {
   url.searchParams.set('id', config.monerisHostedTokenization.profileId ?? '');
   url.searchParams.set('pmmsg', 'true');
   return url.toString();
+}
+
+async function expireStalePaymentCaptureAttempts(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+  leadId: string,
+  now: Date,
+) {
+  const staleAttempts = await tx.cisPaymentCaptureAttempt.findMany({
+    where: {
+      cisPackageId,
+      status: {
+        in: [
+          CisPaymentCaptureAttemptStatus.LAUNCHED,
+          CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED,
+        ],
+      },
+      expiresAt: {
+        lt: now,
+      },
+    },
+  });
+
+  for (const attempt of staleAttempts) {
+    await tx.cisPaymentCaptureAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        status: CisPaymentCaptureAttemptStatus.EXPIRED,
+        completedByUserId: attempt.completedByUserId ?? actor.userId,
+        completedAt: attempt.completedAt ?? now,
+      },
+    });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId,
+        eventType: 'payment_capture_expired',
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        metadata: toJsonValue({
+          provider: toCisPaymentVaultProviderKey(attempt.provider),
+          captureAttemptId: attempt.id,
+          priorStatus: toCisPaymentCaptureAttemptStatusKey(attempt.status),
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
+        entityId: attempt.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId,
+          provider: toCisPaymentVaultProviderKey(attempt.provider),
+          operation: 'cis.payment_capture.expire',
+        },
+        beforeData: {
+          status: attempt.status,
+          expiresAt: attempt.expiresAt?.toISOString() ?? null,
+        },
+        afterData: {
+          status: CisPaymentCaptureAttemptStatus.EXPIRED,
+          completedAt: (attempt.completedAt ?? now).toISOString(),
+        },
+      }),
+    });
+  }
 }
 
 function toCisPaymentVaultProviderEnum(value: RecordCisPaymentVaultReferenceRequest['provider']) {

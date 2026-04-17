@@ -861,3 +861,151 @@ test('finance can record Moneris tokenization failure details and non-finance ac
   assert.equal(failed.attempt.providerErrorMessage, 'Invalid profile configuration');
   assert.ok(failed.cisPackage.events.some((event) => event.eventType === 'payment_capture_failed'));
 });
+
+test('starting a fresh Moneris hosted capture expires stale attempts before launching a replacement', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-expire-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-expire';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-expire@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-expire@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Expire Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const firstLaunch = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Initial hosted capture launch.',
+  });
+
+  await prisma.cisPaymentCaptureAttempt.update({
+    where: { id: firstLaunch.attempt.id },
+    data: {
+      expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  });
+
+  const replacementLaunch = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Replacement hosted capture launch.',
+  });
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+  assert.ok(detail);
+  assert.equal(replacementLaunch.attempt.status, 'launched');
+  assert.ok(detail.paymentCaptureAttempts.some((attempt) => attempt.id === firstLaunch.attempt.id && attempt.status === 'expired'));
+  assert.ok(detail.paymentCaptureAttempts.some((attempt) => attempt.id === replacementLaunch.attempt.id && attempt.status === 'launched'));
+});
+
+test('finance can finalize a successful Moneris hosted capture into a permanent CIS vault reference', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-finalize-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-finalize';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-finalize@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-finalize@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Finalize Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before provider finalization.',
+  });
+
+  await recordMonerisHostedCaptureResult(financeActor, config, fixture.cisPackageId, launched.attempt.id, {
+    responseCode: '001',
+    temporaryToken: 'moneris-temp-token-finalize',
+    note: 'Temporary token received.',
+  });
+
+  const finalized = await recordCisPaymentVaultReference(financeActor, fixture.cisPackageId, {
+    sourceCaptureAttemptId: launched.attempt.id,
+    vaultToken: 'moneris-permanent-vault-token',
+    vaultCustomerRef: 'moneris-customer-123',
+    last4: '4242',
+    brand: 'Visa',
+    status: 'vaulted',
+    note: 'Finalized into a permanent Moneris vault record.',
+  });
+
+  assert.equal(finalized.paymentStatus, 'vault_complete');
+  assert.equal(finalized.paymentVaultReferences.length, 1);
+  assert.equal(finalized.paymentVaultReferences[0]?.provider, 'moneris');
+  assert.equal(finalized.paymentVaultReferences[0]?.sourceCaptureAttemptId, launched.attempt.id);
+  assert.equal(finalized.paymentCaptureAttempts.find((attempt) => attempt.id === launched.attempt.id)?.status, 'consumed');
+});
+
+test('finance cannot finalize a Moneris capture attempt into a vault reference until a tokenized result exists', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-guard-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-guard';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-guard@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-guard@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Guard Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch without final tokenized result.',
+  });
+
+  await assert.rejects(
+    () =>
+      recordCisPaymentVaultReference(financeActor, fixture.cisPackageId, {
+        sourceCaptureAttemptId: launched.attempt.id,
+        vaultToken: 'should-not-save',
+        status: 'vaulted',
+      }),
+    /must have a tokenized result/i,
+  );
+});

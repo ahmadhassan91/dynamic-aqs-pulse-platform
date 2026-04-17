@@ -26,7 +26,9 @@ let createRegion;
 let createShippingCenter;
 let createTerritory;
 let getTerritoryPolicy;
+let listRegions;
 let listShippingCenters;
+let listTerritories;
 let listTerritoryAssignmentHistory;
 let listTerritoryAssignableUsers;
 let reassignAccountTerritory;
@@ -39,28 +41,30 @@ const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ loadAppConfig } = await import('../dist/config.js'));
-  ({ createPulseServer } = await import('../dist/server.js'));
-  ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
+  ({ loadAppConfig } = await import('../src/config.ts'));
+  ({ createPulseServer } = await import('../src/server.ts'));
+  ({ ensureReferenceDataSeeded } = await import('../src/modules/reference/service.ts'));
   ({
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
     createLead,
     getLeadDetail,
-  } = await import('../dist/modules/leads/service.js'));
+  } = await import('../src/modules/leads/service.ts'));
   ({
     createAccount,
     createAccountLocation,
     updateAccountLocation,
     getAccountDetail,
-  } = await import('../dist/modules/accounts/service.js'));
+  } = await import('../src/modules/accounts/service.ts'));
   ({
     createRegion,
     createShippingCenter,
     createTerritory,
     ensureTerritoryPolicySeeded,
     getTerritoryPolicy,
+    listRegions,
     listShippingCenters,
+    listTerritories,
     listTerritoryAssignmentHistory,
     listTerritoryAssignableUsers,
     reassignAccountTerritory,
@@ -69,8 +73,8 @@ test.before(async () => {
     getTerritoryMapWorkspace,
     updateTerritory,
     updateTerritoryPolicy,
-  } = await import('../dist/modules/territories/service.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  } = await import('../src/modules/territories/service.ts'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../src/modules/auth/service.ts'));
 
   config = loadAppConfig(process.env);
   await prisma.$connect();
@@ -110,6 +114,17 @@ function actorWithRole(actor, role) {
   return {
     ...actor,
     role,
+  };
+}
+
+function actorForUser(user) {
+  return {
+    userId: user.id,
+    sessionId: `test-session-${user.id}`,
+    role: user.roleCode,
+    actorType: 'internal',
+    email: user.email,
+    displayName: user.displayName,
   };
 }
 
@@ -548,6 +563,350 @@ test('territory map workspace returns live coverage entries, account pins, lead 
   assert.equal(shippingCenter.servicedTerritoryCount, 1);
   assert.ok(shippingCenter.activeLeadCount >= 1);
   assert.ok(shippingCenter.activeAccountCount >= 1);
+});
+
+test('territory read visibility scopes region, territory, shipping center, and map workspace payloads for a TM', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'tm_scope_visible',
+    stateCode: 'TX',
+  });
+  const peerTm = await createUser('TERRITORY_MANAGER', 'tm-scope-peer@pulse.local', 'TM Scope Peer');
+  const peerShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_tm_scope_peer',
+    name: 'TM Scope Peer Shipping',
+    city: 'Tulsa',
+    state: 'OK',
+  });
+  const peerTerritory = await createTerritory(actor, {
+    code: 'territory_tm_scope_peer',
+    name: 'TM Scope Peer Territory',
+    regionId: visible.region.id,
+    managerUserId: peerTm.id,
+    shippingCenterId: peerShippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, peerTerritory.id, {
+    coverage: [{ stateCode: 'OK' }],
+  });
+
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'tm_scope_hidden',
+    stateCode: 'FL',
+  });
+
+  const visibleLead = await createLead(actor, {
+    companyName: 'TM Scope Visible Lead',
+    serviceTechCount: 5,
+    state: 'TX',
+  });
+  const peerLead = await createLead(actor, {
+    companyName: 'TM Scope Peer Lead',
+    serviceTechCount: 5,
+    state: 'OK',
+  });
+  const hiddenLead = await createLead(actor, {
+    companyName: 'TM Scope Hidden Lead',
+    serviceTechCount: 5,
+    state: 'FL',
+  });
+
+  const visibleAccount = await prisma.account.create({
+    data: {
+      displayName: 'TM Scope Visible Customer',
+      territoryId: visible.territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: visible.shippingCenter.id,
+      assignedTmUserId: visible.manager.id,
+      assignedRdUserId: visible.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Houston',
+          state: 'TX',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+  const peerAccount = await prisma.account.create({
+    data: {
+      displayName: 'TM Scope Peer Customer',
+      territoryId: peerTerritory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: peerShippingCenter.id,
+      assignedTmUserId: peerTm.id,
+      assignedRdUserId: visible.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Tulsa',
+          state: 'OK',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+  const hiddenAccount = await prisma.account.create({
+    data: {
+      displayName: 'TM Scope Hidden Customer',
+      territoryId: hidden.territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: hidden.shippingCenter.id,
+      assignedTmUserId: hidden.manager.id,
+      assignedRdUserId: hidden.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Fort Lauderdale',
+          state: 'FL',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+
+  const tmActor = actorForUser(visible.manager);
+
+  const [regions, territories, shippingCenters, workspace] = await Promise.all([
+    listRegions(tmActor),
+    listTerritories(tmActor),
+    listShippingCenters(tmActor),
+    getTerritoryMapWorkspace(tmActor),
+  ]);
+
+  assert.deepEqual(regions.items.map((item) => item.id), [visible.region.id]);
+  assert.equal(regions.items[0]?.territoryCount, 1);
+
+  assert.deepEqual(territories.items.map((item) => item.id), [visible.territory.id]);
+  assert.deepEqual(shippingCenters.items.map((item) => item.id), [visible.shippingCenter.id]);
+
+  assert.deepEqual(workspace.regions.map((item) => item.id), [visible.region.id]);
+  assert.deepEqual(workspace.territories.map((item) => item.id), [visible.territory.id]);
+  assert.ok(workspace.coverageEntries.every((entry) => entry.territoryId === visible.territory.id));
+  assert.ok(workspace.leadPins.some((pin) => pin.recordId === visibleLead.id));
+  assert.ok(!workspace.leadPins.some((pin) => pin.recordId === peerLead.id));
+  assert.ok(!workspace.leadPins.some((pin) => pin.recordId === hiddenLead.id));
+  assert.ok(workspace.accountPins.some((pin) => pin.recordId === visibleAccount.id));
+  assert.ok(!workspace.accountPins.some((pin) => pin.recordId === peerAccount.id));
+  assert.ok(!workspace.accountPins.some((pin) => pin.recordId === hiddenAccount.id));
+  assert.deepEqual(workspace.shippingCenters.map((item) => item.id), [visible.shippingCenter.id]);
+});
+
+test('territory read visibility scopes region, territory, shipping center, and map workspace payloads for an RD', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'rd_scope_visible',
+    stateCode: 'TX',
+  });
+  const peerTm = await createUser('TERRITORY_MANAGER', 'rd-scope-peer-tm@pulse.local', 'RD Scope Peer TM');
+  const peerShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_rd_scope_peer',
+    name: 'RD Scope Peer Shipping',
+    city: 'Tulsa',
+    state: 'OK',
+  });
+  const peerTerritory = await createTerritory(actor, {
+    code: 'territory_rd_scope_peer',
+    name: 'RD Scope Peer Territory',
+    regionId: visible.region.id,
+    managerUserId: peerTm.id,
+    shippingCenterId: peerShippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, peerTerritory.id, {
+    coverage: [{ stateCode: 'OK' }],
+  });
+
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'rd_scope_hidden',
+    stateCode: 'FL',
+  });
+
+  const visibleLead = await createLead(actor, {
+    companyName: 'RD Scope Visible Lead',
+    serviceTechCount: 5,
+    state: 'TX',
+  });
+  const peerLead = await createLead(actor, {
+    companyName: 'RD Scope Peer Lead',
+    serviceTechCount: 5,
+    state: 'OK',
+  });
+  const hiddenLead = await createLead(actor, {
+    companyName: 'RD Scope Hidden Lead',
+    serviceTechCount: 5,
+    state: 'FL',
+  });
+
+  const visibleAccount = await prisma.account.create({
+    data: {
+      displayName: 'RD Scope Visible Customer',
+      territoryId: visible.territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: visible.shippingCenter.id,
+      assignedTmUserId: visible.manager.id,
+      assignedRdUserId: visible.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Houston',
+          state: 'TX',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+  const peerAccount = await prisma.account.create({
+    data: {
+      displayName: 'RD Scope Peer Customer',
+      territoryId: peerTerritory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: peerShippingCenter.id,
+      assignedTmUserId: peerTm.id,
+      assignedRdUserId: visible.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Tulsa',
+          state: 'OK',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+  const hiddenAccount = await prisma.account.create({
+    data: {
+      displayName: 'RD Scope Hidden Customer',
+      territoryId: hidden.territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date(),
+      shippingCenterId: hidden.shippingCenter.id,
+      assignedTmUserId: hidden.manager.id,
+      assignedRdUserId: hidden.director.id,
+      locations: {
+        create: {
+          name: 'Primary',
+          city: 'Fort Lauderdale',
+          state: 'FL',
+          countryCode: 'US',
+          isPrimary: true,
+        },
+      },
+    },
+  });
+
+  const rdActor = actorForUser(visible.director);
+
+  const [regions, territories, shippingCenters, workspace] = await Promise.all([
+    listRegions(rdActor),
+    listTerritories(rdActor),
+    listShippingCenters(rdActor),
+    getTerritoryMapWorkspace(rdActor),
+  ]);
+
+  assert.deepEqual(regions.items.map((item) => item.id), [visible.region.id]);
+  assert.equal(regions.items[0]?.territoryCount, 2);
+
+  assert.deepEqual(
+    territories.items.map((item) => item.id).sort(),
+    [peerTerritory.id, visible.territory.id].sort(),
+  );
+  assert.deepEqual(
+    shippingCenters.items.map((item) => item.id).sort(),
+    [peerShippingCenter.id, visible.shippingCenter.id].sort(),
+  );
+
+  assert.deepEqual(workspace.regions.map((item) => item.id), [visible.region.id]);
+  assert.deepEqual(
+    workspace.territories.map((item) => item.id).sort(),
+    [peerTerritory.id, visible.territory.id].sort(),
+  );
+  assert.ok(workspace.coverageEntries.every((entry) => entry.regionId === visible.region.id));
+  assert.ok(workspace.leadPins.some((pin) => pin.recordId === visibleLead.id));
+  assert.ok(workspace.leadPins.some((pin) => pin.recordId === peerLead.id));
+  assert.ok(!workspace.leadPins.some((pin) => pin.recordId === hiddenLead.id));
+  assert.ok(workspace.accountPins.some((pin) => pin.recordId === visibleAccount.id));
+  assert.ok(workspace.accountPins.some((pin) => pin.recordId === peerAccount.id));
+  assert.ok(!workspace.accountPins.some((pin) => pin.recordId === hiddenAccount.id));
+  assert.deepEqual(
+    workspace.shippingCenters.map((item) => item.id).sort(),
+    [peerShippingCenter.id, visible.shippingCenter.id].sort(),
+  );
+});
+
+test('territory assignment history denies out-of-scope entity reads for TMs while keeping visible records accessible', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'history_scope_visible',
+    stateCode: 'TX',
+  });
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'history_scope_hidden',
+    stateCode: 'FL',
+  });
+
+  const visibleLead = await createLead(actor, {
+    companyName: 'History Scope Visible Lead',
+    serviceTechCount: 6,
+    state: 'TX',
+  });
+  const hiddenLead = await createLead(actor, {
+    companyName: 'History Scope Hidden Lead',
+    serviceTechCount: 6,
+    state: 'FL',
+  });
+
+  const visibleAccount = await createAccount(actor, {
+    displayName: 'History Scope Visible Account',
+    legalName: 'History Scope Visible Account LLC',
+    accountType: 'Dealer',
+  });
+  const hiddenAccount = await createAccount(actor, {
+    displayName: 'History Scope Hidden Account',
+    legalName: 'History Scope Hidden Account LLC',
+    accountType: 'Dealer',
+  });
+
+  await createAccountLocation(actor, visibleAccount.id, {
+    name: 'Primary',
+    city: 'Austin',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await createAccountLocation(actor, hiddenAccount.id, {
+    name: 'Primary',
+    city: 'Fort Lauderdale',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const tmActor = actorForUser(visible.manager);
+
+  const visibleLeadHistory = await listTerritoryAssignmentHistory(tmActor, 'lead', visibleLead.id);
+  assert.ok(visibleLeadHistory.items.length >= 1);
+
+  const visibleAccountHistory = await listTerritoryAssignmentHistory(tmActor, 'account', visibleAccount.id);
+  assert.ok(visibleAccountHistory.items.length >= 1);
+
+  await assert.rejects(
+    () => listTerritoryAssignmentHistory(tmActor, 'lead', hiddenLead.id),
+    (error) => error?.name === 'AuthorizationError',
+  );
+  await assert.rejects(
+    () => listTerritoryAssignmentHistory(tmActor, 'account', hiddenAccount.id),
+    (error) => error?.name === 'AuthorizationError',
+  );
 });
 
 test('named owner overrides reject inactive users and wrong roles', SERIAL, async () => {

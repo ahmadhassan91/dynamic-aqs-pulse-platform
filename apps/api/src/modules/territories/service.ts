@@ -41,7 +41,14 @@ import type {
 } from '@pulse/contracts';
 import { findLeadRegionOption } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildAccountRecordScope, buildLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import {
+  assertTerritoryAssignmentHistoryVisible,
+  buildRegionReadScope,
+  buildShippingCenterReadScope,
+  buildTerritoryReadScope,
+} from './visibility.js';
 
 const REGION_ENTITY_TYPE = 'REGION';
 const TERRITORY_ENTITY_TYPE = 'TERRITORY';
@@ -142,10 +149,14 @@ export async function ensureTerritoryPolicySeeded() {
 
 export async function listShippingCenters(actor: AuthenticatedActor): Promise<ListShippingCentersResponse> {
   assertModuleAccess(actor.role, 'territories');
+  const scopeWhere = buildShippingCenterReadScope(actor);
 
-  const items = await prisma.shippingCenter.findMany({
+  const query = {
     orderBy: [{ name: 'asc' }],
-  });
+    ...(scopeWhere ? { where: scopeWhere } : {}),
+  } satisfies Prisma.ShippingCenterFindManyArgs;
+
+  const items = await prisma.shippingCenter.findMany(query);
 
   return {
     items: items.map(toShippingCenterSummary),
@@ -309,9 +320,12 @@ export async function updateTerritoryPolicy(
 
 export async function listRegions(actor: AuthenticatedActor): Promise<ListRegionsResponse> {
   assertModuleAccess(actor.role, 'territories');
+  const regionScope = buildRegionReadScope(actor);
+  const territoryScope = buildTerritoryReadScope(actor);
 
-  const items = await prisma.region.findMany({
+  const query = {
     orderBy: [{ name: 'asc' }],
+    ...(regionScope ? { where: regionScope } : {}),
     include: {
       directorUser: {
         select: {
@@ -319,27 +333,19 @@ export async function listRegions(actor: AuthenticatedActor): Promise<ListRegion
           displayName: true,
         },
       },
-      _count: {
+      territories: {
+        ...(territoryScope ? { where: territoryScope } : {}),
         select: {
-          territories: true,
+          id: true,
         },
       },
     },
-  });
+  } satisfies Prisma.RegionFindManyArgs;
+
+  const items = await prisma.region.findMany(query);
 
   return {
-    items: items.map((item) => ({
-      id: item.id,
-      code: item.code,
-      name: item.name,
-      ...(item.directorUserId ? { directorUserId: item.directorUserId } : {}),
-      ...(item.directorUser?.displayName ? { directorUserName: item.directorUser.displayName } : {}),
-      isActive: item.isActive,
-      ...(item.notes ? { notes: item.notes } : {}),
-      territoryCount: item._count.territories,
-      createdAt: item.createdAt.toISOString(),
-      updatedAt: item.updatedAt.toISOString(),
-    })),
+    items: items.map((item) => toRegionSummaryWithVisibleTerritoryCount(item, item.territories.length)),
   };
 }
 
@@ -495,11 +501,15 @@ export async function updateRegion(
 
 export async function listTerritories(actor: AuthenticatedActor): Promise<ListTerritoriesResponse> {
   assertModuleAccess(actor.role, 'territories');
+  const scopeWhere = buildTerritoryReadScope(actor);
 
-  const items = await prisma.territory.findMany({
+  const query = {
     orderBy: [{ name: 'asc' }],
+    ...(scopeWhere ? { where: scopeWhere } : {}),
     include: TERRITORY_INCLUDE,
-  });
+  } satisfies Prisma.TerritoryFindManyArgs;
+
+  const items = await prisma.territory.findMany(query);
 
   return {
     items: items.map(toTerritorySummary),
@@ -510,46 +520,82 @@ export async function getTerritoryMapWorkspace(
   actor: AuthenticatedActor,
 ): Promise<TerritoryMapWorkspaceResponse> {
   assertModuleAccess(actor.role, 'territories');
+  const territoryScope = buildTerritoryReadScope(actor);
+  const regionScope = buildRegionReadScope(actor);
+  const shippingCenterScope = buildShippingCenterReadScope(actor);
+  const leadScope = buildLeadRecordScope(actor);
+  const accountScope = buildAccountRecordScope(actor);
+
+  const regionQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(regionScope ? { where: regionScope } : {}),
+    include: {
+      directorUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      territories: {
+        ...(territoryScope ? { where: territoryScope } : {}),
+        select: {
+          id: true,
+        },
+      },
+    },
+  } satisfies Prisma.RegionFindManyArgs;
+
+  const territoryQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(territoryScope ? { where: territoryScope } : {}),
+    include: TERRITORY_INCLUDE,
+  } satisfies Prisma.TerritoryFindManyArgs;
+
+  const shippingCenterQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(shippingCenterScope ? { where: shippingCenterScope } : {}),
+  } satisfies Prisma.ShippingCenterFindManyArgs;
 
   const [policy, regionItems, territoryItems, shippingCenterItems, leadItems, accountItems] = await Promise.all([
     requireTerritoryPolicy(),
-    prisma.region.findMany({
-      orderBy: [{ name: 'asc' }],
-      include: {
-        directorUser: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-        _count: {
-          select: {
-            territories: true,
-          },
-        },
-      },
-    }),
-    prisma.territory.findMany({
-      orderBy: [{ name: 'asc' }],
-      include: TERRITORY_INCLUDE,
-    }),
-    prisma.shippingCenter.findMany({
-      orderBy: [{ name: 'asc' }],
-    }),
+    prisma.region.findMany(regionQuery),
+    prisma.territory.findMany(territoryQuery),
+    prisma.shippingCenter.findMany(shippingCenterQuery),
     prisma.lead.findMany({
-      where: {
-        lifecycleStatus: 'ACTIVE',
-        stage: {
-          not: LeadStage.CUSTOMER_ACTIVE,
-        },
-      },
+      where: leadScope
+        ? {
+            AND: [
+              leadScope,
+              {
+                lifecycleStatus: 'ACTIVE',
+                stage: {
+                  not: LeadStage.CUSTOMER_ACTIVE,
+                },
+              },
+            ],
+          }
+        : {
+            lifecycleStatus: 'ACTIVE',
+            stage: {
+              not: LeadStage.CUSTOMER_ACTIVE,
+            },
+          },
       orderBy: [{ companyName: 'asc' }],
       include: LEAD_TERRITORY_INCLUDE,
     }),
     prisma.account.findMany({
-      where: {
-        isActive: true,
-      },
+      where: accountScope
+        ? {
+            AND: [
+              accountScope,
+              {
+                isActive: true,
+              },
+            ],
+          }
+        : {
+            isActive: true,
+          },
       orderBy: [{ displayName: 'asc' }],
       include: {
         territory: {
@@ -582,7 +628,7 @@ export async function getTerritoryMapWorkspace(
   ]);
 
   const territories = territoryItems.map(toTerritorySummary);
-  const regions = regionItems.map(toRegionSummary);
+  const regions = regionItems.map((item) => toRegionSummaryWithVisibleTerritoryCount(item, item.territories.length));
   const coverageEntries = territoryItems.flatMap((territory) => toTerritoryMapCoverageEntries(territory));
 
   const leadCountsByShippingCenter = new Map<string, number>();
@@ -872,6 +918,7 @@ export async function listTerritoryAssignmentHistory(
   entityId: string,
 ): Promise<ListTerritoryAssignmentHistoryResponse> {
   assertModuleAccess(actor.role, 'territories');
+  await assertTerritoryAssignmentHistoryVisible(actor, entityType, entityId);
 
   const items = await prisma.territoryAssignmentHistory.findMany({
     where: {
@@ -1914,6 +1961,26 @@ function toRegionSummary(
     };
   }>,
 ): RegionSummary {
+  return toRegionSummaryWithVisibleTerritoryCount(item, item._count.territories);
+}
+
+function toRegionSummaryWithVisibleTerritoryCount(
+  item: {
+    id: string;
+    code: string;
+    name: string;
+    directorUserId: string | null;
+    isActive: boolean;
+    notes: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    directorUser?: {
+      id: string;
+      displayName: string;
+    } | null;
+  },
+  territoryCount: number,
+): RegionSummary {
   return {
     id: item.id,
     code: item.code,
@@ -1922,7 +1989,7 @@ function toRegionSummary(
     ...(item.directorUser?.displayName ? { directorUserName: item.directorUser.displayName } : {}),
     isActive: item.isActive,
     ...(item.notes ? { notes: item.notes } : {}),
-    territoryCount: item._count.territories,
+    territoryCount,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };

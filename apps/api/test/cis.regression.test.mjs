@@ -7,6 +7,7 @@ ensureTestDatabaseReady();
 
 let prisma;
 let config;
+let loadAppConfig;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
@@ -28,6 +29,9 @@ let listCisParsedDrafts;
 let applyCisParsedDraft;
 let requestCisPaymentCapture;
 let recordCisPaymentVaultReference;
+let startMonerisHostedPaymentCapture;
+let recordMonerisHostedCaptureResult;
+let updatePaymentIntegrationAdminSettings;
 
 const SERIAL = { concurrency: false };
 
@@ -35,6 +39,7 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
 
   const configModule = await import('../dist/config.js');
+  ({ loadAppConfig } = configModule);
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({ ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded, createLead } = await import('../dist/modules/leads/service.js'));
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
@@ -54,9 +59,12 @@ test.before(async () => {
     applyCisParsedDraft,
     requestCisPaymentCapture,
     recordCisPaymentVaultReference,
+    startMonerisHostedPaymentCapture,
+    recordMonerisHostedCaptureResult,
   } = await import('../dist/modules/cis/service.js'));
+  ({ updatePaymentIntegrationAdminSettings } = await import('../dist/modules/cis/policy.js'));
 
-  config = configModule.loadAppConfig(process.env);
+  config = loadAppConfig(process.env);
   await prisma.$connect();
 });
 
@@ -67,7 +75,12 @@ test.after(async () => {
 });
 
 test.beforeEach(async () => {
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_URL;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES;
   await resetDatabase(prisma);
+  config = loadAppConfig(process.env);
   await ensureReferenceDataSeeded();
   await ensureLeadRoutingPolicySeeded();
   await ensureWebsiteLeadConfigSeeded();
@@ -593,4 +606,258 @@ test('non-finance actors cannot record CIS payment vault references', SERIAL, as
     }),
     /cannot perform action lead\.finance_decide/i,
   );
+});
+
+test('finance can launch Moneris hosted capture without creating a permanent vault reference', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-regression-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-regression';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-launch@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-launch@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Launch Heating', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch secure Moneris hosted tokenization.',
+  });
+
+  assert.equal(launched.cisPackage.paymentStatus, 'vault_pending');
+  assert.equal(launched.attempt.provider, 'moneris');
+  assert.equal(launched.attempt.status, 'launched');
+  assert.equal(launched.cisPackage.paymentCaptureAttempts.length, 1);
+  assert.match(launched.launch.iframeUrl, /mpg1t\.moneris\.io/);
+  assert.match(launched.launch.iframeUrl, /id=moneris-profile-regression/);
+  assert.equal(launched.launch.iframeOrigin, 'https://mpg1t.moneris.io');
+
+  const storedAttempts = await prisma.cisPaymentCaptureAttempt.findMany({
+    where: { cisPackageId: fixture.cisPackageId },
+  });
+  assert.equal(storedAttempts.length, 1);
+  assert.equal(storedAttempts[0]?.status, 'LAUNCHED');
+  assert.equal(storedAttempts[0]?.provider, 'MONERIS');
+  assert.equal(storedAttempts[0]?.providerProfileId, 'moneris-profile-regression');
+
+  const vaultReferenceCount = await prisma.cisPaymentVaultReference.count({
+    where: { cisPackageId: fixture.cisPackageId },
+  });
+  assert.equal(vaultReferenceCount, 0);
+});
+
+test('Moneris hosted capture launch is blocked when provider runtime is selected without Moneris config', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-missing@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-missing@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Missing Config Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  await assert.rejects(
+    () =>
+      startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+        note: 'Launch should fail without Moneris config.',
+      }),
+    /MONERIS_HOSTED_TOKENIZATION_PROFILE_ID/i,
+  );
+});
+
+test('Moneris hosted capture launch is blocked when payment integration remains manual-recording only', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-manual-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-manual';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-manual@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-manual@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'manual_recording',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Manual Guard', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  await assert.rejects(
+    () =>
+      startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+        note: 'Should be blocked while runtime remains manual-only.',
+      }),
+    /manual hosted-capture recording/i,
+  );
+});
+
+test('finance can record Moneris tokenization success without prematurely creating a permanent vault reference', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-success-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-success';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-success@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-success@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Success Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Hosted launch before token response.',
+  });
+
+  const completed = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      responseCode: '001',
+      temporaryToken: 'moneris-temp-token-123',
+      bin: '424242',
+      note: 'Moneris tokenization completed successfully.',
+    },
+  );
+
+  assert.equal(completed.attempt.status, 'token_received');
+  assert.equal(completed.attempt.hasTemporaryToken, true);
+  assert.equal(completed.attempt.providerResultCode, '001');
+  assert.equal(completed.attempt.bin, '424242');
+  assert.equal(completed.cisPackage.paymentStatus, 'vault_pending');
+  assert.equal(completed.cisPackage.paymentVaultReferences.length, 0);
+  assert.ok(completed.cisPackage.events.some((event) => event.eventType === 'payment_capture_token_received'));
+
+  const storedAttempt = await prisma.cisPaymentCaptureAttempt.findUniqueOrThrow({
+    where: { id: launched.attempt.id },
+  });
+  assert.equal(storedAttempt.status, 'TOKEN_RECEIVED');
+  assert.ok(storedAttempt.temporaryTokenEncrypted);
+  assert.equal(storedAttempt.providerResultCode, '001');
+  assert.equal(storedAttempt.providerBin, '424242');
+});
+
+test('finance can record Moneris tokenization failure details and non-finance actors are denied', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-failure-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-failure';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-failure@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-failure@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Failure Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  await assert.rejects(
+    () =>
+      startMonerisHostedPaymentCapture(salesActor, config, fixture.cisPackageId, {
+        note: 'Sales should not be able to launch hosted capture.',
+      }),
+    /cannot perform action lead\.finance_decide/i,
+  );
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch hosted capture before failure response.',
+  });
+
+  await assert.rejects(
+    () =>
+      recordMonerisHostedCaptureResult(salesActor, config, fixture.cisPackageId, launched.attempt.id, {
+        responseCode: '940',
+        errorMessage: 'Invalid profile configuration',
+      }),
+    /cannot perform action lead\.finance_decide/i,
+  );
+
+  const failed = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      responseCode: '940',
+      errorMessage: 'Invalid profile configuration',
+      note: 'Capture failed in hosted frame.',
+    },
+  );
+
+  assert.equal(failed.attempt.status, 'failed');
+  assert.equal(failed.attempt.hasTemporaryToken, false);
+  assert.equal(failed.attempt.providerResultCode, '940');
+  assert.equal(failed.attempt.providerErrorMessage, 'Invalid profile configuration');
+  assert.ok(failed.cisPackage.events.some((event) => event.eventType === 'payment_capture_failed'));
 });

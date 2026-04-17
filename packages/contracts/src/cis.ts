@@ -37,6 +37,17 @@ export const CIS_PAYMENT_VAULT_PROVIDERS = [
 
 export type CisPaymentVaultProviderKey = (typeof CIS_PAYMENT_VAULT_PROVIDERS)[number];
 
+export const CIS_PAYMENT_CAPTURE_ATTEMPT_STATUSES = [
+  'launched',
+  'token_received',
+  'failed',
+  'cancelled',
+  'expired',
+  'consumed',
+] as const;
+
+export type CisPaymentCaptureAttemptStatusKey = (typeof CIS_PAYMENT_CAPTURE_ATTEMPT_STATUSES)[number];
+
 export const PAYMENT_INTEGRATION_CAPTURE_MODES = [
   'manual_recording',
   'provider_runtime',
@@ -185,8 +196,25 @@ export interface CisPackageDetail extends CisPackageSummary {
   formData: CisFormDataRecord;
   internalReview?: CisInternalReviewRecord;
   financeDecision?: CisFinanceDecisionRecord;
+  paymentCaptureAttempts: CisPaymentCaptureAttemptRecord[];
   paymentVaultReferences: CisPaymentVaultReferenceRecord[];
   events: CisPackageEventSummary[];
+}
+
+export interface CisPaymentCaptureAttemptRecord {
+  id: string;
+  provider: CisPaymentVaultProviderKey;
+  status: CisPaymentCaptureAttemptStatusKey;
+  launchedAt: string;
+  completedAt?: string;
+  expiresAt?: string;
+  providerProfileId?: string;
+  providerResultCode?: string;
+  providerErrorMessage?: string;
+  bin?: string;
+  hasTemporaryToken: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CisPaymentVaultReferenceRecord {
@@ -225,6 +253,38 @@ export interface CisFinanceDecisionRecord {
 
 export interface RequestCisPaymentCaptureRequest {
   note?: string;
+}
+
+export interface StartMonerisHostedPaymentCaptureRequest {
+  note?: string;
+}
+
+export interface StartMonerisHostedPaymentCaptureResponse {
+  cisPackage: CisPackageDetail;
+  attempt: CisPaymentCaptureAttemptRecord;
+  launch: {
+    provider: 'moneris';
+    iframeUrl: string;
+    iframeOrigin: string;
+    profileId: string;
+    attemptId: string;
+    expiresAt?: string;
+    tokenizeMessage: 'tokenize';
+  };
+}
+
+export interface RecordMonerisHostedCaptureResultRequest {
+  responseCode?: string;
+  errorMessage?: string;
+  temporaryToken?: string;
+  bin?: string;
+  note?: string;
+  rawProviderPayload?: Record<string, unknown>;
+}
+
+export interface RecordMonerisHostedCaptureResultResponse {
+  cisPackage: CisPackageDetail;
+  attempt: CisPaymentCaptureAttemptRecord;
 }
 
 export interface RecordCisPaymentVaultReferenceRequest {

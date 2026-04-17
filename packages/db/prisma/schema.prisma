@@ -481,6 +481,15 @@ enum CisPaymentVaultProvider {
   UNKNOWN
 }
 
+enum CisPaymentCaptureAttemptStatus {
+  LAUNCHED
+  TOKEN_RECEIVED
+  FAILED
+  CANCELLED
+  EXPIRED
+  CONSUMED
+}
+
 enum CisFinanceDecisionStatus {
   NOT_SUBMITTED
   PENDING
@@ -1472,6 +1481,7 @@ model CisPackage {
   events                   CisPackageEvent[]
   documents                CisDocument[]
   parsedDrafts             CisParsedDraft[]
+  paymentCaptureAttempts   CisPaymentCaptureAttempt[]
   paymentVaultReferences   CisPaymentVaultReference[]
   readinessStates          LeadReadinessState[]
 
@@ -1659,6 +1669,33 @@ model CisPaymentVaultReference {
   promotedAccountReferences AccountPaymentVaultReference[]
 
   @@index([cisPackageId, createdAt])
+  @@index([provider])
+}
+
+model CisPaymentCaptureAttempt {
+  id                       String                        @id @default(uuid()) @db.Uuid
+  cisPackageId             String                        @db.Uuid
+  provider                 CisPaymentVaultProvider       @default(UNKNOWN)
+  status                   CisPaymentCaptureAttemptStatus @default(LAUNCHED)
+  providerProfileId        String?
+  launchedByUserId         String?                       @db.Uuid
+  completedByUserId        String?                       @db.Uuid
+  launchNote               String?
+  resultNote               String?
+  temporaryTokenEncrypted  String?
+  providerResultCode       String?
+  providerErrorMessage     String?
+  providerBin              String?
+  launchedAt               DateTime                      @default(now())
+  completedAt              DateTime?
+  expiresAt                DateTime?
+  createdAt                DateTime                      @default(now())
+  updatedAt                DateTime                      @updatedAt
+
+  cisPackage               CisPackage                    @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+
+  @@index([cisPackageId, createdAt])
+  @@index([status])
   @@index([provider])
 }
 

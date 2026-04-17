@@ -265,7 +265,7 @@ export async function handleAdminRoutes(
   if (pathname === '/api/v1/admin/integrations/payments') {
     if (method === 'GET') {
       return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
-        const response = await getPaymentIntegrationAdminSettings();
+        const response = await getPaymentIntegrationAdminSettings(dependencies.config);
         return jsonResponse(res, 200, response);
       });
     }
@@ -273,7 +273,7 @@ export async function handleAdminRoutes(
     if (method === 'PATCH') {
       return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
         const body = (await readJsonBody(req)) as UpdateAdminPaymentIntegrationSettingsRequest;
-        const response = await updatePaymentIntegrationAdminSettings(actor, body);
+        const response = await updatePaymentIntegrationAdminSettings(dependencies.config, actor, body);
         return jsonResponse(res, 200, response);
       });
     }

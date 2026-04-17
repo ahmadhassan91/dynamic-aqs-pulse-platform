@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AuthRole,
   CisFinanceDecisionRequest,
   CisFinanceDecisionStatusKey,
+  CisPaymentCaptureAttemptRecord,
   CisPackageDetail,
   CisParsedDraftRecord,
   CisPaymentMethodKey,
@@ -21,6 +22,7 @@ import {
   CopyButton,
   Divider,
   Group,
+  Modal,
   Paper,
   Select,
   SimpleGrid,
@@ -49,10 +51,12 @@ import {
   fetchLeadCisPackage,
   issueLeadCisLink,
   listCisParsedDrafts,
+  recordLeadMonerisHostedCaptureResult,
   recordLeadCisFinanceDecision,
   recordLeadCisPaymentVaultReference,
   requestLeadCisPaymentCapture,
   reviewLeadCisPackage,
+  startLeadMonerisHostedCapture,
   submitLeadCisToFinance,
   uploadLeadCisScan,
 } from '@/lib/pulse-api';
@@ -109,6 +113,14 @@ const PAYMENT_VAULT_STATUS_OPTIONS = [
   { value: 'replaced', label: 'Replaced' },
 ] as const;
 
+type MonerisHostedLaunchState = {
+  attemptId: string;
+  iframeUrl: string;
+  iframeOrigin: string;
+  profileId: string;
+  expiresAt?: string;
+};
+
 export function LeadCisPanel({
   apiBaseUrl,
   accessToken,
@@ -157,6 +169,10 @@ export function LeadCisPanel({
   const [isRecordingDecision, setIsRecordingDecision] = useState(false);
   const [isRequestingPaymentCapture, setIsRequestingPaymentCapture] = useState(false);
   const [isRecordingVaultReference, setIsRecordingVaultReference] = useState(false);
+  const [isLaunchingHostedCapture, setIsLaunchingHostedCapture] = useState(false);
+  const [isRecordingHostedCaptureResult, setIsRecordingHostedCaptureResult] = useState(false);
+  const [hostedCaptureLaunch, setHostedCaptureLaunch] = useState<MonerisHostedLaunchState | null>(null);
+  const monerisIframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const canManageCis = CIS_MANAGE_ROLES.has(actorRole);
   const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
@@ -215,12 +231,13 @@ export function LeadCisPanel({
       setVaultToken('');
       setVaultCustomerRef('');
       setVaultLast4('');
-      setVaultBrand('');
-      setVaultStatus('vaulted');
-      setVaultAuthorizationCapturedAt('');
-      setVaultReferenceNote('');
-      return;
-    }
+    setVaultBrand('');
+    setVaultStatus('vaulted');
+    setVaultAuthorizationCapturedAt('');
+    setVaultReferenceNote('');
+    setHostedCaptureLaunch(null);
+    return;
+  }
 
     setSalesReviewNotes(cisPackage.internalReview?.salesReviewNotes ?? '');
     setFinanceCoverNotes(cisPackage.internalReview?.financeCoverNotes ?? '');
@@ -296,6 +313,7 @@ export function LeadCisPanel({
 
     return formatFinanceDecisionStatus(cisPackage.financeDecision.status);
   }, [cisPackage]);
+  const latestCaptureAttempt = cisPackage?.paymentCaptureAttempts[0];
   const latestVaultReference = cisPackage?.paymentVaultReferences[0];
   const canTrackHostedPaymentCapture =
     Boolean(cisPackage)
@@ -516,6 +534,47 @@ export function LeadCisPanel({
     }
   }
 
+  async function handleLaunchMonerisHostedCapture() {
+    if (!cisPackage || !canTrackHostedPaymentCapture) {
+      return;
+    }
+
+    setIsLaunchingHostedCapture(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await startLeadMonerisHostedCapture(apiBaseUrl, accessToken, cisPackage.id, {
+        ...(paymentCaptureNote.trim() ? { note: paymentCaptureNote.trim() } : {}),
+      });
+
+      setCisPackage(response.cisPackage);
+      setPaymentCaptureNote('');
+      setHostedCaptureLaunch({
+        attemptId: response.launch.attemptId,
+        iframeUrl: response.launch.iframeUrl,
+        iframeOrigin: response.launch.iframeOrigin,
+        profileId: response.launch.profileId,
+        ...(response.launch.expiresAt ? { expiresAt: response.launch.expiresAt } : {}),
+      });
+      setActionMessage('Secure Moneris hosted capture launched. Enter payment details in the frame, then tokenize from Pulse.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLaunchingHostedCapture(false);
+    }
+  }
+
+  function handleSendMonerisTokenizeRequest() {
+    if (!hostedCaptureLaunch || !monerisIframeRef.current?.contentWindow) {
+      return;
+    }
+
+    monerisIframeRef.current.contentWindow.postMessage('tokenize', hostedCaptureLaunch.iframeOrigin);
+    setActionMessage('Tokenize request sent to the secure Moneris frame.');
+  }
+
   async function handleRecordPaymentVaultReference() {
     if (!cisPackage || !canTrackHostedPaymentCapture) {
       return;
@@ -553,6 +612,74 @@ export function LeadCisPanel({
       setIsRecordingVaultReference(false);
     }
   }
+
+  useEffect(() => {
+    if (!hostedCaptureLaunch || !cisPackageId || isRecordingHostedCaptureResult) {
+      return undefined;
+    }
+
+    const activeLaunch = hostedCaptureLaunch;
+    const activePackageId = cisPackageId;
+
+    function handleMonerisMessage(event: MessageEvent) {
+      if (event.origin !== activeLaunch.iframeOrigin) {
+        return;
+      }
+
+      const payload = parseMonerisHostedCaptureMessage(event.data);
+      if (!payload) {
+        return;
+      }
+
+      setIsRecordingHostedCaptureResult(true);
+      setActionError(null);
+
+      void recordLeadMonerisHostedCaptureResult(
+        apiBaseUrl,
+        accessToken,
+        activePackageId,
+        activeLaunch.attemptId,
+        {
+          ...(payload.responseCode ? { responseCode: payload.responseCode } : {}),
+          ...(payload.errorMessage ? { errorMessage: payload.errorMessage } : {}),
+          ...(payload.temporaryToken ? { temporaryToken: payload.temporaryToken } : {}),
+          ...(payload.bin ? { bin: payload.bin } : {}),
+          ...(isObjectRecord(payload.rawProviderPayload) ? { rawProviderPayload: payload.rawProviderPayload } : {}),
+          note: payload.responseCode === '001'
+            ? 'Moneris hosted tokenization completed in the centralized CIS flow.'
+            : 'Moneris hosted tokenization returned an error.',
+        },
+      )
+        .then((response) => {
+          setCisPackage(response.cisPackage);
+          setHostedCaptureLaunch(null);
+          setActionMessage(
+            response.attempt.status === 'token_received'
+              ? 'Moneris temporary token received. Finance can now finish the provider-side follow-up without exposing raw payment data in Pulse.'
+              : `Moneris capture failed${response.attempt.providerErrorMessage ? `: ${response.attempt.providerErrorMessage}` : '.'}`,
+          );
+          onLeadChanged();
+        })
+        .catch((error) => {
+          setActionError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          setIsRecordingHostedCaptureResult(false);
+        });
+    }
+
+    window.addEventListener('message', handleMonerisMessage);
+    return () => {
+      window.removeEventListener('message', handleMonerisMessage);
+    };
+  }, [
+    accessToken,
+    apiBaseUrl,
+    cisPackageId,
+    hostedCaptureLaunch,
+    isRecordingHostedCaptureResult,
+    onLeadChanged,
+  ]);
 
   const scannedCisFallbackCard = canManageCis ? (
     <Card withBorder radius="xl" p="lg">
@@ -695,6 +822,53 @@ export function LeadCisPanel({
   return (
     <Paper withBorder radius="xl" p="lg" className="premium-drawer-card">
       <Stack gap="md">
+        <Modal
+          opened={Boolean(hostedCaptureLaunch)}
+          onClose={() => {
+            if (!isRecordingHostedCaptureResult) {
+              setHostedCaptureLaunch(null);
+            }
+          }}
+          title="Moneris hosted payment capture"
+          size="xl"
+          centered
+        >
+          <Stack gap="md">
+            <Alert color="blue" icon={<IconCreditCard size={16} />}>
+              Payment details stay inside the secure Moneris frame. Pulse only tracks the hosted attempt and any returned temporary token metadata.
+            </Alert>
+            <Text size="sm" c="dimmed">
+              Enter the payment details in the secure frame below, then click <strong>Tokenize in secure frame</strong> so Moneris can return the temporary token to Pulse.
+            </Text>
+            {hostedCaptureLaunch?.expiresAt ? (
+              <Text size="xs" c="dimmed">
+                This hosted attempt expires {formatDateTimeLabel(hostedCaptureLaunch.expiresAt)}.
+              </Text>
+            ) : null}
+            {hostedCaptureLaunch ? (
+              <iframe
+                ref={monerisIframeRef}
+                title="Moneris hosted tokenization"
+                src={hostedCaptureLaunch.iframeUrl}
+                style={{ width: '100%', minHeight: 340, border: '1px solid rgba(0,0,0,0.12)', borderRadius: 16, background: '#fff' }}
+              />
+            ) : null}
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">
+                Profile: {hostedCaptureLaunch?.profileId ?? '—'}
+              </Text>
+              <Group>
+                <Button variant="light" onClick={() => setHostedCaptureLaunch(null)} disabled={isRecordingHostedCaptureResult}>
+                  Close
+                </Button>
+                <Button onClick={handleSendMonerisTokenizeRequest} loading={isRecordingHostedCaptureResult} disabled={!hostedCaptureLaunch}>
+                  Tokenize in secure frame
+                </Button>
+              </Group>
+            </Group>
+          </Stack>
+        </Modal>
+
         <Group justify="space-between" align="flex-start">
           <Stack gap={4}>
             <Title order={4}>CIS Workspace</Title>
@@ -1180,10 +1354,37 @@ export function LeadCisPanel({
                       <ReadOnlyField label="Payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
                       <ReadOnlyField label="Vault references" value={String(cisPackage.paymentVaultReferences.length)} />
                       <ReadOnlyField
-                        label="Latest authorization"
-                        value={latestVaultReference?.authorizationCapturedAt ? formatDateTimeLabel(latestVaultReference.authorizationCapturedAt) : '—'}
+                        label="Latest hosted attempt"
+                        value={latestCaptureAttempt ? `${formatCaptureAttemptStatus(latestCaptureAttempt.status)} • ${formatDateTimeLabel(latestCaptureAttempt.createdAt)}` : '—'}
                       />
                     </SimpleGrid>
+
+                    {cisPackage.paymentCaptureAttempts.length > 0 ? (
+                      <Stack gap="xs">
+                        <Text fw={600}>Hosted capture attempts</Text>
+                        {cisPackage.paymentCaptureAttempts.map((attempt) => (
+                          <Card key={attempt.id} withBorder radius="lg" p="sm">
+                            <Group justify="space-between" align="flex-start">
+                              <Stack gap={2}>
+                                <Group gap="xs">
+                                  <Badge color="blue" variant="light">{formatVaultProvider(attempt.provider)}</Badge>
+                                  <Badge color={captureAttemptColor(attempt.status)} variant="light">{formatCaptureAttemptStatus(attempt.status)}</Badge>
+                                  {attempt.providerResultCode ? <Badge color="gray" variant="light">Code {attempt.providerResultCode}</Badge> : null}
+                                  {attempt.bin ? <Badge color="teal" variant="light">BIN {attempt.bin}</Badge> : null}
+                                </Group>
+                                <Text size="sm" c="dimmed">
+                                  Temporary token present: {attempt.hasTemporaryToken ? 'Yes' : 'No'}
+                                  {attempt.providerErrorMessage ? ` • ${attempt.providerErrorMessage}` : ''}
+                                </Text>
+                              </Stack>
+                              <Text size="sm" c="dimmed">
+                                {attempt.completedAt ? formatDateTimeLabel(attempt.completedAt) : formatDateTimeLabel(attempt.launchedAt)}
+                              </Text>
+                            </Group>
+                          </Card>
+                        ))}
+                      </Stack>
+                    ) : null}
 
                     {cisPackage.paymentVaultReferences.length > 0 ? (
                       <Stack gap="xs">
@@ -1220,7 +1421,7 @@ export function LeadCisPanel({
                           <Stack gap="sm">
                             <Text fw={600}>1. Request hosted capture</Text>
                             <Text size="sm" c="dimmed">
-                              Mark that the external hosted payment capture step is required or has been handed off for completion.
+                              Launch the secure Moneris hosted frame when runtime is enabled, or keep using the manual tracking lane while the provider step stays outside Pulse.
                             </Text>
                             <Textarea
                               label="Capture request note"
@@ -1230,16 +1431,30 @@ export function LeadCisPanel({
                               minRows={3}
                               disabled={!canTrackHostedPaymentCapture || isRequestingPaymentCapture}
                             />
-                            <Button
-                              variant="light"
-                              onClick={() => {
-                                void handleRequestPaymentCapture();
-                              }}
-                              loading={isRequestingPaymentCapture}
-                              disabled={!canTrackHostedPaymentCapture}
-                            >
-                              Mark hosted capture requested
-                            </Button>
+                            <Group>
+                              <Button
+                                onClick={() => {
+                                  void handleLaunchMonerisHostedCapture();
+                                }}
+                                loading={isLaunchingHostedCapture}
+                                disabled={!canTrackHostedPaymentCapture}
+                              >
+                                Launch Moneris hosted capture
+                              </Button>
+                              <Button
+                                variant="light"
+                                onClick={() => {
+                                  void handleRequestPaymentCapture();
+                                }}
+                                loading={isRequestingPaymentCapture}
+                                disabled={!canTrackHostedPaymentCapture}
+                              >
+                                Mark hosted capture requested
+                              </Button>
+                            </Group>
+                            <Text size="xs" c="dimmed">
+                              Launch is for the real secure frame. Manual request recording is still useful when finance completes hosted capture outside Pulse.
+                            </Text>
                           </Stack>
                         </Card>
 
@@ -1401,6 +1616,103 @@ function ReadOnlyField({ label, value }: { label: string; value: string | undefi
       </Text>
     </Stack>
   );
+}
+
+function captureAttemptColor(status: CisPaymentCaptureAttemptRecord['status']) {
+  switch (status) {
+    case 'token_received':
+    case 'consumed':
+      return 'green';
+    case 'failed':
+    case 'expired':
+      return 'red';
+    case 'cancelled':
+      return 'gray';
+    default:
+      return 'yellow';
+  }
+}
+
+function formatCaptureAttemptStatus(status: CisPaymentCaptureAttemptRecord['status']) {
+  switch (status) {
+    case 'token_received':
+      return 'Temporary token received';
+    default:
+      return status.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toUpperCase());
+  }
+}
+
+function parseMonerisHostedCaptureMessage(data: unknown): {
+  responseCode?: string;
+  errorMessage?: string;
+  temporaryToken?: string;
+  bin?: string;
+  rawProviderPayload?: Record<string, unknown>;
+} | null {
+  const normalized = normalizeMonerisPayloadRecord(data);
+  if (!normalized) {
+    return null;
+  }
+
+  const responseCode = readOptionalString(normalized.responseCode);
+  const errorMessage = readOptionalString(normalized.errorMessage);
+  const temporaryToken = readOptionalString(normalized.dataKey) ?? readOptionalString(normalized.temporaryToken);
+  const bin = readOptionalString(normalized.bin);
+
+  if (!responseCode && !errorMessage && !temporaryToken && !bin) {
+    return null;
+  }
+
+  return {
+    ...(responseCode ? { responseCode } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
+    ...(temporaryToken ? { temporaryToken } : {}),
+    ...(bin ? { bin } : {}),
+    rawProviderPayload: normalized,
+  };
+}
+
+function normalizeMonerisPayloadRecord(value: unknown): Record<string, unknown> | null {
+  if (isObjectRecord(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (isObjectRecord(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to query-string parsing.
+  }
+
+  const params = new URLSearchParams(trimmed);
+  if (params.size === 0) {
+    return null;
+  }
+
+  const record: Record<string, unknown> = {};
+  for (const [key, entry] of params.entries()) {
+    record[key] = entry;
+  }
+  return record;
+}
+
+function readOptionalString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function statusColor(status: CisPackageDetail['status']) {

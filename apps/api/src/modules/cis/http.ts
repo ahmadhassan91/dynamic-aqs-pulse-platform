@@ -4,12 +4,14 @@ import type {
   ApplyCisParsedDraftRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
+  RecordMonerisHostedCaptureResultRequest,
   RecordCisPaymentVaultReferenceRequest,
   RequestCisPaymentCaptureRequest,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   ListFinanceQueueRequest,
   SavePublicCisDraftRequest,
+  StartMonerisHostedPaymentCaptureRequest,
   SubmitPublicCisRequest,
   UploadCisScanRequest,
 } from '@pulse/contracts';
@@ -38,9 +40,11 @@ import {
   applyCisParsedDraft,
   recordFinanceDecision,
   recordCisPaymentVaultReference,
+  recordMonerisHostedCaptureResult,
   reviewAndSignOffCis,
   requestCisPaymentCapture,
   savePublicCisDraft,
+  startMonerisHostedPaymentCapture,
   submitCisToFinance,
   submitPublicCis,
   uploadLeadCisScan,
@@ -52,12 +56,13 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
 
   const internalLeadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/cis(?:\/(send-link|resend-link|upload-scan))?$/);
   const financeQueueRoute = pathname === '/api/v1/cis/finance-queue';
-  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision|request-payment-capture|payment-vault-reference))?$/);
+  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision|request-payment-capture|payment-vault-reference|moneris-hosted-capture\/start))?$/);
   const parsedDraftCollectionMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts$/);
   const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
+  const hostedCaptureResultMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-result$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
 
-  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !publicBaseMatch) {
+  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !publicBaseMatch) {
     return false;
   }
 
@@ -303,6 +308,40 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
         const response = await recordCisPaymentVaultReference(actor, cisPackageId, body);
         return jsonResponse(res, 200, response);
       }
+
+      if (action === 'moneris-hosted-capture/start') {
+        if (method !== 'POST') {
+          return methodNotAllowedResponse(res, method, ['POST']);
+        }
+
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'cis',
+          action: 'lead.finance_decide',
+        });
+        const body = (await readJsonBody(req)) as StartMonerisHostedPaymentCaptureRequest;
+        const response = await startMonerisHostedPaymentCapture(actor, config, cisPackageId, body);
+        return jsonResponse(res, 200, response);
+      }
+    }
+
+    if (hostedCaptureResultMatch) {
+      const cisPackageId = hostedCaptureResultMatch[1];
+      const attemptId = hostedCaptureResultMatch[2];
+      if (!cisPackageId || !attemptId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'cis',
+        action: 'lead.finance_decide',
+      });
+      const body = (await readJsonBody(req)) as RecordMonerisHostedCaptureResultRequest;
+      const response = await recordMonerisHostedCaptureResult(actor, config, cisPackageId, attemptId, body);
+      return jsonResponse(res, 200, response);
     }
   } catch (error) {
     if (isAuthenticationError(error)) {

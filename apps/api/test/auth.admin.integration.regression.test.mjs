@@ -37,6 +37,10 @@ test.beforeEach(async () => {
   process.env.MICROSOFT_ENTRA_LOGIN_REDIRECT_URI = 'http://localhost:3000/auth/entra/callback';
   process.env.MICROSOFT_ENTRA_LOGIN_SCOPES = 'openid profile email offline_access User.Read';
   process.env.MICROSOFT_ENTRA_GROUP_ROLE_MAP = '';
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_URL;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES;
 
   config = loadAppConfig(process.env);
   await resetDatabase(prisma);
@@ -216,6 +220,94 @@ test('admin integrations surface tokenized payment capture settings and persist 
     assert.equal(persistedResponse.status, 200);
     assert.equal(persistedPayload.policy.defaultProvider, 'moneris');
     assert.equal(persistedPayload.policy.allowCisCaptureTracking, false);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('admin integrations flag Moneris provider runtime readiness based on environment configuration', SERIAL, async () => {
+  const auth = await createAdminAuth();
+  let runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+
+    const missingConfigResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        captureMode: 'provider_runtime',
+        defaultProvider: 'moneris',
+        allowCisCaptureTracking: true,
+        allowAccountPaymentMethodManagement: true,
+      }),
+    });
+
+    assert.equal(missingConfigResponse.status, 200);
+    const missingConfigPayload = await missingConfigResponse.json();
+    assert.equal(missingConfigPayload.policy.captureMode, 'provider_runtime');
+    assert.equal(missingConfigPayload.policy.defaultProvider, 'moneris');
+    assert.equal(missingConfigPayload.isConfigured, false);
+    assert.ok(missingConfigPayload.configurationIssues.some((issue) => issue.includes('MONERIS_HOSTED_TOKENIZATION_PROFILE_ID')));
+
+    const missingStatusesResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+    const missingStatusesPayload = await missingStatusesResponse.json();
+    const missingPaymentStatus = missingStatusesPayload.integrations.find((entry) => entry.key === 'tokenized-payments');
+    assert.ok(missingPaymentStatus);
+    assert.match(missingPaymentStatus.detail, /MONERIS_HOSTED_TOKENIZATION_PROFILE_ID/i);
+  } finally {
+    await runtime.close();
+  }
+
+  process.env.APP_ENCRYPTION_KEY = 'admin-moneris-runtime-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-admin';
+  config = loadAppConfig(process.env);
+
+  runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+
+    const readyResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        captureMode: 'provider_runtime',
+        defaultProvider: 'moneris',
+        allowCisCaptureTracking: true,
+        allowAccountPaymentMethodManagement: true,
+      }),
+    });
+
+    assert.equal(readyResponse.status, 200);
+    const readyPayload = await readyResponse.json();
+    assert.equal(readyPayload.policy.captureMode, 'provider_runtime');
+    assert.equal(readyPayload.policy.defaultProvider, 'moneris');
+    assert.equal(readyPayload.isConfigured, true);
+    assert.deepEqual(readyPayload.configurationIssues, []);
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+    const statusPayload = await statusResponse.json();
+    const paymentStatus = statusPayload.integrations.find((entry) => entry.key === 'tokenized-payments');
+    assert.ok(paymentStatus);
+    assert.equal(paymentStatus.status, 'connected');
+    assert.match(paymentStatus.detail, /Moneris hosted tokenization runtime is ready/i);
   } finally {
     await runtime.close();
   }

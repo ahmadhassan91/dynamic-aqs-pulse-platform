@@ -36,7 +36,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 import { listMicrosoftEntraIntegrationStatuses } from '../auth/policy.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { listOutlookIntegrationStatuses } from '../calendar/policy.js';
-import { listPaymentIntegrationStatuses } from '../cis/policy.js';
+import { listPaymentIntegrationStatusesForConfig } from '../cis/policy.js';
 
 const USER_ENTITY_TYPE = 'USER';
 
@@ -539,7 +539,7 @@ export async function getAdminIntegrationStatus(
   const [calendarIntegrations, authIntegrations, paymentIntegrations] = await Promise.all([
     listOutlookIntegrationStatuses(snapshot.config),
     listMicrosoftEntraIntegrationStatuses(snapshot.config),
-    listPaymentIntegrationStatuses(),
+    listPaymentIntegrationStatusesForConfig(snapshot.config),
   ]);
 
   return {

@@ -89,7 +89,9 @@ export function AdminPaymentIntegrationPanel({
               </Text>
             </Stack>
             <Badge color={settings?.isConfigured ? 'green' : 'yellow'} variant="light">
-              {settings?.isConfigured ? 'Manual lane ready' : 'Provider runtime parked'}
+              {settings?.policy.captureMode === 'provider_runtime'
+                ? settings?.isConfigured ? 'Provider runtime ready' : 'Provider runtime blocked'
+                : settings?.isConfigured ? 'Manual lane ready' : 'Manual lane needs setup'}
             </Badge>
           </Group>
 
@@ -213,7 +215,11 @@ export function AdminPaymentIntegrationPanel({
                 <Table.Td>{policy?.captureMode === 'provider_runtime' ? 'Provider runtime' : 'Manual recording'}</Table.Td>
                 <Table.Td>
                   {policy?.captureMode === 'provider_runtime'
-                    ? 'Reserved for the future hosted adapter; not active in this environment yet.'
+                    ? policy?.defaultProvider === 'moneris'
+                      ? settings?.isConfigured
+                        ? 'Moneris hosted tokenization can be launched directly from CIS finance flows in this environment.'
+                        : 'Moneris is selected, but runtime launch is blocked until the remaining environment config is supplied.'
+                      : 'Provider runtime is reserved until the selected adapter is wired and configured.'
                     : 'Hosted capture still happens outside Pulse; only token references and masked descriptors are recorded.'}
                 </Table.Td>
               </Table.Tr>

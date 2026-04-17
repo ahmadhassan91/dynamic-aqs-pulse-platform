@@ -6,6 +6,7 @@ import type {
   UpdateAdminPaymentIntegrationSettingsRequest,
 } from '@pulse/contracts';
 import { AuditAction, FeatureFlagState, prisma } from '@pulse/db';
+import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 
@@ -26,9 +27,9 @@ const DEFAULT_PAYMENT_POLICY: StoredPaymentIntegrationPolicy = {
   allowAccountPaymentMethodManagement: true,
 };
 
-export async function getPaymentIntegrationAdminSettings(): Promise<AdminPaymentIntegrationSettingsResponse> {
+export async function getPaymentIntegrationAdminSettings(config: AppConfig): Promise<AdminPaymentIntegrationSettingsResponse> {
   const policy = await loadStoredPaymentIntegrationPolicy();
-  const configurationIssues = getPaymentIntegrationConfigurationIssues(policy);
+  const configurationIssues = getPaymentIntegrationConfigurationIssues(config, policy);
 
   return {
     provider: 'tokenized_payments',
@@ -39,6 +40,7 @@ export async function getPaymentIntegrationAdminSettings(): Promise<AdminPayment
 }
 
 export async function updatePaymentIntegrationAdminSettings(
+  config: AppConfig,
   actor: AuthenticatedActor,
   input: UpdateAdminPaymentIntegrationSettingsRequest,
 ): Promise<AdminPaymentIntegrationSettingsResponse> {
@@ -89,7 +91,7 @@ export async function updatePaymentIntegrationAdminSettings(
     });
   });
 
-  const configurationIssues = getPaymentIntegrationConfigurationIssues(next);
+  const configurationIssues = getPaymentIntegrationConfigurationIssues(config, next);
 
   return {
     provider: 'tokenized_payments',
@@ -112,7 +114,18 @@ export async function listPaymentIntegrationStatuses(): Promise<Array<{
   lastCheckedAt: string;
   detail: string;
 }>> {
-  const settings = await getPaymentIntegrationAdminSettings();
+  throw new Error('Payment integration statuses require config; call listPaymentIntegrationStatusesForConfig instead.');
+}
+
+export async function listPaymentIntegrationStatusesForConfig(config: AppConfig): Promise<Array<{
+  key: string;
+  label: string;
+  status: 'connected' | 'warning' | 'error';
+  health: number;
+  lastCheckedAt: string;
+  detail: string;
+}>> {
+  const settings = await getPaymentIntegrationAdminSettings(config);
   const checkedAt = new Date().toISOString();
   const captureTrackingEnabled = settings.policy.allowCisCaptureTracking;
   const paymentMethodsEnabled = settings.policy.allowAccountPaymentMethodManagement;
@@ -131,7 +144,9 @@ export async function listPaymentIntegrationStatuses(): Promise<Array<{
       detail: settings.isConfigured
         ? settings.policy.captureMode === 'manual_recording'
           ? 'Manual hosted-capture recording is enabled. Pulse stores token references and masked payment descriptors only.'
-          : 'Provider runtime mode has been selected, but the hosted adapter is not enabled in this environment yet.'
+          : settings.policy.defaultProvider === 'moneris'
+            ? 'Moneris hosted tokenization runtime is ready for secure CIS capture launches in this environment.'
+            : 'Provider runtime mode has been selected and the environment is ready for the chosen adapter.'
         : settings.configurationIssues.join(' '),
     },
   ];
@@ -179,12 +194,27 @@ function toPolicySummary(policy: StoredPaymentIntegrationPolicy): PaymentIntegra
   };
 }
 
-function getPaymentIntegrationConfigurationIssues(policy: StoredPaymentIntegrationPolicy) {
-  if (policy.captureMode === 'provider_runtime') {
-    return ['Hosted provider runtime is not enabled in this environment yet.'];
+function getPaymentIntegrationConfigurationIssues(config: AppConfig, policy: StoredPaymentIntegrationPolicy) {
+  if (policy.captureMode !== 'provider_runtime') {
+    return [];
   }
 
-  return [];
+  if (policy.defaultProvider === 'moneris') {
+    const issues: string[] = [];
+    if (!config.monerisHostedTokenization.profileId) {
+      issues.push('Missing MONERIS_HOSTED_TOKENIZATION_PROFILE_ID for Moneris hosted tokenization.');
+    }
+    if (!config.monerisHostedTokenization.encryptionKey) {
+      issues.push('Missing APP_ENCRYPTION_KEY for Moneris temporary-token protection.');
+    }
+    return issues;
+  }
+
+  if (policy.defaultProvider === 'unknown') {
+    return ['Select a supported hosted payment provider before enabling provider runtime.'];
+  }
+
+  return ['Hosted provider runtime is not enabled in this environment yet for the selected provider.'];
 }
 
 function normalizeCaptureMode(value: unknown): PaymentIntegrationCaptureModeKey {

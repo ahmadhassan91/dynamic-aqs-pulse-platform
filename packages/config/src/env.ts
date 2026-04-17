@@ -82,6 +82,15 @@ export type AppOutlookCalendarConfig = {
   encryptionKey?: string | undefined;
 };
 
+export type AppMonerisHostedTokenizationConfig = {
+  enabled: boolean;
+  profileId?: string | undefined;
+  iframeUrl: string;
+  iframeOrigin: string;
+  encryptionKey?: string | undefined;
+  tokenTtlMinutes: number;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -99,6 +108,7 @@ export type AppConfig = {
   migration: AppMigrationConfig;
   auth: AppAuthConfig;
   outlookCalendar: AppOutlookCalendarConfig;
+  monerisHostedTokenization: AppMonerisHostedTokenizationConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -112,6 +122,13 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const outlookRedirectUri = optionalString(env.MICROSOFT_GRAPH_REDIRECT_URI);
   const outlookEncryptionKey = optionalString(env.APP_ENCRYPTION_KEY);
   const outlookScopes = parseScopes(env.MICROSOFT_GRAPH_SCOPES);
+  const monerisProfileId = optionalString(env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID);
+  const monerisIframeUrl = optionalString(env.MONERIS_HOSTED_TOKENIZATION_IFRAME_URL)
+    ?? (environment === 'production' || environment === 'staging'
+      ? 'https://mpg1.moneris.io/HPPtoken/index.php'
+      : 'https://mpg1t.moneris.io/HPPtoken/index.php');
+  const monerisIframeOrigin = optionalString(env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN)
+    ?? safeUrlOrigin(monerisIframeUrl);
   const entraLoginRedirectUri = optionalString(env.MICROSOFT_ENTRA_LOGIN_REDIRECT_URI);
   const entraLoginScopes = parseScopes(env.MICROSOFT_ENTRA_LOGIN_SCOPES, [
     'openid',
@@ -214,6 +231,14 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       graphBaseUrl: env.MICROSOFT_GRAPH_API_BASE_URL?.trim() || 'https://graph.microsoft.com/v1.0',
       encryptionKey: outlookEncryptionKey,
     },
+    monerisHostedTokenization: {
+      enabled: Boolean(monerisProfileId && outlookEncryptionKey),
+      profileId: monerisProfileId,
+      iframeUrl: monerisIframeUrl,
+      iframeOrigin: monerisIframeOrigin,
+      encryptionKey: outlookEncryptionKey,
+      tokenTtlMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES, 30),
+    },
   };
 }
 
@@ -256,6 +281,14 @@ function requireString(value: string | undefined, key: string): string {
     throw new Error(`Missing required environment variable: ${key}`);
   }
   return trimmed;
+}
+
+function safeUrlOrigin(value: string): string {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return value;
+  }
 }
 
 function optionalString(value: string | undefined): string | undefined {

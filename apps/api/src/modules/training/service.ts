@@ -648,109 +648,107 @@ export async function ensureTrainingSeeded() {
 }
 
 async function ensureTrainingSeededInternal() {
-  await prisma.$transaction(async (tx) => {
-    await tx.trainingCategory.createMany({
-      data: DEFAULT_TRAINING_CATEGORIES.map((category) => ({
-        kind: category.kind,
-        code: category.code,
-        name: category.name,
-        description: category.description,
-        sortOrder: category.sortOrder,
-        isActive: true,
-      })),
+  await prisma.trainingCategory.createMany({
+    data: DEFAULT_TRAINING_CATEGORIES.map((category) => ({
+      kind: category.kind,
+      code: category.code,
+      name: category.name,
+      description: category.description,
+      sortOrder: category.sortOrder,
+      isActive: true,
+    })),
+    skipDuplicates: true,
+  });
+
+  const categories = await prisma.trainingCategory.findMany({
+    select: { id: true, code: true, name: true },
+  });
+  const categoryMap = new Map(categories.map((entry) => [entry.code, entry]));
+
+  for (const trainingType of DEFAULT_TRAINING_TYPES) {
+    const category = categoryMap.get(trainingType.categoryCode);
+    if (!category) {
+      throw new Error(`Missing training category seed: ${trainingType.categoryCode}`);
+    }
+
+    await prisma.trainingType.createMany({
+      data: [
+        {
+          categoryId: category.id,
+          code: trainingType.code,
+          name: trainingType.name,
+          description: trainingType.description,
+          family: trainingType.family,
+          deliveryMode: trainingType.deliveryMode,
+          defaultDurationMinutes: trainingType.defaultDurationMinutes,
+          countsTowardHours: trainingType.countsTowardHours,
+          isCustomerFacing: trainingType.isCustomerFacing,
+          isCertificationTrack: trainingType.isCertificationTrack,
+          sortOrder: trainingType.sortOrder,
+          isActive: true,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  const trainingTypes = await prisma.trainingType.findMany({
+    select: { id: true, code: true, name: true },
+  });
+  const typeMap = new Map(trainingTypes.map((entry) => [entry.code, entry]));
+
+  for (const trainingType of DEFAULT_TRAINING_TYPES) {
+    const typeRecord = typeMap.get(trainingType.code);
+    if (!typeRecord) {
+      throw new Error(`Missing training type seed: ${trainingType.code}`);
+    }
+
+    const override = DEFAULT_TRAINING_TEMPLATE_OVERRIDES.get(trainingType.code);
+    const templateSeed: TemplateSeed = {
+      code: `${trainingType.code}_default`,
+      title: `${trainingType.name} Template`,
+      description: trainingType.description,
+      proofRequirement: override?.proofRequirement ?? TrainingProofRequirement.ATTENDANCE_AND_NOTES,
+      prerequisiteSummary: override?.prerequisiteSummary,
+      materialsSummary: override?.materialsSummary,
+    };
+
+    await prisma.trainingTemplate.createMany({
+      data: [
+        {
+          trainingTypeId: typeRecord.id,
+          code: templateSeed.code,
+          title: templateSeed.title,
+          ...(templateSeed.description ? { description: templateSeed.description } : {}),
+          ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
+          ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
+          proofRequirement: templateSeed.proofRequirement,
+          isActive: true,
+        },
+      ],
       skipDuplicates: true,
     });
 
-    const categories = await tx.trainingCategory.findMany({
-      select: { id: true, code: true, name: true },
+    const cadenceOverride = DEFAULT_TRAINING_CADENCE_OVERRIDES.get(trainingType.code);
+    const existingCadencePolicy = await prisma.trainingCadencePolicy.findFirst({
+      where: {
+        trainingTypeId: typeRecord.id,
+        segmentScope: null,
+      },
     });
-    const categoryMap = new Map(categories.map((entry) => [entry.code, entry]));
 
-    for (const trainingType of DEFAULT_TRAINING_TYPES) {
-      const category = categoryMap.get(trainingType.categoryCode);
-      if (!category) {
-        throw new Error(`Missing training category seed: ${trainingType.categoryCode}`);
-      }
-
-      await tx.trainingType.createMany({
-        data: [
-          {
-            categoryId: category.id,
-            code: trainingType.code,
-            name: trainingType.name,
-            description: trainingType.description,
-            family: trainingType.family,
-            deliveryMode: trainingType.deliveryMode,
-            defaultDurationMinutes: trainingType.defaultDurationMinutes,
-            countsTowardHours: trainingType.countsTowardHours,
-            isCustomerFacing: trainingType.isCustomerFacing,
-            isCertificationTrack: trainingType.isCertificationTrack,
-            sortOrder: trainingType.sortOrder,
-            isActive: true,
-          },
-        ],
-        skipDuplicates: true,
-      });
-    }
-
-    const trainingTypes = await tx.trainingType.findMany({
-      select: { id: true, code: true, name: true },
-    });
-    const typeMap = new Map(trainingTypes.map((entry) => [entry.code, entry]));
-
-    for (const trainingType of DEFAULT_TRAINING_TYPES) {
-      const typeRecord = typeMap.get(trainingType.code);
-      if (!typeRecord) {
-        throw new Error(`Missing training type seed: ${trainingType.code}`);
-      }
-
-      const override = DEFAULT_TRAINING_TEMPLATE_OVERRIDES.get(trainingType.code);
-      const templateSeed: TemplateSeed = {
-        code: `${trainingType.code}_default`,
-        title: `${trainingType.name} Template`,
-        description: trainingType.description,
-        proofRequirement: override?.proofRequirement ?? TrainingProofRequirement.ATTENDANCE_AND_NOTES,
-        prerequisiteSummary: override?.prerequisiteSummary,
-        materialsSummary: override?.materialsSummary,
-      };
-
-      await tx.trainingTemplate.createMany({
-        data: [
-          {
-            trainingTypeId: typeRecord.id,
-            code: templateSeed.code,
-            title: templateSeed.title,
-            ...(templateSeed.description ? { description: templateSeed.description } : {}),
-            ...(templateSeed.prerequisiteSummary ? { prerequisiteSummary: templateSeed.prerequisiteSummary } : {}),
-            ...(templateSeed.materialsSummary ? { materialsSummary: templateSeed.materialsSummary } : {}),
-            proofRequirement: templateSeed.proofRequirement,
-            isActive: true,
-          },
-        ],
-        skipDuplicates: true,
-      });
-
-      const cadenceOverride = DEFAULT_TRAINING_CADENCE_OVERRIDES.get(trainingType.code);
-      const existingCadencePolicy = await tx.trainingCadencePolicy.findFirst({
-        where: {
+    if (!existingCadencePolicy) {
+      await prisma.trainingCadencePolicy.create({
+        data: {
           trainingTypeId: typeRecord.id,
-          segmentScope: null,
+          cadenceDays: cadenceOverride?.cadenceDays ?? 180,
+          isRequired: cadenceOverride?.isRequired ?? trainingType.countsTowardHours,
+          appliesToAllAccounts: true,
+          isActive: true,
         },
       });
-
-      if (!existingCadencePolicy) {
-        await tx.trainingCadencePolicy.create({
-          data: {
-            trainingTypeId: typeRecord.id,
-            cadenceDays: cadenceOverride?.cadenceDays ?? 180,
-            isRequired: cadenceOverride?.isRequired ?? trainingType.countsTowardHours,
-            appliesToAllAccounts: true,
-            isActive: true,
-          },
-        });
-      }
     }
-  });
+  }
 }
 
 export async function listTrainingOverview(actor: AuthenticatedActor): Promise<TrainingOverviewResponse> {

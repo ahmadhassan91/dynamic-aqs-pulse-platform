@@ -62,12 +62,16 @@ import type {
   CisLinkIssueRequest,
   CisLinkIssueResponse,
   CisPackageDetail,
+  RecordMonerisHostedCaptureResultRequest,
+  RecordMonerisHostedCaptureResultResponse,
   RecordCisPaymentVaultReferenceRequest,
   RequestCisPaymentCaptureRequest,
   CisPublicPackage,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   ListCisParsedDraftsResponse,
+  StartMonerisHostedPaymentCaptureRequest,
+  StartMonerisHostedPaymentCaptureResponse,
   CaptureWebsiteLeadRequest,
   CommitLeadImportRunRequest,
   CreateLeadRequest,
@@ -1439,6 +1443,37 @@ export async function recordLeadCisPaymentVaultReference(
     accessToken,
     body: input,
   });
+}
+
+export async function startLeadMonerisHostedCapture(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  input: StartMonerisHostedPaymentCaptureRequest = {},
+) {
+  return requestJson<StartMonerisHostedPaymentCaptureResponse>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/moneris-hosted-capture/start`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function recordLeadMonerisHostedCaptureResult(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  attemptId: string,
+  input: RecordMonerisHostedCaptureResultRequest,
+) {
+  return requestJson<RecordMonerisHostedCaptureResultResponse>(
+    apiBaseUrl,
+    `/api/v1/cis/${cisPackageId}/payment-capture-attempts/${attemptId}/moneris-result`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
 }
 
 export async function fetchFinanceQueue(

@@ -30,6 +30,7 @@ let applyCisParsedDraft;
 let requestCisPaymentCapture;
 let recordCisPaymentVaultReference;
 let startMonerisHostedPaymentCapture;
+let cancelMonerisHostedPaymentCapture;
 let recordMonerisHostedCaptureResult;
 let updatePaymentIntegrationAdminSettings;
 
@@ -60,6 +61,7 @@ test.before(async () => {
     requestCisPaymentCapture,
     recordCisPaymentVaultReference,
     startMonerisHostedPaymentCapture,
+    cancelMonerisHostedPaymentCapture,
     recordMonerisHostedCaptureResult,
   } = await import('../dist/modules/cis/service.js'));
   ({ updatePaymentIntegrationAdminSettings } = await import('../dist/modules/cis/policy.js'));
@@ -660,6 +662,98 @@ test('finance can launch Moneris hosted capture without creating a permanent vau
     where: { cisPackageId: fixture.cisPackageId },
   });
   assert.equal(vaultReferenceCount, 0);
+});
+
+test('finance cannot launch a second active Moneris hosted capture until the current one is cancelled or finished', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-active-guard-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-active-guard';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-active-guard@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-active-guard@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Active Guard Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Initial active hosted capture.',
+  });
+
+  await assert.rejects(
+    () =>
+      startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+        note: 'This second launch should be blocked while the first is still active.',
+      }),
+    /already active/i,
+  );
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+  assert.equal(detail.paymentCaptureAttempts.filter((attempt) => attempt.status === 'launched').length, 1);
+  assert.equal(detail.paymentCaptureAttempts[0]?.id, launched.attempt.id);
+});
+
+test('finance can cancel an active Moneris hosted capture and then launch a replacement', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-cancel-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-cancel';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-cancel@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-cancel@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Cancel Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Active hosted capture before cancellation.',
+  });
+
+  const cancelled = await cancelMonerisHostedPaymentCapture(financeActor, fixture.cisPackageId, launched.attempt.id, {
+    note: 'Customer abandoned this hosted session. Launch a fresh secure frame.',
+  });
+
+  assert.equal(cancelled.attempt.status, 'cancelled');
+  assert.ok(cancelled.cisPackage.events.some((event) => event.eventType === 'payment_capture_cancelled'));
+
+  const replacement = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Replacement after cancellation.',
+  });
+
+  assert.equal(replacement.attempt.status, 'launched');
+  assert.notEqual(replacement.attempt.id, launched.attempt.id);
 });
 
 test('Moneris hosted capture launch is blocked when provider runtime is selected without Moneris config', SERIAL, async () => {

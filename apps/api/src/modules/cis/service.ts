@@ -19,6 +19,8 @@ import {
 } from '@pulse/db';
 import type {
   ApplyCisParsedDraftRequest,
+  CancelMonerisHostedPaymentCaptureRequest,
+  CancelMonerisHostedPaymentCaptureResponse,
   CisPaymentCaptureAttemptRecord,
   CisPaymentVaultReferenceRecord,
   CisDocumentRecord,
@@ -1221,10 +1223,20 @@ export async function startMonerisHostedPaymentCapture(
 
     await expireStalePaymentCaptureAttempts(tx, actor, existing.id, existing.leadId, launchedAt);
 
-    const updated = existing.paymentStatus === CisPaymentStatus.VAULT_PENDING
-      ? existing
+    const refreshedPackage = await tx.cisPackage.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+
+    const activeAttempt = findActiveMonerisHostedCaptureAttempt(refreshedPackage);
+    if (activeAttempt) {
+      throw new Error('A Moneris hosted capture attempt is already active for this CIS package');
+    }
+
+    const updated = refreshedPackage.paymentStatus === CisPaymentStatus.VAULT_PENDING
+      ? refreshedPackage
       : await tx.cisPackage.update({
-          where: { id: existing.id },
+          where: { id: refreshedPackage.id },
           data: {
             paymentStatus: CisPaymentStatus.VAULT_PENDING,
           },
@@ -1308,6 +1320,115 @@ export async function startMonerisHostedPaymentCapture(
       ...(attempt.expiresAt ? { expiresAt: attempt.expiresAt.toISOString() } : {}),
       tokenizeMessage: 'tokenize',
     },
+  };
+}
+
+export async function cancelMonerisHostedPaymentCapture(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+  attemptId: string,
+  input: CancelMonerisHostedPaymentCaptureRequest = {},
+): Promise<CancelMonerisHostedPaymentCaptureResponse> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.finance_decide');
+
+  await assertCisPaymentCaptureTrackingEnabled();
+  const note = optionalTrimmed(input.note);
+  const now = new Date();
+
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      include: CIS_PACKAGE_INCLUDE,
+    });
+    if (!existing) {
+      throw new Error(`CIS package not found: ${cisPackageId}`);
+    }
+
+    const attempt = await tx.cisPaymentCaptureAttempt.findFirst({
+      where: {
+        id: attemptId,
+        cisPackageId: existing.id,
+      },
+    });
+    if (!attempt) {
+      throw new Error(`CIS payment capture attempt not found: ${attemptId}`);
+    }
+    if (attempt.provider !== CisPaymentVaultProvider.MONERIS) {
+      throw new Error('CIS payment capture attempt is not a Moneris attempt');
+    }
+    if (
+      attempt.status !== CisPaymentCaptureAttemptStatus.LAUNCHED
+      && attempt.status !== CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED
+    ) {
+      throw new Error('Only active Moneris hosted capture attempts can be cancelled');
+    }
+
+    const updatedAttempt = await tx.cisPaymentCaptureAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        status: CisPaymentCaptureAttemptStatus.CANCELLED,
+        completedByUserId: actor.userId,
+        ...(note ? { resultNote: note } : {}),
+        completedAt: now,
+      },
+    });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId: existing.id,
+        eventType: 'payment_capture_cancelled',
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        note: note ?? null,
+        metadata: toJsonValue({
+          provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
+          captureAttemptId: updatedAttempt.id,
+          fromStatus: toCisPaymentCaptureAttemptStatusKey(attempt.status),
+          toStatus: toCisPaymentCaptureAttemptStatusKey(updatedAttempt.status),
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
+        entityId: updatedAttempt.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId: existing.leadId,
+          provider: toCisPaymentVaultProviderKey(updatedAttempt.provider),
+          operation: 'cis.payment_capture.moneris.cancel',
+        },
+        beforeData: {
+          status: attempt.status,
+          hasTemporaryToken: Boolean(attempt.temporaryTokenEncrypted),
+        },
+        afterData: {
+          status: toCisPaymentCaptureAttemptStatusKey(updatedAttempt.status),
+          hasTemporaryToken: Boolean(updatedAttempt.temporaryTokenEncrypted),
+        },
+      }),
+    });
+
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+  });
+
+  const attempt = cisPackage.paymentCaptureAttempts.find((item) => item.id === attemptId);
+  if (!attempt) {
+    throw new Error('Hosted capture attempt could not be loaded after cancellation');
+  }
+
+  return {
+    cisPackage: toCisPackageDetail(actor, cisPackage),
+    attempt: toCisPaymentCaptureAttemptRecord(attempt),
   };
 }
 
@@ -2769,6 +2890,15 @@ function hasNewerActiveOrConsumedMonerisCaptureAttempt(
       || item.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED
       || item.status === CisPaymentCaptureAttemptStatus.CONSUMED;
   });
+}
+
+function findActiveMonerisHostedCaptureAttempt(cisPackage: CisPackageWithRelations) {
+  return cisPackage.paymentCaptureAttempts.find((item) =>
+    item.provider === CisPaymentVaultProvider.MONERIS
+    && (
+      item.status === CisPaymentCaptureAttemptStatus.LAUNCHED
+      || item.status === CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED
+    ));
 }
 
 function isIdempotentMonerisHostedCaptureReplay(

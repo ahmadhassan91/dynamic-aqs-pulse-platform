@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   ApplyCisParsedDraftRequest,
+  CancelMonerisHostedPaymentCaptureRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
   RecordMonerisHostedCaptureResultRequest,
@@ -38,6 +39,7 @@ import {
   listCisParsedDrafts,
   listFinanceQueue,
   applyCisParsedDraft,
+  cancelMonerisHostedPaymentCapture,
   recordFinanceDecision,
   recordCisPaymentVaultReference,
   recordMonerisHostedCaptureResult,
@@ -60,9 +62,10 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
   const parsedDraftCollectionMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts$/);
   const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
   const hostedCaptureResultMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-result$/);
+  const hostedCaptureCancelMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-cancel$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
 
-  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !publicBaseMatch) {
+  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !hostedCaptureCancelMatch && !publicBaseMatch) {
     return false;
   }
 
@@ -341,6 +344,26 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
       });
       const body = (await readJsonBody(req)) as RecordMonerisHostedCaptureResultRequest;
       const response = await recordMonerisHostedCaptureResult(actor, config, cisPackageId, attemptId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (hostedCaptureCancelMatch) {
+      const cisPackageId = hostedCaptureCancelMatch[1];
+      const attemptId = hostedCaptureCancelMatch[2];
+      if (!cisPackageId || !attemptId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'cis',
+        action: 'lead.finance_decide',
+      });
+      const body = (await readJsonBody(req)) as CancelMonerisHostedPaymentCaptureRequest;
+      const response = await cancelMonerisHostedPaymentCapture(actor, cisPackageId, attemptId, body);
       return jsonResponse(res, 200, response);
     }
   } catch (error) {

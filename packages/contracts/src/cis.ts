@@ -274,6 +274,15 @@ export interface StartMonerisHostedPaymentCaptureResponse {
   };
 }
 
+export interface CancelMonerisHostedPaymentCaptureRequest {
+  note?: string;
+}
+
+export interface CancelMonerisHostedPaymentCaptureResponse {
+  cisPackage: CisPackageDetail;
+  attempt: CisPaymentCaptureAttemptRecord;
+}
+
 export interface RecordMonerisHostedCaptureResultRequest {
   responseCode?: string;
   errorMessage?: string;

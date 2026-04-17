@@ -62,6 +62,8 @@ import type {
   CisLinkIssueRequest,
   CisLinkIssueResponse,
   CisPackageDetail,
+  CancelMonerisHostedPaymentCaptureRequest,
+  CancelMonerisHostedPaymentCaptureResponse,
   RecordMonerisHostedCaptureResultRequest,
   RecordMonerisHostedCaptureResultResponse,
   RecordCisPaymentVaultReferenceRequest,
@@ -1456,6 +1458,24 @@ export async function startLeadMonerisHostedCapture(
     accessToken,
     body: input,
   });
+}
+
+export async function cancelLeadMonerisHostedCapture(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  attemptId: string,
+  input: CancelMonerisHostedPaymentCaptureRequest = {},
+) {
+  return requestJson<CancelMonerisHostedPaymentCaptureResponse>(
+    apiBaseUrl,
+    `/api/v1/cis/${cisPackageId}/payment-capture-attempts/${attemptId}/moneris-cancel`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
 }
 
 export async function recordLeadMonerisHostedCaptureResult(

@@ -41,21 +41,21 @@ const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ loadAppConfig } = await import('../src/config.ts'));
-  ({ createPulseServer } = await import('../src/server.ts'));
-  ({ ensureReferenceDataSeeded } = await import('../src/modules/reference/service.ts'));
+  ({ loadAppConfig } = await import('../dist/config.js'));
+  ({ createPulseServer } = await import('../dist/server.js'));
+  ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
     createLead,
     getLeadDetail,
-  } = await import('../src/modules/leads/service.ts'));
+  } = await import('../dist/modules/leads/service.js'));
   ({
     createAccount,
     createAccountLocation,
     updateAccountLocation,
     getAccountDetail,
-  } = await import('../src/modules/accounts/service.ts'));
+  } = await import('../dist/modules/accounts/service.js'));
   ({
     createRegion,
     createShippingCenter,
@@ -73,8 +73,8 @@ test.before(async () => {
     getTerritoryMapWorkspace,
     updateTerritory,
     updateTerritoryPolicy,
-  } = await import('../src/modules/territories/service.ts'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../src/modules/auth/service.ts'));
+  } = await import('../dist/modules/territories/service.js'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = loadAppConfig(process.env);
   await prisma.$connect();

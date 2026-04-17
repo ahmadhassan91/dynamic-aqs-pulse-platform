@@ -48,6 +48,7 @@ import {
 } from '@tabler/icons-react';
 import {
   applyCisParsedDraft,
+  cancelLeadMonerisHostedCapture,
   fetchLeadCisPackage,
   issueLeadCisLink,
   listCisParsedDrafts,
@@ -170,6 +171,7 @@ export function LeadCisPanel({
   const [isRequestingPaymentCapture, setIsRequestingPaymentCapture] = useState(false);
   const [isRecordingVaultReference, setIsRecordingVaultReference] = useState(false);
   const [isLaunchingHostedCapture, setIsLaunchingHostedCapture] = useState(false);
+  const [isCancellingHostedCapture, setIsCancellingHostedCapture] = useState(false);
   const [isRecordingHostedCaptureResult, setIsRecordingHostedCaptureResult] = useState(false);
   const [hostedCaptureLaunch, setHostedCaptureLaunch] = useState<MonerisHostedLaunchState | null>(null);
   const monerisIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -180,6 +182,15 @@ export function LeadCisPanel({
   const leadLifecycleLocked = lead.lifecycleStatus !== 'active';
   const latestTokenizedCaptureAttempt = useMemo(
     () => cisPackage?.paymentCaptureAttempts.find((attempt) => attempt.status === 'token_received') ?? null,
+    [cisPackage],
+  );
+  const latestActiveMonerisCaptureAttempt = useMemo(
+    () =>
+      cisPackage?.paymentCaptureAttempts.find(
+        (attempt) =>
+          attempt.provider === 'moneris'
+          && (attempt.status === 'launched' || attempt.status === 'token_received'),
+      ) ?? null,
     [cisPackage],
   );
 
@@ -567,6 +578,32 @@ export function LeadCisPanel({
       setActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsLaunchingHostedCapture(false);
+    }
+  }
+
+  async function handleCancelMonerisHostedCapture(attemptId: string) {
+    if (!cisPackage || !canTrackHostedPaymentCapture) {
+      return;
+    }
+
+    setIsCancellingHostedCapture(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await cancelLeadMonerisHostedCapture(apiBaseUrl, accessToken, cisPackage.id, attemptId, {
+        ...(paymentCaptureNote.trim() ? { note: paymentCaptureNote.trim() } : {}),
+      });
+
+      setCisPackage(response.cisPackage);
+      setHostedCaptureLaunch((current) => (current?.attemptId === attemptId ? null : current));
+      setPaymentCaptureNote('');
+      setActionMessage('Active Moneris hosted capture cancelled. Finance can launch a replacement secure frame when ready.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCancellingHostedCapture(false);
     }
   }
 
@@ -1388,6 +1425,21 @@ export function LeadCisPanel({
                                   Temporary token present: {attempt.hasTemporaryToken ? 'Yes' : 'No'}
                                   {attempt.providerErrorMessage ? ` • ${attempt.providerErrorMessage}` : ''}
                                 </Text>
+                                {canDecideFinance && attempt.provider === 'moneris' && (attempt.status === 'launched' || attempt.status === 'token_received') ? (
+                                  <Group gap="xs" mt={4}>
+                                    <Button
+                                      size="xs"
+                                      variant="light"
+                                      color="red"
+                                      loading={isCancellingHostedCapture}
+                                      onClick={() => {
+                                        void handleCancelMonerisHostedCapture(attempt.id);
+                                      }}
+                                    >
+                                      Cancel active hosted capture
+                                    </Button>
+                                  </Group>
+                                ) : null}
                               </Stack>
                               <Text size="sm" c="dimmed">
                                 {attempt.completedAt ? formatDateTimeLabel(attempt.completedAt) : formatDateTimeLabel(attempt.launchedAt)}
@@ -1436,6 +1488,11 @@ export function LeadCisPanel({
                             <Text size="sm" c="dimmed">
                               Launch the secure Moneris hosted frame when runtime is enabled, or keep using the manual tracking lane while the provider step stays outside Pulse.
                             </Text>
+                            {latestActiveMonerisCaptureAttempt ? (
+                              <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                                A Moneris hosted capture is already active for this CIS package. Cancel it before launching a fresh secure frame.
+                              </Alert>
+                            ) : null}
                             <Textarea
                               label="Capture request note"
                               value={paymentCaptureNote}
@@ -1450,10 +1507,23 @@ export function LeadCisPanel({
                                   void handleLaunchMonerisHostedCapture();
                                 }}
                                 loading={isLaunchingHostedCapture}
-                                disabled={!canTrackHostedPaymentCapture}
+                                disabled={!canTrackHostedPaymentCapture || Boolean(latestActiveMonerisCaptureAttempt)}
                               >
                                 Launch Moneris hosted capture
                               </Button>
+                              {latestActiveMonerisCaptureAttempt ? (
+                                <Button
+                                  variant="light"
+                                  color="red"
+                                  onClick={() => {
+                                    void handleCancelMonerisHostedCapture(latestActiveMonerisCaptureAttempt.id);
+                                  }}
+                                  loading={isCancellingHostedCapture}
+                                  disabled={!canTrackHostedPaymentCapture}
+                                >
+                                  Cancel active hosted capture
+                                </Button>
+                              ) : null}
                               <Button
                                 variant="light"
                                 onClick={() => {

@@ -29,6 +29,7 @@ import {
   createRegion,
   createShippingCenter,
   createTerritory,
+  getTerritoryDashboard,
   getTerritoryMapWorkspace,
   getTerritoryPolicy,
   listTerritoryAssignableUsers,
@@ -178,6 +179,17 @@ export async function handleTerritoryRoutes(req: IncomingMessage, res: ServerRes
 
     return withTerritoryAuth(req, res, async (actor) => {
       const response = await getTerritoryMapWorkspace(actor);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/territories/dashboard') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+
+    return withTerritoryAuth(req, res, async (actor) => {
+      const response = await getTerritoryDashboard(actor);
       return jsonResponse(res, 200, response);
     });
   }

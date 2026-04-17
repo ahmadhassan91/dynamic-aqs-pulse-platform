@@ -332,3 +332,90 @@ export interface TerritoryMapWorkspaceResponse {
   leadPins: TerritoryMapPinSummary[];
   generatedAt: string;
 }
+
+export interface TerritoryDashboardStats {
+  regions: number;
+  territories: number;
+  coveredStates: number;
+  shippingCenters: number;
+  activeLeads: number;
+  activeAccounts: number;
+  assignedLeads: number;
+  assignedAccounts: number;
+  unassignedLeads: number;
+  unassignedAccounts: number;
+  strategicGrowthLeads: number;
+  nationalTmLeads: number;
+}
+
+export interface TerritoryDashboardAlert {
+  label: string;
+  detail: string;
+  tone: 'orange' | 'red' | 'blue';
+}
+
+export interface TerritoryDashboardWorkload {
+  territoryId: string;
+  territoryCode: string;
+  territoryName: string;
+  regionId: string;
+  regionName: string;
+  managerUserId?: string;
+  managerName?: string;
+  directorUserId?: string;
+  directorUserName?: string;
+  shippingCenterId?: string;
+  shippingCenterName?: string;
+  coveredStates: string[];
+  activeLeadCount: number;
+  activeAccountCount: number;
+  totalWorkloadCount: number;
+}
+
+export interface TerritoryDashboardRegionRollupSummary {
+  regionId: string;
+  regionCode: string;
+  regionName: string;
+  directorUserId?: string;
+  directorUserName?: string;
+  territoryCount: number;
+  activeTerritoryCount: number;
+  coveredStates: number;
+  activeLeadCount: number;
+  activeAccountCount: number;
+  shippingCenterCount: number;
+  territoriesMissingManager: number;
+  territoriesMissingShippingCenter: number;
+}
+
+export interface TerritoryDashboardOwnerMetricSummary {
+  ownerUserId?: string;
+  ownerName: string;
+  ownerRole: 'territory_manager' | 'regional_director';
+  regionCount: number;
+  territoryCount: number;
+  activeLeadCount: number;
+  activeAccountCount: number;
+  shippingCenterCount: number;
+  coveredStates: number;
+}
+
+export interface TerritoryDashboardQueueSummary {
+  unassignedLeads: number;
+  unassignedAccounts: number;
+  strategicGrowthLeads: number;
+  nationalTmLeads: number;
+  territoriesMissingManager: number;
+  territoriesMissingShippingCenter: number;
+  regionsMissingDirector: number;
+}
+
+export interface TerritoryDashboardResponse {
+  stats: TerritoryDashboardStats;
+  alerts: TerritoryDashboardAlert[];
+  workloads: TerritoryDashboardWorkload[];
+  regionRollups: TerritoryDashboardRegionRollupSummary[];
+  ownerMetrics: TerritoryDashboardOwnerMetricSummary[];
+  queue: TerritoryDashboardQueueSummary;
+  generatedAt: string;
+}

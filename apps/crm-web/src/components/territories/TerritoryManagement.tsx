@@ -42,6 +42,7 @@ import type {
   ListTerritoryAssignableUsersResponse,
   RegionSummary,
   ShippingCenterSummary,
+  TerritoryDashboardResponse,
   TerritoryAssignmentHistoryEntry,
   TerritoryPolicySummary,
   TerritorySummary,
@@ -60,11 +61,7 @@ import {
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
-import {
-  TerritoryCommandDashboard,
-  type TerritoryDashboardAlert,
-  type TerritoryDashboardWorkload,
-} from './TerritoryCommandDashboard';
+import { TerritoryCommandDashboard } from './TerritoryCommandDashboard';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list';
 
@@ -88,6 +85,7 @@ export function TerritoryManagement({
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
   const [territories, setTerritories] = useState<TerritorySummary[]>([]);
+  const [dashboard, setDashboard] = useState<TerritoryDashboardResponse | null>(null);
   const [leads, setLeads] = useState<LeadSummary[]>([]);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<ListTerritoryAssignableUsersResponse>({
@@ -125,6 +123,7 @@ export function TerritoryManagement({
       setRegions([]);
       setShippingCenters([]);
       setTerritories([]);
+      setDashboard(null);
       setLeads([]);
       setAccounts([]);
       setAssignableUsers({
@@ -148,6 +147,7 @@ export function TerritoryManagement({
           regionsResponse,
           shippingCentersResponse,
           territoriesResponse,
+          dashboardResponse,
           leadsResponse,
           accountsResponse,
           assignableUsersResponse,
@@ -156,6 +156,7 @@ export function TerritoryManagement({
           fetchTerritoryRegions(apiBaseUrl, accessToken),
           fetchTerritoryShippingCenters(apiBaseUrl, accessToken),
           fetchTerritories(apiBaseUrl, accessToken),
+          fetchTerritoryDashboard(apiBaseUrl, accessToken),
           fetchLeads(apiBaseUrl, accessToken, { limit: 500 }),
           canViewCustomers
             ? fetchAccounts(apiBaseUrl, accessToken, { limit: 500, includeInactive: false })
@@ -171,6 +172,7 @@ export function TerritoryManagement({
         setRegions(regionsResponse.items);
         setShippingCenters(shippingCentersResponse.items);
         setTerritories(territoriesResponse.items);
+        setDashboard(dashboardResponse);
         setLeads(leadsResponse.items);
         setAccounts(accountsResponse.items);
         setAssignableUsers(assignableUsersResponse);
@@ -245,92 +247,42 @@ export function TerritoryManagement({
     [activeAccounts],
   );
 
-  const dashboardAlerts = useMemo<TerritoryDashboardAlert[]>(() => {
-    const items: TerritoryDashboardAlert[] = [];
-
-    if (unassignedLeads.length > 0) {
-      items.push({
-        label: 'Unassigned active leads',
-        detail: `${unassignedLeads.length} live leads do not yet have a territory assignment and still need owner alignment.`,
-        tone: 'orange',
-      });
-    }
-
-    const territoriesWithoutManager = territories.filter((item) => !item.managerUserName);
-    if (territoriesWithoutManager.length > 0) {
-      items.push({
-        label: 'Territories missing TM ownership',
-        detail: `${territoriesWithoutManager.length} territories do not yet have a named territory manager.`,
-        tone: 'orange',
-      });
-    }
-
-    const territoriesWithoutShipping = territories.filter((item) => !item.shippingCenterName);
-    if (territoriesWithoutShipping.length > 0) {
-      items.push({
-        label: 'Shipping center gaps',
-        detail: `${territoriesWithoutShipping.length} territories are missing a linked shipping center.`,
-        tone: 'red',
-      });
-    }
-
-    const regionsWithoutDirector = regions.filter((item) => !item.directorUserName);
-    if (regionsWithoutDirector.length > 0) {
-      items.push({
-        label: 'Regions missing RD ownership',
-        detail: `${regionsWithoutDirector.length} regions do not yet have a named regional director.`,
-        tone: 'blue',
-      });
-    }
-
-    if (canViewCustomers && unassignedAccounts.length > 0) {
-      items.push({
-        label: 'Unassigned active accounts',
-        detail: `${unassignedAccounts.length} active accounts do not yet have a maintained territory assignment.`,
-        tone: 'orange',
-      });
-    }
-
-    return items;
-  }, [canViewCustomers, regions, territories, unassignedAccounts.length, unassignedLeads]);
-
-  const workloads = useMemo<TerritoryDashboardWorkload[]>(
+  const dashboardData = useMemo(
     () =>
-      [...territories]
-        .map((territory) => ({
-          territoryId: territory.id,
-          territoryCode: territory.code,
-          territoryName: territory.name,
-          regionName: territory.regionName,
-          ...(territory.managerUserName ? { managerName: territory.managerUserName } : {}),
-          ...(territory.shippingCenterName ? { shippingCenterName: territory.shippingCenterName } : {}),
-          coveredStates: territory.coverageStates,
-          leadCount: territoryLeadCounts.get(territory.id) ?? 0,
-        }))
-        .sort((left, right) => right.leadCount - left.leadCount || left.territoryName.localeCompare(right.territoryName))
-        .slice(0, 8),
-    [territories, territoryLeadCounts],
+      dashboard ?? {
+        stats: {
+          regions: regions.length,
+          territories: territories.length,
+          coveredStates: territories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
+          shippingCenters: shippingCenters.filter((item) => item.isActive).length,
+          activeLeads: activePipelineLeads.length,
+          activeAccounts: activeAccounts.length,
+          assignedLeads: activePipelineLeads.filter((lead) => Boolean(lead.territoryId)).length,
+          assignedAccounts: activeAccounts.filter((account) => Boolean(account.territoryId)).length,
+          unassignedLeads: unassignedLeads.length,
+          unassignedAccounts: unassignedAccounts.length,
+          strategicGrowthLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'strategic_growth').length,
+          nationalTmLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'national_tm').length,
+        },
+        alerts: [],
+        workloads: [],
+        regionRollups: [],
+        ownerMetrics: [],
+        queue: {
+          unassignedLeads: unassignedLeads.length,
+          unassignedAccounts: unassignedAccounts.length,
+          strategicGrowthLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'strategic_growth').length,
+          nationalTmLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'national_tm').length,
+          territoriesMissingManager: territories.filter((item) => !item.managerUserName).length,
+          territoriesMissingShippingCenter: territories.filter((item) => !item.shippingCenterName).length,
+          regionsMissingDirector: regions.filter((item) => !item.directorUserName).length,
+        },
+        generatedAt: new Date().toISOString(),
+      },
+    [activeAccounts, activePipelineLeads, dashboard, regions, shippingCenters, territories, unassignedAccounts.length, unassignedLeads.length],
   );
 
-  const stats = useMemo(
-    () => ({
-      regions: regions.length,
-      territories: territories.length,
-      coveredStates: territories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
-      shippingCenters: shippingCenters.filter((item) => item.isActive).length,
-      activeLeads: activePipelineLeads.length,
-      activeAccounts: activeAccounts.length,
-      assignedLeads: activePipelineLeads.filter((lead) => Boolean(lead.territoryId)).length,
-      assignedAccounts: activeAccounts.filter((account) => Boolean(account.territoryId)).length,
-      unassignedLeads: unassignedLeads.length,
-      unassignedAccounts: unassignedAccounts.length,
-      strategicGrowthLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'strategic_growth').length,
-      nationalTmLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'national_tm').length,
-    }),
-    [activeAccounts, activePipelineLeads, regions.length, shippingCenters, territories, unassignedAccounts.length, unassignedLeads.length],
-  );
-
-  const regionSummaries = useMemo(
+  const mapRegionSummaries = useMemo(
     () =>
       regions.map((region) => ({
         ...region,
@@ -636,31 +588,31 @@ export function TerritoryManagement({
       </Paper>
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
-        <MetricCard label="Active Pipeline Leads" value={stats.activeLeads} color="blue" />
+        <MetricCard label="Active Pipeline Leads" value={dashboardData.stats.activeLeads} color="blue" />
         <MetricCard
           label="Unassigned Leads"
-          value={stats.unassignedLeads}
-          color={stats.unassignedLeads > 0 ? 'orange' : 'teal'}
+          value={dashboardData.stats.unassignedLeads}
+          color={dashboardData.stats.unassignedLeads > 0 ? 'orange' : 'teal'}
         />
         <MetricCard
           label="Territories With TM"
-          value={territories.filter((territory) => territory.managerUserName).length}
+          value={Math.max(0, dashboardData.stats.territories - dashboardData.queue.territoriesMissingManager)}
           color="grape"
         />
         <MetricCard
           label="Active Shipping Centers"
-          value={shippingCenters.filter((center) => center.isActive).length}
+          value={dashboardData.stats.shippingCenters}
           color="orange"
         />
       </SimpleGrid>
 
       {canViewCustomers ? (
         <SimpleGrid cols={{ base: 2, md: 2 }} spacing="md">
-          <MetricCard label="Active Accounts" value={stats.activeAccounts} color="teal" />
+          <MetricCard label="Active Accounts" value={dashboardData.stats.activeAccounts} color="teal" />
           <MetricCard
             label="Unassigned Accounts"
-            value={stats.unassignedAccounts}
-            color={stats.unassignedAccounts > 0 ? 'orange' : 'teal'}
+            value={dashboardData.stats.unassignedAccounts}
+            color={dashboardData.stats.unassignedAccounts > 0 ? 'orange' : 'teal'}
           />
         </SimpleGrid>
       ) : null}
@@ -680,7 +632,14 @@ export function TerritoryManagement({
 
         <Tabs.Panel value="dashboard" pt="lg">
           <Stack gap="lg">
-            <TerritoryCommandDashboard stats={stats} alerts={dashboardAlerts} workloads={workloads} />
+            <TerritoryCommandDashboard
+              stats={dashboardData.stats}
+              alerts={dashboardData.alerts}
+              workloads={dashboardData.workloads}
+              queue={dashboardData.queue}
+              regionRollups={dashboardData.regionRollups}
+              ownerMetrics={dashboardData.ownerMetrics}
+            />
 
             <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
               <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
@@ -692,37 +651,43 @@ export function TerritoryManagement({
                     <div>
                       <Title order={4}>Regional coverage snapshot</Title>
                       <Text size="sm" c="dimmed">
-                        Live regions, TM ownership, and territory spans.
+                        Server-owned rollups for director ownership, workload, and coverage posture.
                       </Text>
                     </div>
                   </Group>
                   <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                    {regionSummaries.map((region) => (
-                      <Paper key={region.id} withBorder radius="lg" p="md">
+                    {dashboardData.regionRollups.map((region) => (
+                      <Paper key={region.regionId} withBorder radius="lg" p="md">
                         <Stack gap="xs">
                           <Group justify="space-between" align="flex-start">
                             <div>
-                              <Text fw={700}>{region.name}</Text>
+                              <Text fw={700}>{region.regionName}</Text>
                               <Text size="xs" c="dimmed">
-                                {region.code}
+                                {region.regionCode}
                               </Text>
                             </div>
-                            <Badge color={region.isActive ? 'teal' : 'gray'} variant="light">
-                              {region.isActive ? 'Active' : 'Inactive'}
+                            <Badge color="blue" variant="light">
+                              {region.territoryCount} territories
                             </Badge>
                           </Group>
                           <Text size="sm" c="dimmed">
                             Regional director: {region.directorUserName ?? 'Unassigned'}
                           </Text>
                           <Text size="sm" c="dimmed">
-                            Territories: {region.territories.length}
+                            {region.activeLeadCount} active leads · {region.activeAccountCount} active accounts · {region.coveredStates} covered states
                           </Text>
                           <Group gap={6} wrap="wrap">
-                            {region.territories.map((territory) => (
-                              <Badge key={territory.id} size="sm" radius="xl" variant="light" color="grape">
-                                {territory.code}
-                              </Badge>
-                            ))}
+                            <Badge size="sm" radius="xl" variant="light" color={region.territoriesMissingManager > 0 ? 'orange' : 'teal'}>
+                              {region.territoriesMissingManager} missing TM
+                            </Badge>
+                            <Badge
+                              size="sm"
+                              radius="xl"
+                              variant="light"
+                              color={region.territoriesMissingShippingCenter > 0 ? 'orange' : 'teal'}
+                            >
+                              {region.territoriesMissingShippingCenter} missing shipping
+                            </Badge>
                           </Group>
                         </Stack>
                       </Paper>
@@ -864,7 +829,7 @@ export function TerritoryManagement({
             </Paper>
 
             <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-              {regionSummaries.map((region) => (
+              {mapRegionSummaries.map((region) => (
                 <Paper key={region.id} withBorder radius="xl" p="lg" className="premium-stat-card">
                   <Stack gap="md">
                     <Group justify="space-between" align="flex-start">
@@ -1556,6 +1521,30 @@ export function TerritoryManagement({
       </Modal>
     </Stack>
   );
+}
+
+async function fetchTerritoryDashboard(apiBaseUrl: string, accessToken: string): Promise<TerritoryDashboardResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/territories/dashboard`, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to load territory dashboard.';
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // Keep the default message when the response body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as TerritoryDashboardResponse;
 }
 
 function PolicyBadge({

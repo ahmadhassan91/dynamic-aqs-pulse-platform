@@ -1,5 +1,13 @@
 'use client';
 
+import type {
+  TerritoryDashboardAlert,
+  TerritoryDashboardOwnerMetricSummary,
+  TerritoryDashboardQueueSummary,
+  TerritoryDashboardRegionRollupSummary,
+  TerritoryDashboardStats,
+  TerritoryDashboardWorkload,
+} from '@pulse/contracts';
 import {
   Badge,
   Card,
@@ -20,43 +28,20 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 
-export type TerritoryDashboardStats = {
-  regions: number;
-  territories: number;
-  coveredStates: number;
-  shippingCenters: number;
-  activeLeads: number;
-  assignedLeads: number;
-  unassignedLeads: number;
-  strategicGrowthLeads: number;
-  nationalTmLeads: number;
-};
-
-export type TerritoryDashboardAlert = {
-  label: string;
-  detail: string;
-  tone: 'orange' | 'red' | 'blue';
-};
-
-export type TerritoryDashboardWorkload = {
-  territoryId: string;
-  territoryCode: string;
-  territoryName: string;
-  regionName: string;
-  managerName?: string;
-  shippingCenterName?: string;
-  coveredStates: string[];
-  leadCount: number;
-};
-
 export function TerritoryCommandDashboard({
   stats,
   alerts,
   workloads,
+  queue,
+  regionRollups,
+  ownerMetrics,
 }: {
   stats: TerritoryDashboardStats;
   alerts: TerritoryDashboardAlert[];
   workloads: TerritoryDashboardWorkload[];
+  queue: TerritoryDashboardQueueSummary;
+  regionRollups: TerritoryDashboardRegionRollupSummary[];
+  ownerMetrics: TerritoryDashboardOwnerMetricSummary[];
 }) {
   const cards = [
     { label: 'Regions', value: stats.regions, icon: IconMapPin, color: 'blue' },
@@ -174,6 +159,8 @@ export function TerritoryCommandDashboard({
                   <Table.Th>Shipping</Table.Th>
                   <Table.Th>States</Table.Th>
                   <Table.Th>Leads</Table.Th>
+                  <Table.Th>Accounts</Table.Th>
+                  <Table.Th>Total</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -199,12 +186,123 @@ export function TerritoryCommandDashboard({
                         )) : <Text size="sm" c="dimmed">No coverage</Text>}
                       </Group>
                     </Table.Td>
-                    <Table.Td>{item.leadCount}</Table.Td>
+                    <Table.Td>{item.activeLeadCount}</Table.Td>
+                    <Table.Td>{item.activeAccountCount}</Table.Td>
+                    <Table.Td>{item.totalWorkloadCount}</Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+        </Stack>
+      </Paper>
+
+      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Title order={4}>Regional rollups</Title>
+              <Badge color="blue" variant="light">
+                Director view
+              </Badge>
+            </Group>
+
+            <Table.ScrollContainer minWidth={720}>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Region</Table.Th>
+                    <Table.Th>Director</Table.Th>
+                    <Table.Th>Territories</Table.Th>
+                    <Table.Th>Leads</Table.Th>
+                    <Table.Th>Accounts</Table.Th>
+                    <Table.Th>Coverage</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {regionRollups.map((item) => (
+                    <Table.Tr key={item.regionId}>
+                      <Table.Td>
+                        <Stack gap={2}>
+                          <Text fw={700}>{item.regionName}</Text>
+                          <Text size="xs" c="dimmed">
+                            {item.regionCode}
+                          </Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>{item.directorUserName ?? 'Unassigned'}</Table.Td>
+                      <Table.Td>{item.territoryCount}</Table.Td>
+                      <Table.Td>{item.activeLeadCount}</Table.Td>
+                      <Table.Td>{item.activeAccountCount}</Table.Td>
+                      <Table.Td>{item.coveredStates} states</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Stack>
+        </Paper>
+
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Title order={4}>Owner coverage</Title>
+              <Badge color="grape" variant="light">
+                TM / RD rollups
+              </Badge>
+            </Group>
+
+            <Table.ScrollContainer minWidth={720}>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Owner</Table.Th>
+                    <Table.Th>Role</Table.Th>
+                    <Table.Th>Territories</Table.Th>
+                    <Table.Th>Leads</Table.Th>
+                    <Table.Th>Accounts</Table.Th>
+                    <Table.Th>Coverage</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {ownerMetrics.map((item) => (
+                    <Table.Tr key={`${item.ownerRole}:${item.ownerUserId ?? item.ownerName}`}>
+                      <Table.Td>{item.ownerName}</Table.Td>
+                      <Table.Td>{item.ownerRole === 'territory_manager' ? 'TM' : 'RD'}</Table.Td>
+                      <Table.Td>{item.territoryCount}</Table.Td>
+                      <Table.Td>{item.activeLeadCount}</Table.Td>
+                      <Table.Td>{item.activeAccountCount}</Table.Td>
+                      <Table.Td>{item.coveredStates} states</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Stack>
+        </Paper>
+      </SimpleGrid>
+
+      <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+        <Stack gap="md">
+          <Group justify="space-between">
+            <Title order={4}>Operational queue</Title>
+            <Badge color={queue.unassignedLeads + queue.unassignedAccounts > 0 ? 'orange' : 'teal'} variant="light">
+              Actionable now
+            </Badge>
+          </Group>
+
+          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+            <Metric label="Unassigned Leads" value={queue.unassignedLeads} tone={queue.unassignedLeads > 0 ? 'orange' : 'teal'} />
+            <Metric label="Unassigned Accounts" value={queue.unassignedAccounts} tone={queue.unassignedAccounts > 0 ? 'orange' : 'teal'} />
+            <Metric label="SG Leads" value={queue.strategicGrowthLeads} tone="blue" />
+            <Metric label="National TM Leads" value={queue.nationalTmLeads} tone="blue" />
+          </SimpleGrid>
+
+          <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+            <Metric label="Territories Missing TM" value={queue.territoriesMissingManager} tone={queue.territoriesMissingManager > 0 ? 'orange' : 'teal'} />
+            <Metric label="Territories Missing Shipping" value={queue.territoriesMissingShippingCenter} tone={queue.territoriesMissingShippingCenter > 0 ? 'red' : 'teal'} />
+            <Metric label="Regions Missing RD" value={queue.regionsMissingDirector} tone={queue.regionsMissingDirector > 0 ? 'blue' : 'teal'} />
+          </SimpleGrid>
         </Stack>
       </Paper>
     </Stack>
@@ -218,7 +316,7 @@ function Metric({
 }: {
   label: string;
   value: number;
-  tone?: 'blue' | 'teal' | 'orange' | 'grape';
+  tone?: 'blue' | 'teal' | 'orange' | 'grape' | 'red';
 }) {
   return (
     <Paper withBorder radius="lg" p="md">

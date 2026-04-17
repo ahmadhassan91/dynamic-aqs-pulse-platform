@@ -15,6 +15,13 @@ import type {
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
+  TerritoryDashboardAlert,
+  TerritoryDashboardOwnerMetricSummary,
+  TerritoryDashboardQueueSummary,
+  TerritoryDashboardRegionRollupSummary,
+  TerritoryDashboardResponse,
+  TerritoryDashboardStats,
+  TerritoryDashboardWorkload,
   LeadTerritoryAssignmentSummary,
   ListTerritoryAssignableUsersResponse,
   ListRegionsResponse,
@@ -112,6 +119,23 @@ type TerritoryResolution = {
 type AccountWithTerritoryRefs = Prisma.AccountGetPayload<{
   include: typeof ACCOUNT_TERRITORY_INCLUDE;
 }>;
+
+type TerritoryDashboardLeadRecord = {
+  id: string;
+  territoryId: string | null;
+  shippingCenterId: string | null;
+  assignedTmUserId: string | null;
+  assignedRdUserId: string | null;
+  routingTeam: LeadRoutingTeam;
+};
+
+type TerritoryDashboardAccountRecord = {
+  id: string;
+  territoryId: string | null;
+  shippingCenterId: string | null;
+  assignedTmUserId: string | null;
+  assignedRdUserId: string | null;
+};
 
 const ASSIGNABLE_TERRITORY_ROLE_CODES = ['TERRITORY_MANAGER', 'REGIONAL_DIRECTOR'] as const;
 
@@ -676,6 +700,189 @@ export async function getTerritoryMapWorkspace(
     ),
     accountPins: accountItems.map(toTerritoryMapAccountPin),
     leadPins: leadItems.map(toTerritoryMapLeadPin),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<TerritoryDashboardResponse> {
+  assertModuleAccess(actor.role, 'territories');
+  const territoryScope = buildTerritoryReadScope(actor);
+  const regionScope = buildRegionReadScope(actor);
+  const shippingCenterScope = buildShippingCenterReadScope(actor);
+  const leadScope = buildLeadRecordScope(actor);
+  const accountScope = buildAccountRecordScope(actor);
+
+  const regionQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(regionScope ? { where: regionScope } : {}),
+    include: {
+      directorUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+    },
+  } satisfies Prisma.RegionFindManyArgs;
+
+  const territoryQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(territoryScope ? { where: territoryScope } : {}),
+    include: TERRITORY_INCLUDE,
+  } satisfies Prisma.TerritoryFindManyArgs;
+
+  const shippingCenterQuery = {
+    orderBy: [{ name: 'asc' }],
+    ...(shippingCenterScope ? { where: shippingCenterScope } : {}),
+    select: {
+      id: true,
+      isActive: true,
+    },
+  } satisfies Prisma.ShippingCenterFindManyArgs;
+
+  const [regionItems, territoryItems, shippingCenterItems, leadItems, accountItems] = await Promise.all([
+    prisma.region.findMany(regionQuery),
+    prisma.territory.findMany(territoryQuery),
+    prisma.shippingCenter.findMany(shippingCenterQuery),
+    prisma.lead.findMany({
+      where: leadScope
+        ? {
+            AND: [
+              leadScope,
+              {
+                lifecycleStatus: LeadLifecycleStatus.ACTIVE,
+                stage: {
+                  not: LeadStage.CUSTOMER_ACTIVE,
+                },
+              },
+            ],
+          }
+        : {
+            lifecycleStatus: LeadLifecycleStatus.ACTIVE,
+            stage: {
+              not: LeadStage.CUSTOMER_ACTIVE,
+            },
+          },
+      select: {
+        id: true,
+        territoryId: true,
+        shippingCenterId: true,
+        assignedTmUserId: true,
+        assignedRdUserId: true,
+        routingTeam: true,
+      },
+    }),
+    prisma.account.findMany({
+      where: accountScope
+        ? {
+            AND: [
+              accountScope,
+              {
+                isActive: true,
+              },
+            ],
+          }
+        : {
+            isActive: true,
+          },
+      select: {
+        id: true,
+        territoryId: true,
+        shippingCenterId: true,
+        assignedTmUserId: true,
+        assignedRdUserId: true,
+      },
+    }),
+  ]);
+
+  const territories = territoryItems.map(toTerritorySummary);
+  const regions = regionItems.map((item) =>
+    toRegionSummaryWithVisibleTerritoryCount(
+      item,
+      territories.filter((territory) => territory.regionId === item.id).length,
+    ),
+  );
+  const leadRecords = leadItems as TerritoryDashboardLeadRecord[];
+  const accountRecords = accountItems as TerritoryDashboardAccountRecord[];
+
+  const territoryById = new Map(territories.map((territory) => [territory.id, territory]));
+  const territoryLeadCounts = new Map<string, number>();
+  const territoryAccountCounts = new Map<string, number>();
+  const regionLeadCounts = new Map<string, number>();
+  const regionAccountCounts = new Map<string, number>();
+
+  for (const lead of leadRecords) {
+    if (!lead.territoryId) {
+      continue;
+    }
+
+    territoryLeadCounts.set(lead.territoryId, (territoryLeadCounts.get(lead.territoryId) ?? 0) + 1);
+    const territory = territoryById.get(lead.territoryId);
+    if (territory) {
+      regionLeadCounts.set(territory.regionId, (regionLeadCounts.get(territory.regionId) ?? 0) + 1);
+    }
+  }
+
+  for (const account of accountRecords) {
+    if (!account.territoryId) {
+      continue;
+    }
+
+    territoryAccountCounts.set(account.territoryId, (territoryAccountCounts.get(account.territoryId) ?? 0) + 1);
+    const territory = territoryById.get(account.territoryId);
+    if (territory) {
+      regionAccountCounts.set(territory.regionId, (regionAccountCounts.get(territory.regionId) ?? 0) + 1);
+    }
+  }
+
+  const queue: TerritoryDashboardQueueSummary = {
+    unassignedLeads: leadRecords.filter((lead) => !lead.territoryId).length,
+    unassignedAccounts: accountRecords.filter((account) => !account.territoryId).length,
+    strategicGrowthLeads: leadRecords.filter((lead) => lead.routingTeam === LeadRoutingTeam.STRATEGIC_GROWTH).length,
+    nationalTmLeads: leadRecords.filter((lead) => lead.routingTeam === LeadRoutingTeam.NATIONAL_TM).length,
+    territoriesMissingManager: territories.filter((territory) => !territory.managerUserId).length,
+    territoriesMissingShippingCenter: territories.filter((territory) => !territory.shippingCenterId).length,
+    regionsMissingDirector: regions.filter((region) => !region.directorUserId).length,
+  };
+
+  const stats: TerritoryDashboardStats = {
+    regions: regions.length,
+    territories: territories.length,
+    coveredStates: territories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
+    shippingCenters: shippingCenterItems.filter((center) => center.isActive).length,
+    activeLeads: leadRecords.length,
+    activeAccounts: accountRecords.length,
+    assignedLeads: leadRecords.filter((lead) => Boolean(lead.territoryId)).length,
+    assignedAccounts: accountRecords.filter((account) => Boolean(account.territoryId)).length,
+    unassignedLeads: queue.unassignedLeads,
+    unassignedAccounts: queue.unassignedAccounts,
+    strategicGrowthLeads: queue.strategicGrowthLeads,
+    nationalTmLeads: queue.nationalTmLeads,
+  };
+
+  const alerts = buildTerritoryDashboardAlerts(queue);
+  const workloads = buildTerritoryDashboardWorkloads(territories, territoryLeadCounts, territoryAccountCounts);
+  const regionRollups = buildTerritoryDashboardRegionRollups(
+    regions,
+    territories,
+    regionLeadCounts,
+    regionAccountCounts,
+  );
+  const ownerMetrics = await buildTerritoryDashboardOwnerMetrics({
+    regions,
+    territories,
+    leadRecords,
+    accountRecords,
+    territoryById,
+  });
+
+  return {
+    stats,
+    alerts,
+    workloads,
+    regionRollups,
+    ownerMetrics,
+    queue,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -2031,6 +2238,279 @@ function toTerritorySummary(item: TerritoryWithRefs): TerritorySummary {
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };
+}
+
+function buildTerritoryDashboardAlerts(queue: TerritoryDashboardQueueSummary): TerritoryDashboardAlert[] {
+  const alerts: TerritoryDashboardAlert[] = [];
+
+  if (queue.unassignedLeads > 0) {
+    alerts.push({
+      label: 'Unassigned active leads',
+      detail: `${queue.unassignedLeads} live leads still need territory ownership and routing cleanup.`,
+      tone: 'orange',
+    });
+  }
+
+  if (queue.territoriesMissingManager > 0) {
+    alerts.push({
+      label: 'Territories missing TM ownership',
+      detail: `${queue.territoriesMissingManager} territories do not yet have a named territory manager.`,
+      tone: 'orange',
+    });
+  }
+
+  if (queue.territoriesMissingShippingCenter > 0) {
+    alerts.push({
+      label: 'Shipping center gaps',
+      detail: `${queue.territoriesMissingShippingCenter} territories are missing a linked shipping center.`,
+      tone: 'red',
+    });
+  }
+
+  if (queue.regionsMissingDirector > 0) {
+    alerts.push({
+      label: 'Regions missing RD ownership',
+      detail: `${queue.regionsMissingDirector} regions do not yet have a named regional director.`,
+      tone: 'blue',
+    });
+  }
+
+  if (queue.unassignedAccounts > 0) {
+    alerts.push({
+      label: 'Unassigned active accounts',
+      detail: `${queue.unassignedAccounts} active accounts still need maintained territory alignment.`,
+      tone: 'orange',
+    });
+  }
+
+  return alerts;
+}
+
+function buildTerritoryDashboardWorkloads(
+  territories: TerritorySummary[],
+  territoryLeadCounts: Map<string, number>,
+  territoryAccountCounts: Map<string, number>,
+): TerritoryDashboardWorkload[] {
+  return territories
+    .map((territory) => {
+      const activeLeadCount = territoryLeadCounts.get(territory.id) ?? 0;
+      const activeAccountCount = territoryAccountCounts.get(territory.id) ?? 0;
+
+      return {
+        territoryId: territory.id,
+        territoryCode: territory.code,
+        territoryName: territory.name,
+        regionId: territory.regionId,
+        regionName: territory.regionName,
+        ...(territory.managerUserId ? { managerUserId: territory.managerUserId } : {}),
+        ...(territory.managerUserName ? { managerName: territory.managerUserName } : {}),
+        ...(territory.directorUserId ? { directorUserId: territory.directorUserId } : {}),
+        ...(territory.directorUserName ? { directorUserName: territory.directorUserName } : {}),
+        ...(territory.shippingCenterId ? { shippingCenterId: territory.shippingCenterId } : {}),
+        ...(territory.shippingCenterName ? { shippingCenterName: territory.shippingCenterName } : {}),
+        coveredStates: territory.coverageStates,
+        activeLeadCount,
+        activeAccountCount,
+        totalWorkloadCount: activeLeadCount + activeAccountCount,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.totalWorkloadCount - left.totalWorkloadCount
+        || right.activeLeadCount - left.activeLeadCount
+        || left.territoryName.localeCompare(right.territoryName),
+    )
+    .slice(0, 8);
+}
+
+function buildTerritoryDashboardRegionRollups(
+  regions: RegionSummary[],
+  territories: TerritorySummary[],
+  regionLeadCounts: Map<string, number>,
+  regionAccountCounts: Map<string, number>,
+): TerritoryDashboardRegionRollupSummary[] {
+  return regions
+    .map((region) => {
+      const regionTerritories = territories.filter((territory) => territory.regionId === region.id);
+      const shippingCenterIds = new Set(regionTerritories.flatMap((territory) => territory.shippingCenterId ? [territory.shippingCenterId] : []));
+
+      return {
+        regionId: region.id,
+        regionCode: region.code,
+        regionName: region.name,
+        ...(region.directorUserId ? { directorUserId: region.directorUserId } : {}),
+        ...(region.directorUserName ? { directorUserName: region.directorUserName } : {}),
+        territoryCount: regionTerritories.length,
+        activeTerritoryCount: regionTerritories.filter((territory) => territory.isActive).length,
+        coveredStates: regionTerritories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
+        activeLeadCount: regionLeadCounts.get(region.id) ?? 0,
+        activeAccountCount: regionAccountCounts.get(region.id) ?? 0,
+        shippingCenterCount: shippingCenterIds.size,
+        territoriesMissingManager: regionTerritories.filter((territory) => !territory.managerUserId).length,
+        territoriesMissingShippingCenter: regionTerritories.filter((territory) => !territory.shippingCenterId).length,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.activeLeadCount - left.activeLeadCount
+        || right.activeAccountCount - left.activeAccountCount
+        || left.regionName.localeCompare(right.regionName),
+    );
+}
+
+async function buildTerritoryDashboardOwnerMetrics(input: {
+  regions: RegionSummary[];
+  territories: TerritorySummary[];
+  leadRecords: TerritoryDashboardLeadRecord[];
+  accountRecords: TerritoryDashboardAccountRecord[];
+  territoryById: Map<string, TerritorySummary>;
+}): Promise<TerritoryDashboardOwnerMetricSummary[]> {
+  type WorkingOwnerMetric = {
+    ownerRole: 'territory_manager' | 'regional_director';
+    ownerUserId?: string;
+    regionIds: Set<string>;
+    territoryIds: Set<string>;
+    shippingCenterIds: Set<string>;
+    coveredStates: number;
+    activeLeadCount: number;
+    activeAccountCount: number;
+  };
+
+  const metrics = new Map<string, WorkingOwnerMetric>();
+  const ownerIds = new Set<string>();
+
+  const ensureMetric = (ownerRole: 'territory_manager' | 'regional_director', ownerUserId?: string) => {
+    const key = `${ownerRole}:${ownerUserId ?? 'unassigned'}`;
+    let metric = metrics.get(key);
+    if (!metric) {
+      metric = {
+        ownerRole,
+        ...(ownerUserId ? { ownerUserId } : {}),
+        regionIds: new Set<string>(),
+        territoryIds: new Set<string>(),
+        shippingCenterIds: new Set<string>(),
+        coveredStates: 0,
+        activeLeadCount: 0,
+        activeAccountCount: 0,
+      };
+      metrics.set(key, metric);
+    }
+    if (ownerUserId) {
+      ownerIds.add(ownerUserId);
+    }
+    return metric;
+  };
+
+  for (const territory of input.territories) {
+    if (territory.managerUserId) {
+      const metric = ensureMetric('territory_manager', territory.managerUserId);
+      metric.regionIds.add(territory.regionId);
+      metric.territoryIds.add(territory.id);
+      if (territory.shippingCenterId) {
+        metric.shippingCenterIds.add(territory.shippingCenterId);
+      }
+      metric.coveredStates += territory.coverageStates.length;
+    }
+
+    if (territory.directorUserId) {
+      const metric = ensureMetric('regional_director', territory.directorUserId);
+      metric.regionIds.add(territory.regionId);
+      metric.territoryIds.add(territory.id);
+      if (territory.shippingCenterId) {
+        metric.shippingCenterIds.add(territory.shippingCenterId);
+      }
+      metric.coveredStates += territory.coverageStates.length;
+    }
+  }
+
+  for (const region of input.regions) {
+    if (!region.directorUserId) {
+      continue;
+    }
+    ensureMetric('regional_director', region.directorUserId).regionIds.add(region.id);
+  }
+
+  for (const lead of input.leadRecords) {
+    if (lead.assignedTmUserId) {
+      ensureMetric('territory_manager', lead.assignedTmUserId).activeLeadCount += 1;
+    }
+    if (lead.assignedRdUserId) {
+      ensureMetric('regional_director', lead.assignedRdUserId).activeLeadCount += 1;
+    }
+
+    const territory = lead.territoryId ? input.territoryById.get(lead.territoryId) : undefined;
+    if (territory?.managerUserId && !lead.assignedTmUserId) {
+      ensureMetric('territory_manager', territory.managerUserId).activeLeadCount += 1;
+    }
+    if (territory?.directorUserId && !lead.assignedRdUserId) {
+      ensureMetric('regional_director', territory.directorUserId).activeLeadCount += 1;
+    }
+  }
+
+  for (const account of input.accountRecords) {
+    if (account.assignedTmUserId) {
+      ensureMetric('territory_manager', account.assignedTmUserId).activeAccountCount += 1;
+    }
+    if (account.assignedRdUserId) {
+      ensureMetric('regional_director', account.assignedRdUserId).activeAccountCount += 1;
+    }
+
+    const territory = account.territoryId ? input.territoryById.get(account.territoryId) : undefined;
+    if (territory?.managerUserId && !account.assignedTmUserId) {
+      ensureMetric('territory_manager', territory.managerUserId).activeAccountCount += 1;
+    }
+    if (territory?.directorUserId && !account.assignedRdUserId) {
+      ensureMetric('regional_director', territory.directorUserId).activeAccountCount += 1;
+    }
+  }
+
+  const users = ownerIds.size
+    ? await prisma.user.findMany({
+        where: {
+          id: {
+            in: [...ownerIds],
+          },
+        },
+        select: {
+          id: true,
+          displayName: true,
+        },
+      })
+    : [];
+  const ownerNameById = new Map(users.map((user) => [user.id, user.displayName]));
+
+  for (const territory of input.territories) {
+    if (territory.managerUserId && territory.managerUserName) {
+      ownerNameById.set(territory.managerUserId, territory.managerUserName);
+    }
+    if (territory.directorUserId && territory.directorUserName) {
+      ownerNameById.set(territory.directorUserId, territory.directorUserName);
+    }
+  }
+  for (const region of input.regions) {
+    if (region.directorUserId && region.directorUserName) {
+      ownerNameById.set(region.directorUserId, region.directorUserName);
+    }
+  }
+
+  return [...metrics.values()]
+    .map((metric) => ({
+      ...(metric.ownerUserId ? { ownerUserId: metric.ownerUserId } : {}),
+      ownerName: metric.ownerUserId ? ownerNameById.get(metric.ownerUserId) ?? 'Assigned owner' : 'Unassigned owner',
+      ownerRole: metric.ownerRole,
+      regionCount: metric.regionIds.size,
+      territoryCount: metric.territoryIds.size,
+      activeLeadCount: metric.activeLeadCount,
+      activeAccountCount: metric.activeAccountCount,
+      shippingCenterCount: metric.shippingCenterIds.size,
+      coveredStates: metric.coveredStates,
+    }))
+    .sort(
+      (left, right) =>
+        right.activeLeadCount + right.activeAccountCount - (left.activeLeadCount + left.activeAccountCount)
+        || right.territoryCount - left.territoryCount
+        || left.ownerName.localeCompare(right.ownerName),
+    );
 }
 
 function toTerritoryMapCoverageEntries(item: TerritoryWithRefs): TerritoryMapCoverageEntrySummary[] {

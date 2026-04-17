@@ -25,6 +25,7 @@ let getAccountDetail;
 let createRegion;
 let createShippingCenter;
 let createTerritory;
+let getTerritoryDashboard;
 let getTerritoryPolicy;
 let listRegions;
 let listShippingCenters;
@@ -41,25 +42,26 @@ const SERIAL = { concurrency: false };
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ loadAppConfig } = await import('../dist/config.js'));
-  ({ createPulseServer } = await import('../dist/server.js'));
-  ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
+  ({ loadAppConfig } = await import('../src/config.ts'));
+  ({ createPulseServer } = await import('../src/server.ts'));
+  ({ ensureReferenceDataSeeded } = await import('../src/modules/reference/service.ts'));
   ({
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
     createLead,
     getLeadDetail,
-  } = await import('../dist/modules/leads/service.js'));
+  } = await import('../src/modules/leads/service.ts'));
   ({
     createAccount,
     createAccountLocation,
     updateAccountLocation,
     getAccountDetail,
-  } = await import('../dist/modules/accounts/service.js'));
+  } = await import('../src/modules/accounts/service.ts'));
   ({
     createRegion,
     createShippingCenter,
     createTerritory,
+    getTerritoryDashboard,
     ensureTerritoryPolicySeeded,
     getTerritoryPolicy,
     listRegions,
@@ -73,8 +75,8 @@ test.before(async () => {
     getTerritoryMapWorkspace,
     updateTerritory,
     updateTerritoryPolicy,
-  } = await import('../dist/modules/territories/service.js'));
-  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
+  } = await import('../src/modules/territories/service.ts'));
+  ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../src/modules/auth/service.ts'));
 
   config = loadAppConfig(process.env);
   await prisma.$connect();
@@ -198,7 +200,7 @@ test('territory routes are mounted on the server and default shipping centers ar
     const address = runtime.server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const [policyResponse, centersResponse, mapResponse] = await Promise.all([
+    const [policyResponse, centersResponse, mapResponse, dashboardResponse] = await Promise.all([
       fetch(`http://127.0.0.1:${port}/api/v1/territories/policy`, {
         headers: {
           authorization: `Bearer ${auth.tokens.accessToken}`,
@@ -214,15 +216,22 @@ test('territory routes are mounted on the server and default shipping centers ar
           authorization: `Bearer ${auth.tokens.accessToken}`,
         },
       }),
+      fetch(`http://127.0.0.1:${port}/api/v1/territories/dashboard`, {
+        headers: {
+          authorization: `Bearer ${auth.tokens.accessToken}`,
+        },
+      }),
     ]);
 
     assert.equal(policyResponse.status, 200);
     assert.equal(centersResponse.status, 200);
     assert.equal(mapResponse.status, 200);
+    assert.equal(dashboardResponse.status, 200);
 
     const policy = await policyResponse.json();
     const centers = await centersResponse.json();
     const map = await mapResponse.json();
+    const dashboard = await dashboardResponse.json();
 
     assert.equal(policy.preHandoffTmVisibility, false);
     assert.ok(Array.isArray(centers.items));
@@ -230,6 +239,8 @@ test('territory routes are mounted on the server and default shipping centers ar
     assert.ok(centers.items.some((item) => item.code === 'fl_southeast'));
     assert.ok(centers.items.some((item) => item.code === 'nv_nevada'));
     assert.ok(Array.isArray(map.shippingCenters));
+    assert.ok(Array.isArray(dashboard.workloads));
+    assert.ok(Array.isArray(dashboard.regionRollups));
   } finally {
     await runtime.close();
   }
@@ -841,6 +852,346 @@ test('territory read visibility scopes region, territory, shipping center, and m
     workspace.shippingCenters.map((item) => item.id).sort(),
     [peerShippingCenter.id, visible.shippingCenter.id].sort(),
   );
+});
+
+test('territory dashboard returns operational workload, queue, region, and owner rollups for broad roles', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_fl',
+    stateCode: 'FL',
+  });
+
+  const texasLeadA = await createLead(actor, {
+    companyName: 'Dashboard Texas Lead A',
+    serviceTechCount: 6,
+    state: 'TX',
+  });
+  const texasLeadB = await createLead(actor, {
+    companyName: 'Dashboard Texas Lead B',
+    serviceTechCount: 5,
+    state: 'TX',
+  });
+  await prisma.lead.update({
+    where: { id: texasLeadB.id },
+    data: { routingTeam: 'STRATEGIC_GROWTH' },
+  });
+  const floridaLead = await createLead(actor, {
+    companyName: 'Dashboard Florida Lead',
+    serviceTechCount: 4,
+    state: 'FL',
+  });
+  const unassignedLead = await createLead(actor, {
+    companyName: 'Dashboard Unassigned Lead',
+    serviceTechCount: 3,
+  });
+  await prisma.lead.updateMany({
+    where: {
+      id: {
+        in: [texasLeadA.id, floridaLead.id, unassignedLead.id],
+      },
+    },
+    data: { routingTeam: 'NATIONAL_TM' },
+  });
+
+  const texasAccount = await createAccount(actor, {
+    displayName: 'Dashboard Texas Account',
+    legalName: 'Dashboard Texas Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, texasAccount.id, {
+    name: 'Primary',
+    city: 'Dallas',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const floridaAccount = await createAccount(actor, {
+    displayName: 'Dashboard Florida Account',
+    legalName: 'Dashboard Florida Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, floridaAccount.id, {
+    name: 'Primary',
+    city: 'Miami',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  await createAccount(actor, {
+    displayName: 'Dashboard Unassigned Account',
+    legalName: 'Dashboard Unassigned Account LLC',
+    accountType: 'Dealer',
+  });
+
+  const dashboard = await getTerritoryDashboard(actor);
+
+  assert.equal(dashboard.stats.regions, 2);
+  assert.equal(dashboard.stats.territories, 2);
+  assert.equal(dashboard.stats.activeLeads, 4);
+  assert.equal(dashboard.stats.assignedLeads, 3);
+  assert.equal(dashboard.stats.unassignedLeads, 1);
+  assert.equal(dashboard.stats.activeAccounts, 3);
+  assert.equal(dashboard.stats.assignedAccounts, 2);
+  assert.equal(dashboard.stats.unassignedAccounts, 1);
+  assert.equal(dashboard.stats.strategicGrowthLeads, 1);
+
+  assert.ok(dashboard.alerts.some((item) => item.label === 'Unassigned active leads'));
+  assert.ok(dashboard.alerts.some((item) => item.label === 'Unassigned active accounts'));
+
+  assert.equal(dashboard.queue.unassignedLeads, 1);
+  assert.equal(dashboard.queue.unassignedAccounts, 1);
+
+  const texasWorkload = dashboard.workloads.find((item) => item.territoryId === texas.territory.id);
+  assert.ok(texasWorkload);
+  assert.equal(texasWorkload.activeLeadCount, 2);
+  assert.equal(texasWorkload.activeAccountCount, 1);
+  assert.equal(texasWorkload.totalWorkloadCount, 3);
+
+  const texasRegionRollup = dashboard.regionRollups.find((item) => item.regionId === texas.region.id);
+  assert.ok(texasRegionRollup);
+  assert.equal(texasRegionRollup.activeLeadCount, 2);
+  assert.equal(texasRegionRollup.activeAccountCount, 1);
+  assert.equal(texasRegionRollup.territoryCount, 1);
+
+  const texasTmMetric = dashboard.ownerMetrics.find(
+    (item) => item.ownerRole === 'territory_manager' && item.ownerUserId === texas.manager.id,
+  );
+  assert.ok(texasTmMetric);
+  assert.equal(texasTmMetric.activeLeadCount, 2);
+  assert.equal(texasTmMetric.activeAccountCount, 1);
+
+  const texasRdMetric = dashboard.ownerMetrics.find(
+    (item) => item.ownerRole === 'regional_director' && item.ownerUserId === texas.director.id,
+  );
+  assert.ok(texasRdMetric);
+  assert.equal(texasRdMetric.activeLeadCount, 2);
+  assert.equal(texasRdMetric.activeAccountCount, 1);
+});
+
+test('territory dashboard scopes workload and owner rollups for a TM', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_tm_visible',
+    stateCode: 'TX',
+  });
+  const peerTm = await createUser('TERRITORY_MANAGER', 'dashboard-tm-peer@pulse.local', 'Dashboard TM Peer');
+  const peerShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_dashboard_tm_peer',
+    name: 'Dashboard TM Peer Shipping',
+    city: 'Tulsa',
+    state: 'OK',
+  });
+  const peerTerritory = await createTerritory(actor, {
+    code: 'territory_dashboard_tm_peer',
+    name: 'Dashboard TM Peer Territory',
+    regionId: visible.region.id,
+    managerUserId: peerTm.id,
+    shippingCenterId: peerShippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, peerTerritory.id, {
+    coverage: [{ stateCode: 'OK' }],
+  });
+
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_tm_hidden',
+    stateCode: 'FL',
+  });
+
+  await createLead(actor, {
+    companyName: 'Dashboard TM Visible Lead',
+    serviceTechCount: 5,
+    state: 'TX',
+  });
+  await createLead(actor, {
+    companyName: 'Dashboard TM Peer Lead',
+    serviceTechCount: 5,
+    state: 'OK',
+  });
+  await createLead(actor, {
+    companyName: 'Dashboard TM Hidden Lead',
+    serviceTechCount: 5,
+    state: 'FL',
+  });
+
+  const visibleAccount = await createAccount(actor, {
+    displayName: 'Dashboard TM Visible Account',
+    legalName: 'Dashboard TM Visible Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, visibleAccount.id, {
+    name: 'Primary',
+    city: 'Houston',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const peerAccount = await createAccount(actor, {
+    displayName: 'Dashboard TM Peer Account',
+    legalName: 'Dashboard TM Peer Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, peerAccount.id, {
+    name: 'Primary',
+    city: 'Tulsa',
+    state: 'OK',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const hiddenAccount = await createAccount(actor, {
+    displayName: 'Dashboard TM Hidden Account',
+    legalName: 'Dashboard TM Hidden Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, hiddenAccount.id, {
+    name: 'Primary',
+    city: 'Miami',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const dashboard = await getTerritoryDashboard(actorForUser(visible.manager));
+
+  assert.equal(dashboard.stats.regions, 1);
+  assert.equal(dashboard.stats.territories, 1);
+  assert.equal(dashboard.stats.activeLeads, 1);
+  assert.equal(dashboard.stats.activeAccounts, 1);
+  assert.equal(dashboard.stats.unassignedLeads, 0);
+  assert.equal(dashboard.stats.unassignedAccounts, 0);
+  assert.deepEqual(dashboard.regionRollups.map((item) => item.regionId), [visible.region.id]);
+  assert.deepEqual(dashboard.workloads.map((item) => item.territoryId), [visible.territory.id]);
+
+  const tmOwnerNames = dashboard.ownerMetrics
+    .filter((item) => item.ownerRole === 'territory_manager')
+    .map((item) => item.ownerUserId);
+  assert.deepEqual(tmOwnerNames, [visible.manager.id]);
+  assert.ok(!dashboard.workloads.some((item) => item.territoryId === peerTerritory.id));
+  assert.ok(!dashboard.workloads.some((item) => item.territoryId === hidden.territory.id));
+});
+
+test('territory dashboard scopes regional rollups and peer territory workload for an RD', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_rd_visible',
+    stateCode: 'TX',
+  });
+  const peerTm = await createUser('TERRITORY_MANAGER', 'dashboard-rd-peer-tm@pulse.local', 'Dashboard RD Peer TM');
+  const peerShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_dashboard_rd_peer',
+    name: 'Dashboard RD Peer Shipping',
+    city: 'Tulsa',
+    state: 'OK',
+  });
+  const peerTerritory = await createTerritory(actor, {
+    code: 'territory_dashboard_rd_peer',
+    name: 'Dashboard RD Peer Territory',
+    regionId: visible.region.id,
+    managerUserId: peerTm.id,
+    shippingCenterId: peerShippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, peerTerritory.id, {
+    coverage: [{ stateCode: 'OK' }],
+  });
+
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_rd_hidden',
+    stateCode: 'FL',
+  });
+
+  await createLead(actor, {
+    companyName: 'Dashboard RD Visible Lead',
+    serviceTechCount: 5,
+    state: 'TX',
+  });
+  await createLead(actor, {
+    companyName: 'Dashboard RD Peer Lead',
+    serviceTechCount: 5,
+    state: 'OK',
+  });
+  await createLead(actor, {
+    companyName: 'Dashboard RD Hidden Lead',
+    serviceTechCount: 5,
+    state: 'FL',
+  });
+
+  const visibleAccount = await createAccount(actor, {
+    displayName: 'Dashboard RD Visible Account',
+    legalName: 'Dashboard RD Visible Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, visibleAccount.id, {
+    name: 'Primary',
+    city: 'Houston',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const peerAccount = await createAccount(actor, {
+    displayName: 'Dashboard RD Peer Account',
+    legalName: 'Dashboard RD Peer Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, peerAccount.id, {
+    name: 'Primary',
+    city: 'Tulsa',
+    state: 'OK',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const hiddenAccount = await createAccount(actor, {
+    displayName: 'Dashboard RD Hidden Account',
+    legalName: 'Dashboard RD Hidden Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, hiddenAccount.id, {
+    name: 'Primary',
+    city: 'Miami',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const dashboard = await getTerritoryDashboard(actorForUser(visible.director));
+
+  assert.equal(dashboard.stats.regions, 1);
+  assert.equal(dashboard.stats.territories, 2);
+  assert.equal(dashboard.stats.activeLeads, 2);
+  assert.equal(dashboard.stats.activeAccounts, 2);
+  assert.deepEqual(
+    dashboard.workloads.map((item) => item.territoryId).sort(),
+    [peerTerritory.id, visible.territory.id].sort(),
+  );
+
+  const regionRollup = dashboard.regionRollups.find((item) => item.regionId === visible.region.id);
+  assert.ok(regionRollup);
+  assert.equal(regionRollup.territoryCount, 2);
+  assert.equal(regionRollup.activeLeadCount, 2);
+  assert.equal(regionRollup.activeAccountCount, 2);
+
+  const managerMetricIds = dashboard.ownerMetrics
+    .filter((item) => item.ownerRole === 'territory_manager')
+    .map((item) => item.ownerUserId)
+    .sort();
+  assert.deepEqual(managerMetricIds, [peerTm.id, visible.manager.id].sort());
+
+  const directorMetric = dashboard.ownerMetrics.find(
+    (item) => item.ownerRole === 'regional_director' && item.ownerUserId === visible.director.id,
+  );
+  assert.ok(directorMetric);
+  assert.equal(directorMetric.territoryCount, 2);
+  assert.equal(directorMetric.activeLeadCount, 2);
+  assert.equal(directorMetric.activeAccountCount, 2);
+  assert.ok(!dashboard.workloads.some((item) => item.territoryId === hidden.territory.id));
 });
 
 test('territory assignment history denies out-of-scope entity reads for TMs while keeping visible records accessible', SERIAL, async () => {

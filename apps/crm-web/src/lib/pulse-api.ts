@@ -33,6 +33,7 @@ import type {
   UpdateCalendarOutlookConnectionRequest,
   UpdateAdminCalendarIntegrationSettingsRequest,
   AccountDetail,
+  AccountPaymentMethodSummary,
   AccountSummary,
   AccountLocationSummary,
   ContactSummary,
@@ -47,9 +48,12 @@ import type {
   ListAccountsRequest,
   ListAccountsResponse,
   CreateAccountLocationRequest,
+  CreateAccountPaymentMethodRequest,
   CreateContactRequest,
+  ListAccountPaymentMethodsResponse,
   UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
+  UpdateAccountPaymentMethodRequest,
   UpdateAccountRequest,
   UpdateContactRequest,
   CisFinanceDecisionRequest,
@@ -673,6 +677,44 @@ export async function updateAccountLifecycle(
   input: UpdateAccountLifecycleRequest,
 ) {
   return requestJson<AccountSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/lifecycle`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchAccountPaymentMethods(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+) {
+  return requestJson<ListAccountPaymentMethodsResponse>(apiBaseUrl, `/api/v1/accounts/${accountId}/payment-methods`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createAccountPaymentMethodRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  input: CreateAccountPaymentMethodRequest,
+) {
+  return requestJson<AccountPaymentMethodSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/payment-methods`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAccountPaymentMethodRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  paymentMethodId: string,
+  input: UpdateAccountPaymentMethodRequest,
+) {
+  return requestJson<AccountPaymentMethodSummary>(apiBaseUrl, `/api/v1/accounts/${accountId}/payment-methods/${paymentMethodId}`, {
     method: 'PATCH',
     accessToken,
     body: input,

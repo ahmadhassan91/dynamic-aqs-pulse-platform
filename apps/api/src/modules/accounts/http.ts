@@ -1,10 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  CreateAccountPaymentMethodRequest,
   CreateAccountRequest,
   CreateAccountLocationRequest,
   CreateContactRequest,
   ListAccountsRequest,
+  UpdateAccountPaymentMethodRequest,
   UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
   UpdateAccountRequest,
@@ -25,13 +27,16 @@ import {
   requireAuthenticatedActor,
 } from '../auth/request.js';
 import {
+  createAccountPaymentMethod,
   createAccount,
   createAccountLocation,
   createAccountContact,
   getAccountDetail,
+  listAccountPaymentMethods,
   listAccountLocations,
   listAccountContacts,
   listAccounts,
+  updateAccountPaymentMethod,
   updateAccount,
   updateAccountLifecycle,
   updateAccountContact,
@@ -45,6 +50,8 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
     pathname === '/api/v1/accounts'
     || /^\/api\/v1\/accounts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/lifecycle$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/payment-methods$/.test(pathname)
+    || /^\/api\/v1\/accounts\/[^/]+\/payment-methods\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/locations$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/locations\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/accounts\/[^/]+\/contacts$/.test(pathname)
@@ -198,6 +205,60 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         });
         const body = (await readJsonBody(req)) as UpdateAccountLifecycleRequest;
         const response = await updateAccountLifecycle(actor, accountId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['PATCH']);
+    }
+
+    const paymentMethodsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/payment-methods$/);
+    if (paymentMethodsMatch) {
+      const accountId = paymentMethodsMatch[1];
+      if (!accountId) {
+        return false;
+      }
+
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.financials_view',
+        });
+        const response = await listAccountPaymentMethods(actor, accountId);
+        if (!response) {
+          return notFoundResponse(res, { entity: 'Account', id: accountId });
+        }
+
+        return jsonResponse(res, 200, response);
+      }
+
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.financials_manage',
+        });
+        const body = (await readJsonBody(req)) as CreateAccountPaymentMethodRequest;
+        const response = await createAccountPaymentMethod(actor, accountId, body);
+        return jsonResponse(res, 201, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const paymentMethodDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/payment-methods\/([^/]+)$/);
+    if (paymentMethodDetailMatch) {
+      const accountId = paymentMethodDetailMatch[1];
+      const paymentMethodId = paymentMethodDetailMatch[2];
+      if (!accountId || !paymentMethodId) {
+        return false;
+      }
+
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'customers',
+          action: 'customer.financials_manage',
+        });
+        const body = (await readJsonBody(req)) as UpdateAccountPaymentMethodRequest;
+        const response = await updateAccountPaymentMethod(actor, accountId, paymentMethodId, body);
         return jsonResponse(res, 200, response);
       }
 

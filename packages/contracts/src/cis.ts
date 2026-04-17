@@ -29,6 +29,14 @@ export const CIS_PAYMENT_STATUSES = [
 
 export type CisPaymentStatusKey = (typeof CIS_PAYMENT_STATUSES)[number];
 
+export const CIS_PAYMENT_VAULT_PROVIDERS = [
+  'unknown',
+  'ebizcharge',
+  'moneris',
+] as const;
+
+export type CisPaymentVaultProviderKey = (typeof CIS_PAYMENT_VAULT_PROVIDERS)[number];
+
 export const CIS_ESIGN_STATUSES = [
   'not_started',
   'signed',

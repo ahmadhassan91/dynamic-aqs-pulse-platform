@@ -11,6 +11,7 @@ import { CustomerDealerPortalAccess } from './CustomerDealerPortalAccess';
 import { CustomerContacts } from './CustomerContacts';
 import { CustomerLocations } from './CustomerLocations';
 import { CustomerOverview } from './CustomerOverview';
+import { CustomerPaymentMethods } from './CustomerPaymentMethods';
 import { CustomerTrainingHistory } from '@/components/training/CustomerTrainingHistory';
 import { canAccessModule, canPerformAction } from '@/lib/access';
 
@@ -24,8 +25,14 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const canViewTraining = auth ? canAccessModule(auth.identity.role, 'training') : false;
   const canEditCustomer = auth ? canPerformAction(auth.identity.role, 'customer.edit') : false;
+  const canViewFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_view') : false;
+  const canManageFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_manage') : false;
   const requestedTab = searchParams.get('tab');
-  const defaultTab = requestedTab === 'training-history' && canViewTraining ? 'training' : 'overview';
+  const defaultTab = requestedTab === 'training-history' && canViewTraining
+    ? 'training'
+    : requestedTab === 'payment-methods' && canViewFinancials
+      ? 'payment-methods'
+      : 'overview';
 
   const reloadAccount = async () => {
     if (!auth) {
@@ -150,6 +157,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
             <Tabs.Tab value="overview">Profile</Tabs.Tab>
             <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
             <Tabs.Tab value="locations">Locations</Tabs.Tab>
+            {canViewFinancials ? <Tabs.Tab value="payment-methods">Payment Methods</Tabs.Tab> : null}
             {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
             <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
           </Tabs.List>
@@ -162,6 +170,11 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
           <Tabs.Panel value="locations" pt="md">
             <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
           </Tabs.Panel>
+          {canViewFinancials ? (
+            <Tabs.Panel value="payment-methods" pt="md">
+              <CustomerPaymentMethods accountId={account.id} canManage={canManageFinancials} />
+            </Tabs.Panel>
+          ) : null}
           {canViewTraining ? (
             <Tabs.Panel value="training" pt="md">
               <CustomerTrainingHistory

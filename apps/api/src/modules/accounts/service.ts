@@ -1,21 +1,26 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AccountLifecycleStatus, AuditAction, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
+import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
   AccountLifecycleStatusKey,
   AccountLocationSummary,
+  AccountPaymentMethodSummary,
   AccountSummary,
   ContactSummary,
+  CreateAccountPaymentMethodRequest,
   CreateAccountRequest,
   CreateAccountLocationRequest,
   CreateContactRequest,
+  ListAccountPaymentMethodsResponse,
   ListAccountsRequest,
   ListAccountsResponse,
+  UpdateAccountPaymentMethodRequest,
   UpdateAccountLifecycleRequest,
   UpdateAccountLocationRequest,
   UpdateAccountRequest,
   UpdateContactRequest,
 } from '@pulse/contracts/accounts';
+import type { CisPaymentVaultProviderKey } from '@pulse/contracts/cis';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAccountRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -24,6 +29,7 @@ import { syncAccountTerritoryAssignment } from '../territories/service.js';
 const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
 const LOCATION_ENTITY_TYPE = 'ACCOUNT_LOCATION';
 const CONTACT_ENTITY_TYPE = 'CONTACT';
+const ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE = 'ACCOUNT_PAYMENT_METHOD';
 
 export async function listAccounts(actor: AuthenticatedActor, query: ListAccountsRequest = {}): Promise<ListAccountsResponse> {
   assertModuleAccess(actor.role, 'customers');
@@ -468,6 +474,301 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
     locations: account.locations.map(toAccountLocationSummary),
     contacts: account.contacts.map(toContactSummary),
   };
+}
+
+export async function listAccountPaymentMethods(
+  actor: AuthenticatedActor,
+  accountId: string,
+): Promise<ListAccountPaymentMethodsResponse | null> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.financials_view');
+
+  const account = await findScopedAccount(actor, accountId, { id: true });
+  if (!account) {
+    return null;
+  }
+
+  const items = await prisma.accountPaymentVaultReference.findMany({
+    where: { accountId },
+    orderBy: [
+      { isDefault: 'desc' },
+      { createdAt: 'asc' },
+    ],
+  });
+
+  return {
+    items: items.map(toAccountPaymentMethodSummary),
+  };
+}
+
+export async function createAccountPaymentMethod(
+  actor: AuthenticatedActor,
+  accountId: string,
+  input: CreateAccountPaymentMethodRequest,
+): Promise<AccountPaymentMethodSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.financials_manage');
+
+  const account = await findScopedAccount(actor, accountId, {
+    id: true,
+    sourceLeadId: true,
+  });
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+
+  const billingZip = optionalTrimmed(input.billingZip);
+  const status = optionalTrimmed(input.status);
+  const externalPaymentMethodRef = optionalTrimmed(input.externalPaymentMethodRef);
+  const sourceCisVaultReferenceId = optionalTrimmed(input.sourceCisVaultReferenceId);
+  const authorizationCapturedAt = parseOptionalDate(input.authorizationCapturedAt, 'authorizationCapturedAt');
+
+  const paymentMethod = await prisma.$transaction(async (tx) => {
+    if (sourceCisVaultReferenceId) {
+      const source = await tx.cisPaymentVaultReference.findUnique({
+        where: { id: sourceCisVaultReferenceId },
+        include: {
+          cisPackage: {
+            select: {
+              id: true,
+              leadId: true,
+            },
+          },
+        },
+      });
+
+      if (!source) {
+        throw new Error('sourceCisVaultReferenceId was not found');
+      }
+
+      if (account.sourceLeadId && source.cisPackage.leadId !== account.sourceLeadId) {
+        throw new Error('sourceCisVaultReferenceId does not belong to this account source lead');
+      }
+
+      const existing = await tx.accountPaymentVaultReference.findFirst({
+        where: {
+          accountId,
+          sourceCisVaultReferenceId,
+        },
+      });
+
+      const shouldBeDefault = input.isDefault ?? !existingDefaultExists(await tx.accountPaymentVaultReference.findMany({
+        where: { accountId, isActive: true },
+        select: { id: true, isDefault: true },
+      }));
+
+      if (shouldBeDefault) {
+        await clearDefaultAccountPaymentMethods(tx, accountId, existing?.id);
+      }
+
+      const next = existing
+        ? await tx.accountPaymentVaultReference.update({
+            where: { id: existing.id },
+            data: {
+              provider: source.provider,
+              vaultToken: source.vaultToken,
+              vaultCustomerRef: source.vaultCustomerRef,
+              last4: source.last4,
+              brand: source.brand,
+              ...(externalPaymentMethodRef !== undefined ? { externalPaymentMethodRef } : {}),
+              ...(billingZip !== undefined ? { billingZip } : {}),
+              ...(authorizationCapturedAt !== undefined ? { authorizationCapturedAt } : {}),
+              ...(input.isDefault !== undefined || shouldBeDefault ? { isDefault: shouldBeDefault } : {}),
+              ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+              ...(status !== undefined ? { status } : { status: source.status }),
+            },
+          })
+        : await tx.accountPaymentVaultReference.create({
+            data: {
+              accountId,
+              sourceCisVaultReferenceId,
+              provider: source.provider,
+              vaultToken: source.vaultToken,
+              vaultCustomerRef: source.vaultCustomerRef,
+              last4: source.last4,
+              brand: source.brand,
+              ...(externalPaymentMethodRef !== undefined ? { externalPaymentMethodRef } : {}),
+              ...(billingZip !== undefined ? { billingZip } : {}),
+              ...(authorizationCapturedAt !== undefined ? { authorizationCapturedAt } : {}),
+              isDefault: shouldBeDefault,
+              isActive: input.isActive ?? true,
+              status: status ?? source.status,
+            },
+          });
+
+      if ((next.isDefault && !next.isActive) || (existing?.isDefault && input.isDefault === false)) {
+        await ensureDefaultActiveAccountPaymentMethod(tx, accountId, next.id);
+      }
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: existing ? AuditAction.UPDATE : AuditAction.CREATE,
+          entityType: ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE,
+          entityId: next.id,
+          metadata: {
+            sessionId: actor.sessionId,
+            actorRole: actor.role,
+            actorType: actor.actorType,
+            operation: existing ? 'account.payment_method.promote_update' : 'account.payment_method.promote_create',
+            source: 'cis_promoted',
+            sourceCisVaultReferenceId,
+            provider: toCisPaymentVaultProviderKey(next.provider),
+          },
+          beforeData: existing ? toAccountPaymentMethodAuditPayload(existing) : undefined,
+          afterData: toAccountPaymentMethodAuditPayload(next),
+        }),
+      });
+
+      return next;
+    }
+
+    const provider = toCisPaymentVaultProviderEnum(input.provider);
+    const vaultToken = optionalTrimmed(input.vaultToken);
+    const vaultCustomerRef = optionalTrimmed(input.vaultCustomerRef);
+    const last4 = optionalTrimmed(input.last4);
+    const brand = optionalTrimmed(input.brand);
+    if (!vaultToken && !vaultCustomerRef && !externalPaymentMethodRef) {
+      throw new Error('At least one tokenized payment reference is required');
+    }
+
+    const activePaymentMethods = await tx.accountPaymentVaultReference.findMany({
+      where: { accountId, isActive: true },
+      select: { id: true, isDefault: true },
+    });
+    const shouldBeDefault = input.isDefault ?? !existingDefaultExists(activePaymentMethods);
+
+    if (shouldBeDefault) {
+      await clearDefaultAccountPaymentMethods(tx, accountId);
+    }
+
+    const created = await tx.accountPaymentVaultReference.create({
+      data: {
+        accountId,
+        provider,
+        ...(vaultToken !== undefined ? { vaultToken } : {}),
+        ...(vaultCustomerRef !== undefined ? { vaultCustomerRef } : {}),
+        ...(externalPaymentMethodRef !== undefined ? { externalPaymentMethodRef } : {}),
+        ...(last4 !== undefined ? { last4 } : {}),
+        ...(brand !== undefined ? { brand } : {}),
+        ...(billingZip !== undefined ? { billingZip } : {}),
+        ...(authorizationCapturedAt !== undefined ? { authorizationCapturedAt } : {}),
+        isDefault: shouldBeDefault,
+        isActive: input.isActive ?? true,
+        status: status ?? 'active',
+      },
+    });
+
+    if (created.isDefault && !created.isActive) {
+      await ensureDefaultActiveAccountPaymentMethod(tx, accountId, created.id);
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE,
+        entityId: created.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          operation: 'account.payment_method.create',
+          source: 'manual',
+          provider: toCisPaymentVaultProviderKey(created.provider),
+        },
+        afterData: toAccountPaymentMethodAuditPayload(created),
+      }),
+    });
+
+    return created;
+  });
+
+  return toAccountPaymentMethodSummary(paymentMethod);
+}
+
+export async function updateAccountPaymentMethod(
+  actor: AuthenticatedActor,
+  accountId: string,
+  paymentMethodId: string,
+  input: UpdateAccountPaymentMethodRequest,
+): Promise<AccountPaymentMethodSummary> {
+  assertModuleAccess(actor.role, 'customers');
+  assertActionAccess(actor.role, 'customer.financials_manage');
+
+  const account = await findScopedAccount(actor, accountId, { id: true });
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+
+  const existing = await prisma.accountPaymentVaultReference.findFirst({
+    where: {
+      id: paymentMethodId,
+      accountId,
+    },
+  });
+  if (!existing) {
+    throw new Error(`Account payment method not found: ${paymentMethodId}`);
+  }
+
+  const data: Prisma.AccountPaymentVaultReferenceUpdateInput = {};
+  if (input.billingZip !== undefined) {
+    data.billingZip = normalizeNullableText(input.billingZip);
+  }
+  if (input.isDefault !== undefined) {
+    data.isDefault = input.isDefault;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+  if (input.status !== undefined) {
+    const status = input.status.trim();
+    if (!status) {
+      throw new Error('status cannot be empty');
+    }
+    data.status = status;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return toAccountPaymentMethodSummary(existing);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (input.isDefault === true) {
+      await clearDefaultAccountPaymentMethods(tx, accountId, paymentMethodId);
+    }
+
+    const next = await tx.accountPaymentVaultReference.update({
+      where: { id: paymentMethodId },
+      data,
+    });
+
+    if ((existing.isDefault && next.isActive === false) || (existing.isDefault && input.isDefault === false)) {
+      await ensureDefaultActiveAccountPaymentMethod(tx, accountId, paymentMethodId);
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE,
+        entityId: next.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          operation: 'account.payment_method.update',
+          provider: toCisPaymentVaultProviderKey(next.provider),
+        },
+        beforeData: toAccountPaymentMethodAuditPayload(existing),
+        afterData: toAccountPaymentMethodAuditPayload(next),
+      }),
+    });
+
+    return next;
+  });
+
+  return toAccountPaymentMethodSummary(updated);
 }
 
 export async function listAccountContacts(actor: AuthenticatedActor, accountId: string): Promise<ContactSummary[] | null> {
@@ -992,6 +1293,196 @@ export async function updateAccountContact(
   });
 
   return toContactSummary(updated);
+}
+
+async function findScopedAccount<TSelect extends Prisma.AccountSelect>(
+  actor: AuthenticatedActor,
+  accountId: string,
+  select: TSelect,
+): Promise<Prisma.AccountGetPayload<{ select: TSelect }> | null> {
+  const scopeWhere = buildAccountRecordScope(actor);
+  return prisma.account.findFirst({
+    where: scopeWhere ? { AND: [scopeWhere, { id: accountId }] } : { id: accountId },
+    select,
+  });
+}
+
+async function clearDefaultAccountPaymentMethods(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  excludeId?: string,
+) {
+  await tx.accountPaymentVaultReference.updateMany({
+    where: {
+      accountId,
+      isDefault: true,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    data: {
+      isDefault: false,
+    },
+  });
+}
+
+async function ensureDefaultActiveAccountPaymentMethod(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  excludeId?: string,
+) {
+  const existingDefault = await tx.accountPaymentVaultReference.findFirst({
+    where: {
+      accountId,
+      isDefault: true,
+      isActive: true,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (existingDefault) {
+    return;
+  }
+
+  const fallback = await tx.accountPaymentVaultReference.findFirst({
+    where: {
+      accountId,
+      isActive: true,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    orderBy: [
+      { createdAt: 'asc' },
+      { id: 'asc' },
+    ],
+    select: { id: true },
+  });
+
+  if (!fallback) {
+    return;
+  }
+
+  await tx.accountPaymentVaultReference.update({
+    where: { id: fallback.id },
+    data: { isDefault: true },
+  });
+}
+
+function existingDefaultExists(items: Array<{ isDefault: boolean }>) {
+  return items.some((item) => item.isDefault);
+}
+
+function toCisPaymentVaultProviderEnum(value: CisPaymentVaultProviderKey | undefined) {
+  switch (value) {
+    case 'ebizcharge':
+      return CisPaymentVaultProvider.EBIZCHARGE;
+    case 'moneris':
+      return CisPaymentVaultProvider.MONERIS;
+    case 'unknown':
+    case undefined:
+      return CisPaymentVaultProvider.UNKNOWN;
+  }
+}
+
+function toCisPaymentVaultProviderKey(value: CisPaymentVaultProvider): CisPaymentVaultProviderKey {
+  switch (value) {
+    case CisPaymentVaultProvider.EBIZCHARGE:
+      return 'ebizcharge';
+    case CisPaymentVaultProvider.MONERIS:
+      return 'moneris';
+    case CisPaymentVaultProvider.UNKNOWN:
+      return 'unknown';
+  }
+}
+
+function toAccountPaymentMethodSummary(paymentMethod: {
+  id: string;
+  accountId: string;
+  provider: CisPaymentVaultProvider;
+  sourceCisVaultReferenceId: string | null;
+  externalPaymentMethodRef: string | null;
+  last4: string | null;
+  brand: string | null;
+  billingZip: string | null;
+  authorizationCapturedAt: Date | null;
+  isDefault: boolean;
+  isActive: boolean;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): AccountPaymentMethodSummary {
+  const summary: AccountPaymentMethodSummary = {
+    id: paymentMethod.id,
+    accountId: paymentMethod.accountId,
+    provider: toCisPaymentVaultProviderKey(paymentMethod.provider),
+    source: paymentMethod.sourceCisVaultReferenceId ? 'cis_promoted' : 'manual',
+    isDefault: paymentMethod.isDefault,
+    isActive: paymentMethod.isActive,
+    status: paymentMethod.status,
+    createdAt: paymentMethod.createdAt.toISOString(),
+    updatedAt: paymentMethod.updatedAt.toISOString(),
+  };
+
+  if (paymentMethod.sourceCisVaultReferenceId) {
+    summary.sourceCisVaultReferenceId = paymentMethod.sourceCisVaultReferenceId;
+  }
+  if (paymentMethod.externalPaymentMethodRef) {
+    summary.externalPaymentMethodRef = paymentMethod.externalPaymentMethodRef;
+  }
+  if (paymentMethod.last4) {
+    summary.last4 = paymentMethod.last4;
+  }
+  if (paymentMethod.brand) {
+    summary.brand = paymentMethod.brand;
+  }
+  if (paymentMethod.billingZip) {
+    summary.billingZip = paymentMethod.billingZip;
+  }
+  if (paymentMethod.authorizationCapturedAt) {
+    summary.authorizationCapturedAt = paymentMethod.authorizationCapturedAt.toISOString();
+  }
+
+  return summary;
+}
+
+function toAccountPaymentMethodAuditPayload(paymentMethod: {
+  accountId: string;
+  provider: CisPaymentVaultProvider;
+  sourceCisVaultReferenceId?: string | null;
+  externalPaymentMethodRef?: string | null;
+  last4?: string | null;
+  brand?: string | null;
+  billingZip?: string | null;
+  authorizationCapturedAt?: Date | null;
+  isDefault: boolean;
+  isActive: boolean;
+  status: string;
+}) {
+  return {
+    accountId: paymentMethod.accountId,
+    provider: toCisPaymentVaultProviderKey(paymentMethod.provider),
+    ...(paymentMethod.sourceCisVaultReferenceId ? { sourceCisVaultReferenceId: paymentMethod.sourceCisVaultReferenceId } : {}),
+    ...(paymentMethod.externalPaymentMethodRef ? { externalPaymentMethodRef: paymentMethod.externalPaymentMethodRef } : {}),
+    ...(paymentMethod.last4 ? { last4: paymentMethod.last4 } : {}),
+    ...(paymentMethod.brand ? { brand: paymentMethod.brand } : {}),
+    ...(paymentMethod.billingZip ? { billingZip: paymentMethod.billingZip } : {}),
+    ...(paymentMethod.authorizationCapturedAt ? { authorizationCapturedAt: paymentMethod.authorizationCapturedAt.toISOString() } : {}),
+    isDefault: paymentMethod.isDefault,
+    isActive: paymentMethod.isActive,
+    status: paymentMethod.status,
+  };
+}
+
+function parseOptionalDate(value: string | undefined, fieldName: string) {
+  const trimmed = optionalTrimmed(value);
+  if (trimmed === undefined) {
+    return undefined;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${fieldName} must be a valid ISO date`);
+  }
+
+  return parsed;
 }
 
 function toAccountSummary(account: {

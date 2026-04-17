@@ -1,3 +1,4 @@
+import type { CisPaymentVaultProviderKey } from './cis.js';
 import type { TerritoryAssignmentMethodKey } from './territories.js';
 
 export const ACCOUNT_LIFECYCLE_STATUSES = [
@@ -79,6 +80,28 @@ export interface AccountDetail extends AccountSummary {
   contacts: ContactSummary[];
 }
 
+export interface AccountPaymentMethodSummary {
+  id: string;
+  accountId: string;
+  provider: CisPaymentVaultProviderKey;
+  source: 'manual' | 'cis_promoted';
+  sourceCisVaultReferenceId?: string;
+  externalPaymentMethodRef?: string;
+  last4?: string;
+  brand?: string;
+  billingZip?: string;
+  authorizationCapturedAt?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListAccountPaymentMethodsResponse {
+  items: AccountPaymentMethodSummary[];
+}
+
 export interface ListAccountsRequest {
   search?: string;
   limit?: number;
@@ -103,6 +126,28 @@ export interface UpdateAccountRequest {
   legalName?: string | null;
   accountType?: string | null;
   isActive?: boolean;
+}
+
+export interface CreateAccountPaymentMethodRequest {
+  provider?: CisPaymentVaultProviderKey;
+  sourceCisVaultReferenceId?: string;
+  vaultToken?: string;
+  vaultCustomerRef?: string;
+  externalPaymentMethodRef?: string;
+  last4?: string;
+  brand?: string;
+  billingZip?: string;
+  authorizationCapturedAt?: string;
+  isDefault?: boolean;
+  isActive?: boolean;
+  status?: string;
+}
+
+export interface UpdateAccountPaymentMethodRequest {
+  billingZip?: string | null;
+  isDefault?: boolean;
+  isActive?: boolean;
+  status?: string;
 }
 
 export interface UpdateAccountLifecycleRequest {

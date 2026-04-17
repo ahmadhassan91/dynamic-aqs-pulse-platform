@@ -21,6 +21,9 @@ let createAccountContact;
 let updateAccountContact;
 let createAccountLocation;
 let updateAccountLocation;
+let listAccountPaymentMethods;
+let createAccountPaymentMethod;
+let updateAccountPaymentMethod;
 let listAccounts;
 let getAccountDetail;
 
@@ -41,6 +44,9 @@ test.before(async () => {
     updateAccountContact,
     createAccountLocation,
     updateAccountLocation,
+    listAccountPaymentMethods,
+    createAccountPaymentMethod,
+    updateAccountPaymentMethod,
     listAccounts,
     getAccountDetail,
   } = await import('../dist/modules/accounts/service.js'));
@@ -607,4 +613,123 @@ test('account lifecycle states are filterable and governed with transition rules
   });
   assert.equal(archived.lifecycleStatus, 'active');
   assert.equal(archived.isActive, false);
+});
+
+test('finance roles can register and promote tokenized account payment methods without exposing raw payment data', SERIAL, async () => {
+  const adminActor = await createAdminActor();
+  const financeActor = await createScopedActor('FINANCE', 'finance.account.methods@pulse.local', 'Finance Methods');
+  const salesActor = await createScopedActor('SALES_BD_REP', 'sales.account.methods@pulse.local', 'Sales Methods');
+
+  const lead = await createLead(adminActor, {
+    companyName: 'Vault Promote Dealer',
+    contactDisplayName: 'Vault Promote Contact',
+    email: 'vault.promote@example.com',
+    phone: '555-555-1010',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  const account = await prisma.account.create({
+    data: {
+      sourceLeadId: lead.id,
+      displayName: 'Vault Promote Dealer',
+      legalName: 'Vault Promote Dealer LLC',
+      isActive: true,
+    },
+  });
+
+  const cisPackage = await prisma.cisPackage.create({
+    data: {
+      leadId: lead.id,
+      status: 'FINANCE_APPROVED',
+      entryMethod: 'DIGITAL_LINK',
+      paymentStatus: 'VAULT_COMPLETE',
+      esignStatus: 'SIGNED',
+    },
+  });
+
+  const sourceVault = await prisma.cisPaymentVaultReference.create({
+    data: {
+      cisPackageId: cisPackage.id,
+      provider: 'EBIZCHARGE',
+      vaultToken: 'tok_cis_promote',
+      vaultCustomerRef: 'cust_cis_promote',
+      last4: '4242',
+      brand: 'Visa',
+      authorizationCapturedAt: new Date('2026-04-17T09:30:00.000Z'),
+      status: 'vault_complete',
+    },
+  });
+
+  await assert.rejects(
+    () => listAccountPaymentMethods(salesActor, account.id),
+    /customer\.financials_view/i,
+  );
+
+  const manualMethod = await createAccountPaymentMethod(financeActor, account.id, {
+    provider: 'moneris',
+    vaultToken: 'tok_manual_account',
+    vaultCustomerRef: 'cust_manual_account',
+    externalPaymentMethodRef: 'pm_manual_account',
+    last4: '1111',
+    brand: 'Mastercard',
+    billingZip: '75001',
+    authorizationCapturedAt: '2026-04-17T10:00:00.000Z',
+    status: 'active',
+    isDefault: true,
+  });
+
+  assert.equal(manualMethod.provider, 'moneris');
+  assert.equal(manualMethod.last4, '1111');
+  assert.equal(manualMethod.source, 'manual');
+
+  const promotedMethod = await createAccountPaymentMethod(financeActor, account.id, {
+    sourceCisVaultReferenceId: sourceVault.id,
+    externalPaymentMethodRef: 'pm_promoted_account',
+    billingZip: '75002',
+    status: 'active',
+    isDefault: true,
+  });
+
+  assert.equal(promotedMethod.provider, 'ebizcharge');
+  assert.equal(promotedMethod.last4, '4242');
+  assert.equal(promotedMethod.source, 'cis_promoted');
+  assert.equal(promotedMethod.sourceCisVaultReferenceId, sourceVault.id);
+  assert.equal(promotedMethod.isDefault, true);
+
+  const promotedAgain = await createAccountPaymentMethod(financeActor, account.id, {
+    sourceCisVaultReferenceId: sourceVault.id,
+    billingZip: '75003',
+    status: 'active',
+    isDefault: true,
+  });
+  assert.equal(promotedAgain.id, promotedMethod.id);
+  assert.equal(promotedAgain.billingZip, '75003');
+
+  let paymentMethods = await listAccountPaymentMethods(financeActor, account.id);
+  assert.ok(paymentMethods);
+  assert.equal(paymentMethods.items.length, 2);
+  assert.equal(paymentMethods.items[0]?.id, promotedMethod.id);
+  assert.equal(paymentMethods.items[0]?.isDefault, true);
+  assert.equal(paymentMethods.items[1]?.id, manualMethod.id);
+  assert.equal(paymentMethods.items[1]?.isDefault, false);
+
+  await assert.rejects(
+    () => createAccountPaymentMethod(salesActor, account.id, {
+      provider: 'ebizcharge',
+      vaultToken: 'tok_forbidden',
+      status: 'active',
+    }),
+    /customer\.financials_manage/i,
+  );
+
+  const deactivatedPromoted = await updateAccountPaymentMethod(financeActor, account.id, promotedMethod.id, {
+    isActive: false,
+  });
+  assert.equal(deactivatedPromoted.isActive, false);
+
+  paymentMethods = await listAccountPaymentMethods(financeActor, account.id);
+  assert.ok(paymentMethods);
+  const nextDefault = paymentMethods.items.find((item) => item.isDefault);
+  assert.equal(nextDefault?.id, manualMethod.id);
 });

@@ -862,6 +862,112 @@ test('finance can record Moneris tokenization failure details and non-finance ac
   assert.ok(failed.cisPackage.events.some((event) => event.eventType === 'payment_capture_failed'));
 });
 
+test('finance can normalize Moneris raw payload aliases into a tokenized result', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-raw-success-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-raw-success';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-raw-success@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-raw-success@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Raw Success Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before alias-based payload normalization.',
+  });
+
+  const completed = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      rawProviderPayload: {
+        response_code: '001',
+        data_key: 'moneris-temp-token-raw-success',
+        bin: '424242',
+      },
+      note: 'Normalized from alias-based Moneris payload.',
+    },
+  );
+
+  assert.equal(completed.attempt.status, 'token_received');
+  assert.equal(completed.attempt.providerResultCode, '001');
+  assert.equal(completed.attempt.bin, '424242');
+  assert.equal(completed.attempt.hasTemporaryToken, true);
+});
+
+test('finance can normalize nested Moneris raw payload errors', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-raw-error-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-raw-error';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-raw-error@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-raw-error@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Raw Error Cooling', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before nested error normalization.',
+  });
+
+  const failed = await recordMonerisHostedCaptureResult(
+    financeActor,
+    config,
+    fixture.cisPackageId,
+    launched.attempt.id,
+    {
+      rawProviderPayload: {
+        response: {
+          response_code: '940',
+          error_message: 'Invalid profile configuration',
+        },
+      },
+      note: 'Normalized from nested Moneris error payload.',
+    },
+  );
+
+  assert.equal(failed.attempt.status, 'failed');
+  assert.equal(failed.attempt.providerResultCode, '940');
+  assert.equal(failed.attempt.providerErrorMessage, 'Invalid profile configuration');
+});
+
 test('starting a fresh Moneris hosted capture expires stale attempts before launching a replacement', SERIAL, async () => {
   process.env.APP_ENCRYPTION_KEY = 'cis-moneris-expire-key';
   process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-expire';

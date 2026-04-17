@@ -57,6 +57,7 @@ import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import { encryptSecret } from '../../utils/secrets.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildLeadRecordScope } from '../auth/visibility.js';
+import { normalizeMonerisHostedCaptureResult } from './moneris.js';
 import { getResolvedPaymentIntegrationPolicy } from './policy.js';
 
 const CIS_PACKAGE_ENTITY_TYPE = 'CIS_PACKAGE';
@@ -1308,11 +1309,18 @@ export async function recordMonerisHostedCaptureResult(
   await assertCisPaymentCaptureTrackingEnabled();
 
   const note = optionalTrimmed(input.note);
-  const responseCode = optionalTrimmed(input.responseCode);
-  const errorMessage = optionalTrimmed(input.errorMessage);
-  const temporaryToken = optionalTrimmed(input.temporaryToken);
-  const providerBin = optionalTrimmed(input.bin);
-  const rawProviderPayload = input.rawProviderPayload
+  const normalizedResult = normalizeMonerisHostedCaptureResult({
+    responseCode: optionalTrimmed(input.responseCode),
+    errorMessage: optionalTrimmed(input.errorMessage),
+    temporaryToken: optionalTrimmed(input.temporaryToken),
+    bin: optionalTrimmed(input.bin),
+    rawProviderPayload: input.rawProviderPayload,
+  });
+  const responseCode = normalizedResult.responseCode;
+  const errorMessage = normalizedResult.errorMessage;
+  const temporaryToken = normalizedResult.temporaryToken;
+  const providerBin = normalizedResult.bin;
+  const rawProviderPayload = normalizedResult.rawProviderPayload
     ? toBoundedJsonValue(input.rawProviderPayload, {
         field: 'cis.paymentCapture.rawProviderPayload',
         maxBytes: JSON_SIZE_LIMITS.cisMetadataBytes,

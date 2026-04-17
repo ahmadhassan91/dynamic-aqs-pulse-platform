@@ -1673,10 +1673,31 @@ function parseMonerisHostedCaptureMessage(data: unknown): {
     return null;
   }
 
-  const responseCode = readOptionalString(normalized.responseCode);
-  const errorMessage = readOptionalString(normalized.errorMessage);
-  const temporaryToken = readOptionalString(normalized.dataKey) ?? readOptionalString(normalized.temporaryToken);
-  const bin = readOptionalString(normalized.bin);
+  const nestedResponse = readOptionalRecord(normalized.response);
+  const responseCode =
+    readOptionalString(normalized.responseCode) ??
+    readOptionalString(normalized.response_code) ??
+    readOptionalString(nestedResponse?.responseCode) ??
+    readOptionalString(nestedResponse?.response_code);
+  const errorMessage =
+    readOptionalString(normalized.errorMessage) ??
+    readOptionalString(normalized.error_message) ??
+    readOptionalString(normalized.message) ??
+    readOptionalString(nestedResponse?.errorMessage) ??
+    readOptionalString(nestedResponse?.error_message) ??
+    readOptionalString(nestedResponse?.message);
+  const temporaryToken =
+    readOptionalString(normalized.dataKey) ??
+    readOptionalString(normalized.data_key) ??
+    readOptionalString(normalized.temporaryToken) ??
+    readOptionalString(nestedResponse?.dataKey) ??
+    readOptionalString(nestedResponse?.data_key) ??
+    readOptionalString(nestedResponse?.temporaryToken);
+  const bin =
+    readOptionalString(normalized.bin) ??
+    readOptionalString(normalized.bin_number) ??
+    readOptionalString(nestedResponse?.bin) ??
+    readOptionalString(nestedResponse?.bin_number);
 
   if (!responseCode && !errorMessage && !temporaryToken && !bin) {
     return null;
@@ -1728,6 +1749,10 @@ function normalizeMonerisPayloadRecord(value: unknown): Record<string, unknown> 
 
 function readOptionalString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return isObjectRecord(value) ? value : undefined;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

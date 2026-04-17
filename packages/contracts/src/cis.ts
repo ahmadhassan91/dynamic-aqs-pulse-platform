@@ -37,6 +37,13 @@ export const CIS_PAYMENT_VAULT_PROVIDERS = [
 
 export type CisPaymentVaultProviderKey = (typeof CIS_PAYMENT_VAULT_PROVIDERS)[number];
 
+export const PAYMENT_INTEGRATION_CAPTURE_MODES = [
+  'manual_recording',
+  'provider_runtime',
+] as const;
+
+export type PaymentIntegrationCaptureModeKey = (typeof PAYMENT_INTEGRATION_CAPTURE_MODES)[number];
+
 export const CIS_ESIGN_STATUSES = [
   'not_started',
   'signed',
@@ -178,7 +185,21 @@ export interface CisPackageDetail extends CisPackageSummary {
   formData: CisFormDataRecord;
   internalReview?: CisInternalReviewRecord;
   financeDecision?: CisFinanceDecisionRecord;
+  paymentVaultReferences: CisPaymentVaultReferenceRecord[];
   events: CisPackageEventSummary[];
+}
+
+export interface CisPaymentVaultReferenceRecord {
+  id: string;
+  provider: CisPaymentVaultProviderKey;
+  last4?: string;
+  brand?: string;
+  authorizationCapturedAt?: string;
+  status: string;
+  hasVaultToken: boolean;
+  hasVaultCustomerRef: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CisInternalReviewRecord {
@@ -200,6 +221,42 @@ export interface CisFinanceDecisionRecord {
   decisionNotes?: string;
   decidedByUserId?: string;
   decidedAt?: string;
+}
+
+export interface RequestCisPaymentCaptureRequest {
+  note?: string;
+}
+
+export interface RecordCisPaymentVaultReferenceRequest {
+  provider?: CisPaymentVaultProviderKey;
+  vaultToken?: string;
+  vaultCustomerRef?: string;
+  last4?: string;
+  brand?: string;
+  authorizationCapturedAt?: string;
+  status?: string;
+  note?: string;
+}
+
+export interface PaymentIntegrationPolicySummary {
+  captureMode: PaymentIntegrationCaptureModeKey;
+  defaultProvider: CisPaymentVaultProviderKey;
+  allowCisCaptureTracking: boolean;
+  allowAccountPaymentMethodManagement: boolean;
+}
+
+export interface AdminPaymentIntegrationSettingsResponse {
+  provider: 'tokenized_payments';
+  isConfigured: boolean;
+  configurationIssues: string[];
+  policy: PaymentIntegrationPolicySummary;
+}
+
+export interface UpdateAdminPaymentIntegrationSettingsRequest {
+  captureMode?: PaymentIntegrationCaptureModeKey;
+  defaultProvider?: CisPaymentVaultProviderKey;
+  allowCisCaptureTracking?: boolean;
+  allowAccountPaymentMethodManagement?: boolean;
 }
 
 export interface CisDocumentRecord {

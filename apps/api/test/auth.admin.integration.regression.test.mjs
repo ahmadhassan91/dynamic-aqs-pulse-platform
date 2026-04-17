@@ -153,6 +153,74 @@ test('admin can update Microsoft Entra access policy and persisted settings are 
   }
 });
 
+test('admin integrations surface tokenized payment capture settings and persist payment policy changes', SERIAL, async () => {
+  const auth = await createAdminAuth();
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+
+    const integrationsResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(integrationsResponse.status, 200);
+    const integrationsPayload = await integrationsResponse.json();
+    assert.ok(integrationsPayload.integrations.some((entry) => entry.key === 'tokenized-payments'));
+
+    const settingsResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+
+    assert.equal(settingsResponse.status, 200);
+    const settingsPayload = await settingsResponse.json();
+    assert.equal(settingsPayload.provider, 'tokenized_payments');
+    assert.equal(settingsPayload.isConfigured, true);
+    assert.equal(settingsPayload.policy.captureMode, 'manual_recording');
+    assert.equal(settingsPayload.policy.defaultProvider, 'unknown');
+    assert.equal(settingsPayload.policy.allowCisCaptureTracking, true);
+    assert.equal(settingsPayload.policy.allowAccountPaymentMethodManagement, true);
+
+    const updateResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        captureMode: 'manual_recording',
+        defaultProvider: 'moneris',
+        allowCisCaptureTracking: false,
+        allowAccountPaymentMethodManagement: true,
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatePayload = await updateResponse.json();
+    assert.equal(updatePayload.policy.captureMode, 'manual_recording');
+    assert.equal(updatePayload.policy.defaultProvider, 'moneris');
+    assert.equal(updatePayload.policy.allowCisCaptureTracking, false);
+    assert.equal(updatePayload.policy.allowAccountPaymentMethodManagement, true);
+
+    const persistedResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+    const persistedPayload = await persistedResponse.json();
+    assert.equal(persistedResponse.status, 200);
+    assert.equal(persistedPayload.policy.defaultProvider, 'moneris');
+    assert.equal(persistedPayload.policy.allowCisCaptureTracking, false);
+  } finally {
+    await runtime.close();
+  }
+});
+
 test('admin role catalog exposes simple access-profile summaries for CRM setup', SERIAL, async () => {
   const auth = await createAdminAuth();
   const runtime = await createPulseServer(config);

@@ -36,6 +36,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 import { listMicrosoftEntraIntegrationStatuses } from '../auth/policy.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { listOutlookIntegrationStatuses } from '../calendar/policy.js';
+import { listPaymentIntegrationStatuses } from '../cis/policy.js';
 
 const USER_ENTITY_TYPE = 'USER';
 
@@ -535,9 +536,10 @@ export async function getAdminIntegrationStatus(
   snapshot: AdminSystemHealthSnapshot,
 ): Promise<AdminIntegrationStatusResponse> {
   const checkedAt = new Date().toISOString();
-  const [calendarIntegrations, authIntegrations] = await Promise.all([
+  const [calendarIntegrations, authIntegrations, paymentIntegrations] = await Promise.all([
     listOutlookIntegrationStatuses(snapshot.config),
     listMicrosoftEntraIntegrationStatuses(snapshot.config),
+    listPaymentIntegrationStatuses(),
   ]);
 
   return {
@@ -569,6 +571,7 @@ export async function getAdminIntegrationStatus(
           : snapshot.acumatica.error ?? 'Awaiting sandbox certification or upstream access.',
       },
       ...authIntegrations,
+      ...paymentIntegrations,
       ...calendarIntegrations,
     ],
   };

@@ -4,6 +4,8 @@ import type {
   ApplyCisParsedDraftRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
+  RecordCisPaymentVaultReferenceRequest,
+  RequestCisPaymentCaptureRequest,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   ListFinanceQueueRequest,
@@ -35,7 +37,9 @@ import {
   listFinanceQueue,
   applyCisParsedDraft,
   recordFinanceDecision,
+  recordCisPaymentVaultReference,
   reviewAndSignOffCis,
+  requestCisPaymentCapture,
   savePublicCisDraft,
   submitCisToFinance,
   submitPublicCis,
@@ -48,7 +52,7 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
 
   const internalLeadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/cis(?:\/(send-link|resend-link|upload-scan))?$/);
   const financeQueueRoute = pathname === '/api/v1/cis/finance-queue';
-  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision))?$/);
+  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision|request-payment-capture|payment-vault-reference))?$/);
   const parsedDraftCollectionMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts$/);
   const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
@@ -269,6 +273,34 @@ export async function handleCisRoutes(req: IncomingMessage, res: ServerResponse,
         });
         const body = (await readJsonBody(req)) as CisFinanceDecisionRequest;
         const response = await recordFinanceDecision(actor, cisPackageId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      if (action === 'request-payment-capture') {
+        if (method !== 'POST') {
+          return methodNotAllowedResponse(res, method, ['POST']);
+        }
+
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'cis',
+          action: 'lead.finance_decide',
+        });
+        const body = (await readJsonBody(req)) as RequestCisPaymentCaptureRequest;
+        const response = await requestCisPaymentCapture(actor, cisPackageId, body);
+        return jsonResponse(res, 200, response);
+      }
+
+      if (action === 'payment-vault-reference') {
+        if (method !== 'POST') {
+          return methodNotAllowedResponse(res, method, ['POST']);
+        }
+
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'cis',
+          action: 'lead.finance_decide',
+        });
+        const body = (await readJsonBody(req)) as RecordCisPaymentVaultReferenceRequest;
+        const response = await recordCisPaymentVaultReference(actor, cisPackageId, body);
         return jsonResponse(res, 200, response);
       }
     }

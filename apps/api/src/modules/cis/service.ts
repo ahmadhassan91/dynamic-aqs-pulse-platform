@@ -9,6 +9,7 @@ import {
   CisParseStatus,
   CisPackageStatus,
   CisPaymentMethod,
+  CisPaymentVaultProvider,
   CisPaymentTerms,
   CisPaymentStatus,
   LeadStage,
@@ -17,6 +18,7 @@ import {
 } from '@pulse/db';
 import type {
   ApplyCisParsedDraftRequest,
+  CisPaymentVaultReferenceRecord,
   CisDocumentRecord,
   CisFinanceDecisionRecord,
   CisFinanceDecisionRequest,
@@ -36,6 +38,8 @@ import type {
   ListCisParsedDraftsResponse,
   ListFinanceQueueRequest,
   ListFinanceQueueResponse,
+  RecordCisPaymentVaultReferenceRequest,
+  RequestCisPaymentCaptureRequest,
   SavePublicCisDraftRequest,
   SubmitPublicCisRequest,
   UploadCisScanRequest,
@@ -46,6 +50,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildLeadRecordScope } from '../auth/visibility.js';
+import { getResolvedPaymentIntegrationPolicy } from './policy.js';
 
 const CIS_PACKAGE_ENTITY_TYPE = 'CIS_PACKAGE';
 const DEFAULT_LINK_EXPIRY_DAYS = 30;
@@ -56,18 +61,25 @@ const ACTIVE_EDITABLE_CIS_STATUSES = new Set<CisPackageStatus>([
   CisPackageStatus.DRAFT_IN_PROGRESS,
 ]);
 
+const CIS_PACKAGE_INCLUDE = {
+  lead: true,
+  formData: true,
+  internalReview: true,
+  financeDecision: true,
+  paymentVaultReferences: {
+    orderBy: {
+      createdAt: 'desc',
+    },
+  },
+  events: {
+    orderBy: {
+      occurredAt: 'desc',
+    },
+  },
+} satisfies Prisma.CisPackageInclude;
+
 type CisPackageWithRelations = Prisma.CisPackageGetPayload<{
-  include: {
-    lead: true;
-    formData: true;
-    internalReview: true;
-    financeDecision: true;
-    events: {
-      orderBy: {
-        occurredAt: 'desc';
-      };
-    };
-  };
+  include: typeof CIS_PACKAGE_INCLUDE;
 }>;
 
 type CisParsedDraftWithRelations = Prisma.CisParsedDraftGetPayload<{
@@ -160,17 +172,7 @@ export async function issueCisLink(
       orderBy: {
         createdAt: 'desc',
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     const formPrefill = existing?.formData ? null : buildLeadPrefill(lead);
@@ -192,17 +194,7 @@ export async function issueCisLink(
             },
             ...(note !== undefined ? { notes: note } : {}),
           },
-          include: {
-            lead: true,
-            formData: true,
-            internalReview: true,
-            financeDecision: true,
-            events: {
-              orderBy: {
-                occurredAt: 'desc',
-              },
-            },
-          },
+          include: CIS_PACKAGE_INCLUDE,
         })
       : await tx.cisPackage.create({
           data: {
@@ -218,17 +210,7 @@ export async function issueCisLink(
               create: formPrefill ?? buildLeadPrefill(lead),
             },
           },
-          include: {
-            lead: true,
-            formData: true,
-            internalReview: true,
-            financeDecision: true,
-            events: {
-              orderBy: {
-                occurredAt: 'desc',
-              },
-            },
-          },
+          include: CIS_PACKAGE_INCLUDE,
         });
 
     await tx.cisPackageEvent.create({
@@ -333,17 +315,7 @@ export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: strin
     orderBy: {
       createdAt: 'desc',
     },
-    include: {
-      lead: true,
-      formData: true,
-      internalReview: true,
-      financeDecision: true,
-      events: {
-        orderBy: {
-          occurredAt: 'desc',
-        },
-      },
-    },
+    include: CIS_PACKAGE_INCLUDE,
   });
 
   return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
@@ -363,17 +335,7 @@ export async function getCisPackageDetail(actor: AuthenticatedActor, cisPackageI
       : {
           id: cisPackageId,
         },
-    include: {
-      lead: true,
-      formData: true,
-      internalReview: true,
-      financeDecision: true,
-      events: {
-        orderBy: {
-          occurredAt: 'desc',
-        },
-      },
-    },
+    include: CIS_PACKAGE_INCLUDE,
   });
 
   return cisPackage ? toCisPackageDetail(actor, cisPackage) : null;
@@ -468,17 +430,7 @@ export async function uploadLeadCisScan(
 
     const existing = await tx.cisPackage.findFirst({
       where: { leadId },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
       orderBy: {
         createdAt: 'desc',
       },
@@ -515,31 +467,11 @@ export async function uploadLeadCisScan(
       ? await tx.cisPackage.update({
           where: { id: existing.id },
           data: cisPackageUpdateData,
-          include: {
-            lead: true,
-            formData: true,
-            internalReview: true,
-            financeDecision: true,
-            events: {
-              orderBy: {
-                occurredAt: 'desc',
-              },
-            },
-          },
+          include: CIS_PACKAGE_INCLUDE,
         })
       : await tx.cisPackage.create({
           data: cisPackageCreateData,
-          include: {
-            lead: true,
-            formData: true,
-            internalReview: true,
-            financeDecision: true,
-            events: {
-              orderBy: {
-                occurredAt: 'desc',
-              },
-            },
-          },
+          include: CIS_PACKAGE_INCLUDE,
         });
 
     const document = await tx.cisDocument.create({
@@ -677,17 +609,7 @@ export async function applyCisParsedDraft(
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
       where: buildScopedCisPackageWhere(actor, cisPackageId),
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
       throw new Error(`CIS package not found: ${cisPackageId}`);
@@ -727,17 +649,7 @@ export async function applyCisParsedDraft(
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisParsedDraft.update({
@@ -799,7 +711,10 @@ export async function applyCisParsedDraft(
       });
     }
 
-    return updated;
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
   });
 
   return toCisPackageDetail(actor, cisPackage);
@@ -819,17 +734,7 @@ export async function reviewAndSignOffCis(
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findUnique({
       where: { id: cisPackageId },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
       throw new Error(`CIS package not found: ${cisPackageId}`);
@@ -864,17 +769,7 @@ export async function reviewAndSignOffCis(
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisPackageEvent.create({
@@ -933,7 +828,10 @@ export async function reviewAndSignOffCis(
       }),
     });
 
-    return updated;
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
   });
 
   return toCisPackageDetail(actor, cisPackage);
@@ -952,17 +850,7 @@ export async function submitCisToFinance(
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findUnique({
       where: { id: cisPackageId },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
       throw new Error(`CIS package not found: ${cisPackageId}`);
@@ -998,17 +886,7 @@ export async function submitCisToFinance(
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisPackageEvent.create({
@@ -1043,7 +921,10 @@ export async function submitCisToFinance(
       }),
     });
 
-    return updated;
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
   });
 
   return toCisPackageDetail(actor, cisPackage);
@@ -1080,17 +961,7 @@ export async function listFinanceQueue(
 
   const packages = await prisma.cisPackage.findMany({
     where,
-    include: {
-      lead: true,
-      formData: true,
-      internalReview: true,
-      financeDecision: true,
-      events: {
-        orderBy: {
-          occurredAt: 'desc',
-        },
-      },
-    },
+    include: CIS_PACKAGE_INCLUDE,
     orderBy: [
       { financeSubmittedAt: 'asc' },
       { salesSignedOffAt: 'asc' },
@@ -1124,17 +995,7 @@ export async function recordFinanceDecision(
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findUnique({
       where: { id: cisPackageId },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
       throw new Error(`CIS package not found: ${cisPackageId}`);
@@ -1184,17 +1045,7 @@ export async function recordFinanceDecision(
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisPackageEvent.create({
@@ -1237,6 +1088,190 @@ export async function recordFinanceDecision(
   return toCisPackageDetail(actor, cisPackage);
 }
 
+export async function requestCisPaymentCapture(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+  input: RequestCisPaymentCaptureRequest = {},
+): Promise<CisPackageDetail> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.finance_decide');
+
+  await assertCisPaymentCaptureTrackingEnabled();
+  const note = optionalTrimmed(input.note);
+
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      include: CIS_PACKAGE_INCLUDE,
+    });
+    if (!existing) {
+      throw new Error(`CIS package not found: ${cisPackageId}`);
+    }
+    if (existing.status !== CisPackageStatus.FINANCE_PENDING && existing.status !== CisPackageStatus.FINANCE_APPROVED) {
+      throw new Error('CIS package must be finance-pending or finance-approved before requesting hosted capture');
+    }
+
+    const updated = existing.paymentStatus === CisPaymentStatus.VAULT_PENDING
+      ? existing
+      : await tx.cisPackage.update({
+          where: { id: existing.id },
+          data: {
+            paymentStatus: CisPaymentStatus.VAULT_PENDING,
+          },
+          include: CIS_PACKAGE_INCLUDE,
+        });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId: updated.id,
+        eventType: 'payment_capture_requested',
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        note: note ?? null,
+        metadata: toJsonValue({
+          paymentStatus: toCisPaymentStatusKey(updated.paymentStatus),
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: CIS_PACKAGE_ENTITY_TYPE,
+        entityId: updated.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId: updated.leadId,
+          operation: 'cis.payment_capture.request',
+        },
+        afterData: {
+          paymentStatus: updated.paymentStatus,
+          note: note ?? null,
+        },
+      }),
+    });
+
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+  });
+
+  return toCisPackageDetail(actor, cisPackage);
+}
+
+export async function recordCisPaymentVaultReference(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+  input: RecordCisPaymentVaultReferenceRequest,
+): Promise<CisPackageDetail> {
+  assertModuleAccess(actor.role, 'cis');
+  assertActionAccess(actor.role, 'lead.finance_decide');
+
+  await assertCisPaymentCaptureTrackingEnabled();
+  const provider = toCisPaymentVaultProviderEnum(input.provider);
+  const vaultToken = optionalTrimmed(input.vaultToken);
+  const vaultCustomerRef = optionalTrimmed(input.vaultCustomerRef);
+  const last4 = optionalTrimmed(input.last4);
+  const brand = optionalTrimmed(input.brand);
+  const note = optionalTrimmed(input.note);
+  const status = requireTrimmed(input.status ?? 'vaulted', 'status');
+  const authorizationCapturedAt = input.authorizationCapturedAt
+    ? parseIsoDate(input.authorizationCapturedAt, 'authorizationCapturedAt')
+    : undefined;
+
+  if (!vaultToken && !vaultCustomerRef) {
+    throw new Error('vaultToken or vaultCustomerRef is required');
+  }
+
+  const cisPackage = await prisma.$transaction(async (tx) => {
+    const existing = await tx.cisPackage.findFirst({
+      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      include: CIS_PACKAGE_INCLUDE,
+    });
+    if (!existing) {
+      throw new Error(`CIS package not found: ${cisPackageId}`);
+    }
+    if (existing.status !== CisPackageStatus.FINANCE_PENDING && existing.status !== CisPackageStatus.FINANCE_APPROVED) {
+      throw new Error('CIS package must be finance-pending or finance-approved before recording a vault reference');
+    }
+
+    const vaultReference = await tx.cisPaymentVaultReference.create({
+      data: {
+        cisPackageId: existing.id,
+        provider,
+        ...(vaultToken ? { vaultToken } : {}),
+        ...(vaultCustomerRef ? { vaultCustomerRef } : {}),
+        ...(last4 ? { last4 } : {}),
+        ...(brand ? { brand } : {}),
+        ...(authorizationCapturedAt ? { authorizationCapturedAt } : {}),
+        status,
+      },
+    });
+
+    const updated = await tx.cisPackage.update({
+      where: { id: existing.id },
+      data: {
+        paymentStatus: CisPaymentStatus.VAULT_COMPLETE,
+      },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+
+    await tx.cisPackageEvent.create({
+      data: {
+        cisPackageId: updated.id,
+        eventType: 'payment_vault_recorded',
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        note: note ?? null,
+        metadata: toJsonValue({
+          provider: toCisPaymentVaultProviderKey(provider),
+          paymentStatus: toCisPaymentStatusKey(updated.paymentStatus),
+          hasVaultToken: Boolean(vaultToken),
+          hasVaultCustomerRef: Boolean(vaultCustomerRef),
+          ...(last4 ? { last4 } : {}),
+          ...(brand ? { brand } : {}),
+        }),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: 'CIS_PAYMENT_VAULT_REFERENCE',
+        entityId: vaultReference.id,
+        metadata: {
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          leadId: updated.leadId,
+          provider: toCisPaymentVaultProviderKey(provider),
+          operation: 'cis.payment_vault.record',
+        },
+        afterData: {
+          paymentStatus: updated.paymentStatus,
+          status,
+          hasVaultToken: Boolean(vaultToken),
+          hasVaultCustomerRef: Boolean(vaultCustomerRef),
+          ...(last4 ? { last4 } : {}),
+          ...(brand ? { brand } : {}),
+        },
+      }),
+    });
+
+    return tx.cisPackage.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: CIS_PACKAGE_INCLUDE,
+    });
+  });
+
+  return toCisPackageDetail(actor, cisPackage);
+}
+
 export async function getPublicCisPackage(token: string): Promise<CisPublicPackage | null> {
   const cisPackage = await findPublicCisPackage(token);
   return cisPackage ? toPublicCisPackage(cisPackage) : null;
@@ -1266,17 +1301,7 @@ export async function savePublicCisDraft(token: string, input: SavePublicCisDraf
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisPackageEvent.create({
@@ -1347,17 +1372,7 @@ export async function submitPublicCis(token: string, input: SubmitPublicCisReque
           },
         },
       },
-      include: {
-        lead: true,
-        formData: true,
-        internalReview: true,
-        financeDecision: true,
-        events: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-        },
-      },
+      include: CIS_PACKAGE_INCLUDE,
     });
 
     await tx.cisPackageEvent.create({
@@ -1446,34 +1461,14 @@ function buildLeadPrefill(lead: {
 async function findPublicCisPackage(token: string) {
   return prisma.cisPackage.findFirst({
     where: buildPublicTokenWhere(token),
-    include: {
-      lead: true,
-      formData: true,
-      internalReview: true,
-      financeDecision: true,
-      events: {
-        orderBy: {
-          occurredAt: 'desc',
-        },
-      },
-    },
+    include: CIS_PACKAGE_INCLUDE,
   });
 }
 
 async function findPublicCisPackageInTransaction(tx: Prisma.TransactionClient, token: string) {
   return tx.cisPackage.findFirst({
     where: buildPublicTokenWhere(token),
-    include: {
-      lead: true,
-      formData: true,
-      internalReview: true,
-      financeDecision: true,
-      events: {
-        orderBy: {
-          occurredAt: 'desc',
-        },
-      },
-    },
+    include: CIS_PACKAGE_INCLUDE,
   });
 }
 
@@ -1702,6 +1697,7 @@ function toCisPackageDetail(actor: AuthenticatedActor, cisPackage: CisPackageWit
     formData: toCisFormRecord(cisPackage.formData),
     ...(cisPackage.internalReview ? { internalReview: toCisInternalReviewRecord(cisPackage.internalReview) } : {}),
     ...(cisPackage.financeDecision ? { financeDecision: toCisFinanceDecisionRecord(actor, cisPackage.financeDecision) } : {}),
+    paymentVaultReferences: cisPackage.paymentVaultReferences.map(toCisPaymentVaultReferenceRecord),
     events: cisPackage.events.map(toCisPackageEventSummary),
   };
 }
@@ -1898,6 +1894,23 @@ function toCisParsedDraftRecord(draft: CisParsedDraftWithRelations): CisParsedDr
   };
 }
 
+function toCisPaymentVaultReferenceRecord(
+  reference: Prisma.CisPaymentVaultReferenceGetPayload<Record<string, never>>,
+): CisPaymentVaultReferenceRecord {
+  return {
+    id: reference.id,
+    provider: toCisPaymentVaultProviderKey(reference.provider),
+    ...(reference.last4 ? { last4: reference.last4 } : {}),
+    ...(reference.brand ? { brand: reference.brand } : {}),
+    ...(reference.authorizationCapturedAt ? { authorizationCapturedAt: reference.authorizationCapturedAt.toISOString() } : {}),
+    status: reference.status,
+    hasVaultToken: Boolean(reference.vaultToken),
+    hasVaultCustomerRef: Boolean(reference.vaultCustomerRef),
+    createdAt: reference.createdAt.toISOString(),
+    updatedAt: reference.updatedAt.toISOString(),
+  };
+}
+
 function toCisFormRecord(formData: Prisma.CisFormDataGetPayload<Record<string, never>> | null): CisFormDataRecord {
   if (!formData) {
     return {};
@@ -2037,6 +2050,10 @@ function toCisPaymentStatusKey(value: CisPaymentStatus): CisPackageSummary['paym
   return value.toLowerCase() as CisPackageSummary['paymentStatus'];
 }
 
+function toCisPaymentVaultProviderKey(value: CisPaymentVaultProvider): CisPaymentVaultReferenceRecord['provider'] {
+  return value.toLowerCase() as CisPaymentVaultReferenceRecord['provider'];
+}
+
 function toCisEsignStatusKey(value: CisEsignStatus): CisPackageSummary['esignStatus'] {
   return value.toLowerCase() as CisPackageSummary['esignStatus'];
 }
@@ -2081,6 +2098,14 @@ function requireTrimmed(value: string | undefined, label: string) {
   return trimmed;
 }
 
+function parseIsoDate(value: string, label: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${label} must be a valid ISO date`);
+  }
+  return parsed;
+}
+
 function buildScannedCisStorageKey(leadId: string, fileName: string) {
   const safeName = fileName
     .trim()
@@ -2101,6 +2126,23 @@ function toJsonValue(value: Record<string, unknown>) {
     field: 'cis.metadata',
     maxBytes: JSON_SIZE_LIMITS.cisMetadataBytes,
   });
+}
+
+async function assertCisPaymentCaptureTrackingEnabled() {
+  const policy = await getResolvedPaymentIntegrationPolicy();
+  if (!policy.allowCisCaptureTracking) {
+    throw new Error('CIS payment capture tracking is currently disabled by admin policy');
+  }
+}
+
+function toCisPaymentVaultProviderEnum(value: RecordCisPaymentVaultReferenceRequest['provider']) {
+  if (value === 'ebizcharge') {
+    return CisPaymentVaultProvider.EBIZCHARGE;
+  }
+  if (value === 'moneris') {
+    return CisPaymentVaultProvider.MONERIS;
+  }
+  return CisPaymentVaultProvider.UNKNOWN;
 }
 
 function setNullable<T>(value: T | undefined) {

@@ -37,6 +37,7 @@ import {
 } from '@tabler/icons-react';
 import type {
   AdminCalendarIntegrationSettingsResponse,
+  AdminPaymentIntegrationSettingsResponse,
   AdminMicrosoftEntraIntegrationSettingsResponse,
   AdminActivityEntry,
   AdminIntegrationStatusResponse,
@@ -53,6 +54,7 @@ import type {
 import {
   createAdminUser as createAdminUserRequest,
   fetchAdminCalendarIntegrationSettings,
+  fetchAdminPaymentIntegrationSettings,
   fetchAdminMicrosoftEntraIntegrationSettings,
   fetchAdminIntegrations,
   fetchAdminActivity,
@@ -62,6 +64,7 @@ import {
   importAdminUsers as importAdminUsersRequest,
   resetAdminUserPassword,
   updateAdminCalendarIntegrationSettings as updateAdminCalendarIntegrationSettingsRequest,
+  updateAdminPaymentIntegrationSettings as updateAdminPaymentIntegrationSettingsRequest,
   updateAdminMicrosoftEntraIntegrationSettings as updateAdminMicrosoftEntraIntegrationSettingsRequest,
   updateAdminUser as updateAdminUserRequest,
 } from '@/lib/pulse-api';
@@ -73,6 +76,7 @@ import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
 import { AdminEntraIntegrationPanel } from './AdminEntraIntegrationPanel';
+import { AdminPaymentIntegrationPanel } from './AdminPaymentIntegrationPanel';
 import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
 
@@ -92,6 +96,7 @@ export function AdminWorkspace({
   const [activity, setActivity] = useState<AdminActivityEntry[]>([]);
   const [integrationStatuses, setIntegrationStatuses] = useState<AdminIntegrationStatusResponse | null>(null);
   const [calendarIntegrationSettings, setCalendarIntegrationSettings] = useState<AdminCalendarIntegrationSettingsResponse | null>(null);
+  const [paymentIntegrationSettings, setPaymentIntegrationSettings] = useState<AdminPaymentIntegrationSettingsResponse | null>(null);
   const [entraIntegrationSettings, setEntraIntegrationSettings] = useState<AdminMicrosoftEntraIntegrationSettingsResponse | null>(null);
   const [usersResponse, setUsersResponse] = useState<ListAdminUsersResponse | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -269,9 +274,10 @@ export function AdminWorkspace({
 
     async function loadIntegrations() {
       try {
-        const [statusResponse, calendarSettingsResponse, entraSettingsResponse] = await Promise.all([
+        const [statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse] = await Promise.all([
           fetchAdminIntegrations(apiBaseUrl, token),
           fetchAdminCalendarIntegrationSettings(apiBaseUrl, token),
+          fetchAdminPaymentIntegrationSettings(apiBaseUrl, token),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, token),
         ]);
 
@@ -281,6 +287,7 @@ export function AdminWorkspace({
 
         setIntegrationStatuses(statusResponse);
         setCalendarIntegrationSettings(calendarSettingsResponse);
+        setPaymentIntegrationSettings(paymentSettingsResponse);
         setEntraIntegrationSettings(entraSettingsResponse);
         setIntegrationsError(null);
       } catch (error) {
@@ -390,10 +397,12 @@ export function AdminWorkspace({
         Promise.all([
           fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminCalendarIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
+          fetchAdminPaymentIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
-        ]).then(([statusResponse, calendarSettingsResponse, entraSettingsResponse]) => {
+        ]).then(([statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse]) => {
           setIntegrationStatuses(statusResponse);
           setCalendarIntegrationSettings(calendarSettingsResponse);
+          setPaymentIntegrationSettings(paymentSettingsResponse);
           setEntraIntegrationSettings(entraSettingsResponse);
           setIntegrationsError(null);
         }),
@@ -606,13 +615,44 @@ export function AdminWorkspace({
     }
   }
 
+  async function handlePaymentIntegrationSave(values: {
+    captureMode: 'manual_recording' | 'provider_runtime';
+    defaultProvider: 'unknown' | 'ebizcharge' | 'moneris';
+    allowCisCaptureTracking: boolean;
+    allowAccountPaymentMethodManagement: boolean;
+  }) {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const response = await updateAdminPaymentIntegrationSettingsRequest(apiBaseUrl, auth.tokens.accessToken, values);
+      setPaymentIntegrationSettings(response);
+      const nextStatuses = await fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken);
+      setIntegrationStatuses(nextStatuses);
+      setIntegrationsError(null);
+      notifications.show({
+        color: 'green',
+        message: 'Payment integration settings updated.',
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
   const currentTabLoading = (
     !isHydrated
     || (activeTab === 'overview' && tabAccess.overview && (overviewLoading || !overview))
     || (activeTab === 'users' && tabAccess.users && (usersLoading || !usersResponse))
     || (activeTab === 'roles' && tabAccess.roles && (rolesLoading || !rolesCatalog))
     || (activeTab === 'activity' && tabAccess.activity && activityLoading && activity.length === 0)
-    || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !entraIntegrationSettings))
+    || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !paymentIntegrationSettings || !entraIntegrationSettings))
   );
 
   const currentTabError = (
@@ -1093,6 +1133,13 @@ export function AdminWorkspace({
                 canManage={canManageIntegrations}
                 isSaving={integrationSaving}
                 onSave={handleIntegrationSave}
+              />
+              <AdminPaymentIntegrationPanel
+                settings={paymentIntegrationSettings}
+                statuses={integrationStatuses}
+                canManage={canManageIntegrations}
+                isSaving={integrationSaving}
+                onSave={handlePaymentIntegrationSave}
               />
             </Stack>
           </Tabs.Panel>

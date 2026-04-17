@@ -26,6 +26,8 @@ let recordFinanceDecision;
 let uploadLeadCisScan;
 let listCisParsedDrafts;
 let applyCisParsedDraft;
+let requestCisPaymentCapture;
+let recordCisPaymentVaultReference;
 
 const SERIAL = { concurrency: false };
 
@@ -50,6 +52,8 @@ test.before(async () => {
     uploadLeadCisScan,
     listCisParsedDrafts,
     applyCisParsedDraft,
+    requestCisPaymentCapture,
+    recordCisPaymentVaultReference,
   } = await import('../dist/modules/cis/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -525,4 +529,68 @@ test('only finance roles can record finance decisions on queued CIS packages', S
 
   assert.equal(approved.status, 'finance_approved');
   assert.equal(approved.financeDecision?.status, 'approved');
+});
+
+test('finance can request hosted capture and record a tokenized vault reference on a CIS package', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-payment@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-payment@dynamicaqs.com',
+  );
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Vault Capture Heating', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const captureRequested = await requestCisPaymentCapture(financeActor, fixture.cisPackageId, {
+    note: 'Hosted token capture requested by finance.',
+  });
+
+  assert.equal(captureRequested.paymentStatus, 'vault_pending');
+  assert.ok(captureRequested.events.some((event) => event.eventType === 'payment_capture_requested'));
+
+  const vaulted = await recordCisPaymentVaultReference(financeActor, fixture.cisPackageId, {
+    provider: 'ebizcharge',
+    vaultToken: 'tok-regression-123',
+    vaultCustomerRef: 'cust-regression-789',
+    last4: '4242',
+    brand: 'Visa',
+    status: 'vaulted',
+    note: 'Finance recorded hosted vault token.',
+  });
+
+  assert.equal(vaulted.paymentStatus, 'vault_complete');
+  assert.equal(vaulted.paymentVaultReferences.length, 1);
+  assert.equal(vaulted.paymentVaultReferences[0].provider, 'ebizcharge');
+  assert.equal(vaulted.paymentVaultReferences[0].last4, '4242');
+  assert.ok(vaulted.events.some((event) => event.eventType === 'payment_vault_recorded'));
+});
+
+test('non-finance actors cannot record CIS payment vault references', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-payment-denied@dynamicaqs.com',
+  );
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Denied Vault Mechanical', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  await assert.rejects(
+    () => recordCisPaymentVaultReference(salesActor, fixture.cisPackageId, {
+      provider: 'moneris',
+      vaultCustomerRef: 'customer-only-ref',
+      status: 'vaulted',
+    }),
+    /cannot perform action lead\.finance_decide/i,
+  );
 });

@@ -4,6 +4,7 @@ import type {
   AdminRoleAccessCatalogResponse,
   AdminSystemHealthResponse,
   AdminCalendarIntegrationSettingsResponse,
+  AdminPaymentIntegrationSettingsResponse,
   AdminMicrosoftEntraIntegrationSettingsResponse,
   CreateAdminUserRequest,
   CreateAdminUserResponse,
@@ -32,6 +33,7 @@ import type {
   SyncCalendarOutlookEventResponse,
   UpdateCalendarOutlookConnectionRequest,
   UpdateAdminCalendarIntegrationSettingsRequest,
+  UpdateAdminPaymentIntegrationSettingsRequest,
   AccountDetail,
   AccountPaymentMethodSummary,
   AccountSummary,
@@ -60,6 +62,8 @@ import type {
   CisLinkIssueRequest,
   CisLinkIssueResponse,
   CisPackageDetail,
+  RecordCisPaymentVaultReferenceRequest,
+  RequestCisPaymentCaptureRequest,
   CisPublicPackage,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
@@ -441,6 +445,13 @@ export async function fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl: st
   });
 }
 
+export async function fetchAdminPaymentIntegrationSettings(apiBaseUrl: string, accessToken: string) {
+  return requestJson<AdminPaymentIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/payments', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function updateAdminCalendarIntegrationSettings(
   apiBaseUrl: string,
   accessToken: string,
@@ -459,6 +470,18 @@ export async function updateAdminMicrosoftEntraIntegrationSettings(
   input: UpdateAdminMicrosoftEntraIntegrationSettingsRequest,
 ) {
   return requestJson<AdminMicrosoftEntraIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/auth', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAdminPaymentIntegrationSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateAdminPaymentIntegrationSettingsRequest,
+) {
+  return requestJson<AdminPaymentIntegrationSettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/payments', {
     method: 'PATCH',
     accessToken,
     body: input,
@@ -1386,6 +1409,32 @@ export async function recordLeadCisFinanceDecision(
   input: CisFinanceDecisionRequest,
 ) {
   return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/finance-decision`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function requestLeadCisPaymentCapture(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  input: RequestCisPaymentCaptureRequest = {},
+) {
+  return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/request-payment-capture`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function recordLeadCisPaymentVaultReference(
+  apiBaseUrl: string,
+  accessToken: string,
+  cisPackageId: string,
+  input: RecordCisPaymentVaultReferenceRequest,
+) {
+  return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/payment-vault-reference`, {
     method: 'POST',
     accessToken,
     body: input,

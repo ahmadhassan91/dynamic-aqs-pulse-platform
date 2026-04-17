@@ -3,6 +3,7 @@ import type { URL } from 'node:url';
 import type {
   UpdateAdminMicrosoftEntraIntegrationSettingsRequest,
   UpdateAdminCalendarIntegrationSettingsRequest,
+  UpdateAdminPaymentIntegrationSettingsRequest,
   CreateAdminUserRequest,
   ImportAdminUsersRequest,
   ListAdminActivityRequest,
@@ -46,6 +47,10 @@ import {
   getOutlookCalendarAdminSettings,
   updateOutlookCalendarAdminSettings,
 } from '../calendar/policy.js';
+import {
+  getPaymentIntegrationAdminSettings,
+  updatePaymentIntegrationAdminSettings,
+} from '../cis/policy.js';
 
 type AdminRouteDependencies = {
   config: AppConfig;
@@ -250,6 +255,25 @@ export async function handleAdminRoutes(
       return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
         const body = (await readJsonBody(req)) as UpdateAdminCalendarIntegrationSettingsRequest;
         const response = await updateOutlookCalendarAdminSettings(actor, dependencies.config, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
+  }
+
+  if (pathname === '/api/v1/admin/integrations/payments') {
+    if (method === 'GET') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
+        const response = await getPaymentIntegrationAdminSettings();
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (method === 'PATCH') {
+      return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+        const body = (await readJsonBody(req)) as UpdateAdminPaymentIntegrationSettingsRequest;
+        const response = await updatePaymentIntegrationAdminSettings(actor, body);
         return jsonResponse(res, 200, response);
       });
     }

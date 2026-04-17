@@ -9,6 +9,7 @@ import type {
   CisParsedDraftRecord,
   CisPaymentMethodKey,
   CisPaymentTermsKey,
+  CisPaymentVaultProviderKey,
   LeadDetail,
 } from '@pulse/contracts';
 import {
@@ -49,6 +50,8 @@ import {
   issueLeadCisLink,
   listCisParsedDrafts,
   recordLeadCisFinanceDecision,
+  recordLeadCisPaymentVaultReference,
+  requestLeadCisPaymentCapture,
   reviewLeadCisPackage,
   submitLeadCisToFinance,
   uploadLeadCisScan,
@@ -94,6 +97,17 @@ const FINANCE_DECISION_OPTIONS: readonly { value: FinanceDecisionState; label: s
 ] as const;
 
 const PAYMENT_TERM_OPTIONS: readonly CisPaymentTermsKey[] = ['NET_30', 'NET_60', 'COD', 'CUSTOM'];
+const PAYMENT_VAULT_PROVIDER_OPTIONS: Array<{ value: CisPaymentVaultProviderKey; label: string }> = [
+  { value: 'unknown', label: 'Not locked yet' },
+  { value: 'ebizcharge', label: 'eBizCharge' },
+  { value: 'moneris', label: 'Moneris' },
+];
+const PAYMENT_VAULT_STATUS_OPTIONS = [
+  { value: 'vaulted', label: 'Vaulted' },
+  { value: 'authorized', label: 'Authorized' },
+  { value: 'verification_pending', label: 'Verification pending' },
+  { value: 'replaced', label: 'Replaced' },
+] as const;
 
 export function LeadCisPanel({
   apiBaseUrl,
@@ -118,6 +132,15 @@ export function LeadCisPanel({
   const [requestedInfoNotes, setRequestedInfoNotes] = useState('');
   const [creditLineAmount, setCreditLineAmount] = useState('');
   const [paymentTerms, setPaymentTerms] = useState<CisPaymentTermsKey>('NET_30');
+  const [paymentCaptureNote, setPaymentCaptureNote] = useState('');
+  const [vaultProvider, setVaultProvider] = useState<CisPaymentVaultProviderKey>('unknown');
+  const [vaultToken, setVaultToken] = useState('');
+  const [vaultCustomerRef, setVaultCustomerRef] = useState('');
+  const [vaultLast4, setVaultLast4] = useState('');
+  const [vaultBrand, setVaultBrand] = useState('');
+  const [vaultStatus, setVaultStatus] = useState<(typeof PAYMENT_VAULT_STATUS_OPTIONS)[number]['value']>('vaulted');
+  const [vaultAuthorizationCapturedAt, setVaultAuthorizationCapturedAt] = useState('');
+  const [vaultReferenceNote, setVaultReferenceNote] = useState('');
   const [parsedDrafts, setParsedDrafts] = useState<CisParsedDraftRecord[]>([]);
   const [parsedDraftsError, setParsedDraftsError] = useState<string | null>(null);
   const [isLoadingParsedDrafts, setIsLoadingParsedDrafts] = useState(false);
@@ -132,6 +155,8 @@ export function LeadCisPanel({
   const [isSigningOff, setIsSigningOff] = useState(false);
   const [isSubmittingFinance, setIsSubmittingFinance] = useState(false);
   const [isRecordingDecision, setIsRecordingDecision] = useState(false);
+  const [isRequestingPaymentCapture, setIsRequestingPaymentCapture] = useState(false);
+  const [isRecordingVaultReference, setIsRecordingVaultReference] = useState(false);
 
   const canManageCis = CIS_MANAGE_ROLES.has(actorRole);
   const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
@@ -185,6 +210,15 @@ export function LeadCisPanel({
       setRequestedInfoNotes('');
       setCreditLineAmount('');
       setPaymentTerms('NET_30');
+      setPaymentCaptureNote('');
+      setVaultProvider('unknown');
+      setVaultToken('');
+      setVaultCustomerRef('');
+      setVaultLast4('');
+      setVaultBrand('');
+      setVaultStatus('vaulted');
+      setVaultAuthorizationCapturedAt('');
+      setVaultReferenceNote('');
       return;
     }
 
@@ -199,6 +233,15 @@ export function LeadCisPanel({
         : '',
     );
     setPaymentTerms(cisPackage.financeDecision?.paymentTerms ?? 'NET_30');
+    setPaymentCaptureNote('');
+    setVaultProvider(cisPackage.paymentVaultReferences[0]?.provider ?? 'unknown');
+    setVaultToken('');
+    setVaultCustomerRef('');
+    setVaultLast4('');
+    setVaultBrand('');
+    setVaultStatus('vaulted');
+    setVaultAuthorizationCapturedAt('');
+    setVaultReferenceNote('');
   }, [cisPackage]);
 
   const cisPackageId = cisPackage?.id;
@@ -253,6 +296,12 @@ export function LeadCisPanel({
 
     return formatFinanceDecisionStatus(cisPackage.financeDecision.status);
   }, [cisPackage]);
+  const latestVaultReference = cisPackage?.paymentVaultReferences[0];
+  const canTrackHostedPaymentCapture =
+    Boolean(cisPackage)
+    && !leadLifecycleLocked
+    && canDecideFinance
+    && ['finance_pending', 'finance_approved'].includes(cisPackage?.status ?? 'not_sent');
 
   async function reloadCis() {
     const response = await fetchLeadCisPackage(apiBaseUrl, accessToken, lead.id);
@@ -439,6 +488,69 @@ export function LeadCisPanel({
       setActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsRecordingDecision(false);
+    }
+  }
+
+  async function handleRequestPaymentCapture() {
+    if (!cisPackage || !canTrackHostedPaymentCapture) {
+      return;
+    }
+
+    setIsRequestingPaymentCapture(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await requestLeadCisPaymentCapture(apiBaseUrl, accessToken, cisPackage.id, {
+        ...(paymentCaptureNote.trim() ? { note: paymentCaptureNote.trim() } : {}),
+      });
+
+      setCisPackage(response);
+      setPaymentCaptureNote('');
+      setActionMessage('Hosted payment capture request recorded for finance follow-up.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRequestingPaymentCapture(false);
+    }
+  }
+
+  async function handleRecordPaymentVaultReference() {
+    if (!cisPackage || !canTrackHostedPaymentCapture) {
+      return;
+    }
+
+    setIsRecordingVaultReference(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await recordLeadCisPaymentVaultReference(apiBaseUrl, accessToken, cisPackage.id, {
+        provider: vaultProvider,
+        ...(vaultToken.trim() ? { vaultToken: vaultToken.trim() } : {}),
+        ...(vaultCustomerRef.trim() ? { vaultCustomerRef: vaultCustomerRef.trim() } : {}),
+        ...(vaultLast4.trim() ? { last4: vaultLast4.trim() } : {}),
+        ...(vaultBrand.trim() ? { brand: vaultBrand.trim() } : {}),
+        ...(vaultAuthorizationCapturedAt.trim() ? { authorizationCapturedAt: vaultAuthorizationCapturedAt.trim() } : {}),
+        ...(vaultStatus.trim() ? { status: vaultStatus.trim() } : {}),
+        ...(vaultReferenceNote.trim() ? { note: vaultReferenceNote.trim() } : {}),
+      });
+
+      setCisPackage(response);
+      setVaultToken('');
+      setVaultCustomerRef('');
+      setVaultLast4('');
+      setVaultBrand('');
+      setVaultStatus('vaulted');
+      setVaultAuthorizationCapturedAt('');
+      setVaultReferenceNote('');
+      setActionMessage('Tokenized vault reference recorded on the CIS package.');
+      onLeadChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRecordingVaultReference(false);
     }
   }
 
@@ -1045,6 +1157,190 @@ export function LeadCisPanel({
                     </Card>
                   ) : null}
                 </SimpleGrid>
+
+                <Card withBorder radius="xl" p="md">
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="flex-start">
+                      <div>
+                        <Text fw={600}>Hosted payment capture</Text>
+                        <Text size="sm" c="dimmed">
+                          Keep card and bank details outside Pulse. Finance can record when hosted capture is requested and store only the tokenized provider reference once it is approved.
+                        </Text>
+                      </div>
+                      <Badge color={paymentStatusColor(cisPackage.paymentStatus)} variant="light">
+                        {formatPaymentStatus(cisPackage.paymentStatus)}
+                      </Badge>
+                    </Group>
+
+                    <Alert color="blue" icon={<IconCreditCard size={16} />}>
+                      Pulse does not store raw card or bank details here. This lane tracks hosted capture progress and masked/tokenized vault outcomes only.
+                    </Alert>
+
+                    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                      <ReadOnlyField label="Payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
+                      <ReadOnlyField label="Vault references" value={String(cisPackage.paymentVaultReferences.length)} />
+                      <ReadOnlyField
+                        label="Latest authorization"
+                        value={latestVaultReference?.authorizationCapturedAt ? formatDateTimeLabel(latestVaultReference.authorizationCapturedAt) : '—'}
+                      />
+                    </SimpleGrid>
+
+                    {cisPackage.paymentVaultReferences.length > 0 ? (
+                      <Stack gap="xs">
+                        {cisPackage.paymentVaultReferences.map((reference) => (
+                          <Card key={reference.id} withBorder radius="lg" p="sm">
+                            <Group justify="space-between" align="flex-start">
+                              <Stack gap={2}>
+                                <Group gap="xs">
+                                  <Badge color="blue" variant="light">{formatVaultProvider(reference.provider)}</Badge>
+                                  <Badge color="grape" variant="light">{reference.status}</Badge>
+                                  {reference.last4 ? <Badge color="gray" variant="light">•••• {reference.last4}</Badge> : null}
+                                  {reference.brand ? <Badge color="teal" variant="light">{reference.brand}</Badge> : null}
+                                </Group>
+                                <Text size="sm" c="dimmed">
+                                  Stored as masked/tokenized provider data only. Vault token present: {reference.hasVaultToken ? 'Yes' : 'No'} • Customer ref present: {reference.hasVaultCustomerRef ? 'Yes' : 'No'}
+                                </Text>
+                              </Stack>
+                              <Text size="sm" c="dimmed">
+                                {reference.authorizationCapturedAt ? formatDateTimeLabel(reference.authorizationCapturedAt) : formatDateTimeLabel(reference.createdAt)}
+                              </Text>
+                            </Group>
+                          </Card>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Text size="sm" c="dimmed">
+                        No tokenized vault reference has been recorded on this CIS package yet.
+                      </Text>
+                    )}
+
+                    {canDecideFinance ? (
+                      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md">
+                        <Card withBorder radius="xl" p="md">
+                          <Stack gap="sm">
+                            <Text fw={600}>1. Request hosted capture</Text>
+                            <Text size="sm" c="dimmed">
+                              Mark that the external hosted payment capture step is required or has been handed off for completion.
+                            </Text>
+                            <Textarea
+                              label="Capture request note"
+                              value={paymentCaptureNote}
+                              onChange={(event) => setPaymentCaptureNote(event.currentTarget.value)}
+                              placeholder="Capture who is handling the hosted request or any follow-up required."
+                              minRows={3}
+                              disabled={!canTrackHostedPaymentCapture || isRequestingPaymentCapture}
+                            />
+                            <Button
+                              variant="light"
+                              onClick={() => {
+                                void handleRequestPaymentCapture();
+                              }}
+                              loading={isRequestingPaymentCapture}
+                              disabled={!canTrackHostedPaymentCapture}
+                            >
+                              Mark hosted capture requested
+                            </Button>
+                          </Stack>
+                        </Card>
+
+                        <Card withBorder radius="xl" p="md">
+                          <Stack gap="sm">
+                            <Text fw={600}>2. Record tokenized vault outcome</Text>
+                            <Text size="sm" c="dimmed">
+                              Record the provider reference after hosted capture succeeds. Raw payment details still stay outside Pulse.
+                            </Text>
+
+                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                              <Select
+                                label="Provider"
+                                value={vaultProvider}
+                                onChange={(value) => {
+                                  if (value) {
+                                    setVaultProvider(value as CisPaymentVaultProviderKey);
+                                  }
+                                }}
+                                data={PAYMENT_VAULT_PROVIDER_OPTIONS}
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <Select
+                                label="Vault status"
+                                value={vaultStatus}
+                                onChange={(value) => {
+                                  if (value) {
+                                    setVaultStatus(value as (typeof PAYMENT_VAULT_STATUS_OPTIONS)[number]['value']);
+                                  }
+                                }}
+                                data={PAYMENT_VAULT_STATUS_OPTIONS.map((option) => ({
+                                  value: option.value,
+                                  label: option.label,
+                                }))}
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <TextInput
+                                label="Vault token"
+                                value={vaultToken}
+                                onChange={(event) => setVaultToken(event.currentTarget.value)}
+                                placeholder="tok_..."
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <TextInput
+                                label="Vault customer ref"
+                                value={vaultCustomerRef}
+                                onChange={(event) => setVaultCustomerRef(event.currentTarget.value)}
+                                placeholder="cust_..."
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <TextInput
+                                label="Last 4"
+                                value={vaultLast4}
+                                onChange={(event) => setVaultLast4(event.currentTarget.value)}
+                                placeholder="4242"
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <TextInput
+                                label="Brand"
+                                value={vaultBrand}
+                                onChange={(event) => setVaultBrand(event.currentTarget.value)}
+                                placeholder="Visa"
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                              <TextInput
+                                label="Authorization captured at"
+                                value={vaultAuthorizationCapturedAt}
+                                onChange={(event) => setVaultAuthorizationCapturedAt(event.currentTarget.value)}
+                                placeholder="2026-04-17T10:30:00.000Z"
+                                disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                              />
+                            </SimpleGrid>
+
+                            <Textarea
+                              label="Finance note"
+                              value={vaultReferenceNote}
+                              onChange={(event) => setVaultReferenceNote(event.currentTarget.value)}
+                              placeholder="Capture any provider or hosted-checkout context worth retaining in the CIS audit trail."
+                              minRows={3}
+                              disabled={!canTrackHostedPaymentCapture || isRecordingVaultReference}
+                            />
+
+                            <Button
+                              onClick={() => {
+                                void handleRecordPaymentVaultReference();
+                              }}
+                              loading={isRecordingVaultReference}
+                              disabled={!canTrackHostedPaymentCapture}
+                            >
+                              Record vault reference
+                            </Button>
+                          </Stack>
+                        </Card>
+                      </SimpleGrid>
+                    ) : (
+                      <Text size="sm" c="dimmed">
+                        Finance-only roles can request hosted capture and record the resulting tokenized provider reference here once the external step is complete.
+                      </Text>
+                    )}
+                  </Stack>
+                </Card>
               </Stack>
             </Card>
 
@@ -1147,6 +1443,34 @@ function formatPaymentMethod(value: CisPaymentMethodKey | undefined) {
 
 function formatPaymentTerms(value: CisPaymentTermsKey) {
   return value.replace('_', ' ');
+}
+
+function formatPaymentStatus(value: CisPackageDetail['paymentStatus']) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (entry) => entry.toUpperCase());
+}
+
+function paymentStatusColor(value: CisPackageDetail['paymentStatus']) {
+  switch (value) {
+    case 'vault_complete':
+      return 'green';
+    case 'vault_pending':
+      return 'yellow';
+    case 'not_required':
+      return 'gray';
+    default:
+      return 'blue';
+  }
+}
+
+function formatVaultProvider(value: CisPaymentVaultProviderKey) {
+  switch (value) {
+    case 'ebizcharge':
+      return 'eBizCharge';
+    case 'moneris':
+      return 'Moneris';
+    default:
+      return 'Unknown / Other';
+  }
 }
 
 function formatDateTimeLabel(value: string) {

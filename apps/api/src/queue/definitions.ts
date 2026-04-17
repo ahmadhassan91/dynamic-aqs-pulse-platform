@@ -92,3 +92,13 @@ export const MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE: QueueDefinition = {
     retryLimit: 5,
   },
 };
+
+export const MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE: QueueDefinition = {
+  name: 'cis.moneris-hosted-capture-cleanup',
+  tier: 'STANDARD',
+  description: 'Sweeps stale Moneris hosted-capture attempts so abandoned payment sessions do not linger indefinitely',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 3,
+  },
+};

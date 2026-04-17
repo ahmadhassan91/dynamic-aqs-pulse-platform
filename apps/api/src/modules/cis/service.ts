@@ -114,6 +114,7 @@ export type MonerisHostedCaptureCallbackJobData = {
   cisPackageId: string;
   attemptId: string;
   rawPayload: string;
+  payloadHash?: string;
   contentType?: string;
   receivedAt: string;
   remoteAddress?: string;
@@ -126,6 +127,15 @@ type MonerisHostedCaptureResultContext = {
   actorRole?: string;
   sourceSystem: string;
   operationBase: 'result' | 'callback_result';
+};
+
+type MonerisHostedCaptureExpirationContext = {
+  actorUserId?: string;
+  actorType: string;
+  sessionId?: string;
+  actorRole?: string;
+  sourceSystem: string;
+  operation: string;
 };
 
 type MutableCisFormSnapshot = {
@@ -1240,7 +1250,20 @@ export async function startMonerisHostedPaymentCapture(
       throw new Error('CIS package must be finance-pending or finance-approved before starting Moneris hosted capture');
     }
 
-    await expireStalePaymentCaptureAttempts(tx, actor, existing.id, existing.leadId, launchedAt);
+    await expireStalePaymentCaptureAttempts(
+      tx,
+      {
+        actorUserId: actor.userId,
+        actorType: actor.actorType,
+        sessionId: actor.sessionId,
+        actorRole: actor.role,
+        sourceSystem: 'pulse-api',
+        operation: 'cis.payment_capture.expire',
+      },
+      existing.id,
+      existing.leadId,
+      launchedAt,
+    );
 
     const refreshedPackage = await tx.cisPackage.findUniqueOrThrow({
       where: { id: existing.id },
@@ -1513,6 +1536,80 @@ export async function processMonerisHostedCaptureCallbackJob(
     ok: true,
     cisPackageId: payload.cisPackageId,
     attemptId: payload.attemptId,
+    processedAt: new Date().toISOString(),
+  };
+}
+
+export async function processMonerisHostedCaptureCleanupJob(
+  job: QueueJob<unknown>,
+) {
+  const record = (job.payload.data && typeof job.payload.data === 'object' && !Array.isArray(job.payload.data))
+    ? (job.payload.data as Record<string, unknown>)
+    : {};
+  const limit = typeof record.limit === 'number' && Number.isFinite(record.limit)
+    ? Math.max(1, Math.min(500, Math.trunc(record.limit)))
+    : 250;
+  const now = new Date();
+
+  const staleAttempts = await prisma.cisPaymentCaptureAttempt.findMany({
+    where: {
+      provider: CisPaymentVaultProvider.MONERIS,
+      status: {
+        in: [
+          CisPaymentCaptureAttemptStatus.LAUNCHED,
+          CisPaymentCaptureAttemptStatus.TOKEN_RECEIVED,
+        ],
+      },
+      expiresAt: {
+        lt: now,
+      },
+    },
+    select: {
+      id: true,
+      cisPackageId: true,
+      cisPackage: {
+        select: {
+          leadId: true,
+        },
+      },
+    },
+    orderBy: [
+      { expiresAt: 'asc' },
+      { createdAt: 'asc' },
+    ],
+    take: limit,
+  });
+
+  const packageMap = new Map<string, { leadId: string }>();
+  for (const attempt of staleAttempts) {
+    if (attempt.cisPackage?.leadId) {
+      packageMap.set(attempt.cisPackageId, { leadId: attempt.cisPackage.leadId });
+    }
+  }
+
+  let expiredCount = 0;
+  if (packageMap.size > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const [cisPackageId, detail] of packageMap.entries()) {
+        expiredCount += await expireStalePaymentCaptureAttempts(
+          tx,
+          {
+            actorType: 'service',
+            sourceSystem: 'pulse-system',
+            operation: 'cis.payment_capture.cleanup_expire',
+          },
+          cisPackageId,
+          detail.leadId,
+          now,
+        );
+      }
+    });
+  }
+
+  return {
+    ok: true,
+    expiredCount,
+    packageCount: packageMap.size,
     processedAt: new Date().toISOString(),
   };
 }
@@ -2812,7 +2909,7 @@ function buildMonerisHostedIframeUrl(config: AppConfig) {
 
 async function expireStalePaymentCaptureAttempts(
   tx: Prisma.TransactionClient,
-  actor: AuthenticatedActor,
+  actor: MonerisHostedCaptureExpirationContext,
   cisPackageId: string,
   leadId: string,
   now: Date,
@@ -2832,12 +2929,15 @@ async function expireStalePaymentCaptureAttempts(
     },
   });
 
+  let expiredCount = 0;
   for (const attempt of staleAttempts) {
     await tx.cisPaymentCaptureAttempt.update({
       where: { id: attempt.id },
       data: {
         status: CisPaymentCaptureAttemptStatus.EXPIRED,
-        completedByUserId: attempt.completedByUserId ?? actor.userId,
+        ...(attempt.completedByUserId || actor.actorUserId
+          ? { completedByUserId: attempt.completedByUserId ?? actor.actorUserId }
+          : {}),
         completedAt: attempt.completedAt ?? now,
       },
     });
@@ -2846,7 +2946,7 @@ async function expireStalePaymentCaptureAttempts(
       data: {
         cisPackageId,
         eventType: 'payment_capture_expired',
-        actorUserId: actor.userId,
+        ...(actor.actorUserId ? { actorUserId: actor.actorUserId } : {}),
         actorType: actor.actorType,
         metadata: toJsonValue({
           provider: toCisPaymentVaultProviderKey(attempt.provider),
@@ -2858,17 +2958,18 @@ async function expireStalePaymentCaptureAttempts(
 
     await tx.auditEntry.create({
       data: buildAuditEntryData({
-        actorUserId: actor.userId,
+        actorUserId: actor.actorUserId,
         action: AuditAction.UPDATE,
         entityType: 'CIS_PAYMENT_CAPTURE_ATTEMPT',
         entityId: attempt.id,
+        sourceSystem: actor.sourceSystem,
         metadata: {
-          sessionId: actor.sessionId,
-          actorRole: actor.role,
+          ...(actor.sessionId ? { sessionId: actor.sessionId } : {}),
+          ...(actor.actorRole ? { actorRole: actor.actorRole } : {}),
           actorType: actor.actorType,
           leadId,
           provider: toCisPaymentVaultProviderKey(attempt.provider),
-          operation: 'cis.payment_capture.expire',
+          operation: actor.operation,
         },
         beforeData: {
           status: attempt.status,
@@ -2880,7 +2981,10 @@ async function expireStalePaymentCaptureAttempts(
         },
       }),
     });
+    expiredCount += 1;
   }
+
+  return expiredCount;
 }
 
 async function refreshExpiredCaptureAttemptsForPackage(
@@ -2903,7 +3007,20 @@ async function refreshExpiredCaptureAttemptsForPackage(
     return cisPackage;
   }
 
-  await expireStalePaymentCaptureAttempts(tx, actor, cisPackage.id, cisPackage.leadId, now);
+  await expireStalePaymentCaptureAttempts(
+    tx,
+    {
+      actorUserId: actor.userId,
+      actorType: actor.actorType,
+      sessionId: actor.sessionId,
+      actorRole: actor.role,
+      sourceSystem: 'pulse-api',
+      operation: 'cis.payment_capture.expire',
+    },
+    cisPackage.id,
+    cisPackage.leadId,
+    now,
+  );
   return tx.cisPackage.findUniqueOrThrow({
     where: { id: cisPackage.id },
     include: CIS_PACKAGE_INCLUDE,
@@ -3001,6 +3118,7 @@ function parseMonerisHostedCaptureCallbackJobData(value: unknown): MonerisHosted
     cisPackageId,
     attemptId,
     rawPayload,
+    ...(typeof record.payloadHash === 'string' ? { payloadHash: record.payloadHash } : {}),
     ...(typeof record.contentType === 'string' ? { contentType: record.contentType } : {}),
     ...(typeof record.receivedAt === 'string' ? { receivedAt: record.receivedAt } : { receivedAt: new Date().toISOString() }),
     ...(typeof record.remoteAddress === 'string' ? { remoteAddress: record.remoteAddress } : {}),

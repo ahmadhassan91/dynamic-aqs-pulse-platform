@@ -35,6 +35,7 @@ let recordCisPaymentVaultReference;
 let startMonerisHostedPaymentCapture;
 let cancelMonerisHostedPaymentCapture;
 let recordMonerisHostedCaptureResult;
+let processMonerisHostedCaptureCleanupJob;
 let updatePaymentIntegrationAdminSettings;
 
 const SERIAL = { concurrency: false };
@@ -67,6 +68,7 @@ test.before(async () => {
     cancelMonerisHostedPaymentCapture,
     recordMonerisHostedCaptureResult,
     processMonerisHostedCaptureCallbackJob,
+    processMonerisHostedCaptureCleanupJob,
   } = await import('../dist/modules/cis/service.js'));
   ({ handleCisRoutes } = await import('../dist/modules/cis/http.js'));
   ({ updatePaymentIntegrationAdminSettings } = await import('../dist/modules/cis/policy.js'));
@@ -86,6 +88,7 @@ test.beforeEach(async () => {
   delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_URL;
   delete process.env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN;
   delete process.env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES;
+  delete process.env.MONERIS_HOSTED_TOKENIZATION_CLEANUP_INTERVAL_MINUTES;
   delete process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET;
   await resetDatabase(prisma);
   config = loadAppConfig(process.env);
@@ -1039,12 +1042,83 @@ test('Moneris callback ingress accepts a valid shared secret and enqueues the ca
     assert.equal(callbackResponse.status, 202);
     assert.equal(enqueued.length, 1);
     assert.equal(enqueued[0].payload.triggerSource, 'webhook');
+    assert.match(enqueued[0].payload.metadata?.idempotencyKey ?? '', new RegExp(`^moneris-callback:${launched.attempt.id}:`));
+    assert.equal(enqueued[0].payload.metadata?.expireInSeconds, 600);
     assert.equal(enqueued[0].payload.data.cisPackageId, fixture.cisPackageId);
     assert.equal(enqueued[0].payload.data.attemptId, launched.attempt.id);
     assert.match(enqueued[0].payload.data.rawPayload, /callback-route-token/);
+    assert.match(enqueued[0].payload.data.payloadHash ?? '', /^[a-f0-9]{64}$/i);
   } finally {
     await harness.close();
   }
+});
+
+test('Moneris callback worker stays idempotent when the same callback payload is replayed', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-callback-replay-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-callback-replay';
+  process.env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET = 'moneris-callback-secret-replay';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-callback-replay@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-callback-replay@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const fixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Callback Replay Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const launched = await startMonerisHostedPaymentCapture(financeActor, config, fixture.cisPackageId, {
+    note: 'Launch before duplicate callback replay.',
+  });
+
+  const replayPayload = 'response_code=001&data_key=callback-replay-token&bin_number=510510';
+  const job = {
+    id: 'job-moneris-callback-replay',
+    type: 'cis.moneris-hosted-capture-callback',
+    payload: {
+      jobType: 'cis.moneris-hosted-capture-callback',
+      triggeredBy: 'moneris',
+      triggerSource: 'webhook',
+      correlationId: 'correlation-moneris-callback-replay',
+      data: {
+        cisPackageId: fixture.cisPackageId,
+        attemptId: launched.attempt.id,
+        rawPayload: replayPayload,
+        payloadHash: 'hash-moneris-callback-replay',
+        contentType: 'application/x-www-form-urlencoded',
+        receivedAt: new Date().toISOString(),
+      },
+    },
+  };
+
+  await processMonerisHostedCaptureCallbackJob(config, job);
+  const replayed = await processMonerisHostedCaptureCallbackJob(config, job);
+
+  assert.equal(replayed.ok, true);
+
+  const detail = await getCisPackageDetail(financeActor, fixture.cisPackageId);
+  const attempt = detail.paymentCaptureAttempts.find((item) => item.id === launched.attempt.id);
+  assert.equal(attempt?.status, 'token_received');
+  assert.equal(attempt?.providerResultCode, '001');
+  assert.equal(
+    detail.events.filter((event) => event.eventType === 'payment_capture_token_received').length,
+    1,
+  );
 });
 
 test('Moneris hosted capture launch is blocked when provider runtime is selected without Moneris config', SERIAL, async () => {
@@ -1507,6 +1581,83 @@ test('reading CIS detail expires stale Moneris hosted capture attempts before re
     where: { id: launched.attempt.id },
   });
   assert.equal(storedAttempt.status, 'EXPIRED');
+});
+
+test('Moneris cleanup worker expires stale hosted capture attempts across CIS packages', SERIAL, async () => {
+  process.env.APP_ENCRYPTION_KEY = 'cis-moneris-cleanup-worker-key';
+  process.env.MONERIS_HOSTED_TOKENIZATION_PROFILE_ID = 'moneris-profile-cleanup-worker';
+  config = loadAppConfig(process.env);
+
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const { actor: salesActor } = await createRoleActor(
+    'SALES_BD_REP',
+    'sales.rep+cis-moneris-cleanup-worker@dynamicaqs.com',
+  );
+  const { actor: financeActor } = await createRoleActor(
+    'FINANCE',
+    'finance.user+cis-moneris-cleanup-worker@dynamicaqs.com',
+  );
+
+  await updatePaymentIntegrationAdminSettings(config, adminActor, {
+    captureMode: 'provider_runtime',
+    defaultProvider: 'moneris',
+    allowCisCaptureTracking: true,
+    allowAccountPaymentMethodManagement: true,
+  });
+
+  const firstFixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Cleanup First Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+  const secondFixture = await createFinancePendingPackage(adminActor, salesActor, 'Moneris Cleanup Second Air', {
+    paymentMethod: 'CREDIT_CARD',
+    cardOnFileAuthorized: true,
+    achAuthorized: false,
+  });
+
+  const firstLaunch = await startMonerisHostedPaymentCapture(financeActor, config, firstFixture.cisPackageId, {
+    note: 'First cleanup candidate.',
+  });
+  const secondLaunch = await startMonerisHostedPaymentCapture(financeActor, config, secondFixture.cisPackageId, {
+    note: 'Second cleanup candidate.',
+  });
+
+  await prisma.cisPaymentCaptureAttempt.updateMany({
+    where: {
+      id: {
+        in: [firstLaunch.attempt.id, secondLaunch.attempt.id],
+      },
+    },
+    data: {
+      expiresAt: new Date('2026-04-16T00:00:00.000Z'),
+    },
+  });
+
+  const cleanupResult = await processMonerisHostedCaptureCleanupJob({
+    id: 'job-moneris-cleanup',
+    type: 'cis.moneris-hosted-capture-cleanup',
+    payload: {
+      jobType: 'cis.moneris-hosted-capture-cleanup',
+      triggeredBy: 'system',
+      triggerSource: 'scheduler',
+      correlationId: 'correlation-moneris-cleanup',
+      data: {
+        limit: 100,
+      },
+    },
+  });
+
+  assert.equal(cleanupResult.ok, true);
+  assert.equal(cleanupResult.expiredCount, 2);
+  assert.equal(cleanupResult.packageCount, 2);
+
+  const firstDetail = await getCisPackageDetail(financeActor, firstFixture.cisPackageId);
+  const secondDetail = await getCisPackageDetail(financeActor, secondFixture.cisPackageId);
+  assert.ok(firstDetail.paymentCaptureAttempts.some((attempt) => attempt.id === firstLaunch.attempt.id && attempt.status === 'expired'));
+  assert.ok(secondDetail.paymentCaptureAttempts.some((attempt) => attempt.id === secondLaunch.attempt.id && attempt.status === 'expired'));
+  assert.ok(firstDetail.events.some((event) => event.eventType === 'payment_capture_expired' && event.actorType === 'service'));
+  assert.ok(secondDetail.events.some((event) => event.eventType === 'payment_capture_expired' && event.actorType === 'service'));
 });
 
 test('recording the same Moneris hosted success twice stays idempotent instead of failing on replay', SERIAL, async () => {

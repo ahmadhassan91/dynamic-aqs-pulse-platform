@@ -404,15 +404,21 @@ export async function handleCisRoutes(
       }
 
       const rawPayload = await readTextBody(req);
+      const payloadHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
       const receipt = await queue.enqueue(MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, {
         jobType: MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE.name,
         triggeredBy: 'moneris',
         triggerSource: 'webhook',
         correlationId: crypto.randomUUID(),
+        metadata: {
+          idempotencyKey: `moneris-callback:${attemptId}:${payloadHash}`,
+          expireInSeconds: 60 * 10,
+        },
         data: {
           cisPackageId,
           attemptId,
           rawPayload,
+          payloadHash,
           contentType: readHeader(req, 'content-type'),
           receivedAt: new Date().toISOString(),
           remoteAddress: req.socket.remoteAddress,

@@ -90,6 +90,7 @@ export type AppMonerisHostedTokenizationConfig = {
   callbackSecret?: string | undefined;
   encryptionKey?: string | undefined;
   tokenTtlMinutes: number;
+  cleanupIntervalMinutes: number;
 };
 
 export type AppConfig = {
@@ -241,6 +242,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       callbackSecret: monerisCallbackSecret,
       encryptionKey: outlookEncryptionKey,
       tokenTtlMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES, 30),
+      cleanupIntervalMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_CLEANUP_INTERVAL_MINUTES, 15),
     },
   };
 }

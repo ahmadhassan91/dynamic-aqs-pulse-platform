@@ -33,8 +33,12 @@ import type {
   ListTrainingAccountsResponse,
   ListTrainingOperationalQueueRequest,
   ListTrainingOperationalQueueResponse,
+  ListTrainingComplianceReportRequest,
+  ListTrainingComplianceReportResponse,
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
+  RevokeTrainingCertificationRequest,
+  ResolveTrainingCertificationDecisionRequest,
   ListTrainingTrainersResponse,
   TrainingAccountSummary,
   TrainingCadencePolicySummary,
@@ -48,6 +52,8 @@ import type {
   TrainingOperationalCadenceQueueItem,
   TrainingOperationalCertificationQueueItem,
   TrainingOperationalExceptionQueueItem,
+  TrainingComplianceCertificationTrackRollup,
+  TrainingComplianceOwnerRollup,
   TrainingExecutionExceptionSummary,
   TrainingExecutionExceptionTypeKey,
   TrainingFollowUpTaskStatusKey,
@@ -1392,6 +1398,149 @@ export async function listTrainingOperationalQueue(
   };
 }
 
+export async function listTrainingComplianceReport(
+  actor: AuthenticatedActor,
+  query: ListTrainingComplianceReportRequest = {},
+): Promise<ListTrainingComplianceReportResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const scope = resolveTrainingComplianceScope(actor, query);
+  const accounts = await prisma.account.findMany({
+    where: {
+      isActive: true,
+      ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
+      ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
+      OR: [
+        { trainingPrograms: { some: {} } },
+        { trainingSessions: { some: {} } },
+        { trainingCertifications: { some: {} } },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    include: trainingAccountArgs.include,
+  });
+
+  const tmRollups = new Map<string, TrainingComplianceOwnerRollup>();
+  const rdRollups = new Map<string, TrainingComplianceOwnerRollup>();
+  const certificationTrackRollups = new Map<string, TrainingComplianceCertificationTrackRollup>();
+
+  let activeCertificationCount = 0;
+  let expiringCertificationCount = 0;
+  let expiredCertificationCount = 0;
+  let revokedCertificationCount = 0;
+  let overdueProgramCount = 0;
+  let unresolvedExecutionExceptionCount = 0;
+  let pendingCertificationDecisionCount = 0;
+  let deliveredTrainingHours = 0;
+  let accountsWithActivePrograms = 0;
+
+  for (const account of accounts) {
+    const metrics = buildTrainingComplianceAccountMetrics(account, scope.certificationWindowDays);
+
+    activeCertificationCount += metrics.activeCertificationCount;
+    expiringCertificationCount += metrics.expiringCertificationCount;
+    expiredCertificationCount += metrics.expiredCertificationCount;
+    revokedCertificationCount += metrics.revokedCertificationCount;
+    overdueProgramCount += metrics.overdueProgramCount;
+    unresolvedExecutionExceptionCount += metrics.unresolvedExecutionExceptionCount;
+    pendingCertificationDecisionCount += metrics.pendingCertificationDecisionCount;
+    deliveredTrainingHours += metrics.deliveredTrainingHours;
+    if (metrics.hasActivePrograms) {
+      accountsWithActivePrograms += 1;
+    }
+
+    if (account.assignedTmUserId && account.assignedTmUser?.displayName) {
+      accumulateTrainingComplianceOwnerRollup(
+        tmRollups,
+        account.assignedTmUserId,
+        account.assignedTmUser.displayName,
+        'TERRITORY_MANAGER',
+        metrics,
+      );
+    }
+
+    if (account.assignedRdUserId && account.assignedRdUser?.displayName) {
+      accumulateTrainingComplianceOwnerRollup(
+        rdRollups,
+        account.assignedRdUserId,
+        account.assignedRdUser.displayName,
+        'REGIONAL_DIRECTOR',
+        metrics,
+      );
+    }
+
+    for (const program of account.trainingPrograms) {
+      if (!isProgramOverdue(program.status, program.nextDueAt)) {
+        continue;
+      }
+
+      const tmOwnerId = program.ownerTmUserId ?? account.assignedTmUserId ?? undefined;
+      const tmOwnerName = program.ownerTmUser?.displayName ?? account.assignedTmUser?.displayName ?? undefined;
+      const rdOwnerId = program.ownerRdUserId ?? account.assignedRdUserId ?? undefined;
+      const rdOwnerName = program.ownerRdUser?.displayName ?? account.assignedRdUser?.displayName ?? undefined;
+
+      if (tmOwnerId && tmOwnerName) {
+        incrementTrainingOwnerOverdueProgram(tmRollups, tmOwnerId, tmOwnerName, 'TERRITORY_MANAGER');
+      }
+      if (rdOwnerId && rdOwnerName) {
+        incrementTrainingOwnerOverdueProgram(rdRollups, rdOwnerId, rdOwnerName, 'REGIONAL_DIRECTOR');
+      }
+    }
+
+    for (const certification of account.trainingCertifications) {
+      const key = certification.trainingTypeId
+        ?? certification.trainingType?.code
+        ?? certification.certificationCode
+        ?? certification.title;
+
+      const rollup = certificationTrackRollups.get(key) ?? {
+        ...(certification.trainingTypeId ? { trainingTypeId: certification.trainingTypeId } : {}),
+        ...(certification.trainingType?.code ? { trainingTypeCode: certification.trainingType.code } : {}),
+        ...(certification.trainingType?.name ? { trainingTypeName: certification.trainingType.name } : {}),
+        activeCertificationCount: 0,
+        expiringCertificationCount: 0,
+        expiredCertificationCount: 0,
+        revokedCertificationCount: 0,
+      };
+
+      if (isTrainingCertificationRevoked(certification)) {
+        rollup.revokedCertificationCount += 1;
+      } else if (isTrainingCertificationExpired(certification)) {
+        rollup.expiredCertificationCount += 1;
+      } else {
+        rollup.activeCertificationCount += 1;
+        if (isTrainingCertificationExpiringWithin(certification, scope.certificationWindowDays)) {
+          rollup.expiringCertificationCount += 1;
+        }
+      }
+
+      certificationTrackRollups.set(key, rollup);
+    }
+  }
+
+  return {
+    summary: {
+      accountsInScope: accounts.length,
+      accountsWithActivePrograms,
+      activeCertificationCount,
+      expiringCertificationCount,
+      expiredCertificationCount,
+      revokedCertificationCount,
+      overdueProgramCount,
+      unresolvedExecutionExceptionCount,
+      pendingCertificationDecisionCount,
+      deliveredTrainingHours: roundHours(deliveredTrainingHours),
+    },
+    territoryManagers: sortTrainingComplianceOwnerRollups(tmRollups),
+    regionalDirectors: sortTrainingComplianceOwnerRollups(rdRollups),
+    certificationTracks: Array.from(certificationTrackRollups.values()).sort((left, right) => (
+      (right.expiringCertificationCount + right.expiredCertificationCount + right.revokedCertificationCount)
+      - (left.expiringCertificationCount + left.expiredCertificationCount + left.revokedCertificationCount)
+      || (left.trainingTypeName ?? left.trainingTypeCode ?? '').localeCompare(right.trainingTypeName ?? right.trainingTypeCode ?? '')
+    )),
+  };
+}
+
 export async function createTrainingSession(
   actor: AuthenticatedActor,
   accountId: string,
@@ -1853,6 +2002,115 @@ export async function completeTrainingSession(
   return toTrainingSessionSummary(updated);
 }
 
+export async function resolveTrainingCertificationDecision(
+  actor: AuthenticatedActor,
+  sessionId: string,
+  input: ResolveTrainingCertificationDecisionRequest,
+): Promise<TrainingSessionSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const session = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status !== TrainingSessionStatus.COMPLETED) {
+    throw new Error('Only completed training sessions can resolve certification decisions');
+  }
+  if (!(session.trainingType?.isCertificationTrack)) {
+    throw new Error('Certification decisions can only be resolved for certification-track sessions');
+  }
+  if (session.certificationOutcome !== TrainingCertificationOutcome.PENDING_DECISION) {
+    throw new Error('Only pending certification decisions can be resolved');
+  }
+
+  const normalizedOutcome = input.certificationOutcome.trim().toLowerCase();
+  if (normalizedOutcome !== 'awarded' && normalizedOutcome !== 'not_awarded') {
+    throw new Error('certificationOutcome must be awarded or not_awarded');
+  }
+
+  const certificationOutcome = normalizedOutcome === 'awarded'
+    ? TrainingCertificationOutcome.AWARDED
+    : TrainingCertificationOutcome.NOT_AWARDED;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        certificationOutcome,
+      },
+    });
+
+    let certification: { id: string } | null = null;
+    if (certificationOutcome === TrainingCertificationOutcome.AWARDED) {
+      certification = await tx.trainingCertificationRecord.create({
+        data: {
+          accountId: session.accountId,
+          sessionId,
+          ...(session.programId ? { programId: session.programId } : {}),
+          ...(session.trainingTypeId ? { trainingTypeId: session.trainingTypeId } : {}),
+          awardedByUserId: actor.userId,
+          ...(input.certificationCode?.trim() ? { certificationCode: input.certificationCode.trim() } : {}),
+          title: input.certificationTitle?.trim() || session.trainingType?.name || session.title,
+          status: TrainingCertificationStatus.ACTIVE,
+          awardedAt: session.checkedOutAt ?? session.completedAt ?? new Date(),
+          ...(input.certificationExpiresAt
+            ? { expiresAt: parseIsoDate(input.certificationExpiresAt, 'certificationExpiresAt') }
+            : {}),
+          ...(input.certificationNotes?.trim() ? { notes: input.certificationNotes.trim() } : {}),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: TRAINING_CERTIFICATION_ENTITY,
+          entityId: certification.id,
+          afterData: {
+            accountId: session.accountId,
+            sessionId,
+            status: TrainingCertificationStatus.ACTIVE.toLowerCase(),
+            outcome: certificationOutcome.toLowerCase(),
+          },
+          metadata: {
+            ...trainingAuditMetadata(actor),
+            operation: 'resolve_certification_decision',
+          },
+        }),
+      });
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_SESSION_ENTITY,
+        entityId: sessionId,
+        beforeData: {
+          certificationOutcome: session.certificationOutcome.toLowerCase(),
+        },
+        afterData: {
+          certificationOutcome: certificationOutcome.toLowerCase(),
+        },
+        metadata: {
+          ...trainingAuditMetadata(actor),
+          operation: 'resolve_certification_decision',
+        },
+      }),
+    });
+
+    return tx.trainingSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: trainingSessionArgs.include,
+    });
+  });
+
+  return toTrainingSessionSummary(updated);
+}
+
 export async function cancelTrainingSession(
   actor: AuthenticatedActor,
   sessionId: string,
@@ -1994,6 +2252,85 @@ export async function completeTrainingFollowUpTask(
   });
 
   return toTrainingFollowUpTaskSummary(updated);
+}
+
+export async function revokeTrainingCertification(
+  actor: AuthenticatedActor,
+  certificationId: string,
+  input: RevokeTrainingCertificationRequest = {},
+): Promise<TrainingCertificationSummary> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const certification = await prisma.trainingCertificationRecord.findUnique({
+    where: { id: certificationId },
+    include: {
+      trainingType: true,
+      awardedByUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+  if (!certification) {
+    throw new Error('Training certification not found');
+  }
+
+  if (certification.status === TrainingCertificationStatus.REVOKED) {
+    return toTrainingCertificationSummary(certification);
+  }
+
+  const nextNotes = buildTrainingCertificationLifecycleNotes(
+    certification.notes,
+    'Revoked',
+    input.notes,
+    actor.displayName ?? actor.email ?? actor.userId,
+  );
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.trainingCertificationRecord.update({
+      where: { id: certificationId },
+      data: {
+        status: TrainingCertificationStatus.REVOKED,
+        ...(nextNotes ? { notes: nextNotes } : {}),
+      },
+      include: {
+        trainingType: true,
+        awardedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_CERTIFICATION_ENTITY,
+        entityId: certificationId,
+        beforeData: {
+          status: certification.status.toLowerCase(),
+          notes: certification.notes,
+        },
+        afterData: {
+          status: TrainingCertificationStatus.REVOKED.toLowerCase(),
+          notes: next.notes,
+        },
+        metadata: {
+          ...trainingAuditMetadata(actor),
+          operation: 'revoke_certification',
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toTrainingCertificationSummary(updated);
 }
 
 function toTrainingCategorySummary(
@@ -2544,21 +2881,19 @@ function buildTrainingExecutionExceptions(items: TrainingSessionSummary[]): Trai
   });
 }
 
-function resolveTrainingOperationalQueueScope(
+function resolveTrainingComplianceScope(
   actor: AuthenticatedActor,
-  query: ListTrainingOperationalQueueRequest,
+  query: ListTrainingComplianceReportRequest,
 ) {
   const certificationWindowDays = query.certificationWindowDays && query.certificationWindowDays > 0
     ? query.certificationWindowDays
     : 45;
-  const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 200) : 100;
 
   if (actor.role === 'TERRITORY_MANAGER') {
     return {
       ownerTmUserId: actor.userId,
       ownerRdUserId: undefined,
       certificationWindowDays,
-      limit,
     };
   }
 
@@ -2567,7 +2902,6 @@ function resolveTrainingOperationalQueueScope(
       ownerTmUserId: undefined,
       ownerRdUserId: actor.userId,
       certificationWindowDays,
-      limit,
     };
   }
 
@@ -2575,8 +2909,115 @@ function resolveTrainingOperationalQueueScope(
     ownerTmUserId: query.ownerTmUserId?.trim() || undefined,
     ownerRdUserId: query.ownerRdUserId?.trim() || undefined,
     certificationWindowDays,
+  };
+}
+
+function resolveTrainingOperationalQueueScope(
+  actor: AuthenticatedActor,
+  query: ListTrainingOperationalQueueRequest,
+) {
+  const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 200) : 100;
+  const scope = resolveTrainingComplianceScope(actor, query);
+
+  return {
+    ...scope,
     limit,
   };
+}
+
+function buildTrainingComplianceAccountMetrics(
+  account: TrainingAccountRecord,
+  certificationWindowDays: number,
+) {
+  const sessionSummaries = account.trainingSessions.map(toTrainingSessionSummary);
+  const unresolvedExecutionExceptions = buildTrainingExecutionExceptions(sessionSummaries);
+  const activePrograms = account.trainingPrograms.filter((entry) => isProgramActive(entry.status));
+  const overduePrograms = account.trainingPrograms.filter((entry) => isProgramOverdue(entry.status, entry.nextDueAt));
+  const qualifyingSessions = account.trainingSessions.filter((entry) => (
+    entry.status === TrainingSessionStatus.COMPLETED
+    && entry.activityKind === TrainingActivityKind.TRAINING
+    && entry.trainingType?.countsTowardHours
+  ));
+
+  const activeCertificationCount = account.trainingCertifications.filter((entry) => isTrainingCertificationActive(entry)).length;
+  const expiringCertificationCount = account.trainingCertifications.filter((entry) => (
+    isTrainingCertificationActive(entry) && isTrainingCertificationExpiringWithin(entry, certificationWindowDays)
+  )).length;
+  const expiredCertificationCount = account.trainingCertifications.filter((entry) => isTrainingCertificationExpired(entry)).length;
+  const revokedCertificationCount = account.trainingCertifications.filter((entry) => isTrainingCertificationRevoked(entry)).length;
+
+  return {
+    hasActivePrograms: activePrograms.length > 0,
+    activeCertificationCount,
+    expiringCertificationCount,
+    expiredCertificationCount,
+    revokedCertificationCount,
+    overdueProgramCount: overduePrograms.length,
+    unresolvedExecutionExceptionCount: unresolvedExecutionExceptions.length,
+    pendingCertificationDecisionCount: unresolvedExecutionExceptions.filter((entry) => entry.type === 'certification_decision_pending').length,
+    deliveredTrainingHours: roundHours(
+      qualifyingSessions.reduce((sum, entry) => sum + (entry.durationMinutes / 60), 0),
+    ),
+  };
+}
+
+function accumulateTrainingComplianceOwnerRollup(
+  map: Map<string, TrainingComplianceOwnerRollup>,
+  ownerUserId: string,
+  ownerName: string,
+  roleCode: TrainingComplianceOwnerRollup['roleCode'],
+  metrics: ReturnType<typeof buildTrainingComplianceAccountMetrics>,
+) {
+  const current = map.get(ownerUserId) ?? {
+    ownerUserId,
+    ownerName,
+    roleCode,
+    accountCount: 0,
+    activeCertificationCount: 0,
+    expiringCertificationCount: 0,
+    expiredCertificationCount: 0,
+    revokedCertificationCount: 0,
+    overdueProgramCount: 0,
+    unresolvedExecutionExceptionCount: 0,
+    pendingCertificationDecisionCount: 0,
+    deliveredTrainingHours: 0,
+  };
+
+  current.accountCount += 1;
+  current.activeCertificationCount += metrics.activeCertificationCount;
+  current.expiringCertificationCount += metrics.expiringCertificationCount;
+  current.expiredCertificationCount += metrics.expiredCertificationCount;
+  current.revokedCertificationCount += metrics.revokedCertificationCount;
+  current.unresolvedExecutionExceptionCount += metrics.unresolvedExecutionExceptionCount;
+  current.pendingCertificationDecisionCount += metrics.pendingCertificationDecisionCount;
+  current.deliveredTrainingHours = roundHours(current.deliveredTrainingHours + metrics.deliveredTrainingHours);
+
+  map.set(ownerUserId, current);
+}
+
+function incrementTrainingOwnerOverdueProgram(
+  map: Map<string, TrainingComplianceOwnerRollup>,
+  ownerUserId: string,
+  ownerName: string,
+  roleCode: TrainingComplianceOwnerRollup['roleCode'],
+) {
+  const current = map.get(ownerUserId) ?? {
+    ownerUserId,
+    ownerName,
+    roleCode,
+    accountCount: 0,
+    activeCertificationCount: 0,
+    expiringCertificationCount: 0,
+    expiredCertificationCount: 0,
+    revokedCertificationCount: 0,
+    overdueProgramCount: 0,
+    unresolvedExecutionExceptionCount: 0,
+    pendingCertificationDecisionCount: 0,
+    deliveredTrainingHours: 0,
+  };
+
+  current.overdueProgramCount += 1;
+  map.set(ownerUserId, current);
 }
 
 function buildExpiringTrainingCertificationQueueItems(
@@ -2698,6 +3139,65 @@ function toTrainingOperationalCertificationQueueItem(
     expiresAt: (certification.expiresAt ?? certification.awardedAt).toISOString(),
     daysUntilExpiry: certification.expiresAt ? daysBetween(new Date(), certification.expiresAt) : 0,
   };
+}
+
+function isTrainingCertificationRevoked(certification: TrainingCertificationRecord) {
+  return certification.status === TrainingCertificationStatus.REVOKED;
+}
+
+function isTrainingCertificationExpired(certification: TrainingCertificationRecord) {
+  if (!certification.expiresAt) {
+    return certification.status === TrainingCertificationStatus.EXPIRED;
+  }
+
+  return certification.status === TrainingCertificationStatus.EXPIRED
+    || (
+      certification.status === TrainingCertificationStatus.ACTIVE
+      && certification.expiresAt.getTime() < Date.now()
+    );
+}
+
+function isTrainingCertificationActive(certification: TrainingCertificationRecord) {
+  return certification.status === TrainingCertificationStatus.ACTIVE
+    && !isTrainingCertificationExpired(certification);
+}
+
+function isTrainingCertificationExpiringWithin(
+  certification: TrainingCertificationRecord,
+  certificationWindowDays: number,
+) {
+  if (!certification.expiresAt) {
+    return false;
+  }
+
+  const now = Date.now();
+  const expiresAt = certification.expiresAt.getTime();
+  const windowEnd = now + certificationWindowDays * 24 * 60 * 60 * 1000;
+
+  return expiresAt >= now && expiresAt <= windowEnd;
+}
+
+function sortTrainingComplianceOwnerRollups(map: Map<string, TrainingComplianceOwnerRollup>) {
+  return Array.from(map.values()).sort((left, right) => (
+    (right.unresolvedExecutionExceptionCount + right.overdueProgramCount)
+    - (left.unresolvedExecutionExceptionCount + left.overdueProgramCount)
+    || right.expiringCertificationCount - left.expiringCertificationCount
+    || left.ownerName.localeCompare(right.ownerName)
+  ));
+}
+
+function buildTrainingCertificationLifecycleNotes(
+  existingNotes: string | null,
+  operation: string,
+  detail: string | undefined,
+  actorDisplayName: string,
+) {
+  const normalizedDetail = detail?.trim();
+  const entry = `${operation} by ${actorDisplayName} on ${new Date().toISOString()}${normalizedDetail ? `: ${normalizedDetail}` : ''}`;
+  if (existingNotes?.trim()) {
+    return `${existingNotes.trim()}\n${entry}`;
+  }
+  return entry;
 }
 
 function daysBetween(start: Date, end: Date) {

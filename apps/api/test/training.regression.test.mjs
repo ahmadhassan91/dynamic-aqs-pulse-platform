@@ -32,6 +32,9 @@ let cancelTrainingSession;
 let createTrainingFollowUpTask;
 let completeTrainingFollowUpTask;
 let listTrainingOperationalQueue;
+let resolveTrainingCertificationDecision;
+let revokeTrainingCertification;
+let listTrainingComplianceReport;
 const SERIAL = { concurrency: false };
 let uniqueFixtureCounter = 0;
 
@@ -61,6 +64,9 @@ test.before(async () => {
     createTrainingFollowUpTask,
     completeTrainingFollowUpTask,
     listTrainingOperationalQueue,
+    resolveTrainingCertificationDecision,
+    revokeTrainingCertification,
+    listTrainingComplianceReport,
   } = await import('../dist/modules/training/service.js'));
 
   config = loadAppConfig(process.env);
@@ -851,4 +857,194 @@ test('centralized training ops queue scopes records for TM and RD actors and sup
   assert.equal(trainingOpsQueue.expiringCertifications[0]?.accountId, eastFixture.account.id);
   assert.equal(trainingOpsQueue.overduePrograms.length, 1);
   assert.equal(trainingOpsQueue.overduePrograms[0]?.accountId, eastFixture.account.id);
+});
+
+test('training certification ops can resolve pending certification decisions and revoke issued certifications', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'cert-ops');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'iaq_certification_curriculum' } });
+
+  assert.ok(certificationType);
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: certificationType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: '2026-07-08T10:00:00.000Z',
+    durationMinutes: 60,
+    attendeeCount: 4,
+  });
+
+  await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    completedAt: '2026-07-08T11:00:00.000Z',
+    checkedOutAt: '2026-07-08T11:00:00.000Z',
+    checkoutNotes: 'Completed with pending exam review.',
+    certificationOutcome: 'pending_decision',
+  });
+
+  const resolved = await resolveTrainingCertificationDecision(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    certificationOutcome: 'awarded',
+    certificationTitle: 'IAQ Master Curriculum',
+    certificationCode: 'IAQ-MASTER',
+    certificationExpiresAt: '2027-07-08T00:00:00.000Z',
+    certificationNotes: 'Approved after follow-up review.',
+  });
+
+  assert.equal(resolved.certificationOutcome, 'awarded');
+  assert.equal(resolved.certifications.length, 1);
+  assert.equal(resolved.certifications[0]?.title, 'IAQ Master Curriculum');
+  assert.equal(resolved.certifications[0]?.certificationCode, 'IAQ-MASTER');
+
+  const revoked = await revokeTrainingCertification(actorWithRole(actor, 'TRAINING_OPS'), resolved.certifications[0].id, {
+    notes: 'Revoked after compliance audit.',
+  });
+
+  assert.equal(revoked.status, 'revoked');
+  assert.match(revoked.notes ?? '', /compliance audit/i);
+
+  const refreshedSession = await prisma.trainingSession.findUnique({
+    where: { id: scheduled.id },
+    include: {
+      certifications: true,
+    },
+  });
+
+  assert.equal(refreshedSession?.certificationOutcome, 'AWARDED');
+  assert.equal(refreshedSession?.certifications[0]?.status, 'REVOKED');
+});
+
+test('training compliance reporting summarizes certification and cadence risk by owner scope', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const westFixture = await createTrainingAccountFixture(actor, 'report-west');
+  const eastFixture = await createTrainingAccountFixture(actor, 'report-east');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'product_installations' } });
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+
+  assert.ok(certificationType);
+  assert.ok(onboardingType);
+
+  await prisma.accountTrainingProgram.createMany({
+    data: [
+      {
+        accountId: westFixture.account.id,
+        trainingTypeId: onboardingType.id,
+        title: 'West cadence',
+        status: 'ACTIVE',
+        cadenceDays: 30,
+        nextDueAt: new Date('2026-04-01T00:00:00.000Z'),
+        ownerTmUserId: westFixture.tm.id,
+        ownerRdUserId: westFixture.rd.id,
+        startedAt: new Date('2026-03-01T00:00:00.000Z'),
+        isRequired: true,
+      },
+      {
+        accountId: eastFixture.account.id,
+        trainingTypeId: onboardingType.id,
+        title: 'East cadence',
+        status: 'ACTIVE',
+        cadenceDays: 60,
+        nextDueAt: new Date('2026-06-01T00:00:00.000Z'),
+        ownerTmUserId: eastFixture.tm.id,
+        ownerRdUserId: eastFixture.rd.id,
+        startedAt: new Date('2026-03-01T00:00:00.000Z'),
+        isRequired: true,
+      },
+    ],
+  });
+
+  await prisma.trainingCertificationRecord.createMany({
+    data: [
+      {
+        accountId: westFixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: 'West active cert',
+        status: 'ACTIVE',
+        awardedAt: new Date('2025-12-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-05-05T00:00:00.000Z'),
+      },
+      {
+        accountId: westFixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: 'West expired cert',
+        status: 'EXPIRED',
+        awardedAt: new Date('2025-01-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-04-01T00:00:00.000Z'),
+      },
+      {
+        accountId: eastFixture.account.id,
+        trainingTypeId: certificationType.id,
+        title: 'East revoked cert',
+        status: 'REVOKED',
+        awardedAt: new Date('2025-07-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    ],
+  });
+
+  await prisma.trainingSession.createMany({
+    data: [
+      {
+        accountId: westFixture.account.id,
+        trainingTypeId: certificationType.id,
+        trainerUserId: westFixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'COMPLETED',
+        title: 'West pending decision',
+        scheduledAt: new Date('2026-04-10T09:00:00.000Z'),
+        completedAt: new Date('2026-04-10T10:00:00.000Z'),
+        durationMinutes: 90,
+        attendeeCount: 3,
+        certificationOutcome: 'PENDING_DECISION',
+      },
+      {
+        accountId: eastFixture.account.id,
+        trainingTypeId: onboardingType.id,
+        trainerUserId: eastFixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'COMPLETED',
+        title: 'East delivered training',
+        scheduledAt: new Date('2026-04-11T09:00:00.000Z'),
+        completedAt: new Date('2026-04-11T10:00:00.000Z'),
+        durationMinutes: 120,
+        attendeeCount: 2,
+        certificationOutcome: 'NOT_APPLICABLE',
+      },
+    ],
+  });
+
+  const report = await listTrainingComplianceReport(actorWithRole(actor, 'TRAINING_OPS'), {
+    certificationWindowDays: 30,
+  });
+
+  assert.equal(report.summary.accountsInScope, 2);
+  assert.equal(report.summary.activeCertificationCount, 1);
+  assert.equal(report.summary.expiringCertificationCount, 1);
+  assert.equal(report.summary.expiredCertificationCount, 1);
+  assert.equal(report.summary.revokedCertificationCount, 1);
+  assert.equal(report.summary.overdueProgramCount, 1);
+  assert.equal(report.summary.pendingCertificationDecisionCount, 1);
+  assert.equal(report.summary.deliveredTrainingHours, 3.5);
+
+  assert.equal(report.territoryManagers.length, 2);
+  assert.equal(report.regionalDirectors.length, 2);
+  assert.equal(report.certificationTracks.length, 1);
+  assert.equal(report.certificationTracks[0]?.trainingTypeCode, 'product_installations');
+  assert.equal(report.certificationTracks[0]?.activeCertificationCount, 1);
+  assert.equal(report.certificationTracks[0]?.expiredCertificationCount, 1);
+  assert.equal(report.certificationTracks[0]?.revokedCertificationCount, 1);
+
+  const tmScopedReport = await listTrainingComplianceReport(
+    actorForUser(actor, westFixture.tm, 'TERRITORY_MANAGER'),
+    { certificationWindowDays: 30 },
+  );
+  assert.equal(tmScopedReport.summary.accountsInScope, 1);
+  assert.equal(tmScopedReport.summary.overdueProgramCount, 1);
+  assert.equal(tmScopedReport.summary.pendingCertificationDecisionCount, 1);
+
+  const rdFilteredReport = await listTrainingComplianceReport(actorWithRole(actor, 'TRAINING_OPS'), {
+    certificationWindowDays: 30,
+    ownerRdUserId: eastFixture.rd.id,
+  });
+  assert.equal(rdFilteredReport.summary.accountsInScope, 1);
+  assert.equal(rdFilteredReport.summary.revokedCertificationCount, 1);
+  assert.equal(rdFilteredReport.summary.overdueProgramCount, 0);
 });

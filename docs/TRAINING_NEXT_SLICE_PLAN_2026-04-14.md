@@ -53,11 +53,11 @@ This keeps training moving without forcing a blocked provider integration.
 
 ### D0 Progress
 
-`Training D0.1: centralized exceptions + recertification queue` is now implemented.
+`Training D0.1: centralized exceptions + recertification queue` and `Training D0.2: certification operations + reporting` are now implemented.
 
 That means the next provider-free training slice is narrower:
 
-- `Training D0.2: certification operations + reporting`
+- `Training D0.3: reporting/export depth + proof transport`
 
 ## Slice D1 Scope
 
@@ -76,9 +76,9 @@ That means the next provider-free training slice is narrower:
 
 ## Optional Provider-Free Depth Before D1
 
-- certification revoke / renew operations
-- training overdue dashboard depth beyond the queue
-- richer TM / RD / leadership training reporting
+- true certification renewal lifecycle semantics
+- proof file storage transport
+- richer leadership/report export bundles
 - deeper account/territory training reporting
 
 ## What We Still Need Later

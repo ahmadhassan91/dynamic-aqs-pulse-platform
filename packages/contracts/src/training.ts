@@ -456,6 +456,57 @@ export interface ListTrainingOperationalQueueResponse {
   };
 }
 
+export interface TrainingComplianceSummary {
+  accountsInScope: number;
+  accountsWithActivePrograms: number;
+  activeCertificationCount: number;
+  expiringCertificationCount: number;
+  expiredCertificationCount: number;
+  revokedCertificationCount: number;
+  overdueProgramCount: number;
+  unresolvedExecutionExceptionCount: number;
+  pendingCertificationDecisionCount: number;
+  deliveredTrainingHours: number;
+}
+
+export interface TrainingComplianceOwnerRollup {
+  ownerUserId: string;
+  ownerName: string;
+  roleCode: 'TERRITORY_MANAGER' | 'REGIONAL_DIRECTOR';
+  accountCount: number;
+  activeCertificationCount: number;
+  expiringCertificationCount: number;
+  expiredCertificationCount: number;
+  revokedCertificationCount: number;
+  overdueProgramCount: number;
+  unresolvedExecutionExceptionCount: number;
+  pendingCertificationDecisionCount: number;
+  deliveredTrainingHours: number;
+}
+
+export interface TrainingComplianceCertificationTrackRollup {
+  trainingTypeId?: string;
+  trainingTypeCode?: string;
+  trainingTypeName?: string;
+  activeCertificationCount: number;
+  expiringCertificationCount: number;
+  expiredCertificationCount: number;
+  revokedCertificationCount: number;
+}
+
+export interface ListTrainingComplianceReportRequest {
+  ownerTmUserId?: string;
+  ownerRdUserId?: string;
+  certificationWindowDays?: number;
+}
+
+export interface ListTrainingComplianceReportResponse {
+  summary: TrainingComplianceSummary;
+  territoryManagers: TrainingComplianceOwnerRollup[];
+  regionalDirectors: TrainingComplianceOwnerRollup[];
+  certificationTracks: TrainingComplianceCertificationTrackRollup[];
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;
@@ -601,11 +652,23 @@ export interface CompleteTrainingSessionRequest {
   createFollowUpTask?: CreateTrainingFollowUpTaskRequest;
 }
 
+export interface ResolveTrainingCertificationDecisionRequest {
+  certificationOutcome: Extract<TrainingCertificationOutcomeKey, 'awarded' | 'not_awarded'>;
+  certificationTitle?: string;
+  certificationCode?: string;
+  certificationExpiresAt?: string;
+  certificationNotes?: string;
+}
+
 export interface CancelTrainingSessionRequest {
   status: Extract<TrainingSessionStatusKey, 'cancelled' | 'no_show'>;
   notes?: string;
 }
 
 export interface CompleteTrainingFollowUpTaskRequest {
+  notes?: string;
+}
+
+export interface RevokeTrainingCertificationRequest {
   notes?: string;
 }

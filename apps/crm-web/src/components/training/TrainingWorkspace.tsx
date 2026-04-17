@@ -42,10 +42,13 @@ import type {
   CreateTrainingCategoryRequest,
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
+  ListTrainingComplianceReportResponse,
   ListTrainingAccountStatusKey,
   ListTrainingOperationalQueueResponse,
   ListTrainingSessionsResponse,
   ListTrainingSessionStatusKey,
+  ResolveTrainingCertificationDecisionRequest,
+  RevokeTrainingCertificationRequest,
   TrainingCatalogResponse,
   TrainingOperationalCertificationQueueItem,
   TrainingOperationalExceptionQueueItem,
@@ -53,6 +56,7 @@ import type {
   TrainingSessionSummary,
   TrainingTrainerSummary,
 } from '@pulse/contracts';
+import { TrainingCertificationOpsModal } from './TrainingCertificationOpsModal';
 import { TrainingSessionExecutionModal } from './TrainingSessionExecutionModal';
 import { TrainingSessionSchedulerModal } from './TrainingSessionSchedulerModal';
 
@@ -156,6 +160,161 @@ async function fetchTrainingOperationalQueue(
   return response.json() as Promise<ListTrainingOperationalQueueResponse>;
 }
 
+async function fetchTrainingComplianceReport(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: {
+    ownerTmUserId?: string;
+    ownerRdUserId?: string;
+    certificationWindowDays?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  if (query.ownerTmUserId) {
+    params.set('ownerTmUserId', query.ownerTmUserId);
+  }
+  if (query.ownerRdUserId) {
+    params.set('ownerRdUserId', query.ownerRdUserId);
+  }
+  if (query.certificationWindowDays) {
+    params.set('certificationWindowDays', String(query.certificationWindowDays));
+  }
+
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/training/reporting${params.toString() ? `?${params.toString()}` : ''}`,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+      cache: 'no-store',
+    },
+  );
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(
+      payload?.error?.message
+      || payload?.detail
+      || payload?.message
+      || `Training compliance report request failed (${response.status})`,
+    );
+  }
+
+  return response.json() as Promise<ListTrainingComplianceReportResponse>;
+}
+
+async function resolveTrainingCertificationDecisionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  payload: ResolveTrainingCertificationDecisionRequest,
+) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/training/sessions/${sessionId}/certification-decision`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(
+      errorPayload?.error?.message
+      || errorPayload?.detail
+      || errorPayload?.message
+      || `Resolve certification decision failed (${response.status})`,
+    );
+  }
+
+  return response.json() as Promise<TrainingSessionSummary>;
+}
+
+async function revokeTrainingCertificationRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  certificationId: string,
+  payload: RevokeTrainingCertificationRequest,
+) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/training/certifications/${certificationId}/revoke`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(
+      errorPayload?.error?.message
+      || errorPayload?.detail
+      || errorPayload?.message
+      || `Revoke training certification failed (${response.status})`,
+    );
+  }
+
+  return response.json();
+}
+
+function downloadTrainingComplianceCsv(report: ListTrainingComplianceReportResponse) {
+  const escape = (value: string | number | undefined) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const rows = [
+    ['Section', 'Name', 'Accounts', 'ActiveCerts', 'ExpiringCerts', 'ExpiredCerts', 'RevokedCerts', 'OverduePrograms', 'ExecutionExceptions', 'PendingDecisions', 'Hours'],
+    ['Summary', 'All scoped accounts', report.summary.accountsInScope, report.summary.activeCertificationCount, report.summary.expiringCertificationCount, report.summary.expiredCertificationCount, report.summary.revokedCertificationCount, report.summary.overdueProgramCount, report.summary.unresolvedExecutionExceptionCount, report.summary.pendingCertificationDecisionCount, report.summary.deliveredTrainingHours],
+    ...report.territoryManagers.map((entry) => ([
+      'Territory Manager',
+      entry.ownerName,
+      entry.accountCount,
+      entry.activeCertificationCount,
+      entry.expiringCertificationCount,
+      entry.expiredCertificationCount,
+      entry.revokedCertificationCount,
+      entry.overdueProgramCount,
+      entry.unresolvedExecutionExceptionCount,
+      entry.pendingCertificationDecisionCount,
+      entry.deliveredTrainingHours,
+    ])),
+    ...report.regionalDirectors.map((entry) => ([
+      'Regional Director',
+      entry.ownerName,
+      entry.accountCount,
+      entry.activeCertificationCount,
+      entry.expiringCertificationCount,
+      entry.expiredCertificationCount,
+      entry.revokedCertificationCount,
+      entry.overdueProgramCount,
+      entry.unresolvedExecutionExceptionCount,
+      entry.pendingCertificationDecisionCount,
+      entry.deliveredTrainingHours,
+    ])),
+    ...report.certificationTracks.map((entry) => ([
+      'Certification Track',
+      entry.trainingTypeName ?? entry.trainingTypeCode ?? 'Certification track',
+      '',
+      entry.activeCertificationCount,
+      entry.expiringCertificationCount,
+      entry.expiredCertificationCount,
+      entry.revokedCertificationCount,
+      '',
+      '',
+      '',
+      '',
+    ])),
+  ];
+
+  const csv = rows.map((row) => row.map((value) => escape(value)).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `training-compliance-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function trainingStatusColor(session: TrainingSessionSummary) {
   if (session.executionState === 'checked_in') {
     return 'orange';
@@ -206,6 +365,7 @@ export function TrainingWorkspace() {
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof fetchTrainingAccounts>> | null>(null);
   const [sessions, setSessions] = useState<ListTrainingSessionsResponse | null>(null);
   const [operationalQueue, setOperationalQueue] = useState<ListTrainingOperationalQueueResponse | null>(null);
+  const [complianceReport, setComplianceReport] = useState<ListTrainingComplianceReportResponse | null>(null);
   const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ListTrainingAccountStatusKey>('all');
@@ -228,6 +388,8 @@ export function TrainingWorkspace() {
     existingSession?: TrainingSessionSummary | null;
   } | null>(null);
   const [executionSession, setExecutionSession] = useState<TrainingSessionSummary | null>(null);
+  const [pendingDecisionException, setPendingDecisionException] = useState<TrainingOperationalExceptionQueueItem | null>(null);
+  const [revocationCertification, setRevocationCertification] = useState<TrainingOperationalCertificationQueueItem | null>(null);
 
   const canManageCatalog = auth ? canPerformAction(auth.identity.role, 'training.catalog_manage') : false;
   const canSchedule = auth ? canPerformAction(auth.identity.role, 'training.schedule') : false;
@@ -240,7 +402,7 @@ export function TrainingWorkspace() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers, nextOperationalQueue] = await Promise.all([
+      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers, nextOperationalQueue, nextComplianceReport] = await Promise.all([
         fetchTrainingOverview(apiBaseUrl, accessToken),
         fetchTrainingCatalog(apiBaseUrl, accessToken),
         fetchTrainingAccounts(apiBaseUrl, accessToken, {
@@ -259,6 +421,11 @@ export function TrainingWorkspace() {
           ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
           certificationWindowDays: Number(opsCertificationWindowDays || 45),
         }),
+        fetchTrainingComplianceReport(apiBaseUrl, accessToken, {
+          ...(opsTmFilter ? { ownerTmUserId: opsTmFilter } : {}),
+          ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
+          certificationWindowDays: Number(opsCertificationWindowDays || 45),
+        }),
       ]);
 
       setOverview(nextOverview);
@@ -267,6 +434,7 @@ export function TrainingWorkspace() {
       setSessions(nextSessions);
       setTrainers(nextTrainers.items);
       setOperationalQueue(nextOperationalQueue);
+      setComplianceReport(nextComplianceReport);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -316,7 +484,48 @@ export function TrainingWorkspace() {
       .map((entry) => ({ value: entry.userId, label: entry.displayName }))
   ), [trainers]);
 
+  const pendingDecisionItems = useMemo(
+    () => (operationalQueue?.unresolvedExecutionExceptions ?? []).filter((entry) => entry.type === 'certification_decision_pending'),
+    [operationalQueue],
+  );
+
   const sessionItems = sessions?.items ?? [];
+
+  const handleResolveCertificationDecision = useCallback(async (payload: ResolveTrainingCertificationDecisionRequest) => {
+    if (!auth || !pendingDecisionException) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await resolveTrainingCertificationDecisionRecord(apiBaseUrl, accessToken, pendingDecisionException.sessionId, payload);
+      setPendingDecisionException(null);
+      await loadWorkspace();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadWorkspace, pendingDecisionException]);
+
+  const handleRevokeCertification = useCallback(async (payload: RevokeTrainingCertificationRequest) => {
+    if (!auth || !revocationCertification) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await revokeTrainingCertificationRecord(apiBaseUrl, accessToken, revocationCertification.certificationId, payload);
+      setRevocationCertification(null);
+      await loadWorkspace();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [accessToken, apiBaseUrl, auth, loadWorkspace, revocationCertification]);
 
   const handleCategoryCreate = async () => {
     if (!auth) {
@@ -777,9 +986,18 @@ export function TrainingWorkspace() {
                       ]}
                     />
                   </Group>
-                  <Badge color={(operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? 'red' : 'blue'} variant="light">
-                    {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0} unresolved exceptions
-                  </Badge>
+                  <Group gap="sm" align="center">
+                    <Badge color={(operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? 'red' : 'blue'} variant="light">
+                      {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0} unresolved exceptions
+                    </Badge>
+                    <Button
+                      variant="default"
+                      onClick={() => complianceReport ? downloadTrainingComplianceCsv(complianceReport) : null}
+                      disabled={!complianceReport}
+                    >
+                      Export reporting CSV
+                    </Button>
+                  </Group>
                 </Group>
 
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
@@ -819,6 +1037,54 @@ export function TrainingWorkspace() {
                   </Card>
                 </SimpleGrid>
 
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Title order={4}>Pending certification decisions</Title>
+                      <Badge color={pendingDecisionItems.length > 0 ? 'orange' : 'blue'} variant="light">
+                        {pendingDecisionItems.length}
+                      </Badge>
+                    </Group>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Account</Table.Th>
+                          <Table.Th>Session</Table.Th>
+                          <Table.Th>Detail</Table.Th>
+                          {canSchedule ? <Table.Th>Action</Table.Th> : null}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {pendingDecisionItems.length > 0 ? pendingDecisionItems.map((item) => (
+                          <Table.Tr key={`${item.sessionId}-${item.type}`}>
+                            <Table.Td>
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName ?? 'Account'}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>{item.title}</Table.Td>
+                            <Table.Td>{item.detail}</Table.Td>
+                            {canSchedule ? (
+                              <Table.Td>
+                                <Button size="xs" onClick={() => setPendingDecisionException(item)}>
+                                  Resolve
+                                </Button>
+                              </Table.Td>
+                            ) : null}
+                          </Table.Tr>
+                        )) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={canSchedule ? 4 : 3}>
+                              <Text c="dimmed">No pending certification decisions are in the queue right now.</Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Stack>
+                </Paper>
+
                 <SimpleGrid cols={{ base: 1, xl: 2 }}>
                   <Paper withBorder radius="md" p="lg">
                     <Stack gap="sm">
@@ -833,6 +1099,7 @@ export function TrainingWorkspace() {
                             <Table.Th>Certification</Table.Th>
                             <Table.Th>Expires</Table.Th>
                             <Table.Th>Owner</Table.Th>
+                            {canSchedule ? <Table.Th>Action</Table.Th> : null}
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -859,10 +1126,17 @@ export function TrainingWorkspace() {
                                 </Stack>
                               </Table.Td>
                               <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
+                              {canSchedule ? (
+                                <Table.Td>
+                                  <Button size="xs" variant="default" onClick={() => setRevocationCertification(item)}>
+                                    Revoke
+                                  </Button>
+                                </Table.Td>
+                              ) : null}
                             </Table.Tr>
                           )) : (
                             <Table.Tr>
-                              <Table.Td colSpan={4}>
+                              <Table.Td colSpan={canSchedule ? 5 : 4}>
                                 <Text c="dimmed">No certifications are nearing expiry in the current window.</Text>
                               </Table.Td>
                             </Table.Tr>
@@ -885,6 +1159,7 @@ export function TrainingWorkspace() {
                             <Table.Th>Certification</Table.Th>
                             <Table.Th>Expired</Table.Th>
                             <Table.Th>Owner</Table.Th>
+                            {canSchedule ? <Table.Th>Action</Table.Th> : null}
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -906,10 +1181,17 @@ export function TrainingWorkspace() {
                                 </Stack>
                               </Table.Td>
                               <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
+                              {canSchedule ? (
+                                <Table.Td>
+                                  <Button size="xs" variant="default" onClick={() => setRevocationCertification(item)}>
+                                    Revoke
+                                  </Button>
+                                </Table.Td>
+                              ) : null}
                             </Table.Tr>
                           )) : (
                             <Table.Tr>
-                              <Table.Td colSpan={4}>
+                              <Table.Td colSpan={canSchedule ? 5 : 4}>
                                 <Text c="dimmed">No expired certifications are currently in queue.</Text>
                               </Table.Td>
                             </Table.Tr>
@@ -1024,6 +1306,144 @@ export function TrainingWorkspace() {
                     </Stack>
                   </Paper>
                 </SimpleGrid>
+
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={4}>Compliance reporting</Title>
+                      <Text size="sm" c="dimmed">
+                        Backend-wired owner rollups and certification posture for training ops, TMs, and RDs.
+                      </Text>
+                    </Group>
+
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Scoped accounts</Text>
+                        <Text fw={700} size="xl">{complianceReport?.summary.accountsInScope ?? 0}</Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active certifications</Text>
+                        <Text fw={700} size="xl">{complianceReport?.summary.activeCertificationCount ?? 0}</Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Revoked certifications</Text>
+                        <Text
+                          fw={700}
+                          size="xl"
+                          {...((complianceReport?.summary.revokedCertificationCount ?? 0) > 0 ? { c: 'red' as const } : {})}
+                        >
+                          {complianceReport?.summary.revokedCertificationCount ?? 0}
+                        </Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Pending decisions</Text>
+                        <Text
+                          fw={700}
+                          size="xl"
+                          {...((complianceReport?.summary.pendingCertificationDecisionCount ?? 0) > 0 ? { c: 'orange' as const } : {})}
+                        >
+                          {complianceReport?.summary.pendingCertificationDecisionCount ?? 0}
+                        </Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Delivered hours</Text>
+                        <Text fw={700} size="xl">{complianceReport?.summary.deliveredTrainingHours ?? 0}</Text>
+                      </Card>
+                    </SimpleGrid>
+
+                    <SimpleGrid cols={{ base: 1, xl: 3 }}>
+                      <Paper withBorder radius="md" p="md">
+                        <Stack gap="sm">
+                          <Title order={5}>Territory manager rollup</Title>
+                          <Table striped highlightOnHover>
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th>Owner</Table.Th>
+                                <Table.Th>Accounts</Table.Th>
+                                <Table.Th>Risk</Table.Th>
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {(complianceReport?.territoryManagers ?? []).length > 0 ? complianceReport?.territoryManagers.map((entry) => (
+                                <Table.Tr key={entry.ownerUserId}>
+                                  <Table.Td>{entry.ownerName}</Table.Td>
+                                  <Table.Td>{entry.accountCount}</Table.Td>
+                                  <Table.Td>{entry.overdueProgramCount + entry.unresolvedExecutionExceptionCount}</Table.Td>
+                                </Table.Tr>
+                              )) : (
+                                <Table.Tr>
+                                  <Table.Td colSpan={3}>
+                                    <Text c="dimmed">No TM reporting rows are available for the current scope.</Text>
+                                  </Table.Td>
+                                </Table.Tr>
+                              )}
+                            </Table.Tbody>
+                          </Table>
+                        </Stack>
+                      </Paper>
+
+                      <Paper withBorder radius="md" p="md">
+                        <Stack gap="sm">
+                          <Title order={5}>Regional director rollup</Title>
+                          <Table striped highlightOnHover>
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th>Owner</Table.Th>
+                                <Table.Th>Accounts</Table.Th>
+                                <Table.Th>Risk</Table.Th>
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {(complianceReport?.regionalDirectors ?? []).length > 0 ? complianceReport?.regionalDirectors.map((entry) => (
+                                <Table.Tr key={entry.ownerUserId}>
+                                  <Table.Td>{entry.ownerName}</Table.Td>
+                                  <Table.Td>{entry.accountCount}</Table.Td>
+                                  <Table.Td>{entry.overdueProgramCount + entry.unresolvedExecutionExceptionCount}</Table.Td>
+                                </Table.Tr>
+                              )) : (
+                                <Table.Tr>
+                                  <Table.Td colSpan={3}>
+                                    <Text c="dimmed">No RD reporting rows are available for the current scope.</Text>
+                                  </Table.Td>
+                                </Table.Tr>
+                              )}
+                            </Table.Tbody>
+                          </Table>
+                        </Stack>
+                      </Paper>
+
+                      <Paper withBorder radius="md" p="md">
+                        <Stack gap="sm">
+                          <Title order={5}>Certification track posture</Title>
+                          <Table striped highlightOnHover>
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th>Track</Table.Th>
+                                <Table.Th>Active</Table.Th>
+                                <Table.Th>Expired</Table.Th>
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {(complianceReport?.certificationTracks ?? []).length > 0 ? complianceReport?.certificationTracks.map((entry) => (
+                                <Table.Tr key={entry.trainingTypeId ?? entry.trainingTypeCode ?? entry.trainingTypeName}>
+                                  <Table.Td>{entry.trainingTypeName ?? entry.trainingTypeCode ?? 'Certification track'}</Table.Td>
+                                  <Table.Td>{entry.activeCertificationCount}</Table.Td>
+                                  <Table.Td>{entry.expiredCertificationCount + entry.revokedCertificationCount}</Table.Td>
+                                </Table.Tr>
+                              )) : (
+                                <Table.Tr>
+                                  <Table.Td colSpan={3}>
+                                    <Text c="dimmed">No certification-track reporting rows are available for the current scope.</Text>
+                                  </Table.Td>
+                                </Table.Tr>
+                              )}
+                            </Table.Tbody>
+                          </Table>
+                        </Stack>
+                      </Paper>
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
               </Stack>
             </Tabs.Panel>
 
@@ -1208,6 +1628,21 @@ export function TrainingWorkspace() {
           trainers={trainers}
           existingSession={schedulerContext.existingSession ?? null}
           onSaved={loadWorkspace}
+        />
+      ) : null}
+
+      {canSchedule && (pendingDecisionException || revocationCertification) ? (
+        <TrainingCertificationOpsModal
+          opened={Boolean(pendingDecisionException || revocationCertification)}
+          mode={pendingDecisionException ? 'resolve_decision' : 'revoke_certification'}
+          pendingDecision={pendingDecisionException}
+          certification={revocationCertification}
+          onClose={() => {
+            setPendingDecisionException(null);
+            setRevocationCertification(null);
+          }}
+          onResolveDecision={handleResolveCertificationDecision}
+          onRevokeCertification={handleRevokeCertification}
         />
       ) : null}
 

@@ -75,6 +75,7 @@ import type {
   StartMonerisHostedPaymentCaptureRequest,
   StartMonerisHostedPaymentCaptureResponse,
   CaptureWebsiteLeadRequest,
+  CaptureWebsiteLeadResponse,
   CommitLeadImportRunRequest,
   CreateLeadRequest,
   CreateAffinityGroupRequest,
@@ -1561,7 +1562,7 @@ export async function fetchPublicWebsiteLeadSite(apiBaseUrl: string, siteId: str
 }
 
 export async function submitPublicWebsiteLead(apiBaseUrl: string, input: CaptureWebsiteLeadRequest) {
-  return requestJson<LeadSummary>(apiBaseUrl, '/api/v1/public/leads/capture', {
+  return requestJson<CaptureWebsiteLeadResponse>(apiBaseUrl, '/api/v1/public/leads/capture', {
     method: 'POST',
     body: input,
   });

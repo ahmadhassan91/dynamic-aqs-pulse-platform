@@ -22,6 +22,7 @@ import {
   WebsiteLeadType,
 } from '@pulse/db';
 import type {
+  CaptureWebsiteLeadResponse,
   CaptureWebsiteLeadRequest,
   CompleteLeadDiscoveryRequest,
   CommitLeadImportRunRequest,
@@ -1434,7 +1435,7 @@ export async function createLead(actor: AuthenticatedActor, input: CreateLeadReq
   return toLeadSummary(lead);
 }
 
-export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Promise<LeadSummary> {
+export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Promise<CaptureWebsiteLeadResponse> {
   const site = await prisma.websiteLeadSite.findUnique({
     where: {
       siteId: requiredTrimmed(input.siteId, 'siteId'),
@@ -1506,7 +1507,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
     ...(notes ? { notes } : {}),
   };
 
-  const lead = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const duplicateLead = await findWebsiteLeadDuplicate(tx, normalizedInput);
     let linkedLead: LeadWithRefs;
     let outcome: WebsiteLeadSubmissionOutcome;
@@ -1556,7 +1557,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
       outcome = WebsiteLeadSubmissionOutcome.CREATED_NEW_LEAD;
     }
 
-    await tx.websiteLeadSubmission.create({
+    const submission = await tx.websiteLeadSubmission.create({
       data: {
         websiteLeadSiteId: site.id,
         linkedLeadId: linkedLead.id,
@@ -1590,10 +1591,19 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
       },
     });
 
-    return linkedLead;
+    return {
+      lead: linkedLead,
+      submission,
+      outcome,
+    };
   });
 
-  return toLeadSummary(lead);
+  return {
+    ...toLeadSummary(result.lead),
+    submissionId: result.submission.id,
+    outcome: toWebsiteLeadSubmissionOutcomeKey(result.outcome),
+    reviewStatus: toWebsiteLeadSubmissionReviewStatusKey(result.submission.reviewStatus),
+  };
 }
 
 export async function importLeads(actor: AuthenticatedActor, input: ImportLeadsRequest): Promise<ImportLeadsResponse> {

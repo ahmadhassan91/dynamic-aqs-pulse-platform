@@ -112,6 +112,50 @@ test('public native website form submits a real lead into Pulse CRM', async ({ p
   await expect(page.getByRole('heading', { name: /Thanks, we.ve received your request\./ })).toBeVisible();
 });
 
+test('public website form explains when a submission is attached to an existing lead', async ({ page }) => {
+  const fixtures = await readFixtures();
+  const companyName = `Duplicate Match ${Date.now()}`;
+
+  await loginToInternalWorkspace(page, fixtures);
+  await expect(page).toHaveURL(/\/leads$/);
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
+  await page.getByLabel('Company name').fill(companyName);
+  await page.getByLabel('Contact name').fill('Existing Pulse Lead');
+  await page.getByLabel('Email').fill(`existing.${Date.now()}@example.com`);
+  await page.getByLabel('Phone').fill('555-401-5099');
+  await chooseSelectOption(page, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(page, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(page, 'Ownership group status', 'Independent / no group');
+  await page.getByRole('button', { name: 'Create Lead' }).click();
+
+  await expect(page).toHaveURL(/\/leads\/.+/);
+  const existingLeadId = page.url().split('/').pop();
+  expect(existingLeadId).toBeTruthy();
+
+  await page.goto('/forms/lead/solace-air');
+  await expect(page.getByRole('heading', { name: 'Contact an IAQ Professional' })).toBeVisible();
+  await page.getByText('Contractor', { exact: true }).click();
+  await page.getByLabel('First name').fill('Ahmad');
+  await page.getByLabel('Last name').fill('Duplicate');
+  await page.getByLabel('Company name').fill(companyName);
+  await page.getByLabel('# of Service Technicians').fill('3');
+  await page.getByLabel('Email').fill(`public.${Date.now()}@example.com`);
+  await page.getByLabel('Mobile phone number or Direct phone').fill('555-401-5011');
+  await page.getByLabel('Street address').fill('2500 Market Street');
+  await page.getByLabel('City').fill('Dallas');
+  await chooseSelectOption(page, 'State / Province', /Texas \(TX\)|TX/);
+  await page.getByLabel('Zip / Postal Code').fill('75201');
+  await chooseSelectOption(page, 'For HVAC Contractors, I am inquiring about:', 'Training and onboarding');
+  await page.getByLabel('Please provide a brief summary of your request:').fill('Please attach this to the in-flight contractor opportunity.');
+  await page.getByRole('button', { name: 'Submit' }).click();
+
+  await expect(page.getByText('Matched to Existing Pulse Lead')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'We found an existing Pulse lead for this request.' })).toBeVisible();
+  await expect(page.getByText(new RegExp(`Linked lead ID: ${existingLeadId}`))).toBeVisible();
+  await expect(page.getByText('Duplicate review status: pending review')).toBeVisible();
+});
+
 test('public mixed website form accepts text entry without crashing', async ({ page }) => {
   await page.goto('/forms/lead/solace-air');
   await expect(page.getByRole('heading', { name: 'Contact an IAQ Professional' })).toBeVisible();

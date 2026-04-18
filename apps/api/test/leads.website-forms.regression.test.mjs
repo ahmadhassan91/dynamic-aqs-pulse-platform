@@ -265,6 +265,8 @@ test('meeting-backed homeowner and contractor website form use cases persist bra
   const homeownerExtension = await prisma.leadExtension.findUniqueOrThrow({
     where: { leadId: homeownerLead.id },
   });
+  assert.equal(homeownerLead.outcome, 'created_new_lead');
+  assert.equal(homeownerLead.reviewStatus, 'not_required');
   assert.equal(homeownerExtension.sourceMetadata.captureChannel, 'branded_website');
   assert.equal(homeownerExtension.sourceMetadata.inquiryTopic, 'Allergy relief');
   assert.equal(homeownerExtension.sourceMetadata.marketingConsent, true);
@@ -273,6 +275,8 @@ test('meeting-backed homeowner and contractor website form use cases persist bra
   const contractorSubmission = await prisma.websiteLeadSubmission.findFirstOrThrow({
     where: { linkedLeadId: contractorLead.id },
   });
+  assert.equal(contractorLead.outcome, 'created_new_lead');
+  assert.equal(contractorLead.reviewStatus, 'not_required');
   assert.equal(contractorSubmission.referralSource, 'Dealer referral');
   assert.equal(contractorSubmission.referralDetail, 'Michelle Hogan');
   assert.equal(contractorSubmission.inquiryTopic, 'Training and onboarding');
@@ -327,6 +331,11 @@ test('duplicate website submissions attach to the existing lead instead of creat
   });
 
   assert.equal(secondLead.id, firstLead.id);
+  assert.equal(firstLead.outcome, 'created_new_lead');
+  assert.equal(firstLead.reviewStatus, 'not_required');
+  assert.equal(secondLead.outcome, 'attached_to_existing_lead');
+  assert.equal(secondLead.reviewStatus, 'pending_review');
+  assert.ok(secondLead.submissionId);
 
   const lead = await prisma.lead.findUniqueOrThrow({
     where: { id: firstLead.id },

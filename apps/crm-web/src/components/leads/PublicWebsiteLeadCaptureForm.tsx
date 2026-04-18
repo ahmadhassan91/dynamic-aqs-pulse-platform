@@ -23,6 +23,7 @@ import {
 import { IconAlertCircle, IconCheck, IconMail } from '@tabler/icons-react';
 import {
   type CaptureWebsiteLeadRequest,
+  type CaptureWebsiteLeadResponse,
   type PublicWebsiteLeadSite,
   type WebsiteLeadCustomerStatusKey,
   type WebsiteLeadTypeKey,
@@ -99,7 +100,7 @@ export function PublicWebsiteLeadCaptureForm({
   const [isLoadingSite, setIsLoadingSite] = useState(siteOverride ? false : true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [submittedLeadId, setSubmittedLeadId] = useState<string | null>(null);
+  const [submittedCapture, setSubmittedCapture] = useState<CaptureWebsiteLeadResponse | null>(null);
 
   function updateFormState<K extends keyof FormState>(key: K, value: FormState[K]) {
     setFormState((current) => ({ ...current, [key]: value }));
@@ -203,7 +204,7 @@ export function PublicWebsiteLeadCaptureForm({
       };
 
       const response = await submitPublicWebsiteLead(API_BASE_URL, payload);
-      setSubmittedLeadId(response.id);
+      setSubmittedCapture(response);
       setFormState(initialFormState);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -243,19 +244,36 @@ export function PublicWebsiteLeadCaptureForm({
     );
   }
 
-  if (submittedLeadId) {
+  if (submittedCapture) {
+    const attachedToExistingLead = submittedCapture.outcome === 'attached_to_existing_lead';
+    const heading = attachedToExistingLead
+      ? 'We found an existing Pulse lead for this request.'
+      : site.formConfig.successTitle;
+    const message = attachedToExistingLead
+      ? `Your submission for ${site.siteName} matched an existing lead in Pulse CRM, so the intake team will review it under that record instead of creating a duplicate lead.`
+      : site.formConfig.successMessage;
+
     return renderShell(
       <Paper withBorder radius="lg" p="xl">
         <Stack gap="md" align="center">
-          <Badge color="green" variant="light">Submitted to Pulse CRM</Badge>
-          <Title order={2} ta="center">{site.formConfig.successTitle}</Title>
+          <Badge color={attachedToExistingLead ? 'yellow' : 'green'} variant="light">
+            {attachedToExistingLead ? 'Matched to Existing Pulse Lead' : 'Submitted to Pulse CRM'}
+          </Badge>
+          <Title order={2} ta="center">{heading}</Title>
           <Text ta="center" c="dimmed">
-            {site.formConfig.successMessage}
+            {message}
           </Text>
           <Group gap="xs">
             <IconCheck size={16} />
-            <Text size="sm">Reference lead ID: {submittedLeadId}</Text>
+            <Text size="sm">
+              {attachedToExistingLead ? 'Linked lead ID' : 'Reference lead ID'}: {submittedCapture.id}
+            </Text>
           </Group>
+          {attachedToExistingLead ? (
+            <Text size="sm" c="dimmed">
+              Duplicate review status: {submittedCapture.reviewStatus.replaceAll('_', ' ')}
+            </Text>
+          ) : null}
         </Stack>
       </Paper>,
     );

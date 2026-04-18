@@ -849,6 +849,12 @@ export interface CaptureWebsiteLeadRequest {
   notes?: string;
 }
 
+export interface CaptureWebsiteLeadResponse extends LeadSummary {
+  submissionId: string;
+  outcome: WebsiteLeadSubmissionOutcomeKey;
+  reviewStatus: WebsiteLeadSubmissionReviewStatusKey;
+}
+
 export interface ImportLeadRowInput {
   companyName?: string;
   contactFirstName?: string;

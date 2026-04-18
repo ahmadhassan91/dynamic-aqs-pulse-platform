@@ -13,6 +13,12 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await expect(page).toHaveURL(/\/leads$/);
   await expect(page.getByRole('heading', { name: 'Residential Lead Hub' })).toBeVisible();
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
+  await page.getByLabel('Company name').fill('Acme Comfort Group');
+  await expect(page.getByLabel('Company name')).toHaveValue('Acme Comfort Group');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'New Intake' })).not.toBeVisible();
 
   await page.goto('/leads/forms');
   await expect(page.getByRole('heading', { name: 'Pulse Website Lead Forms' })).toBeVisible();

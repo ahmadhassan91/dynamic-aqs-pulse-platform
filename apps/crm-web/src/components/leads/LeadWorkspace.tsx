@@ -783,25 +783,37 @@ export function LeadWorkspace({
             <TextInput
               label="Company name"
               value={createLeadForm.companyName ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, companyName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setCreateLeadForm((current) => ({ ...current, companyName: value }));
+              }}
               required
             />
             <TextInput
               label="Contact name"
               value={createLeadForm.contactDisplayName ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, contactDisplayName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setCreateLeadForm((current) => ({ ...current, contactDisplayName: value }));
+              }}
             />
             <TextInput
               label="Email"
               type="email"
               value={createLeadForm.email ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, email: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setCreateLeadForm((current) => ({ ...current, email: value }));
+              }}
               required
             />
             <TextInput
               label="Phone"
               value={createLeadForm.phone ?? ''}
-              onChange={(event) => setCreateLeadForm((current) => ({ ...current, phone: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setCreateLeadForm((current) => ({ ...current, phone: value }));
+              }}
               required
             />
             <Select
@@ -900,7 +912,10 @@ export function LeadWorkspace({
           <Textarea
             label="Notes"
             value={createLeadForm.notes ?? ''}
-            onChange={(event) => setCreateLeadForm((current) => ({ ...current, notes: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setCreateLeadForm((current) => ({ ...current, notes: value }));
+            }}
             minRows={4}
           />
           {createLeadError ? <Text c="red">{createLeadError}</Text> : null}

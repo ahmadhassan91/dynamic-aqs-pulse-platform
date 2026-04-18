@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Box, Collapse, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
 import {
   IconBuildingStore,
@@ -34,8 +34,11 @@ type LinksGroupProps = {
 
 function LinksGroup({ icon: Icon, label, initiallyOpened, link, links }: LinksGroupProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hasLinks = Boolean(links?.length);
-  const isActive = link ? pathname === normalizeLink(link) : Boolean(links?.some((item) => pathname === normalizeLink(item.link)));
+  const isActive = link
+    ? isNavigationLinkActive(pathname, searchParams, link)
+    : Boolean(links?.some((item) => isNavigationLinkActive(pathname, searchParams, item.link)));
   const [manualOpened, setManualOpened] = useState(initiallyOpened || isActive);
   const opened = manualOpened || isActive;
 
@@ -77,7 +80,7 @@ function LinksGroup({ icon: Icon, label, initiallyOpened, link, links }: LinksGr
       </UnstyledButton>
       <Collapse in={opened}>
         {links?.map((item) => {
-          const itemActive = pathname === normalizeLink(item.link);
+          const itemActive = isNavigationLinkActive(pathname, searchParams, item.link);
           return (
             <Text key={item.link} component={Link} href={item.link} className={classes.link ?? ''} data-active={itemActive || undefined}>
               {item.label}
@@ -123,8 +126,9 @@ export function Navigation() {
       label: 'Territory Management',
       icon: IconMapPin,
       links: [
-        { label: 'Territory Dashboard', link: '/territories' },
-        { label: 'Coverage Map', link: '/territory_map' },
+        { label: 'Territory Hub', link: '/territories?tab=dashboard' },
+        { label: 'Territory Map', link: '/territories?tab=map' },
+        { label: 'Account List', link: '/territories?tab=list' },
       ],
     });
   }
@@ -174,4 +178,29 @@ export function Navigation() {
 
 function normalizeLink(value: string) {
   return value.split('?')[0] ?? value;
+}
+
+function isNavigationLinkActive(
+  pathname: string,
+  searchParams: ReturnType<typeof useSearchParams>,
+  link: string,
+) {
+  const [targetPath = '', targetQuery] = link.split('?');
+  if (pathname !== normalizeLink(targetPath)) {
+    return false;
+  }
+
+  if (!targetQuery) {
+    return true;
+  }
+
+  const targetParams = new URLSearchParams(targetQuery);
+  const targetTab = targetParams.get('tab');
+  const currentTab = searchParams.get('tab');
+
+  if (targetTab === 'dashboard') {
+    return currentTab === null || currentTab === 'dashboard';
+  }
+
+  return Array.from(targetParams.entries()).every(([key, value]) => searchParams.get(key) === value);
 }

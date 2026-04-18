@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon,
@@ -47,6 +48,7 @@ import {
 } from '@tabler/icons-react';
 import type {
   AccountSummary,
+  CalendarEventSummary,
   LeadSummary,
   ListTerritoryAssignableUsersResponse,
   RegionSummary,
@@ -59,6 +61,7 @@ import type {
 } from '@pulse/contracts';
 import {
   fetchAccounts,
+  fetchCalendarWorkspace,
   fetchLeads,
   fetchTerritoryAssignableUsers,
   fetchTerritoryAssignmentHistory,
@@ -75,14 +78,35 @@ import { canPerformAction } from '@/lib/access';
 import {
   buildTerritoryAssignmentImpactSummary,
   getTerritoryPrototypeTabs,
+  resolvePaperMapTerritoryStyle,
 } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
-import { CalendarWorkspace } from '../calendar/CalendarWorkspace';
+import { TerritoryCalendarFeed } from './TerritoryCalendarFeed';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
 import { TerritoryCommandDashboard } from './TerritoryCommandDashboard';
 import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list' | 'admin' | 'calendar';
+
+function normalizeTerritoryTabParam(value: string | null | undefined): TerritoryTab | null {
+  if (value === 'operations') {
+    return 'admin';
+  }
+
+  if (value === 'dashboard' || value === 'map' || value === 'list' || value === 'admin' || value === 'calendar') {
+    return value;
+  }
+
+  return null;
+}
+
+function buildTerritoryTabHref(pathname: string, tab: TerritoryTab) {
+  if (tab === 'dashboard') {
+    return pathname;
+  }
+
+  return `${pathname}?tab=${tab}`;
+}
 
 const US_STATE_CODES = [
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL',
@@ -114,6 +138,9 @@ export function TerritoryManagement({
 }: {
   initialTab?: TerritoryTab | 'operations';
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<TerritoryTab>(initialTab === 'operations' ? 'admin' : initialTab);
   const [policy, setPolicy] = useState<TerritoryPolicySummary | null>(null);
@@ -157,10 +184,16 @@ export function TerritoryManagement({
   const [adminTerritoryStates, setAdminTerritoryStates] = useState<string[]>([]);
   const [adminTerritoryIsActive, setAdminTerritoryIsActive] = useState(true);
   const [isSavingAdminTerritory, setIsSavingAdminTerritory] = useState(false);
+  const [territoryCalendarItems, setTerritoryCalendarItems] = useState<CalendarEventSummary[]>([]);
+  const [isLoadingTerritoryCalendar, setIsLoadingTerritoryCalendar] = useState(false);
+
+  const requestedTab = normalizeTerritoryTabParam(searchParams.get('tab'));
 
   useEffect(() => {
-    setActiveTab(initialTab === 'operations' ? 'admin' : initialTab);
-  }, [initialTab]);
+    const fallbackTab = initialTab === 'operations' ? 'admin' : initialTab;
+    const nextTab = requestedTab ?? fallbackTab;
+    setActiveTab(nextTab);
+  }, [initialTab, requestedTab]);
 
   useEffect(() => {
     if (!auth) {
@@ -237,6 +270,51 @@ export function TerritoryManagement({
     }
 
     void loadWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, refreshNonce]);
+
+  useEffect(() => {
+    if (!auth) {
+      setTerritoryCalendarItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    const accessToken = auth.tokens.accessToken;
+
+    async function loadTerritoryCalendarFeed() {
+      setIsLoadingTerritoryCalendar(true);
+
+      try {
+        const startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 60);
+
+        const response = await fetchCalendarWorkspace(apiBaseUrl, accessToken, {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        });
+
+        if (!cancelled) {
+          setTerritoryCalendarItems(response.items);
+        }
+      } catch {
+        if (!cancelled) {
+          setTerritoryCalendarItems([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingTerritoryCalendar(false);
+        }
+      }
+    }
+
+    void loadTerritoryCalendarFeed();
 
     return () => {
       cancelled = true;
@@ -440,6 +518,15 @@ export function TerritoryManagement({
   const maxAdminWorkloadCount = useMemo(
     () => Math.max(1, ...adminTerritoryCards.map((item) => item.totalWorkloadCount)),
     [adminTerritoryCards],
+  );
+
+  const territoryCalendarFeedItems = useMemo(
+    () =>
+      territoryCalendarItems
+        .filter((item) => item.status === 'scheduled' && new Date(item.startsAt).getTime() >= Date.now())
+        .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime())
+        .slice(0, 10),
+    [territoryCalendarItems],
   );
 
   const editingAdminTerritory = useMemo(
@@ -700,6 +787,12 @@ export function TerritoryManagement({
     return null;
   }
 
+  function handleTabChange(value: string | null) {
+    const nextTab = normalizeTerritoryTabParam(value) ?? 'dashboard';
+    setActiveTab(nextTab);
+    router.replace(buildTerritoryTabHref(pathname, nextTab), { scroll: false });
+  }
+
   return (
     <Stack gap="lg">
       <Paper withBorder radius="xl" p="xl" className="premium-hero-panel">
@@ -791,7 +884,7 @@ export function TerritoryManagement({
         />
       </SimpleGrid>
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as TerritoryTab) ?? 'dashboard')} className="premium-tabs-shell">
+      <Tabs value={activeTab} onChange={handleTabChange} className="premium-tabs-shell">
         <Tabs.List>
           {prototypeTabs.map((tab) => {
             const Icon = TERRITORY_TAB_ICONS[tab.value];
@@ -1407,9 +1500,19 @@ export function TerritoryManagement({
                   <Stack gap="md">
                     <Group justify="space-between" align="flex-start">
                       <Group gap="sm" align="flex-start">
-                        <Badge color="blue" variant="light">
-                          {item.territoryCode}
-                        </Badge>
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: 4,
+                            marginTop: 5,
+                            backgroundColor: resolvePaperMapTerritoryStyle({
+                              managerName: item.managerName,
+                              shippingCenterName: item.shippingCenterName,
+                            }).color,
+                            flexShrink: 0,
+                          }}
+                        />
                         <div>
                           <Text fw={700}>{item.managerName ?? item.territoryName}</Text>
                           <Text size="sm" c="dimmed">
@@ -1430,12 +1533,20 @@ export function TerritoryManagement({
                       ) : null}
                     </Group>
 
-                    <SimpleGrid cols={4} spacing="xs">
-                      <MetricMini label="Accounts" value={item.activeAccountCount} />
-                      <MetricMini label="Leads" value={item.activeLeadCount} />
-                      <MetricMini label="Programs" value={item.activeProgramsCount} />
-                      <MetricMini label="Trained %" value={item.trainingPenetrationPercent} />
-                    </SimpleGrid>
+                    <Group gap="md" wrap="wrap">
+                      <Text size="sm">
+                        <Text component="span" c="dimmed">Accounts:</Text> {item.activeAccountCount}
+                      </Text>
+                      <Text size="sm">
+                        <Text component="span" c="dimmed">Leads:</Text> {item.activeLeadCount}
+                      </Text>
+                      <Text size="sm">
+                        <Text component="span" c="dimmed">Programs:</Text> {item.activeProgramsCount}
+                      </Text>
+                      <Text size="sm">
+                        <Text component="span" c="dimmed">Trained:</Text> {item.trainingPenetrationPercent}%
+                      </Text>
+                    </Group>
 
                     <Stack gap={4}>
                       <Group justify="space-between">
@@ -1444,11 +1555,21 @@ export function TerritoryManagement({
                           {Math.round((item.totalWorkloadCount / maxAdminWorkloadCount) * 100)}%
                         </Text>
                       </Group>
-                      <Progress value={(item.totalWorkloadCount / maxAdminWorkloadCount) * 100} radius="xl" />
+                      <Progress
+                        value={(item.totalWorkloadCount / maxAdminWorkloadCount) * 100}
+                        radius="xl"
+                        color={
+                          (item.totalWorkloadCount / maxAdminWorkloadCount) >= 0.85
+                            ? 'red'
+                            : (item.totalWorkloadCount / maxAdminWorkloadCount) >= 0.6
+                              ? 'orange'
+                              : 'teal'
+                        }
+                      />
                     </Stack>
 
                     <Text size="sm" c="dimmed">
-                      Shipping: {item.shippingCenterName ?? 'Unassigned'} · RD: {item.directorUserName ?? 'Unassigned'}
+                      Hub: {item.shippingCenterName ?? 'Unassigned'} · RD: {item.directorUserName ?? 'Unassigned'}
                     </Text>
                   </Stack>
                 </Card>
@@ -1474,26 +1595,10 @@ export function TerritoryManagement({
         </Tabs.Panel>
 
         <Tabs.Panel value="calendar" pt="lg">
-          <Stack gap="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="xs">
-                <Group gap="sm">
-                  <ThemeIcon radius="xl" color="grape" variant="light">
-                    <IconCalendar size={18} />
-                  </ThemeIcon>
-                  <div>
-                    <Title order={4}>Territory Calendar</Title>
-                    <Text size="sm" c="dimmed">
-                      The same live Pulse calendar, embedded into the territory workspace so leads, training, and field
-                      scheduling stay aligned with territory operations.
-                    </Text>
-                  </div>
-                </Group>
-              </Stack>
-            </Paper>
-
-            <CalendarWorkspace embedded initialView="week" />
-          </Stack>
+          <TerritoryCalendarFeed
+            items={territoryCalendarFeedItems}
+            isLoading={isLoadingTerritoryCalendar}
+          />
         </Tabs.Panel>
       </Tabs>
 

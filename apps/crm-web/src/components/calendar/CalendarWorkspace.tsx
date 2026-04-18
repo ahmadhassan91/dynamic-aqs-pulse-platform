@@ -107,6 +107,11 @@ const STATUS_COLORS: Record<CalendarEventSummary['status'], string> = {
   no_show: 'yellow',
 };
 
+const TIME_GRID_START_HOUR = 8;
+const TIME_GRID_END_HOUR = 22;
+const TIME_GRID_ROW_HEIGHT = 72;
+const FALLBACK_EVENT_DURATION_MINUTES = 60;
+
 function getEventMeta(eventType: CalendarEventTypeKey) {
   return EVENT_TYPE_META[eventType];
 }
@@ -180,6 +185,19 @@ function formatWeekday(value: Date) {
   }).format(value);
 }
 
+function formatWeekdayLabel(value: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+  }).format(value);
+}
+
+function formatMonthDayLabel(value: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(value);
+}
+
 function formatTime(value: Date | string) {
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
@@ -189,6 +207,129 @@ function formatTime(value: Date | string) {
 
 function normalizeStatusLabel(value: CalendarEventSummary['status']) {
   return value.replace(/_/g, ' ');
+}
+
+function isSameDay(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function buildTimeGridHours() {
+  return Array.from(
+    { length: TIME_GRID_END_HOUR - TIME_GRID_START_HOUR },
+    (_, index) => TIME_GRID_START_HOUR + index,
+  );
+}
+
+function resolveEventEnd(item: CalendarEventSummary) {
+  if (item.endsAt) {
+    return new Date(item.endsAt);
+  }
+
+  const startsAt = new Date(item.startsAt);
+  const fallbackEnd = new Date(startsAt);
+  fallbackEnd.setMinutes(fallbackEnd.getMinutes() + FALLBACK_EVENT_DURATION_MINUTES);
+  return fallbackEnd;
+}
+
+type TimeGridPlacement = {
+  item: CalendarEventSummary;
+  top: number;
+  height: number;
+  laneIndex: number;
+  laneCount: number;
+};
+
+function buildTimeGridPlacements(items: CalendarEventSummary[], day: Date): TimeGridPlacement[] {
+  const gridStart = new Date(day);
+  gridStart.setHours(TIME_GRID_START_HOUR, 0, 0, 0);
+  const gridEnd = new Date(day);
+  gridEnd.setHours(TIME_GRID_END_HOUR, 0, 0, 0);
+  const gridStartMs = gridStart.getTime();
+  const gridEndMs = gridEnd.getTime();
+
+  const candidates = items
+    .map((item) => {
+      const start = new Date(item.startsAt);
+      const end = resolveEventEnd(item);
+      const startMs = Math.max(start.getTime(), gridStartMs);
+      const endMs = Math.min(end.getTime(), gridEndMs);
+
+      if (endMs <= gridStartMs || startMs >= gridEndMs || endMs <= startMs) {
+        return null;
+      }
+
+      return {
+        item,
+        startMs,
+        endMs,
+      };
+    })
+    .filter((item): item is { item: CalendarEventSummary; startMs: number; endMs: number } => Boolean(item))
+    .sort((left, right) => {
+      if (left.startMs === right.startMs) {
+        return left.endMs - right.endMs;
+      }
+      return left.startMs - right.startMs;
+    });
+
+  const placements: Array<TimeGridPlacement & { startMs: number; endMs: number }> = [];
+  let active: Array<TimeGridPlacement & { startMs: number; endMs: number }> = [];
+  let cluster: Array<TimeGridPlacement & { startMs: number; endMs: number }> = [];
+
+  const finalizeCluster = () => {
+    if (cluster.length === 0) {
+      return;
+    }
+
+    const laneCount = Math.max(...cluster.map((entry) => entry.laneIndex + 1));
+    for (const entry of cluster) {
+      entry.laneCount = laneCount;
+    }
+    cluster = [];
+  };
+
+  for (const candidate of candidates) {
+    active = active.filter((entry) => entry.endMs > candidate.startMs);
+    if (active.length === 0) {
+      finalizeCluster();
+    }
+
+    const usedLanes = new Set(active.map((entry) => entry.laneIndex));
+    let laneIndex = 0;
+    while (usedLanes.has(laneIndex)) {
+      laneIndex += 1;
+    }
+
+    const placement: TimeGridPlacement & { startMs: number; endMs: number } = {
+      item: candidate.item,
+      startMs: candidate.startMs,
+      endMs: candidate.endMs,
+      top: 0,
+      height: 0,
+      laneIndex,
+      laneCount: 1,
+    };
+
+    active.push(placement);
+    cluster.push(placement);
+    placements.push(placement);
+  }
+
+  finalizeCluster();
+
+  return placements.map((placement) => {
+    const startMinutes = (placement.startMs - gridStartMs) / (1000 * 60);
+    const durationMinutes = (placement.endMs - placement.startMs) / (1000 * 60);
+    return {
+      item: placement.item,
+      top: (startMinutes / 60) * TIME_GRID_ROW_HEIGHT,
+      height: Math.max((durationMinutes / 60) * TIME_GRID_ROW_HEIGHT, 28),
+      laneIndex: placement.laneIndex,
+      laneCount: placement.laneCount,
+    };
+  });
 }
 
 function isActivationKey(key: string) {
@@ -239,15 +380,6 @@ function shiftAnchorDate(anchorDate: Date, view: CalendarViewMode, direction: -1
   }
 
   return new Date(anchorDate.getFullYear(), anchorDate.getMonth() + direction, 1);
-}
-
-function buildDaySlots(anchorDate: Date) {
-  const dayStart = startOfDay(anchorDate);
-  return Array.from({ length: 12 }, (_, index) => {
-    const slot = new Date(dayStart);
-    slot.setHours(8 + index, 0, 0, 0);
-    return slot;
-  });
 }
 
 function buildMonthCells(anchorDate: Date) {
@@ -443,12 +575,30 @@ export function CalendarWorkspace({
     () => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(anchorDate), index)),
     [anchorDate],
   );
-  const daySlots = useMemo(() => buildDaySlots(anchorDate), [anchorDate]);
+  const timeGridHours = useMemo(() => buildTimeGridHours(), []);
+  const timeGridDays = useMemo(
+    () => (view === 'day' ? [startOfDay(anchorDate)] : weekDays),
+    [anchorDate, view, weekDays],
+  );
+  const timeGridHeight = useMemo(
+    () => timeGridHours.length * TIME_GRID_ROW_HEIGHT,
+    [timeGridHours.length],
+  );
   const selectedDayKey = useMemo(() => formatDayKey(anchorDate), [anchorDate]);
   const selectedDayItems = useMemo(
     () => itemsByDay.get(selectedDayKey) ?? [],
     [itemsByDay, selectedDayKey],
   );
+  const timeGridPlacementsByDay = useMemo(() => {
+    const next = new Map<string, TimeGridPlacement[]>();
+
+    for (const day of timeGridDays) {
+      const key = formatDayKey(day);
+      next.set(key, buildTimeGridPlacements(itemsByDay.get(key) ?? [], day));
+    }
+
+    return next;
+  }, [itemsByDay, timeGridDays]);
   const todayItems = useMemo(() => {
     const todayKey = formatDayKey(new Date());
     return (itemsByDay.get(todayKey) ?? []).filter((item) => item.status === 'scheduled');
@@ -826,152 +976,178 @@ export function CalendarWorkspace({
           <Paper withBorder radius="xl" p="lg" style={{ gridColumn: 'span 2' }}>
             <Stack gap="md">
               {view === 'day' ? (
-                <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md">
-                  <Paper withBorder radius="lg" p="md">
-                    <Stack gap="sm">
-                      <Group justify="space-between" align="flex-start">
-                        <Stack gap={0}>
-                          <Text fw={700}>Daily schedule lane</Text>
-                          <Text size="sm" c="dimmed">
-                            Click any slot to open the centralized scheduler at that exact time.
-                          </Text>
-                        </Stack>
-                        <Badge color="blue" variant="light">
-                          {selectedDayItems.length} event{selectedDayItems.length === 1 ? '' : 's'}
-                        </Badge>
-                      </Group>
+                <Paper withBorder radius="lg" p="md" data-testid="calendar-day-grid">
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="flex-start" wrap="wrap">
+                      <Stack gap={2}>
+                        <Text fw={700}>Daily schedule</Text>
+                        <Text size="sm" c="dimmed">
+                          A real hourly schedule lane so you can scan and book the day like Google Calendar or Outlook.
+                        </Text>
+                      </Stack>
+                      <Badge color="blue" variant="light">
+                        {selectedDayItems.length} event{selectedDayItems.length === 1 ? '' : 's'}
+                      </Badge>
+                    </Group>
 
-                      {daySlots.map((slot) => {
-                        const items = selectedDayItems.filter((item) => {
-                          const startsAt = new Date(item.startsAt);
+                    <Box style={{ overflowX: 'auto' }}>
+                      <Box
+                        data-testid="calendar-time-grid"
+                        style={{
+                          minWidth: 360,
+                          display: 'grid',
+                          gridTemplateColumns: '88px minmax(260px, 1fr)',
+                          rowGap: 0,
+                        }}
+                      >
+                        <Box />
+                        {timeGridDays.map((day) => {
+                          const dayKey = formatDayKey(day);
+                          const items = itemsByDay.get(dayKey) ?? [];
+                          const placements = timeGridPlacementsByDay.get(dayKey) ?? [];
+
                           return (
-                            startsAt.getHours() === slot.getHours()
-                            && startsAt.getDate() === slot.getDate()
-                            && startsAt.getMonth() === slot.getMonth()
-                            && startsAt.getFullYear() === slot.getFullYear()
-                          );
-                        });
-
-                        return (
-                          <Card
-                            key={slot.toISOString()}
-                            withBorder
-                            radius="lg"
-                            p="sm"
-                            onClick={() => openSchedulerForDate(slot)}
-                            onKeyDown={(event) => {
-                              if (isActivationKey(event.key)) {
-                                event.preventDefault();
-                                openSchedulerForDate(slot);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
-                            style={{ cursor: 'pointer', textAlign: 'left' }}
-                          >
-                            <Stack gap="xs">
+                            <Paper
+                              key={dayKey}
+                              radius="md"
+                              p="sm"
+                              withBorder
+                              style={{
+                                background: isSameDay(day, new Date()) ? 'rgba(239, 246, 255, 0.92)' : '#fff',
+                              }}
+                            >
                               <Group justify="space-between" align="center">
-                                <Text fw={700}>{formatTime(slot)}</Text>
-                                <Text size="xs" c="dimmed">
-                                  {items.length === 0 ? 'Open slot' : `${items.length} scheduled`}
-                                </Text>
+                                <Stack gap={0}>
+                                  <Text size="xs" c="dimmed" tt="uppercase">{formatWeekdayLabel(day)}</Text>
+                                  <Text fw={700}>{formatMonthDayLabel(day)}</Text>
+                                </Stack>
+                                {isSameDay(day, new Date()) ? (
+                                  <Badge color="blue" variant="light">Today</Badge>
+                                ) : (
+                                  <Text size="xs" c="dimmed">{items.length} event{items.length === 1 ? '' : 's'}</Text>
+                                )}
                               </Group>
-                              {items.length === 0 ? (
-                                <Text size="sm" c="dimmed">
-                                  No scheduled activity in this slot. Click to launch the scheduler.
-                                </Text>
-                              ) : (
-                                items.map((item) => {
-                                  const meta = getEventMeta(item.eventType);
+                            </Paper>
+                          );
+                        })}
+
+                        <Stack gap={0} style={{ paddingTop: 8 }}>
+                          {timeGridHours.map((hour) => {
+                            const labelDate = new Date(anchorDate);
+                            labelDate.setHours(hour, 0, 0, 0);
+                            return (
+                              <Box
+                                key={`time-label-${hour}`}
+                                style={{
+                                  height: TIME_GRID_ROW_HEIGHT,
+                                  paddingTop: 4,
+                                  borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                }}
+                              >
+                                <Text size="xs" c="dimmed">{formatTime(labelDate)}</Text>
+                              </Box>
+                            );
+                          })}
+                        </Stack>
+
+                        {timeGridDays.map((day) => {
+                          const dayKey = formatDayKey(day);
+                          const placements = timeGridPlacementsByDay.get(dayKey) ?? [];
+
+                          return (
+                            <Box
+                              key={`grid-${dayKey}`}
+                              style={{
+                                position: 'relative',
+                                height: timeGridHeight,
+                                borderLeft: '1px solid rgba(226, 232, 240, 0.95)',
+                                borderRight: '1px solid rgba(226, 232, 240, 0.95)',
+                                borderBottom: '1px solid rgba(226, 232, 240, 0.95)',
+                                background: isSameDay(day, new Date()) ? 'rgba(248, 250, 252, 0.85)' : '#fff',
+                              }}
+                            >
+                              {timeGridHours.map((hour) => {
+                                const slotDate = new Date(day);
+                                slotDate.setHours(hour, 0, 0, 0);
+                                return (
+                                  <Box
+                                    key={`slot-${dayKey}-${hour}`}
+                                    component="button"
+                                    type="button"
+                                    data-testid="calendar-open-slot"
+                                    aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
+                                    onClick={() => openSchedulerForDate(slotDate)}
+                                    style={{
+                                      display: 'block',
+                                      width: '100%',
+                                      height: TIME_GRID_ROW_HEIGHT,
+                                      border: 0,
+                                      borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                      background: 'transparent',
+                                      cursor: 'pointer',
+                                    }}
+                                  />
+                                );
+                              })}
+
+                              <Box style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                                {placements.map((placement) => {
+                                  const meta = getEventMeta(placement.item.eventType);
+                                  const leftPercent = (placement.laneIndex / placement.laneCount) * 100;
+                                  const widthPercent = 100 / placement.laneCount;
+                                  const endsAt = resolveEventEnd(placement.item);
+
                                   return (
                                     <Box
-                                      key={item.id}
+                                      key={placement.item.id}
                                       component="button"
                                       type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSelectedEventId(item.id);
-                                      }}
+                                      onClick={() => setSelectedEventId(placement.item.id)}
                                       style={{
-                                        border: '1px solid rgba(226, 232, 240, 0.9)',
+                                        position: 'absolute',
+                                        top: placement.top,
+                                        left: `calc(${leftPercent}% + 4px)`,
+                                        width: `calc(${widthPercent}% - 8px)`,
+                                        height: placement.height,
                                         borderRadius: 12,
-                                        padding: '10px 12px',
+                                        border: selectedEvent?.id === placement.item.id
+                                          ? '2px solid rgba(59, 130, 246, 0.95)'
+                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, white)`,
+                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, white)`,
+                                        boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
+                                        padding: '8px 10px',
                                         textAlign: 'left',
-                                        background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
                                         cursor: 'pointer',
+                                        overflow: 'hidden',
+                                        pointerEvents: 'auto',
                                       }}
                                     >
-                                      <Group justify="space-between" align="flex-start" gap="sm">
-                                        <Badge color={meta.color} variant="light">
-                                          {meta.label}
-                                        </Badge>
-                                        <Text size="xs" c="dimmed">
-                                          {formatTime(item.startsAt)}
+                                      <Text size="xs" fw={700} c={`${meta.color}.7`}>
+                                        {formatTime(placement.item.startsAt)} - {formatTime(endsAt)}
+                                      </Text>
+                                      <Text size="sm" fw={700} lineClamp={placement.height < 64 ? 1 : 2}>
+                                        {placement.item.title}
+                                      </Text>
+                                      {placement.height >= 72 ? (
+                                        <Text size="xs" c="dimmed" lineClamp={1}>
+                                          {placement.item.assignedToName
+                                            ?? placement.item.contactName
+                                            ?? placement.item.accountName
+                                            ?? placement.item.leadName
+                                            ?? 'Pulse activity'}
                                         </Text>
-                                      </Group>
-                                      <Text mt={6} fw={600} size="sm">
-                                        {item.title}
-                                      </Text>
-                                      <Text size="xs" c="dimmed">
-                                        {item.assignedToName ?? item.contactName ?? item.accountName ?? item.leadName ?? 'Pulse activity'}
-                                      </Text>
+                                      ) : null}
                                     </Box>
                                   );
-                                })
-                              )}
-                            </Stack>
-                          </Card>
-                        );
-                      })}
-                    </Stack>
-                  </Paper>
-
-                  <Paper withBorder radius="lg" p="md">
-                    <Stack gap="sm">
-                      <Text fw={700}>Selected day summary</Text>
-                      <Text size="sm" c="dimmed">
-                        Keep the centralized calendar focused on the day while still launching the owning workflow.
-                      </Text>
-                      {selectedDayItems.length === 0 ? (
-                        <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
-                          Nothing is scheduled for this day yet. Click any slot on the left to book discovery or training work.
-                        </Alert>
-                      ) : (
-                        selectedDayItems.map((item) => {
-                          const meta = getEventMeta(item.eventType);
-                          return (
-                            <Card
-                              key={item.id}
-                              withBorder
-                              radius="lg"
-                              p="sm"
-                              style={{
-                                cursor: 'pointer',
-                                background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
-                              }}
-                              onClick={() => setSelectedEventId(item.id)}
-                            >
-                              <Group justify="space-between" align="flex-start" gap="sm">
-                                <Stack gap={2}>
-                                  <Badge color={meta.color} variant="light" w="fit-content">
-                                    {meta.label}
-                                  </Badge>
-                                  <Text fw={600}>{item.title}</Text>
-                                  <Text size="sm" c="dimmed">
-                                    {formatDateTime(item.startsAt)}
-                                  </Text>
-                                </Stack>
-                                <Badge color={getStatusColor(item.status)} variant="dot">
-                                  {normalizeStatusLabel(item.status)}
-                                </Badge>
-                              </Group>
-                            </Card>
+                                })}
+                              </Box>
+                            </Box>
                           );
-                        })
-                      )}
-                    </Stack>
-                  </Paper>
-                </SimpleGrid>
+                        })}
+                      </Box>
+                    </Box>
+                  </Stack>
+                </Paper>
               ) : null}
 
               {view === 'month' ? (
@@ -1068,77 +1244,167 @@ export function CalendarWorkspace({
               ) : null}
 
               {view === 'week' ? (
-                <SimpleGrid cols={{ base: 1, md: 2, xl: 7 }} spacing="sm">
-                  {weekDays.map((day) => {
-                    const key = formatDayKey(day);
-                    const items = itemsByDay.get(key) ?? [];
+                <Paper withBorder radius="lg" p="md" data-testid="calendar-week-grid">
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="flex-start" wrap="wrap">
+                      <Stack gap={2}>
+                        <Text fw={700}>Week schedule</Text>
+                        <Text size="sm" c="dimmed">
+                          A proper weekly time grid so overlap, gaps, and open slots are readable at a glance.
+                        </Text>
+                      </Stack>
+                      <Badge color="blue" variant="light">
+                        {filteredItems.length} event{filteredItems.length === 1 ? '' : 's'} in range
+                      </Badge>
+                    </Group>
 
-                    return (
-                      <Card
-                        key={key}
-                        withBorder
-                        radius="lg"
-                        p="sm"
-                        onClick={() => openSchedulerForDate(day)}
-                        onKeyDown={(event) => {
-                          if (isActivationKey(event.key)) {
-                            event.preventDefault();
-                            openSchedulerForDate(day);
-                          }
+                    <Box style={{ overflowX: 'auto' }}>
+                      <Box
+                        data-testid="calendar-time-grid"
+                        style={{
+                          minWidth: 980,
+                          display: 'grid',
+                          gridTemplateColumns: `88px repeat(${timeGridDays.length}, minmax(120px, 1fr))`,
+                          rowGap: 0,
                         }}
-                        role="button"
-                        tabIndex={0}
-                        style={{ minHeight: 220, cursor: 'pointer', textAlign: 'left' }}
                       >
-                        <Stack gap="sm">
-                          <Stack gap={0}>
-                            <Text fw={700}>{formatWeekday(day)}</Text>
-                            <Text size="xs" c="dimmed">{items.length} event{items.length === 1 ? '' : 's'}</Text>
-                          </Stack>
-                          {items.length === 0 ? (
-                            <Text size="sm" c="dimmed">No scheduled activity. Click to open the scheduler.</Text>
-                          ) : (
-                            items.map((item) => {
-                              const meta = getEventMeta(item.eventType);
-                              return (
-                                <Box
-                                  key={item.id}
-                                  component="button"
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSelectedEventId(item.id);
-                                  }}
-                                  style={{
-                                    border: '1px solid rgba(226, 232, 240, 0.9)',
-                                    borderRadius: 12,
-                                    padding: '10px 12px',
-                                    textAlign: 'left',
-                                    background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  <Group justify="space-between" align="flex-start">
-                                    <Badge color={meta.color} variant="light">
-                                      {meta.label}
-                                    </Badge>
-                                    <Text size="xs" c="dimmed">{formatTime(item.startsAt)}</Text>
-                                  </Group>
-                                  <Text mt={6} fw={600} size="sm">
-                                    {item.title}
-                                  </Text>
-                                  <Text size="xs" c="dimmed">
-                                    {item.assignedToName ?? item.contactName ?? item.accountName ?? item.leadName ?? 'Unassigned'}
-                                  </Text>
-                                </Box>
-                              );
-                            })
-                          )}
+                        <Box />
+                        {timeGridDays.map((day) => {
+                          const dayKey = formatDayKey(day);
+                          const items = itemsByDay.get(dayKey) ?? [];
+
+                          return (
+                            <Paper
+                              key={dayKey}
+                              radius="md"
+                              p="sm"
+                              withBorder
+                              style={{
+                                background: isSameDay(day, new Date()) ? 'rgba(239, 246, 255, 0.92)' : '#fff',
+                              }}
+                            >
+                              <Stack gap={0} align="center">
+                                <Text size="xs" c="dimmed" tt="uppercase">{formatWeekdayLabel(day)}</Text>
+                                <Text fw={700}>{day.getDate()}</Text>
+                                <Text size="xs" c="dimmed">{items.length} event{items.length === 1 ? '' : 's'}</Text>
+                              </Stack>
+                            </Paper>
+                          );
+                        })}
+
+                        <Stack gap={0} style={{ paddingTop: 8 }}>
+                          {timeGridHours.map((hour) => {
+                            const labelDate = new Date(anchorDate);
+                            labelDate.setHours(hour, 0, 0, 0);
+                            return (
+                              <Box
+                                key={`week-time-label-${hour}`}
+                                style={{
+                                  height: TIME_GRID_ROW_HEIGHT,
+                                  paddingTop: 4,
+                                  borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                }}
+                              >
+                                <Text size="xs" c="dimmed">{formatTime(labelDate)}</Text>
+                              </Box>
+                            );
+                          })}
                         </Stack>
-                      </Card>
-                    );
-                  })}
-                </SimpleGrid>
+
+                        {timeGridDays.map((day) => {
+                          const dayKey = formatDayKey(day);
+                          const placements = timeGridPlacementsByDay.get(dayKey) ?? [];
+
+                          return (
+                            <Box
+                              key={`week-grid-${dayKey}`}
+                              style={{
+                                position: 'relative',
+                                height: timeGridHeight,
+                                borderLeft: '1px solid rgba(226, 232, 240, 0.95)',
+                                borderRight: '1px solid rgba(226, 232, 240, 0.95)',
+                                borderBottom: '1px solid rgba(226, 232, 240, 0.95)',
+                                background: isSameDay(day, new Date()) ? 'rgba(248, 250, 252, 0.85)' : '#fff',
+                              }}
+                            >
+                              {timeGridHours.map((hour) => {
+                                const slotDate = new Date(day);
+                                slotDate.setHours(hour, 0, 0, 0);
+                                return (
+                                  <Box
+                                    key={`week-slot-${dayKey}-${hour}`}
+                                    component="button"
+                                    type="button"
+                                    data-testid="calendar-open-slot"
+                                    aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
+                                    onClick={() => openSchedulerForDate(slotDate)}
+                                    style={{
+                                      display: 'block',
+                                      width: '100%',
+                                      height: TIME_GRID_ROW_HEIGHT,
+                                      border: 0,
+                                      borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                      background: 'transparent',
+                                      cursor: 'pointer',
+                                    }}
+                                  />
+                                );
+                              })}
+
+                              <Box style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                                {placements.map((placement) => {
+                                  const meta = getEventMeta(placement.item.eventType);
+                                  const leftPercent = (placement.laneIndex / placement.laneCount) * 100;
+                                  const widthPercent = 100 / placement.laneCount;
+                                  const endsAt = resolveEventEnd(placement.item);
+
+                                  return (
+                                    <Box
+                                      key={placement.item.id}
+                                      component="button"
+                                      type="button"
+                                      onClick={() => setSelectedEventId(placement.item.id)}
+                                      style={{
+                                        position: 'absolute',
+                                        top: placement.top,
+                                        left: `calc(${leftPercent}% + 4px)`,
+                                        width: `calc(${widthPercent}% - 8px)`,
+                                        height: placement.height,
+                                        borderRadius: 12,
+                                        border: selectedEvent?.id === placement.item.id
+                                          ? '2px solid rgba(59, 130, 246, 0.95)'
+                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, white)`,
+                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, white)`,
+                                        boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
+                                        padding: '8px 10px',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        overflow: 'hidden',
+                                        pointerEvents: 'auto',
+                                      }}
+                                    >
+                                      <Text size="xs" fw={700} c={`${meta.color}.7`}>
+                                        {formatTime(placement.item.startsAt)}
+                                      </Text>
+                                      <Text size="sm" fw={700} lineClamp={placement.height < 60 ? 1 : 2}>
+                                        {placement.item.title}
+                                      </Text>
+                                      {placement.height >= 72 ? (
+                                        <Text size="xs" c="dimmed" lineClamp={1}>
+                                          {formatTime(placement.item.startsAt)} - {formatTime(endsAt)}
+                                        </Text>
+                                      ) : null}
+                                    </Box>
+                                  );
+                                })}
+                              </Box>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  </Stack>
+                </Paper>
               ) : null}
 
               {view === 'list' ? (

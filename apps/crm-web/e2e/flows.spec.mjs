@@ -49,13 +49,20 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(page.getByText('Training Sessions', { exact: true })).toBeVisible();
   await expect(page.getByText('Site Visits', { exact: true })).toBeVisible();
   await expect(page.getByText('Audits', { exact: true })).toBeVisible();
-  await page.getByText('Day', { exact: true }).click({ force: true });
-  await expect(page.getByText('Daily schedule lane')).toBeVisible();
-  await page.getByText('Open slot').first().click({ force: true });
+  await page.getByRole('button', { name: 'Day', exact: true }).click();
+  await expect(page.getByTestId('calendar-day-grid')).toBeVisible();
+  await expect(page.getByTestId('calendar-time-grid')).toBeVisible();
+  await expect(page.getByText('8:00 AM', { exact: true }).first()).toBeVisible();
+  await page.getByTestId('calendar-open-slot').first().click({ force: true });
   await expect(page.getByRole('heading', { name: 'Centralized scheduler' })).toBeVisible();
-  await page.getByText('Week', { exact: true }).click({ force: true });
-  await expect(page.getByText('The centralized calendar now launches real discovery and training scheduling.')).toBeVisible();
-  await page.getByText('Month', { exact: true }).click({ force: true });
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Centralized scheduler' })).not.toBeVisible();
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  await expect(page.getByTestId('calendar-week-grid')).toBeVisible();
+  await expect(page.getByTestId('calendar-time-grid')).toBeVisible();
+  await expect(page.getByTestId('calendar-week-grid').getByText('Sun', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('9:00 AM', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(page.getByText('Open').first()).toBeVisible();
 
   await page.goto('/admin');

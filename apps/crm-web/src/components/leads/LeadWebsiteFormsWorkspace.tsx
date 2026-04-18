@@ -92,6 +92,7 @@ import {
   type GroupReferenceDraft,
   type GroupReferenceRecord,
 } from './GroupReferenceManager';
+import { GroupRosterImportWorkbench } from './GroupRosterImportWorkbench';
 import { PublicWebsiteLeadCaptureForm } from './PublicWebsiteLeadCaptureForm';
 
 const DEFAULT_WEB_BASE_URL = process.env.NEXT_PUBLIC_PULSE_WEB_BASE_URL ?? 'http://localhost:3000';
@@ -1565,6 +1566,12 @@ export function LeadWebsiteFormsWorkspace() {
                 onImport={handleImportOwnershipGroups}
               />
             </SimpleGrid>
+
+            <GroupRosterImportWorkbench
+              affinityGroups={affinityGroups}
+              ownershipGroups={ownershipGroups}
+              canManage={canManageReference}
+            />
           </Stack>
         </Tabs.Panel>
       </Tabs>

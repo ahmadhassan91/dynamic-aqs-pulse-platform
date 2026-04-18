@@ -100,6 +100,13 @@ import type {
   ImportLeadFileResponse,
   AffinityGroupImportRow,
   OwnershipGroupImportRow,
+  CommitGroupRosterImportRunRequest,
+  GroupRosterImportCommitResponse,
+  GroupRosterImportFilePreviewRequest,
+  GroupRosterImportFilePreviewResponse,
+  GroupRosterImportRunDetail,
+  ReviewGroupRosterImportRequest,
+  ReviewGroupRosterImportResponse,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
   LeadImportRunDetail,
@@ -582,6 +589,54 @@ export async function importOwnershipGroups(
   input: ReferenceImportRequest<OwnershipGroupImportRow>,
 ) {
   return requestJson<ReferenceImportResponse<OwnershipGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/ownership-groups/import', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function previewGroupRosterImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: GroupRosterImportFilePreviewRequest,
+) {
+  return requestJson<GroupRosterImportFilePreviewResponse>(apiBaseUrl, '/api/v1/reference/group-rosters/preview', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function reviewGroupRosterImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: ReviewGroupRosterImportRequest,
+) {
+  return requestJson<ReviewGroupRosterImportResponse>(apiBaseUrl, '/api/v1/reference/group-rosters/review', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchGroupRosterImportRun(
+  apiBaseUrl: string,
+  accessToken: string,
+  runId: string,
+) {
+  return requestJson<GroupRosterImportRunDetail>(apiBaseUrl, `/api/v1/reference/group-rosters/runs/${runId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function commitGroupRosterImportRun(
+  apiBaseUrl: string,
+  accessToken: string,
+  runId: string,
+  input: CommitGroupRosterImportRunRequest,
+) {
+  return requestJson<GroupRosterImportCommitResponse>(apiBaseUrl, `/api/v1/reference/group-rosters/runs/${runId}/commit`, {
     method: 'POST',
     accessToken,
     body: input,

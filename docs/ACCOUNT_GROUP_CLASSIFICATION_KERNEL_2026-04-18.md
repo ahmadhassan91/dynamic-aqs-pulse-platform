@@ -142,10 +142,14 @@ So the rule is now:
 
 ## What Is Still Next
 
-The immediate follow-through from this slice is:
+The immediate follow-through from this slice was:
 - stewardship CRUD/import UI for affinity and ownership masters
 - roster-membership ingestion and reconciliation for recurring group rosters
+
+The next follow-through from here is:
 - richer account and customer maintenance surfaces for editing these classifications
+- later dealer-group derivation once downstream context is real
+- price-class follow-through only when Acumatica is no longer a black box
 
 Those are the next CRM-owned slices on top of the kernel instead of hidden architecture debt.
 
@@ -185,6 +189,10 @@ Verified in this slice:
 
 Additional note:
 - backend and browser suites are still safest when run sequentially because the shared test database can deadlock under parallel reset pressure
+
+Follow-through now shipped on top of this kernel:
+- `docs/GROUP_REFERENCE_STEWARDSHIP_UI_AND_IMPORT_2026-04-18.md`
+- `docs/GROUP_ROSTER_MEMBERSHIP_RECONCILIATION_2026-04-18.md`
 
 ## Focused Coverage Snapshot
 

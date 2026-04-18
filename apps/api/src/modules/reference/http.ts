@@ -1,12 +1,15 @@
 import type {
+  CommitGroupRosterImportRunRequest,
   AffinityGroupImportRow,
   CreateAffinityGroupRequest,
   CreateLeadSourceRequest,
   CreateOwnershipGroupRequest,
+  GroupRosterImportFilePreviewRequest,
   LeadSourceImportRow,
   LeadStageImportRow,
   OwnershipGroupImportRow,
   ReferenceImportRequest,
+  ReviewGroupRosterImportRequest,
   UpdateAffinityGroupRequest,
   UpdateLeadStageReferenceRequest,
   UpdateOwnershipGroupRequest,
@@ -32,7 +35,9 @@ import {
   createAffinityGroup,
   createLeadSource,
   createOwnershipGroup,
+  commitGroupRosterImportRun,
   importAffinityGroups,
+  getGroupRosterImportRun,
   listAffinityGroups,
   importLeadSources,
   importLeadStages,
@@ -41,6 +46,8 @@ import {
   listLeadStages,
   listLeadSources,
   listOwnershipGroups,
+  previewGroupRosterImport,
+  reviewGroupRosterImport,
   updateAffinityGroup,
   updateBusinessSegment,
   updateLeadStage,
@@ -55,6 +62,8 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
     pathname === '/api/v1/reference/business-segments'
     || pathname === '/api/v1/reference/affinity-groups'
     || pathname === '/api/v1/reference/affinity-groups/import'
+    || pathname === '/api/v1/reference/group-rosters/preview'
+    || pathname === '/api/v1/reference/group-rosters/review'
     || pathname === '/api/v1/reference/lead-stages'
     || pathname === '/api/v1/reference/lead-stages/import'
     || pathname === '/api/v1/reference/lead-sources'
@@ -65,7 +74,9 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
     || /^\/api\/v1\/reference\/business-segments\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/reference\/lead-stages\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/reference\/lead-sources\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/reference\/ownership-groups\/[^/]+$/.test(pathname);
+    || /^\/api\/v1\/reference\/ownership-groups\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/reference\/group-rosters\/runs\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/reference\/group-rosters\/runs\/[^/]+\/commit$/.test(pathname);
 
   if (!isReferenceRoute) {
     return false;
@@ -115,6 +126,32 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
       });
       const body = (await readJsonBody(req)) as ReferenceImportRequest<AffinityGroupImportRow>;
       const response = await importAffinityGroups(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/reference/group-rosters/preview') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.manage',
+      });
+      const body = (await readJsonBody(req)) as GroupRosterImportFilePreviewRequest;
+      const response = await previewGroupRosterImport(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/reference/group-rosters/review') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.manage',
+      });
+      const body = (await readJsonBody(req)) as ReviewGroupRosterImportRequest;
+      const response = await reviewGroupRosterImport(actor, body);
       return jsonResponse(res, 200, response);
     }
 
@@ -277,6 +314,43 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
         return notFoundResponse(res, { entity: 'LeadSourceRef', id });
       }
 
+      return jsonResponse(res, 200, response);
+    }
+
+    const groupRosterRunCommitMatch = pathname.match(/^\/api\/v1\/reference\/group-rosters\/runs\/([^/]+)\/commit$/);
+    if (groupRosterRunCommitMatch) {
+      const runId = groupRosterRunCommitMatch[1];
+      if (!runId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.manage',
+      });
+      const body = (await readJsonBody(req)) as CommitGroupRosterImportRunRequest;
+      const response = await commitGroupRosterImportRun(actor, runId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const groupRosterRunMatch = pathname.match(/^\/api\/v1\/reference\/group-rosters\/runs\/([^/]+)$/);
+    if (groupRosterRunMatch) {
+      const runId = groupRosterRunMatch[1];
+      if (!runId) {
+        return false;
+      }
+
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.manage',
+      });
+      const response = await getGroupRosterImportRun(actor, runId);
       return jsonResponse(res, 200, response);
     }
 

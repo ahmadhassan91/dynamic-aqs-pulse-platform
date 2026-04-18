@@ -87,25 +87,26 @@ Results:
 
 ## Next
 
-The clean follow-through from here is:
-- roster-import ingestion and reconciliation for affinity/ownership memberships
-- dealer-group reference model
-- price-class reference model
-- later dealer-group resolver behavior on top of the now-governed classification masters
+The immediate roster follow-through is now shipped in:
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/GROUP_ROSTER_MEMBERSHIP_RECONCILIATION_2026-04-18.md`
+
+So the clean next move from here is:
+- account/customer maintenance surfaces for governed classification updates
+- dealer-group reference model and later resolver behavior
+- price-class reference model only when ERP ownership is concrete
 
 ## Parked Deliberately
 
 This stewardship slice stops at governed master-data management.
 
-It does **not** yet include:
-- recurring roster-membership ingestion for affinity and ownership
-- row-to-lead/account matching and steward reconciliation of roster imports
+It does **not** include:
 - dealer-group derived resolution
 - price-class sync or ERP-owned price-class truth
 - guessed Acumatica behavior
+- saved roster mapping templates or run-history ergonomics
 
 Those boundaries are intentional:
-- the current slice manages the list of valid groups
-- the later roster slice will manage who belongs to those groups over time
+- this slice manages the list of valid groups
+- the roster slice now manages who belongs to those groups over time
 - dealer-group stays downstream because it is derived from more than just the master list
 - price class remains Acumatica-owned and should stay parked until sandbox access and certified mappings exist

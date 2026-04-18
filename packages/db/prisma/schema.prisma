@@ -284,6 +284,36 @@ enum LeadImportDuplicateDecision {
   SKIP
 }
 
+enum GroupRosterImportKind {
+  AFFINITY
+  OWNERSHIP
+}
+
+enum GroupRosterImportRunStatus {
+  REVIEW_READY
+  APPLIED
+  APPLIED_WITH_ERRORS
+}
+
+enum GroupRosterImportRowStatus {
+  READY
+  REQUIRES_REVIEW
+  INVALID
+  SKIPPED
+  APPLIED
+  FAILED
+}
+
+enum GroupRosterImportRowDecision {
+  APPLY
+  SKIP
+}
+
+enum GroupRosterMatchEntityType {
+  LEAD
+  ACCOUNT
+}
+
 enum TrainingCategoryKind {
   ONBOARDING
   PRODUCT
@@ -572,6 +602,7 @@ model User {
   territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
   websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
   leadImportRunsCreated       LeadImportRun[] @relation("LeadImportRunCreatedBy")
+  groupRosterImportRunsCreated GroupRosterImportRun[] @relation("GroupRosterImportRunCreatedBy")
   dealerPortalMembership      DealerPortalUser?
   dealerPortalUsersCreated    DealerPortalUser[] @relation("DealerPortalUserCreatedBy")
   trainingTrainerProfile      TrainingTrainerProfile?
@@ -1063,6 +1094,7 @@ model AffinityGroupRef {
   leads       Lead[]
   accounts    Account[]
   cisFormData CisFormData[]
+  rosterImportRuns GroupRosterImportRun[] @relation("AffinityGroupRosterImportRuns")
 
   @@index([isActive])
   @@index([groupType])
@@ -1085,6 +1117,7 @@ model OwnershipGroupRef {
   leads         Lead[]
   accounts      Account[]
   cisFormData   CisFormData[]
+  rosterImportRuns GroupRosterImportRun[] @relation("OwnershipGroupRosterImportRuns")
 
   @@index([isActive])
   @@index([ownershipType])
@@ -1402,6 +1435,71 @@ model LeadImportRunRow {
   @@unique([runId, rowNumber])
   @@index([runId, status, rowNumber])
   @@index([importedLeadId])
+}
+
+model GroupRosterImportRun {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  createdByUserId    String?                   @db.Uuid
+  status             GroupRosterImportRunStatus @default(REVIEW_READY)
+  groupKind          GroupRosterImportKind
+  affinityGroupId    String?                   @db.Uuid
+  ownershipGroupId   String?                   @db.Uuid
+  fileName           String
+  fileFormat         String
+  fileDigest         String
+  sheetName          String
+  batchName          String?
+  sourceLabel        String?
+  sourceVersion      String?
+  effectiveDate      DateTime?
+  mappings           Json
+  totalRows          Int
+  mappedRows         Int
+  readyRowCount      Int                      @default(0)
+  attentionRowCount  Int                      @default(0)
+  appliedCount       Int                      @default(0)
+  skippedCount       Int                      @default(0)
+  errorCount         Int                      @default(0)
+  appliedAt          DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  createdBy          User?                    @relation("GroupRosterImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  affinityGroup      AffinityGroupRef?        @relation("AffinityGroupRosterImportRuns", fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup     OwnershipGroupRef?       @relation("OwnershipGroupRosterImportRuns", fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  rows               GroupRosterImportRunRow[]
+
+  @@index([createdByUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([groupKind, createdAt])
+  @@index([affinityGroupId, createdAt])
+  @@index([ownershipGroupId, createdAt])
+}
+
+model GroupRosterImportRunRow {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  runId              String                     @db.Uuid
+  rowNumber          Int
+  status             GroupRosterImportRowStatus
+  detail             String
+  sourceValues       Json?
+  matchedCandidates  Json?
+  decision           GroupRosterImportRowDecision?
+  selectedEntityType GroupRosterMatchEntityType?
+  selectedEntityId   String?
+  appliedLeadId      String?                    @db.Uuid
+  appliedAccountId   String?                    @db.Uuid
+  appliedAt          DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  run                GroupRosterImportRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, rowNumber])
+  @@index([runId, status, rowNumber])
+  @@index([selectedEntityId])
+  @@index([appliedLeadId])
+  @@index([appliedAccountId])
 }
 
 model LeadExtension {

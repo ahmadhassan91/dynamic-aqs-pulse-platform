@@ -24,6 +24,12 @@ import type {
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+export {
+  commitGroupRosterImportRun,
+  getGroupRosterImportRun,
+  previewGroupRosterImport,
+  reviewGroupRosterImport,
+} from './roster-service.js';
 
 const BUSINESS_SEGMENT_ENTITY_TYPE = 'BUSINESS_SEGMENT_REF';
 const AFFINITY_GROUP_ENTITY_TYPE = 'AFFINITY_GROUP_REF';

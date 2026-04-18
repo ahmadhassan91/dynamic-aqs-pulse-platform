@@ -112,6 +112,46 @@ test('public native website form submits a real lead into Pulse CRM', async ({ p
   await expect(page.getByRole('heading', { name: /Thanks, we.ve received your request\./ })).toBeVisible();
 });
 
+test('internal lead kanban supports dragging a card into the next stage', async ({ page }) => {
+  const fixtures = await readFixtures();
+  const companyName = `Drag Lead ${Date.now()}`;
+
+  await loginToInternalWorkspace(page, fixtures);
+  await expect(page).toHaveURL(/\/leads$/);
+
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
+  await page.getByLabel('Company name').fill(companyName);
+  await page.getByLabel('Contact name').fill('Drag Tester');
+  await page.getByLabel('Email').fill(`drag.${Date.now()}@example.com`);
+  await page.getByLabel('Phone').fill('555-401-5001');
+  await chooseSelectOption(page, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(page, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(page, 'Ownership group status', 'Independent / no group');
+  await page.getByRole('button', { name: 'Create Lead' }).click();
+
+  await expect(page).toHaveURL(/\/leads\/.+/);
+  const leadDetailUrl = page.url();
+
+  await page.goto('/leads');
+  await page.getByRole('tab', { name: 'Pipeline' }).click();
+
+  const sourceCard = page
+    .getByText(companyName, { exact: true })
+    .locator('xpath=ancestor::*[@draggable="true"][1]');
+  const targetColumn = page
+    .getByText('2. Discovery Scheduled', { exact: true })
+    .locator('xpath=ancestor::*[@data-testid="lead-stage-column-discovery_scheduled"][1]');
+
+  await expect(sourceCard).toBeVisible();
+  await expect(targetColumn).toBeVisible();
+  await sourceCard.dragTo(targetColumn);
+
+  await page.goto(leadDetailUrl);
+  await expect(page.getByRole('heading', { name: companyName })).toBeVisible();
+  await expect(page.getByText('2. Discovery Scheduled', { exact: true }).first()).toBeVisible();
+});
+
 test('public CIS flow loads draft data, saves, and submits for internal review', async ({ page }) => {
   const fixtures = await readFixtures();
 
@@ -157,7 +197,10 @@ async function loginToInternalWorkspace(page, fixtures) {
   await expect(page.getByRole('heading', { name: 'Welcome to Pulse CRM' })).toBeVisible();
   await page.getByLabel('Email').fill(fixtures.internalAuth.email);
   await page.getByLabel('Password').fill(fixtures.internalAuth.password);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await Promise.all([
+    page.waitForURL(/\/leads$/),
+    page.getByRole('button', { name: 'Sign in', exact: true }).click(),
+  ]);
 }
 
 async function chooseSelectOption(page, label, optionMatcher) {

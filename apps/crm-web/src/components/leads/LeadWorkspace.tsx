@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -66,6 +66,7 @@ import {
   fetchLeadSources,
   fetchLeads,
   fetchOwnershipGroups,
+  transitionLeadStage,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -165,6 +166,10 @@ export function LeadWorkspace({
   const [createLeadForm, setCreateLeadForm] = useState<LeadCreateFormState>(EMPTY_LEAD_FORM);
   const [createLeadError, setCreateLeadError] = useState<string | null>(null);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
+  const [dropStageKey, setDropStageKey] = useState<LeadStageKey | null>(null);
+  const [transitioningLeadId, setTransitioningLeadId] = useState<string | null>(null);
+  const dragSuppressUntilRef = useRef(0);
 
   const deferredSearch = useDeferredValue(searchQuery.trim());
 
@@ -409,6 +414,51 @@ export function LeadWorkspace({
     }));
 
     downloadCsv('pulse-leads-export.csv', rows);
+  }
+
+  function openLeadRecord(leadId: string) {
+    if (Date.now() < dragSuppressUntilRef.current) {
+      return;
+    }
+
+    router.push(`/leads/${leadId}`);
+  }
+
+  async function handleStageDrop(leadId: string, nextStage: LeadStageKey) {
+    if (!auth) {
+      return;
+    }
+
+    const lead = leads.find((entry) => entry.id === leadId);
+    if (!lead || lead.stage === nextStage) {
+      setDraggedLeadId(null);
+      setDropStageKey(null);
+      return;
+    }
+
+    const previousLeads = leads;
+    const optimisticTimestamp = new Date().toISOString();
+
+    setListError(null);
+    setDraggedLeadId(null);
+    setDropStageKey(null);
+    setTransitioningLeadId(leadId);
+    setLeads((current) =>
+      current.map((entry) => (entry.id === leadId ? { ...entry, stage: nextStage, updatedAt: optimisticTimestamp } : entry)),
+    );
+
+    try {
+      const updatedLead = await transitionLeadStage(apiBaseUrl, auth.tokens.accessToken, leadId, {
+        toStage: nextStage,
+      });
+
+      setLeads((current) => current.map((entry) => (entry.id === leadId ? updatedLead : entry)));
+    } catch (error) {
+      setLeads(previousLeads);
+      setListError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTransitioningLeadId(null);
+    }
   }
 
   if (!isHydrated || !auth) {
@@ -659,8 +709,62 @@ export function LeadWorkspace({
               {viewMode === 'kanban' ? (
                 <ScrollArea type="auto">
                   <Group align="flex-start" wrap="nowrap" gap="md" py="xs">
-                    {stageColumns.map((stage) => (
-                      <Paper key={stage.key} withBorder radius="xl" p="md" miw={300} className="premium-stat-card">
+                    {stageColumns.map((stage) => {
+                      const isDropTarget = dropStageKey === stage.key;
+                      const canDrop =
+                        draggedLeadId !== null
+                        && leads.some((lead) => lead.id === draggedLeadId && lead.stage !== stage.key);
+
+                      return (
+                      <div
+                        key={stage.key}
+                        data-testid={`lead-stage-column-${stage.key}`}
+                        role="group"
+                        aria-label={`Stage ${stage.title}`}
+                        onDragOver={(event) => {
+                          if (!canDrop) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          if (dropStageKey !== stage.key) {
+                            setDropStageKey(stage.key);
+                          }
+                        }}
+                        onDragLeave={(event) => {
+                          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                            return;
+                          }
+                          if (dropStageKey === stage.key) {
+                            setDropStageKey(null);
+                          }
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const leadId = event.dataTransfer.getData('text/plain');
+                          if (!leadId) {
+                            setDropStageKey(null);
+                            return;
+                          }
+
+                          void handleStageDrop(leadId, stage.key);
+                        }}
+                        style={{
+                          minWidth: 300,
+                          borderColor: isDropTarget ? 'var(--mantine-color-blue-5)' : undefined,
+                          background: isDropTarget ? 'rgba(34, 139, 230, 0.06)' : undefined,
+                          transition: 'border-color 120ms ease, background 120ms ease',
+                          borderRadius: 'var(--mantine-radius-xl)',
+                        }}
+                      >
+                      <Paper
+                        withBorder
+                        radius="xl"
+                        p="md"
+                        miw={300}
+                        className="premium-stat-card"
+                      >
                         <Stack gap="sm">
                           <Group justify="space-between">
                             <Stack gap={0}>
@@ -675,7 +779,41 @@ export function LeadWorkspace({
                               <Text size="sm" c="dimmed">No leads in this stage.</Text>
                             ) : (
                               stage.leads.map((lead) => (
-                                <Card key={lead.id} withBorder radius="lg" p="md" className="premium-action-card" style={{ cursor: 'pointer' }} onClick={() => router.push(`/leads/${lead.id}`)}>
+                                <div
+                                  key={lead.id}
+                                  data-testid="lead-kanban-card"
+                                  role="group"
+                                  aria-label={`Lead card ${lead.companyName}`}
+                                  draggable={transitioningLeadId !== lead.id}
+                                  onDragStart={(event) => {
+                                    event.dataTransfer.effectAllowed = 'move';
+                                    event.dataTransfer.setData('text/plain', lead.id);
+                                    setDraggedLeadId(lead.id);
+                                    setListError(null);
+                                  }}
+                                  onDragEnd={() => {
+                                    dragSuppressUntilRef.current = Date.now() + 250;
+                                    setDraggedLeadId(null);
+                                    setDropStageKey(null);
+                                  }}
+                                  style={{
+                                    cursor: transitioningLeadId === lead.id ? 'progress' : 'grab',
+                                    opacity:
+                                      transitioningLeadId === lead.id
+                                        ? 0.55
+                                        : draggedLeadId === lead.id
+                                          ? 0.72
+                                          : 1,
+                                  }}
+                                >
+                                <Card
+                                  withBorder
+                                  radius="lg"
+                                  p="md"
+                                  className="premium-action-card"
+                                  style={{ cursor: transitioningLeadId === lead.id ? 'progress' : 'pointer' }}
+                                  onClick={() => openLeadRecord(lead.id)}
+                                >
                                   <Stack gap="xs">
                                     <Group justify="space-between" align="flex-start">
                                       <Stack gap={2}>
@@ -698,12 +836,14 @@ export function LeadWorkspace({
                                     </Group>
                                   </Stack>
                                 </Card>
+                                </div>
                               ))
                             )}
                           </Stack>
                         </Stack>
                       </Paper>
-                    ))}
+                      </div>
+                    )})}
                   </Group>
                 </ScrollArea>
               ) : (

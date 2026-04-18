@@ -19,6 +19,7 @@ type ResolveGroupAxisInput = {
   code?: string | undefined;
   name?: string | undefined;
   requireExplicitSelection?: boolean;
+  disallowUnknownSelection?: boolean;
   tx: Prisma.TransactionClient;
   kind: GroupAxisKind;
 };
@@ -111,6 +112,10 @@ async function resolveGroupAxis(input: ResolveGroupAxisInput): Promise<ResolvedG
     } else {
       normalizedSelection = GroupAxisSelection.UNKNOWN;
     }
+  }
+
+  if (normalizedSelection === GroupAxisSelection.UNKNOWN && input.disallowUnknownSelection) {
+    throw new Error(`${input.kind}GroupSelection cannot be "unknown"`);
   }
 
   if (normalizedSelection !== GroupAxisSelection.GROUP) {

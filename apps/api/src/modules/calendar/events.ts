@@ -6,7 +6,7 @@ import type {
   SyncCalendarOutlookEventRequest,
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { buildLeadRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
+import { resolveLeadRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
 
 export const MAX_CALENDAR_RANGE_DAYS = 180;
 
@@ -164,7 +164,7 @@ async function listLeadCalendarEvents(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<CalendarEventSummary[]> {
-  const scopeWhere = buildLeadRecordScope(actor);
+  const scopeWhere = await resolveLeadRecordScope(actor);
   const leads = await prisma.lead.findMany({
     where: {
       AND: [

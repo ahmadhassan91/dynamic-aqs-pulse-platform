@@ -322,6 +322,10 @@ test('manual intake normalizes approved regions and preserves marketing metadata
 
 test('territory-scoped lead visibility stays simple for territory managers', SERIAL, async () => {
   const adminActor = await createAdminActor();
+  await prisma.territoryPolicy.update({
+    where: { id: 'default' },
+    data: { preHandoffTmVisibility: true },
+  });
   const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.scope.leads@pulse.local', 'TM Scoped');
   const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.other.leads@pulse.local', 'TM Other');
   const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.scope.leads@pulse.local', 'RD Scoped');

@@ -233,6 +233,12 @@ enum LeadRoutingTeam {
   NATIONAL_TM
 }
 
+enum LeadOperationalAlertType {
+  ROUTING_BROADCAST
+  INITIAL_CONTACT_MANAGER_ESCALATION
+  INITIAL_CONTACT_LEADERSHIP_ESCALATION
+}
+
 enum TerritoryAssignmentMethod {
   DEFAULT_STATE
   MANUAL_OVERRIDE
@@ -616,6 +622,7 @@ model User {
   calendarConnections         CalendarConnection[]
   calendarAuthStates          CalendarConnectionAuthState[]
   passwordResetTokens         PasswordResetToken[]
+  leadOperationalAlerts       LeadOperationalAlert[]        @relation("LeadOperationalAlertRecipientUser")
 
   @@index([roleCode])
   @@index([userType])
@@ -1259,6 +1266,7 @@ model Lead {
   ownershipGroupId         String?           @db.Uuid
   groupClassification      GroupClassification?
   privateLabelName         String?
+  potentialValueCents      Int?
   routingBasisSnapshot     LeadRoutingBasis
   routingThresholdSnapshot Int
   routingTeam              LeadRoutingTeam
@@ -1307,6 +1315,7 @@ model Lead {
   assignedRdUser           User?              @relation("LeadAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
   extension                LeadExtension?
   stageEvents              LeadStageEvent[]
+  operationalAlerts        LeadOperationalAlert[]
   cisPackages              CisPackage[]
   leadContacts             LeadContact[]
   readinessState           LeadReadinessState?
@@ -1323,6 +1332,7 @@ model Lead {
   @@index([stage])
   @@index([lifecycleStatus])
   @@index([routingTeam])
+  @@index([potentialValueCents])
   @@index([territoryId])
   @@index([shippingCenterId])
   @@index([assignedTmUserId])
@@ -1335,6 +1345,45 @@ model Lead {
   @@index([assignedTmUserId, lifecycleStatus, createdAt])
   @@index([leadCaptureMethod, lifecycleStatus, createdAt])
   @@index([lifecycleStatus, stage, updatedAt, createdAt])
+}
+
+model LeadOperationalAlertRecipient {
+  id          String          @id @default(uuid()) @db.Uuid
+  code        String          @unique
+  routingTeam LeadRoutingTeam
+  name        String
+  email       String?
+  roleTitle   String?
+  isActive    Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  alerts      LeadOperationalAlert[]
+
+  @@index([routingTeam, isActive, sortOrder])
+}
+
+model LeadOperationalAlert {
+  id               String                  @id @default(uuid()) @db.Uuid
+  leadId           String                  @db.Uuid
+  recipientId      String?                 @db.Uuid
+  recipientUserId  String?                 @db.Uuid
+  alertType        LeadOperationalAlertType
+  recipientName    String
+  recipientEmail   String?
+  dedupeKey        String                  @unique
+  metadata         Json?
+  createdAt        DateTime                @default(now())
+
+  lead             Lead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  recipient        LeadOperationalAlertRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  recipientUser    User?                   @relation("LeadOperationalAlertRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, alertType])
+  @@index([recipientId])
+  @@index([recipientUserId])
+  @@index([createdAt])
 }
 
 model WebsiteLeadSubmission {

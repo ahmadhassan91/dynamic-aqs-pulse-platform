@@ -60,7 +60,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import { encryptSecret } from '../../utils/secrets.js';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { buildLeadRecordScope } from '../auth/visibility.js';
+import { resolveLeadRecordScope } from '../auth/visibility.js';
 import { normalizeMonerisHostedCaptureResult } from './moneris.js';
 import { getResolvedPaymentIntegrationPolicy } from './policy.js';
 
@@ -356,7 +356,7 @@ export async function issueCisLink(
 export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: string): Promise<CisPackageDetail | null> {
   assertModuleAccess(actor.role, 'cis');
   assertActionAccess(actor.role, 'lead.view');
-  const leadScope = buildLeadRecordScope(actor);
+  const leadScope = await resolveLeadRecordScope(actor);
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
@@ -387,7 +387,7 @@ export async function getLeadCisPackage(actor: AuthenticatedActor, leadId: strin
 export async function getCisPackageDetail(actor: AuthenticatedActor, cisPackageId: string): Promise<CisPackageDetail | null> {
   assertModuleAccess(actor.role, 'cis');
   assertActionAccess(actor.role, 'lead.view');
-  const leadScope = buildLeadRecordScope(actor);
+  const leadScope = await resolveLeadRecordScope(actor);
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
@@ -420,7 +420,7 @@ export async function listCisParsedDrafts(
   assertActionAccess(actor.role, 'lead.view');
 
   const cisPackage = await prisma.cisPackage.findFirst({
-    where: buildScopedCisPackageWhere(actor, cisPackageId),
+    where: await buildScopedCisPackageWhere(actor, cisPackageId),
     select: {
       id: true,
     },
@@ -484,7 +484,7 @@ export async function uploadLeadCisScan(
     : undefined;
 
   const result = await prisma.$transaction(async (tx) => {
-    const leadScope = buildLeadRecordScope(actor);
+    const leadScope = await resolveLeadRecordScope(actor);
     const lead = await tx.lead.findFirst({
       where: leadScope
         ? {
@@ -683,7 +683,7 @@ export async function applyCisParsedDraft(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1176,7 +1176,7 @@ export async function requestCisPaymentCapture(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1255,7 +1255,7 @@ export async function startMonerisHostedPaymentCapture(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1395,7 +1395,7 @@ export async function cancelMonerisHostedPaymentCapture(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1515,7 +1515,7 @@ export async function recordMonerisHostedCaptureResult(
       sourceSystem: 'pulse-api',
       operationBase: 'result',
     },
-    buildScopedCisPackageWhere(actor, cisPackageId),
+    await buildScopedCisPackageWhere(actor, cisPackageId),
   );
 
   return {
@@ -1886,7 +1886,7 @@ export async function recordCisPaymentVaultReference(
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
-      where: buildScopedCisPackageWhere(actor, cisPackageId),
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -3361,8 +3361,11 @@ function toCisFormDraftInput(value: Prisma.JsonValue | null | undefined): CisFor
   return value as unknown as CisFormDraftInput;
 }
 
-function buildScopedCisPackageWhere(actor: AuthenticatedActor, cisPackageId: string): Prisma.CisPackageWhereInput {
-  const leadScope = buildLeadRecordScope(actor);
+async function buildScopedCisPackageWhere(
+  actor: AuthenticatedActor,
+  cisPackageId: string,
+): Promise<Prisma.CisPackageWhereInput> {
+  const leadScope = await resolveLeadRecordScope(actor);
   return leadScope
     ? {
         id: cisPackageId,

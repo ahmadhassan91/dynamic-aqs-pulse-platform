@@ -240,7 +240,8 @@ function mapParsedRow(
       case 'serviceTechCount':
       case 'installTechCount':
       case 'truckCount':
-      case 'salesPersonCount': {
+      case 'salesPersonCount':
+      case 'potentialValueCents': {
         const parsed = parseOptionalInteger(rawValue);
         if (parsed !== undefined) {
           mapped[targetField] = parsed;

@@ -102,3 +102,13 @@ export const MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE: QueueDefinition = {
     retryLimit: 3,
   },
 };
+
+export const LEAD_OPERATIONAL_ALERT_SCAN_QUEUE: QueueDefinition = {
+  name: 'lead.operational-alert-scan',
+  tier: 'STANDARD',
+  description: 'Scans active leads for strategic-growth broadcasts and initial-contact escalation alerts',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 3,
+  },
+};

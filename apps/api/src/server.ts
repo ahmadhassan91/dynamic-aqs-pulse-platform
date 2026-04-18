@@ -11,7 +11,12 @@ import { handleCisRoutes } from './modules/cis/http.js';
 import { processMonerisHostedCaptureCallbackJob, processMonerisHostedCaptureCleanupJob } from './modules/cis/service.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
-import { ensureLeadRoutingPolicySeeded, ensureWebsiteLeadConfigSeeded } from './modules/leads/service.js';
+import {
+  ensureLeadOperationalAlertRecipientsSeeded,
+  ensureLeadRoutingPolicySeeded,
+  ensureWebsiteLeadConfigSeeded,
+  processLeadOperationalAlertScanJob,
+} from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
@@ -20,6 +25,7 @@ import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
 import { handleTrainingRoutes } from './modules/training/http.js';
 import { ensureTrainingSeeded } from './modules/training/service.js';
 import {
+  LEAD_OPERATIONAL_ALERT_SCAN_QUEUE,
   MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE,
   MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE,
   SYSTEM_HEALTH_CHECK_QUEUE,
@@ -77,10 +83,14 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   workers.register(MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE, async (job) => (
     processMonerisHostedCaptureCleanupJob(job)
   ));
+  workers.register(LEAD_OPERATIONAL_ALERT_SCAN_QUEUE, async (job) => (
+    processLeadOperationalAlertScanJob(job)
+  ));
 
   await prisma.$connect();
   await ensureReferenceDataSeeded();
   await ensureLeadRoutingPolicySeeded();
+  await ensureLeadOperationalAlertRecipientsSeeded();
   await ensureWebsiteLeadConfigSeeded();
   await ensureTerritoryPolicySeeded();
   await ensureTrainingSeeded();
@@ -126,6 +136,29 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       }, config.monerisHostedTokenization.cleanupIntervalMinutes * 60 * 1000)
     : undefined;
   monerisCleanupTimer?.unref();
+  const leadOperationalAlertTimer = config.leads.operationalAlertScanIntervalMinutes > 0
+    ? setInterval(() => {
+        void queue.enqueue(LEAD_OPERATIONAL_ALERT_SCAN_QUEUE, {
+          jobType: LEAD_OPERATIONAL_ALERT_SCAN_QUEUE.name,
+          triggeredBy: 'system',
+          triggerSource: 'scheduler',
+          correlationId: `lead-operational-alert-scan-${Date.now()}`,
+          metadata: {
+            singletonKey: 'lead-operational-alert-scan',
+            expireInSeconds: 60 * 10,
+          },
+          data: {
+            limit: 250,
+          },
+        }).catch((error) => {
+          logger.warn('queue.enqueue_failed', {
+            type: LEAD_OPERATIONAL_ALERT_SCAN_QUEUE.name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, config.leads.operationalAlertScanIntervalMinutes * 60 * 1000)
+    : undefined;
+  leadOperationalAlertTimer?.unref();
 
   return {
     logger,
@@ -138,6 +171,9 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       closed = true;
       if (monerisCleanupTimer) {
         clearInterval(monerisCleanupTimer);
+      }
+      if (leadOperationalAlertTimer) {
+        clearInterval(leadOperationalAlertTimer);
       }
       await Promise.allSettled([workers.stop(), closeHttpServer(server)]);
       await prisma.$disconnect();

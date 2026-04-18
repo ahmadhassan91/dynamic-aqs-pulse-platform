@@ -50,7 +50,7 @@ import type {
 } from '@pulse/contracts';
 import { findLeadRegionOption } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { buildAccountRecordScope, buildLeadRecordScope } from '../auth/visibility.js';
+import { buildAccountRecordScope, resolveLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   assertTerritoryAssignmentHistoryVisible,
@@ -175,7 +175,7 @@ export async function ensureTerritoryPolicySeeded() {
 
 export async function listShippingCenters(actor: AuthenticatedActor): Promise<ListShippingCentersResponse> {
   assertModuleAccess(actor.role, 'territories');
-  const scopeWhere = buildShippingCenterReadScope(actor);
+  const scopeWhere = await buildShippingCenterReadScope(actor);
 
   const query = {
     orderBy: [{ name: 'asc' }],
@@ -548,8 +548,8 @@ export async function getTerritoryMapWorkspace(
   assertModuleAccess(actor.role, 'territories');
   const territoryScope = buildTerritoryReadScope(actor);
   const regionScope = buildRegionReadScope(actor);
-  const shippingCenterScope = buildShippingCenterReadScope(actor);
-  const leadScope = buildLeadRecordScope(actor);
+  const shippingCenterScope = await buildShippingCenterReadScope(actor);
+  const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
 
   const regionQuery = {
@@ -710,8 +710,8 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
   assertModuleAccess(actor.role, 'territories');
   const territoryScope = buildTerritoryReadScope(actor);
   const regionScope = buildRegionReadScope(actor);
-  const shippingCenterScope = buildShippingCenterReadScope(actor);
-  const leadScope = buildLeadRecordScope(actor);
+  const shippingCenterScope = await buildShippingCenterReadScope(actor);
+  const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
 
   const regionQuery = {

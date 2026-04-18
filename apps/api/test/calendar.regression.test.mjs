@@ -351,6 +351,10 @@ test('calendar workspace only returns event families the actor can access', SERI
 
 test('calendar workspace applies simple territory-owned scope for territory managers', SERIAL, async () => {
   const admin = await createAdminSession();
+  await prisma.territoryPolicy.update({
+    where: { id: 'default' },
+    data: { preHandoffTmVisibility: true },
+  });
   const tmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.scope.calendar@pulse.local', 'TM Scoped Calendar');
   const otherTmActor = await createScopedActor('TERRITORY_MANAGER', 'tm.other.calendar@pulse.local', 'TM Other Calendar');
   const rdActor = await createScopedActor('REGIONAL_DIRECTOR', 'rd.scope.calendar@pulse.local', 'RD Scoped Calendar');

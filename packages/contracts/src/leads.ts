@@ -235,6 +235,7 @@ export const LEAD_IMPORT_TARGET_FIELDS = [
   'installTechCount',
   'truckCount',
   'salesPersonCount',
+  'potentialValueCents',
   'affinityGroupName',
   'ownershipGroupName',
   'privateLabelName',
@@ -291,6 +292,7 @@ export interface LeadSummary {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  potentialValueCents?: number;
   affinityGroupSelection: GroupAxisSelectionKey;
   affinityGroupId?: string;
   affinityGroupCode?: string;
@@ -790,6 +792,7 @@ export interface CreateLeadRequest {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  potentialValueCents?: number;
   affinityGroupSelection?: GroupAxisSelectionKey;
   affinityGroupId?: string;
   affinityGroupCode?: string;
@@ -829,6 +832,7 @@ export interface CaptureWebsiteLeadRequest {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  potentialValueCents?: number;
   affinityGroupSelection?: GroupAxisSelectionKey;
   affinityGroupId?: string;
   affinityGroupCode?: string;
@@ -860,6 +864,7 @@ export interface ImportLeadRowInput {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  potentialValueCents?: number;
   affinityGroupSelection?: GroupAxisSelectionKey;
   affinityGroupCode?: string;
   affinityGroupName?: string;

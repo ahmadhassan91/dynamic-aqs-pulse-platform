@@ -1,5 +1,5 @@
 import type { AuthRole } from '@pulse/contracts';
-import type { Prisma } from '@pulse/db';
+import { LeadStage, TerritoryAssignmentMethod, prisma, type Prisma } from '@pulse/db';
 import type { AuthenticatedActor } from './types.js';
 
 const GLOBAL_RECORD_SCOPE_ROLES = new Set<AuthRole>([
@@ -16,21 +16,51 @@ export function hasGlobalRecordVisibility(role: AuthRole) {
   return GLOBAL_RECORD_SCOPE_ROLES.has(role);
 }
 
-export function buildLeadRecordScope(actor: AuthenticatedActor): Prisma.LeadWhereInput | undefined {
+export async function resolveLeadRecordScope(actor: AuthenticatedActor): Promise<Prisma.LeadWhereInput | undefined> {
+  const preHandoffTmVisibility = actor.role === 'TERRITORY_MANAGER'
+    ? (await prisma.territoryPolicy.findUnique({
+      where: { id: 'default' },
+      select: { preHandoffTmVisibility: true },
+    }))?.preHandoffTmVisibility ?? false
+    : false;
+
+  return buildLeadRecordScope(actor, { preHandoffTmVisibility });
+}
+
+export function buildLeadRecordScope(
+  actor: AuthenticatedActor,
+  options?: {
+    preHandoffTmVisibility?: boolean;
+  },
+): Prisma.LeadWhereInput | undefined {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;
   }
 
   if (actor.role === 'TERRITORY_MANAGER') {
+    const visibilityGate = options?.preHandoffTmVisibility
+      ? undefined
+      : {
+          OR: [
+            { stage: LeadStage.CUSTOMER_ACTIVE },
+            { territoryAssignmentMethod: TerritoryAssignmentMethod.MANUAL_OVERRIDE },
+          ],
+        } satisfies Prisma.LeadWhereInput;
+
     return {
-      OR: [
-        { assignedTmUserId: actor.userId },
+      AND: [
+        ...(visibilityGate ? [visibilityGate] : []),
         {
-          territory: {
-            is: {
-              managerUserId: actor.userId,
+          OR: [
+            { assignedTmUserId: actor.userId },
+            {
+              territory: {
+                is: {
+                  managerUserId: actor.userId,
+                },
+              },
             },
-          },
+          ],
         },
       ],
     };

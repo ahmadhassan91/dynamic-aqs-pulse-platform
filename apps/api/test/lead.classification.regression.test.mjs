@@ -83,6 +83,25 @@ test('manual lead intake requires explicit affinity and ownership selection', SE
   );
 });
 
+test('manual lead intake rejects unknown affinity selection as a final state', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  await assert.rejects(
+    () =>
+      createLead(actor, {
+        companyName: 'Unknown Affinity HVAC',
+        contactDisplayName: 'Uma Unknown',
+        email: 'uma.unknown@example.com',
+        phone: '555-100-2100',
+        state: 'TX',
+        serviceTechCount: 5,
+        affinityGroupSelection: 'unknown',
+        ownershipGroupSelection: 'none',
+      }),
+    /affinityGroupSelection cannot be "unknown"/i,
+  );
+});
+
 test('lead classification kernel stores explicit axis state and derives hybrid correctly', SERIAL, async () => {
   const actor = await createAdminActor();
 

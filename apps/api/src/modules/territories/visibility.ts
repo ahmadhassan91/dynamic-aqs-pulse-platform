@@ -3,8 +3,8 @@ import { Prisma, prisma } from '@pulse/db';
 import type { AuthenticatedActor } from '../auth/types.js';
 import {
   buildAccountRecordScope,
-  buildLeadRecordScope,
   hasGlobalRecordVisibility,
+  resolveLeadRecordScope,
 } from '../auth/visibility.js';
 
 function buildTerritoryManagerScope(userId: string): Prisma.TerritoryWhereInput {
@@ -108,13 +108,15 @@ export function buildRegionReadScope(actor: AuthenticatedActor): Prisma.RegionWh
   };
 }
 
-export function buildShippingCenterReadScope(actor: AuthenticatedActor): Prisma.ShippingCenterWhereInput | undefined {
+export async function buildShippingCenterReadScope(
+  actor: AuthenticatedActor,
+): Promise<Prisma.ShippingCenterWhereInput | undefined> {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;
   }
 
   const territoryScope = buildTerritoryReadScope(actor);
-  const leadScope = buildLeadRecordScope(actor);
+  const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
   const orClauses: Prisma.ShippingCenterWhereInput[] = [];
 
@@ -163,7 +165,7 @@ export async function assertTerritoryAssignmentHistoryVisible(
   }
 
   if (entityType === 'lead') {
-    const leadScope = buildLeadRecordScope(actor);
+    const leadScope = await resolveLeadRecordScope(actor);
     const visibleLead = await prisma.lead.findFirst({
       where: leadScope
         ? {

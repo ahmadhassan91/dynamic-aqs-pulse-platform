@@ -86,7 +86,7 @@ import { findLeadRegionOption } from '@pulse/contracts';
 import { createHash } from 'node:crypto';
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { buildLeadRecordScope } from '../auth/visibility.js';
+import { resolveLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import {
@@ -110,6 +110,10 @@ import {
 import {
   syncLeadTerritoryAssignment,
 } from '../territories/service.js';
+export {
+  ensureLeadOperationalAlertRecipientsSeeded,
+  processLeadOperationalAlertScanJob,
+} from './alerts.js';
 export {
   createWebsiteLeadNotificationRecipient,
   createWebsiteLeadSite,
@@ -258,6 +262,7 @@ type NormalizedLeadInput = {
   installTechCount?: number;
   truckCount?: number;
   salesPersonCount?: number;
+  potentialValueCents?: number;
   affinityGroupSelection?: import('@pulse/contracts').GroupAxisSelectionKey;
   affinityGroupId?: string;
   affinityGroupCode?: string;
@@ -294,6 +299,7 @@ type LeadInputSource = {
   installTechCount?: unknown;
   truckCount?: unknown;
   salesPersonCount?: unknown;
+  potentialValueCents?: unknown;
   affinityGroupSelection?: unknown;
   affinityGroupId?: unknown;
   affinityGroupCode?: unknown;
@@ -412,7 +418,7 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
-  const scopeWhere = buildLeadRecordScope(actor);
+  const scopeWhere = await resolveLeadRecordScope(actor);
   const where: Prisma.LeadWhereInput = {
     lifecycleStatus: query.lifecycleStatus
       ? toLeadLifecycleStatusEnum(query.lifecycleStatus)
@@ -470,7 +476,7 @@ export async function listWebsiteFormLeads(
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
   const sourceSiteId = optionalTrimmed(query.sourceSiteId);
-  const scopeWhere = buildLeadRecordScope(actor);
+  const scopeWhere = await resolveLeadRecordScope(actor);
   const where: Prisma.LeadWhereInput = {
     leadCaptureMethod: LeadCaptureMethod.DIRECT_WEB_FORM,
     lifecycleStatus: query.lifecycleStatus
@@ -1004,7 +1010,7 @@ export async function listLeadHistoryFeed(
 export async function getLeadDetail(actor: AuthenticatedActor, leadId: string): Promise<LeadDetail | null> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
-  const scopeWhere = buildLeadRecordScope(actor);
+  const scopeWhere = await resolveLeadRecordScope(actor);
 
   const [lead, policy] = await Promise.all([
     prisma.lead.findFirst({
@@ -1486,6 +1492,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
     ...(input.installTechCount !== undefined ? { installTechCount: input.installTechCount } : {}),
     ...(input.truckCount !== undefined ? { truckCount: input.truckCount } : {}),
     ...(input.salesPersonCount !== undefined ? { salesPersonCount: input.salesPersonCount } : {}),
+    ...(input.potentialValueCents !== undefined ? { potentialValueCents: input.potentialValueCents } : {}),
     ...(input.affinityGroupSelection !== undefined ? { affinityGroupSelection: input.affinityGroupSelection } : {}),
     ...(input.affinityGroupId !== undefined ? { affinityGroupId: input.affinityGroupId } : {}),
     ...(input.affinityGroupCode !== undefined ? { affinityGroupCode: input.affinityGroupCode } : {}),
@@ -1570,6 +1577,7 @@ export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Prom
         ...(input.installTechCount !== undefined ? { installTechCount: input.installTechCount } : {}),
         ...(input.truckCount !== undefined ? { truckCount: input.truckCount } : {}),
         ...(input.salesPersonCount !== undefined ? { salesPersonCount: input.salesPersonCount } : {}),
+        ...(input.potentialValueCents !== undefined ? { potentialValueCents: input.potentialValueCents } : {}),
         ...(inquiryTopic ? { inquiryTopic } : {}),
         ...(referralSource ? { referralSource } : {}),
         ...(referralDetail ? { referralDetail } : {}),
@@ -2711,6 +2719,7 @@ async function createLeadRecord(
   ]);
   const classification = await resolveLeadClassification(tx, input, {
     requireExplicitSelection: context.trigger === 'manual',
+    disallowUnknownSelection: context.trigger === 'manual',
   });
 
   const routing = resolveRoutingDecision(input, policy);
@@ -2740,6 +2749,7 @@ async function createLeadRecord(
       ...(input.installTechCount !== undefined ? { installTechCount: input.installTechCount } : {}),
       ...(input.truckCount !== undefined ? { truckCount: input.truckCount } : {}),
       ...(input.salesPersonCount !== undefined ? { salesPersonCount: input.salesPersonCount } : {}),
+      ...(input.potentialValueCents !== undefined ? { potentialValueCents: input.potentialValueCents } : {}),
       affinityGroupSelection: classification.affinity.selection,
       ownershipGroupSelection: classification.ownership.selection,
       ...(classification.affinity.id ? { affinityGroupId: classification.affinity.id } : {}),
@@ -2808,6 +2818,7 @@ async function createLeadRecord(
         businessSegmentCode: dependencies.businessSegmentCode,
         leadSourceCode: input.leadSourceCode,
         serviceTechCount: hydratedLead.serviceTechCount,
+        potentialValueCents: hydratedLead.potentialValueCents ?? undefined,
         territoryCode: hydratedLead.territory?.code ?? undefined,
       },
       metadata: {
@@ -2827,6 +2838,7 @@ async function resolveLeadClassification(
   input: NormalizedLeadInput,
   options: {
     requireExplicitSelection: boolean;
+    disallowUnknownSelection: boolean;
   },
 ) {
   const affinity = await resolveAffinityGroupAxis({
@@ -2837,6 +2849,7 @@ async function resolveLeadClassification(
     code: input.affinityGroupCode,
     name: input.affinityGroupName,
     requireExplicitSelection: options.requireExplicitSelection,
+    disallowUnknownSelection: options.disallowUnknownSelection,
   });
   const ownership = await resolveOwnershipGroupAxis({
     tx,
@@ -2846,6 +2859,7 @@ async function resolveLeadClassification(
     code: input.ownershipGroupCode,
     name: input.ownershipGroupName,
     requireExplicitSelection: options.requireExplicitSelection,
+    disallowUnknownSelection: options.disallowUnknownSelection,
   });
 
   return {
@@ -3341,6 +3355,10 @@ function normalizeLeadInput(
     input.salesPersonCount !== undefined
       ? normalizePositiveInteger(input.salesPersonCount, 'salesPersonCount', true)
       : undefined;
+  const potentialValueCents =
+    input.potentialValueCents !== undefined
+      ? normalizePositiveInteger(input.potentialValueCents, 'potentialValueCents', true)
+      : undefined;
 
   return {
     companyName,
@@ -3365,6 +3383,7 @@ function normalizeLeadInput(
     ...(installTechCount !== undefined ? { installTechCount } : {}),
     ...(truckCount !== undefined ? { truckCount } : {}),
     ...(salesPersonCount !== undefined ? { salesPersonCount } : {}),
+    ...(potentialValueCents !== undefined ? { potentialValueCents } : {}),
     ...(affinityGroupSelection !== undefined ? { affinityGroupSelection } : {}),
     ...(affinityGroupId !== undefined ? { affinityGroupId } : {}),
     ...(affinityGroupCode !== undefined ? { affinityGroupCode } : {}),
@@ -3480,6 +3499,9 @@ function toWebsiteLeadSubmissionSummary(item: WebsiteLeadSubmissionWithRefs): We
     ...(item.installTechCount !== null && item.installTechCount !== undefined ? { installTechCount: item.installTechCount } : {}),
     ...(item.truckCount !== null && item.truckCount !== undefined ? { truckCount: item.truckCount } : {}),
     ...(item.salesPersonCount !== null && item.salesPersonCount !== undefined ? { salesPersonCount: item.salesPersonCount } : {}),
+    ...(getJsonRecordNumber(item.payload, 'potentialValueCents') !== undefined
+      ? { potentialValueCents: getJsonRecordNumber(item.payload, 'potentialValueCents') }
+      : {}),
     ...(item.inquiryTopic ? { inquiryTopic: item.inquiryTopic } : {}),
     ...(item.referralSource ? { referralSource: item.referralSource } : {}),
     ...(item.referralDetail ? { referralDetail: item.referralDetail } : {}),
@@ -3517,6 +3539,9 @@ function buildLeadInputFromWebsiteSubmission(submission: WebsiteLeadSubmissionWi
     ...(submission.installTechCount !== null && submission.installTechCount !== undefined ? { installTechCount: submission.installTechCount } : {}),
     ...(submission.truckCount !== null && submission.truckCount !== undefined ? { truckCount: submission.truckCount } : {}),
     ...(submission.salesPersonCount !== null && submission.salesPersonCount !== undefined ? { salesPersonCount: submission.salesPersonCount } : {}),
+    ...(getJsonRecordNumber(submission.payload, 'potentialValueCents') !== undefined
+      ? { potentialValueCents: getJsonRecordNumber(submission.payload, 'potentialValueCents') }
+      : {}),
     ...(affinityGroupSelection !== undefined ? { affinityGroupSelection } : {}),
     ...(getJsonRecordString(submission.payload, 'affinityGroupId') ? { affinityGroupId: getJsonRecordString(submission.payload, 'affinityGroupId') } : {}),
     ...(getJsonRecordString(submission.payload, 'affinityGroupCode') ? { affinityGroupCode: getJsonRecordString(submission.payload, 'affinityGroupCode') } : {}),
@@ -4187,6 +4212,7 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(lead.installTechCount !== null && lead.installTechCount !== undefined ? { installTechCount: lead.installTechCount } : {}),
     ...(lead.truckCount !== null && lead.truckCount !== undefined ? { truckCount: lead.truckCount } : {}),
     ...(lead.salesPersonCount !== null && lead.salesPersonCount !== undefined ? { salesPersonCount: lead.salesPersonCount } : {}),
+    ...(lead.potentialValueCents !== null && lead.potentialValueCents !== undefined ? { potentialValueCents: lead.potentialValueCents } : {}),
     affinityGroupSelection: toGroupAxisSelectionKey(lead.affinityGroupSelection),
     ...(lead.affinityGroupId ? { affinityGroupId: lead.affinityGroupId } : {}),
     ...(lead.affinityGroup?.code ? { affinityGroupCode: lead.affinityGroup.code } : {}),
@@ -4862,6 +4888,16 @@ function getJsonRecordString(value: Prisma.JsonValue | null | undefined, key: st
   const record = value as Record<string, Prisma.JsonValue>;
   const field = record[key];
   return typeof field === 'string' ? field : undefined;
+}
+
+function getJsonRecordNumber(value: Prisma.JsonValue | null | undefined, key: string) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, Prisma.JsonValue>;
+  const field = record[key];
+  return typeof field === 'number' && Number.isFinite(field) ? field : undefined;
 }
 
 function formatLifecycleReason(reasonCode?: string, reasonNote?: string) {

@@ -599,6 +599,9 @@ test('territory map workspace returns live coverage entries, account pins, lead 
 
 test('territory read visibility scopes region, territory, shipping center, and map workspace payloads for a TM', SERIAL, async () => {
   const { actor } = await createAdminSession();
+  await updateTerritoryPolicy(actor, {
+    preHandoffTmVisibility: true,
+  });
   const visible = await seedTerritoryFixture(actor, {
     suffix: 'tm_scope_visible',
     stateCode: 'TX',
@@ -997,6 +1000,9 @@ test('territory dashboard returns operational workload, queue, region, and owner
 
 test('territory dashboard scopes workload and owner rollups for a TM', SERIAL, async () => {
   const { actor } = await createAdminSession();
+  await updateTerritoryPolicy(actor, {
+    preHandoffTmVisibility: true,
+  });
   const visible = await seedTerritoryFixture(actor, {
     suffix: 'dashboard_tm_visible',
     stateCode: 'TX',
@@ -1217,6 +1223,9 @@ test('territory dashboard scopes regional rollups and peer territory workload fo
 
 test('territory assignment history denies out-of-scope entity reads for TMs while keeping visible records accessible', SERIAL, async () => {
   const { actor } = await createAdminSession();
+  await updateTerritoryPolicy(actor, {
+    preHandoffTmVisibility: true,
+  });
   const visible = await seedTerritoryFixture(actor, {
     suffix: 'history_scope_visible',
     stateCode: 'TX',

@@ -17,6 +17,7 @@ import {
 } from '@tabler/icons-react';
 import classes from './Navigation.module.css';
 import { canAccessModule } from '@/lib/access';
+import { getTerritoryNavigationLinks } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type NavLink = {
@@ -97,6 +98,7 @@ export function Navigation() {
 
   const role = auth?.identity.role;
   const navItems: LinksGroupProps[] = [];
+  const territoryNavigationLinks = getTerritoryNavigationLinks();
 
   if (!role || canAccessModule(role, 'leads')) {
     navItems.push({ label: 'Home', icon: IconHome, link: '/leads' });
@@ -125,11 +127,7 @@ export function Navigation() {
     navItems.push({
       label: 'Territory Management',
       icon: IconMapPin,
-      links: [
-        { label: 'Territory Hub', link: '/territories?tab=dashboard' },
-        { label: 'Territory Map', link: '/territories?tab=map' },
-        { label: 'Account List', link: '/territories?tab=list' },
-      ],
+      links: territoryNavigationLinks,
     });
   }
 

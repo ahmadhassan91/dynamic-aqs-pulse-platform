@@ -13,7 +13,6 @@ import {
   Group,
   Loader,
   Paper,
-  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -55,7 +54,10 @@ import {
   updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
-import { getCalendarPrototypeViewOptions } from '@/lib/prototype-parity';
+import {
+  getCalendarPrototypeFilterOptions,
+  getCalendarPrototypeViewOptions,
+} from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
@@ -435,6 +437,7 @@ export function CalendarWorkspace({
   );
 
   const monthCells = useMemo(() => buildMonthCells(anchorDate), [anchorDate]);
+  const calendarFilterOptions = useMemo(() => getCalendarPrototypeFilterOptions(), []);
   const calendarViewOptions = useMemo(() => getCalendarPrototypeViewOptions(), []);
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(anchorDate), index)),
@@ -445,6 +448,25 @@ export function CalendarWorkspace({
   const selectedDayItems = useMemo(
     () => itemsByDay.get(selectedDayKey) ?? [],
     [itemsByDay, selectedDayKey],
+  );
+  const todayItems = useMemo(() => {
+    const todayKey = formatDayKey(new Date());
+    return (itemsByDay.get(todayKey) ?? []).filter((item) => item.status === 'scheduled');
+  }, [itemsByDay]);
+  const upcomingItems = useMemo(
+    () =>
+      filteredItems
+        .filter((item) => {
+          if (item.status !== 'scheduled') {
+            return false;
+          }
+          const startsAt = new Date(item.startsAt).getTime();
+          const now = Date.now();
+          return startsAt >= now && startsAt <= now + (14 * 24 * 60 * 60 * 1000);
+        })
+        .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime())
+        .slice(0, 8),
+    [filteredItems],
   );
 
   const rangeLabel = useMemo(() => {
@@ -566,80 +588,81 @@ export function CalendarWorkspace({
       {!embedded ? (
         <Paper withBorder radius="xl" p="xl">
           <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
+            <Group justify="space-between" align="flex-start" gap="lg">
               <Stack gap={6}>
-                <Text size="sm" fw={700} c="blue.7" tt="uppercase">
-                  Pulse CRM / Calendar
-                </Text>
-                <Title order={1}>CRM Calendar</Title>
-                <Text c="dimmed" maw={920}>
-                  Day, week, month, and list views for discovery, training, visits, and audit-adjacent work, with
-                  Pulse still owning the workflow truth underneath the schedule shell.
-                </Text>
-                <Group gap="xs" wrap="wrap">
-                  <Badge color="blue" variant="light">Discovery</Badge>
-                  <Badge color="green" variant="light">Training</Badge>
-                  <Badge color="orange" variant="light">Visits</Badge>
-                  <Badge color="yellow" variant="light">Audits</Badge>
+                <Group gap="xs">
+                  <Title order={1}>CRM Calendar</Title>
                   {outlookConnection?.isConnected ? (
-                    <Badge color="teal" variant="light">Outlook Connected</Badge>
+                    <Badge color="green" variant="light" leftSection={<IconDeviceDesktop size={12} />}>
+                      Outlook Connected
+                    </Badge>
                   ) : null}
                 </Group>
+                <Text c="dimmed" maw={920}>
+                  All scheduled events for discovery, training, visits, and audits, with Pulse still keeping the
+                  source workflow truth underneath the schedule shell.
+                </Text>
               </Stack>
-              <Group gap="sm">
-                <Button
-                  variant="light"
-                  leftSection={<IconLink size={16} />}
-                  disabled={Boolean(
-                    !outlookConnection?.isConfigured
-                    || outlookConnection?.isConnected
-                    || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
-                    || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
-                  )}
-                  loading={isConnectingOutlook}
-                  onClick={() => void handleStartOutlookConnect()}
-                >
-                  Sync Outlook
-                </Button>
+
+              <Group gap="xs" wrap="wrap" justify="flex-end">
+                {todayItems.length > 0 ? (
+                  <Badge color="red" radius="xl" size="lg">
+                    {todayItems.length} event{todayItems.length === 1 ? '' : 's'} today
+                  </Badge>
+                ) : null}
+                {outlookConnection?.isConnected ? (
+                  <Button
+                    variant="light"
+                    leftSection={<IconRefresh size={16} />}
+                    onClick={() => {
+                      void Promise.all([loadWorkspace(), loadOutlookCalendars()]);
+                      setOutlookMessage('Outlook calendar refreshed.');
+                    }}
+                  >
+                    Sync Outlook
+                  </Button>
+                ) : (
+                  <Button
+                    variant="light"
+                    leftSection={<IconLink size={16} />}
+                    disabled={Boolean(
+                      !outlookConnection?.isConfigured
+                      || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
+                      || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
+                    )}
+                    loading={isConnectingOutlook}
+                    onClick={() => void handleStartOutlookConnect()}
+                  >
+                    Connect Outlook
+                  </Button>
+                )}
                 <Button onClick={() => openSchedulerForDate(startOfHour(new Date()))}>
                   Schedule &amp; Send Invite
                 </Button>
               </Group>
             </Group>
 
-            <SimpleGrid cols={{ base: 2, md: 5 }}>
-              <Card withBorder radius="lg" p="md">
-                <Text size="sm" c="dimmed">Scheduled</Text>
-                <Title order={2}>{workspace?.summary.scheduledCount ?? 0}</Title>
-              </Card>
-              <Card withBorder radius="lg" p="md">
-                <Text size="sm" c="dimmed">Completed</Text>
-                <Title order={2}>{workspace?.summary.completedCount ?? 0}</Title>
-              </Card>
-              <Card withBorder radius="lg" p="md">
-                <Text size="sm" c="dimmed">Discovery</Text>
-                <Title order={2}>{workspace?.summary.discoveryCallCount ?? 0}</Title>
-              </Card>
-              <Card withBorder radius="lg" p="md">
-                <Text size="sm" c="dimmed">Training</Text>
-                <Title order={2}>
-                  {(workspace?.summary.virtualTrainingCount ?? 0) + (workspace?.summary.accountTrainingCount ?? 0)}
-                </Title>
-              </Card>
-              <Card withBorder radius="lg" p="md">
-                <Text size="sm" c="dimmed">Visits / Audits</Text>
-                <Title order={2}>
-                  {(workspace?.summary.onSiteVisitCount ?? 0) + (workspace?.summary.consignmentAuditCount ?? 0)}
-                </Title>
-              </Card>
-            </SimpleGrid>
+            <Group gap="xs" wrap="wrap">
+              {calendarFilterOptions.map((option) => (
+                <Badge
+                  key={option.value}
+                  variant={filter === option.value ? 'filled' : 'light'}
+                  color={filter === option.value ? 'blue' : 'gray'}
+                  radius="xl"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setFilter(option.value)}
+                >
+                  {option.label}
+                </Badge>
+              ))}
+            </Group>
           </Stack>
         </Paper>
       ) : null}
 
       <Paper withBorder radius="xl" p="lg">
         <Stack gap="md">
-          <Group justify="space-between" align="center">
+          <Group justify="space-between" align="center" gap="md" wrap="wrap">
             <Group gap="xs">
               <Button variant="subtle" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, -1))}>
                 <IconChevronLeft size={16} />
@@ -653,157 +676,129 @@ export function CalendarWorkspace({
               <Text fw={700}>{rangeLabel}</Text>
             </Group>
 
-            <Group gap="sm">
-              <SegmentedControl
-                value={filter}
-                onChange={(value) => setFilter(value as CalendarFilterMode)}
-                data={[
-                  { value: 'all', label: 'All' },
-                  { value: 'discovery', label: 'Discovery' },
-                  { value: 'training', label: 'Training' },
-                  { value: 'visits', label: 'Visits' },
-                  { value: 'audits', label: 'Audits' },
-                ]}
-              />
-              <SegmentedControl
-                value={view}
-                onChange={(value) => setView(value as CalendarViewMode)}
-                data={calendarViewOptions}
-              />
+            <Group gap="xs" wrap="wrap">
+              {calendarViewOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  size="sm"
+                  variant={view === option.value ? 'filled' : 'light'}
+                  onClick={() => setView(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </Group>
           </Group>
 
-          <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
-            The centralized calendar now launches real discovery and training scheduling. Detailed execution,
-            completion, and reporting still stay anchored to the owning lead and training workflows.
-          </Alert>
+          {!embedded ? (
+            <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
+              The centralized calendar now launches real discovery and training scheduling. Detailed execution,
+              completion, and reporting still stay anchored to the owning lead and training workflows.
+            </Alert>
+          ) : null}
 
-          <Paper withBorder radius="lg" p="md">
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={4}>
-                  <Text fw={700}>Outlook calendar sync</Text>
-                  <Text size="sm" c="dimmed" maw={760}>
-                    Connect your Outlook mailbox so the centralized Pulse calendar can reflect discovery and training
-                    events into your working calendar without making Outlook the source of truth.
-                  </Text>
-                  {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
+          {!embedded ? (
+            <Paper withBorder radius="lg" p="md">
+              <Stack gap="sm">
+                <Group justify="space-between" align="flex-start" gap="md" wrap="wrap">
+                  <Stack gap={4}>
+                    <Text fw={700}>Outlook Sync</Text>
                     <Text size="sm" c="dimmed">
-                      Connected mailbox: {outlookConnection.connectionEmail}
+                      Keep your working calendar aligned without making Outlook the source of truth.
                     </Text>
-                  ) : null}
-                  {canViewCalendarIntegrations ? (
-                    <Button
-                      component={Link}
-                      href="/admin/integrations"
-                      variant="subtle"
-                      size="xs"
-                      w="fit-content"
-                      leftSection={<IconSettings size={14} />}
-                    >
-                      Open integration settings
-                    </Button>
-                  ) : null}
-                </Stack>
-                <Group gap="xs">
-                  {!outlookConnection?.isConfigured ? (
-                    <Badge color="yellow" variant="light">
-                      Outlook sync unavailable
-                    </Badge>
-                  ) : outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
-                    <Badge color="yellow" variant="light">
-                      Awaiting admin enablement
-                    </Badge>
-                  ) : outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
-                    <Badge color="yellow" variant="light">
-                      Pilot restricted
-                    </Badge>
-                  ) : outlookConnection.isConnected ? (
-                    <>
-                      <Badge color="green" variant="light">
-                        Connected
-                      </Badge>
+                    {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
+                      <Text size="sm" c="dimmed">Connected mailbox: {outlookConnection.connectionEmail}</Text>
+                    ) : null}
+                  </Stack>
+
+                  <Group gap="xs" wrap="wrap">
+                    {!outlookConnection?.isConfigured ? (
+                      <Badge color="yellow" variant="light">Outlook sync unavailable</Badge>
+                    ) : outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
+                      <Badge color="yellow" variant="light">Awaiting admin enablement</Badge>
+                    ) : outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
+                      <Badge color="yellow" variant="light">Pilot restricted</Badge>
+                    ) : outlookConnection?.isConnected ? (
+                      <>
+                        <Badge color="green" variant="light">Connected</Badge>
+                        <Button
+                          variant="light"
+                          color="gray"
+                          loading={isDisconnectingOutlook}
+                          onClick={() => void handleDisconnectOutlook()}
+                        >
+                          Disconnect
+                        </Button>
+                      </>
+                    ) : null}
+                    {canViewCalendarIntegrations ? (
                       <Button
-                        variant="light"
-                        color="gray"
-                        loading={isDisconnectingOutlook}
-                        onClick={() => void handleDisconnectOutlook()}
+                        component={Link}
+                        href="/admin/integrations"
+                        variant="subtle"
+                        size="xs"
+                        leftSection={<IconSettings size={14} />}
                       >
-                        Disconnect
+                        Open integration settings
                       </Button>
-                    </>
-                  ) : (
-                    <Button
-                      leftSection={<IconLink size={16} />}
-                      loading={isConnectingOutlook}
-                      disabled={Boolean(
-                        !outlookConnection?.isConfigured
-                        || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
-                        || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
-                      )}
-                      onClick={() => void handleStartOutlookConnect()}
-                    >
-                      Connect Outlook
-                    </Button>
-                  )}
+                    ) : null}
+                  </Group>
                 </Group>
-              </Group>
 
-              {outlookConnection?.isConnected ? (
-                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                  <Select
-                    label="Target Outlook calendar"
-                    description="Use the primary mailbox calendar or choose another editable calendar this mailbox can write to."
-                    data={outlookCalendarOptions}
-                    value={selectedOutlookCalendarValue}
-                    onChange={(value) => void handleOutlookCalendarChange(value)}
-                    disabled={isLoadingOutlookCalendars || isUpdatingOutlookSettings}
-                    rightSection={isLoadingOutlookCalendars ? <Loader size="xs" /> : undefined}
-                  />
-                  <Select
-                    label="Meeting link preference"
-                    description="Teams links are created only for remote-compatible event families such as discovery calls and virtual training."
-                    data={[
-                      { value: 'none', label: 'No auto meeting link' },
-                      { value: 'teams', label: 'Microsoft Teams link' },
-                    ]}
-                    value={outlookConnection.meetingProvider ?? 'none'}
-                    onChange={(value) => void handleMeetingProviderChange(value)}
-                    disabled={isUpdatingOutlookSettings}
-                  />
-                </SimpleGrid>
-              ) : null}
+                {outlookConnection?.isConnected ? (
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                    <Select
+                      label="Target Outlook calendar"
+                      data={outlookCalendarOptions}
+                      value={selectedOutlookCalendarValue}
+                      onChange={(value) => void handleOutlookCalendarChange(value)}
+                      disabled={isLoadingOutlookCalendars || isUpdatingOutlookSettings}
+                      rightSection={isLoadingOutlookCalendars ? <Loader size="xs" /> : undefined}
+                    />
+                    <Select
+                      label="Meeting link preference"
+                      data={[
+                        { value: 'none', label: 'No auto meeting link' },
+                        { value: 'teams', label: 'Microsoft Teams link' },
+                      ]}
+                      value={outlookConnection.meetingProvider ?? 'none'}
+                      onChange={(value) => void handleMeetingProviderChange(value)}
+                      disabled={isUpdatingOutlookSettings}
+                    />
+                  </SimpleGrid>
+                ) : null}
 
-              {outlookConnection?.isConnected && selectedOutlookCalendar ? (
-                <Alert color="blue" icon={<IconDeviceDesktop size={16} />}>
-                  Target calendar: {selectedOutlookCalendar.name}
-                  {selectedOutlookCalendar.ownerName ? ` (${selectedOutlookCalendar.ownerName})` : ''}
-                  . Teams meeting links are {outlookConnection.meetingProvider === 'teams' ? 'enabled' : 'disabled'}.
-                </Alert>
-              ) : null}
+                {outlookConnection?.isConnected && selectedOutlookCalendar ? (
+                  <Alert color="blue" icon={<IconDeviceDesktop size={16} />}>
+                    Target calendar: {selectedOutlookCalendar.name}
+                    {selectedOutlookCalendar.ownerName ? ` (${selectedOutlookCalendar.ownerName})` : ''}
+                    . Teams links are {outlookConnection.meetingProvider === 'teams' ? 'enabled' : 'disabled'}.
+                  </Alert>
+                ) : null}
 
-              {!outlookConnection?.isConfigured ? (
-                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                  {outlookConnection?.availabilityMessage
-                    ?? 'Microsoft sign-in can work independently from Outlook mailbox sync. This environment still needs the Outlook sync configuration enabled before users can connect a working calendar.'}
-                  {canManageCalendarIntegrations ? ' Open Administration > Integrations to review environment and rollout settings.' : ''}
-                </Alert>
-              ) : null}
+                {!outlookConnection?.isConfigured ? (
+                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                    {outlookConnection?.availabilityMessage
+                      ?? 'This environment still needs Outlook sync configuration before users can connect a working calendar.'}
+                    {canManageCalendarIntegrations ? ' Open Administration > Integrations to review rollout settings.' : ''}
+                  </Alert>
+                ) : null}
 
-              {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
-                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                  {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is configured but currently disabled by admin policy.'}
-                  {canManageCalendarIntegrations ? ' Re-enable it in Administration > Integrations when you are ready for pilot users.' : ''}
-                </Alert>
-              ) : null}
+                {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
+                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                    {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is configured but currently disabled by admin policy.'}
+                    {canManageCalendarIntegrations ? ' Re-enable it in Administration > Integrations when you are ready for pilot users.' : ''}
+                  </Alert>
+                ) : null}
 
-              {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
-                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                  {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is in pilot mode for approved users only.'}
-                </Alert>
-              ) : null}
-            </Stack>
-          </Paper>
+                {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
+                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                    {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is in pilot mode for approved users only.'}
+                  </Alert>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
 
           {errorMessage ? (
             <Alert color="red" icon={<IconAlertCircle size={16} />}>
@@ -1201,171 +1196,234 @@ export function CalendarWorkspace({
             </Stack>
           </Paper>
 
-          <Paper withBorder radius="xl" p="lg">
-            <Stack gap="md">
-              <Group justify="space-between" align="center">
-                <Title order={3}>Event detail</Title>
-                {selectedEvent ? (
-                  <Badge color={getStatusColor(selectedEvent.status)} variant="light">
-                    {normalizeStatusLabel(selectedEvent.status)}
-                  </Badge>
-                ) : null}
-              </Group>
-
-              {selectedEvent ? (
-                <>
-                  <Stack gap={6}>
-                    <Group gap="xs">
-                      <ThemeIcon variant="light" color={getEventMeta(selectedEvent.eventType).color}>
-                        {(() => {
-                          const Icon = getEventMeta(selectedEvent.eventType).icon;
-                          return <Icon size={16} />;
-                        })()}
-                      </ThemeIcon>
-                      <Text fw={700}>{selectedEvent.title}</Text>
-                    </Group>
-                    <Badge color={getEventMeta(selectedEvent.eventType).color} variant="light">
-                      {getEventMeta(selectedEvent.eventType).label}
-                    </Badge>
+          <Stack gap="lg">
+            {!embedded ? (
+              <>
+                <Paper withBorder radius="xl" p="lg">
+                  <Stack gap="sm">
+                    <Text fw={700} size="sm">Today</Text>
+                    {todayItems.length > 0 ? todayItems.map((item) => {
+                      const meta = getEventMeta(item.eventType);
+                      return (
+                        <Paper
+                          key={item.id}
+                          withBorder
+                          radius="lg"
+                          p="sm"
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedEventId(item.id)}
+                        >
+                          <Badge color={meta.color} variant="light" mb={6}>
+                            {meta.label}
+                          </Badge>
+                          <Text fw={600} size="sm">{item.title}</Text>
+                          <Text size="xs" c="dimmed">{formatTime(item.startsAt)}</Text>
+                        </Paper>
+                      );
+                    }) : (
+                      <Text size="sm" c="dimmed">No events today.</Text>
+                    )}
                   </Stack>
+                </Paper>
 
-                  <Divider />
+                <Paper withBorder radius="xl" p="lg">
+                  <Stack gap="sm">
+                    <Text fw={700} size="sm">Upcoming (14 days)</Text>
+                    {upcomingItems.length > 0 ? upcomingItems.map((item) => {
+                      const meta = getEventMeta(item.eventType);
+                      return (
+                        <Paper
+                          key={item.id}
+                          withBorder
+                          radius="lg"
+                          p="sm"
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedEventId(item.id)}
+                        >
+                          <Badge color={meta.color} variant="light" mb={6}>
+                            {meta.label}
+                          </Badge>
+                          <Text fw={600} size="sm">{item.title}</Text>
+                          <Text size="xs" c="dimmed">
+                            {formatDate(new Date(item.startsAt))}
+                            {item.outlookSync?.syncedAt ? ' · Outlook' : ''}
+                          </Text>
+                        </Paper>
+                      );
+                    }) : (
+                      <Text size="sm" c="dimmed">No upcoming events.</Text>
+                    )}
+                  </Stack>
+                </Paper>
+              </>
+            ) : null}
 
-                  <Stack gap="xs">
-                    <Group gap="xs" align="flex-start">
-                      <IconClock size={16} />
-                      <Stack gap={0}>
-                        <Text size="sm" fw={600}>Starts</Text>
-                        <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.startsAt)}</Text>
-                      </Stack>
-                    </Group>
-                    {selectedEvent.endsAt ? (
+            <Paper withBorder radius="xl" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Title order={3}>Event detail</Title>
+                  {selectedEvent ? (
+                    <Badge color={getStatusColor(selectedEvent.status)} variant="light">
+                      {normalizeStatusLabel(selectedEvent.status)}
+                    </Badge>
+                  ) : null}
+                </Group>
+
+                {selectedEvent ? (
+                  <>
+                    <Stack gap={6}>
+                      <Group gap="xs">
+                        <ThemeIcon variant="light" color={getEventMeta(selectedEvent.eventType).color}>
+                          {(() => {
+                            const Icon = getEventMeta(selectedEvent.eventType).icon;
+                            return <Icon size={16} />;
+                          })()}
+                        </ThemeIcon>
+                        <Text fw={700}>{selectedEvent.title}</Text>
+                      </Group>
+                      <Badge color={getEventMeta(selectedEvent.eventType).color} variant="light">
+                        {getEventMeta(selectedEvent.eventType).label}
+                      </Badge>
+                    </Stack>
+
+                    <Divider />
+
+                    <Stack gap="xs">
                       <Group gap="xs" align="flex-start">
                         <IconClock size={16} />
                         <Stack gap={0}>
-                          <Text size="sm" fw={600}>Ends</Text>
-                          <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.endsAt)}</Text>
+                          <Text size="sm" fw={600}>Starts</Text>
+                          <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.startsAt)}</Text>
                         </Stack>
                       </Group>
+                      {selectedEvent.endsAt ? (
+                        <Group gap="xs" align="flex-start">
+                          <IconClock size={16} />
+                          <Stack gap={0}>
+                            <Text size="sm" fw={600}>Ends</Text>
+                            <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.endsAt)}</Text>
+                          </Stack>
+                        </Group>
+                      ) : null}
+                      <DetailRow label="Assigned to" value={selectedEvent.assignedToName} />
+                      <DetailRow label="Contact" value={selectedEvent.contactName} />
+                      <DetailRow label="Email" value={selectedEvent.contactEmail} />
+                      <DetailRow label="Account" value={selectedEvent.accountName} />
+                      <DetailRow label="Lead" value={selectedEvent.leadName} />
+                      <DetailRow label="Location" value={selectedEvent.locationName} />
+                      <DetailRow label="Territory" value={selectedEvent.territoryName} />
+                      <DetailRow label="Region" value={selectedEvent.regionName} />
+                    </Stack>
+
+                    {selectedEvent.notes ? (
+                      <>
+                        <Divider />
+                        <Stack gap={4}>
+                          <Text fw={600} size="sm">Notes</Text>
+                          <Text size="sm" c="dimmed">{selectedEvent.notes}</Text>
+                        </Stack>
+                      </>
                     ) : null}
-                    <DetailRow label="Assigned to" value={selectedEvent.assignedToName} />
-                    <DetailRow label="Contact" value={selectedEvent.contactName} />
-                    <DetailRow label="Email" value={selectedEvent.contactEmail} />
-                    <DetailRow label="Account" value={selectedEvent.accountName} />
-                    <DetailRow label="Lead" value={selectedEvent.leadName} />
-                    <DetailRow label="Location" value={selectedEvent.locationName} />
-                    <DetailRow label="Territory" value={selectedEvent.territoryName} />
-                    <DetailRow label="Region" value={selectedEvent.regionName} />
-                  </Stack>
 
-                  {selectedEvent.notes ? (
-                    <>
-                      <Divider />
-                      <Stack gap={4}>
-                        <Text fw={600} size="sm">Notes</Text>
-                        <Text size="sm" c="dimmed">{selectedEvent.notes}</Text>
-                      </Stack>
-                    </>
-                  ) : null}
+                    <Divider />
 
-                  <Divider />
-
-                  {outlookConnection?.isConfigured ? (
-                    <>
-                      <Stack gap="xs">
-                        <Text fw={600} size="sm">Outlook sync</Text>
-                        {outlookConnection.isConnected ? (
-                          <>
-                            <Group gap="xs">
-                              <Button
-                                leftSection={<IconRefresh size={16} />}
-                                loading={isSyncingOutlookEvent}
-                                onClick={() => void handleSyncSelectedEvent()}
-                              >
-                                {selectedEvent.outlookSync?.syncedAt ? 'Update in Outlook' : 'Sync to Outlook'}
-                              </Button>
-                              {selectedEvent.outlookSync?.externalWebLink ? (
+                    {outlookConnection?.isConfigured ? (
+                      <>
+                        <Stack gap="xs">
+                          <Text fw={600} size="sm">Outlook sync</Text>
+                          {outlookConnection.isConnected ? (
+                            <>
+                              <Group gap="xs">
                                 <Button
-                                  component="a"
-                                  href={selectedEvent.outlookSync.externalWebLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  variant="light"
-                                  leftSection={<IconExternalLink size={16} />}
+                                  leftSection={<IconRefresh size={16} />}
+                                  loading={isSyncingOutlookEvent}
+                                  onClick={() => void handleSyncSelectedEvent()}
                                 >
-                                  Open in Outlook
+                                  {selectedEvent.outlookSync?.syncedAt ? 'Update in Outlook' : 'Sync to Outlook'}
                                 </Button>
-                              ) : null}
-                              {selectedEvent.outlookSync?.meetingJoinUrl ? (
-                                <Button
-                                  component="a"
-                                  href={selectedEvent.outlookSync.meetingJoinUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  variant="light"
-                                  color="violet"
-                                  leftSection={<IconExternalLink size={16} />}
-                                >
-                                  Open meeting link
-                                </Button>
-                              ) : null}
-                            </Group>
-                            {selectedEvent.outlookSync?.syncedAt ? (
-                              <Text size="sm" c="dimmed">
-                                Last synced: {formatDateTime(selectedEvent.outlookSync.syncedAt)}
-                              </Text>
-                            ) : (
-                              <Text size="sm" c="dimmed">
-                                This event has not been pushed to Outlook yet. Once synced, future lead/training schedule
-                                changes will keep Outlook current automatically.
-                              </Text>
-                            )}
-                            {selectedEvent.outlookSync?.meetingJoinUrl ? (
-                              <Text size="sm" c="dimmed">
-                                Pulse captured a live provider meeting link for this event.
-                              </Text>
-                            ) : null}
-                            {selectedEvent.outlookSync?.lastSyncError ? (
-                              <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                                {selectedEvent.outlookSync.lastSyncError}
-                              </Alert>
-                            ) : null}
-                          </>
-                        ) : (
-                          <Group justify="space-between" align="center">
-                            <Text size="sm" c="dimmed">
-                              Connect Outlook to sync this event into your working calendar.
-                            </Text>
-                            <Button
-                              variant="light"
-                              leftSection={<IconLink size={16} />}
-                              loading={isConnectingOutlook}
-                              disabled={Boolean(
-                                outlookConnection?.policy && (
-                                  !outlookConnection.policy.allowUserConnections
-                                  || !outlookConnection.policy.isCurrentUserEligible
-                                )
+                                {selectedEvent.outlookSync?.externalWebLink ? (
+                                  <Button
+                                    component="a"
+                                    href={selectedEvent.outlookSync.externalWebLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    variant="light"
+                                    leftSection={<IconExternalLink size={16} />}
+                                  >
+                                    Open in Outlook
+                                  </Button>
+                                ) : null}
+                                {selectedEvent.outlookSync?.meetingJoinUrl ? (
+                                  <Button
+                                    component="a"
+                                    href={selectedEvent.outlookSync.meetingJoinUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    variant="light"
+                                    color="violet"
+                                    leftSection={<IconExternalLink size={16} />}
+                                  >
+                                    Open meeting link
+                                  </Button>
+                                ) : null}
+                              </Group>
+                              {selectedEvent.outlookSync?.syncedAt ? (
+                                <Text size="sm" c="dimmed">
+                                  Last synced: {formatDateTime(selectedEvent.outlookSync.syncedAt)}
+                                </Text>
+                              ) : (
+                                <Text size="sm" c="dimmed">
+                                  This event has not been pushed to Outlook yet. Once synced, future lead/training schedule
+                                  changes will keep Outlook current automatically.
+                                </Text>
                               )}
-                              onClick={() => void handleStartOutlookConnect()}
-                            >
-                              Connect Outlook
-                            </Button>
-                          </Group>
-                        )}
-                      </Stack>
-                      <Divider />
-                    </>
-                  ) : null}
+                              {selectedEvent.outlookSync?.meetingJoinUrl ? (
+                                <Text size="sm" c="dimmed">
+                                  Pulse captured a live provider meeting link for this event.
+                                </Text>
+                              ) : null}
+                              {selectedEvent.outlookSync?.lastSyncError ? (
+                                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                                  {selectedEvent.outlookSync.lastSyncError}
+                                </Alert>
+                              ) : null}
+                            </>
+                          ) : (
+                            <Group justify="space-between" align="center">
+                              <Text size="sm" c="dimmed">
+                                Connect Outlook to sync this event into your working calendar.
+                              </Text>
+                              <Button
+                                variant="light"
+                                leftSection={<IconLink size={16} />}
+                                loading={isConnectingOutlook}
+                                disabled={Boolean(
+                                  outlookConnection?.policy && (
+                                    !outlookConnection.policy.allowUserConnections
+                                    || !outlookConnection.policy.isCurrentUserEligible
+                                  )
+                                )}
+                                onClick={() => void handleStartOutlookConnect()}
+                              >
+                                Connect Outlook
+                              </Button>
+                            </Group>
+                          )}
+                        </Stack>
+                        <Divider />
+                      </>
+                    ) : null}
 
-                  <Button component={Link} href={selectedEvent.sourcePath} rightSection={<IconArrowRight size={16} />}>
-                    Open source record
-                  </Button>
-                </>
-              ) : (
-                <Text c="dimmed">Select an event from the calendar to inspect the linked lead, account, or training context.</Text>
-              )}
-            </Stack>
-          </Paper>
+                    <Button component={Link} href={selectedEvent.sourcePath} rightSection={<IconArrowRight size={16} />}>
+                      Open source record
+                    </Button>
+                  </>
+                ) : (
+                  <Text c="dimmed">Select an event from the calendar to inspect the linked lead, account, or training context.</Text>
+                )}
+              </Stack>
+            </Paper>
+          </Stack>
         </SimpleGrid>
       )}
 

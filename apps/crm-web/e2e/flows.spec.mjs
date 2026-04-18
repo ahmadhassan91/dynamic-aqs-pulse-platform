@@ -19,6 +19,9 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await page.goto('/territories');
   await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Territory Hub' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Territory Map' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Account List' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Dashboard' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Map View' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Territory List' })).toBeVisible();
@@ -41,6 +44,11 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await page.goto('/calendar');
   await expect(page.getByRole('heading', { name: 'CRM Calendar' })).toBeVisible();
+  await expect(page.getByText('All Events', { exact: true })).toBeVisible();
+  await expect(page.getByText('Discovery Calls', { exact: true })).toBeVisible();
+  await expect(page.getByText('Training Sessions', { exact: true })).toBeVisible();
+  await expect(page.getByText('Site Visits', { exact: true })).toBeVisible();
+  await expect(page.getByText('Audits', { exact: true })).toBeVisible();
   await page.getByText('Day', { exact: true }).click({ force: true });
   await expect(page.getByText('Daily schedule lane')).toBeVisible();
   await page.getByText('Open slot').first().click({ force: true });

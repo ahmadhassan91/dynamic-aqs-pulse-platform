@@ -1,5 +1,6 @@
 export type TerritoryPrototypeTab = 'dashboard' | 'map' | 'list' | 'admin' | 'calendar';
 export type CalendarPrototypeView = 'day' | 'week' | 'month' | 'list';
+export type CalendarPrototypeFilter = 'all' | 'discovery' | 'training' | 'visits' | 'audits';
 
 type PrototypeTabSummary = {
   value: TerritoryPrototypeTab;
@@ -9,6 +10,16 @@ type PrototypeTabSummary = {
 type CalendarPrototypeViewSummary = {
   value: CalendarPrototypeView;
   label: string;
+};
+
+type CalendarPrototypeFilterSummary = {
+  value: CalendarPrototypeFilter;
+  label: string;
+};
+
+type TerritoryNavigationLinkSummary = {
+  label: string;
+  link: string;
 };
 
 type PaperMapStyleInput = {
@@ -42,6 +53,20 @@ const CALENDAR_PROTOTYPE_VIEWS: CalendarPrototypeViewSummary[] = [
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
   { value: 'list', label: 'List' },
+];
+
+const CALENDAR_PROTOTYPE_FILTERS: CalendarPrototypeFilterSummary[] = [
+  { value: 'all', label: 'All Events' },
+  { value: 'discovery', label: 'Discovery Calls' },
+  { value: 'training', label: 'Training Sessions' },
+  { value: 'visits', label: 'Site Visits' },
+  { value: 'audits', label: 'Audits' },
+];
+
+const TERRITORY_NAVIGATION_LINKS: TerritoryNavigationLinkSummary[] = [
+  { label: 'Territory Hub', link: '/territories?tab=dashboard' },
+  { label: 'Territory Map', link: '/territories?tab=map' },
+  { label: 'Account List', link: '/territories?tab=list' },
 ];
 
 const PAPER_MAP_MANAGER_STYLES: Array<{ tokens: string[]; color: string }> = [
@@ -85,6 +110,14 @@ export function getTerritoryPrototypeTabs(canAdminTerritory: boolean): Prototype
 
 export function getCalendarPrototypeViewOptions(): CalendarPrototypeViewSummary[] {
   return CALENDAR_PROTOTYPE_VIEWS;
+}
+
+export function getCalendarPrototypeFilterOptions(): CalendarPrototypeFilterSummary[] {
+  return CALENDAR_PROTOTYPE_FILTERS;
+}
+
+export function getTerritoryNavigationLinks(): TerritoryNavigationLinkSummary[] {
+  return TERRITORY_NAVIGATION_LINKS;
 }
 
 export function buildTerritoryAssignmentImpactSummary(

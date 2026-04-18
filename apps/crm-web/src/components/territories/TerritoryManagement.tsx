@@ -803,14 +803,36 @@ export function TerritoryManagement({
             </Text>
             <Title order={1}>Territory Management</Title>
             <Text c="dimmed" size="lg">
-              Live territory coverage, state-based ownership, shipping alignment, and command-center signals shaped to
-              the approved territory hub while staying driven by the real Pulse territory kernel.
+              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs •
+              {' '}Live coverage from account, lead, training, and consignment state
             </Text>
             <Group gap="sm" wrap="wrap">
               <Badge size="lg" radius="xl" color="blue" variant="light">Live Territory Coverage</Badge>
               <Badge size="lg" radius="xl" color="teal" variant="light">Lead + Account Routing</Badge>
               <Badge size="lg" radius="xl" color="orange" variant="light">Audit + Training Signal</Badge>
             </Group>
+            {policy ? (
+              <Group gap="xs" wrap="wrap">
+                <PolicyBadge
+                  label="Pre-handoff TM visibility"
+                  active={policy.preHandoffTmVisibility}
+                  activeLabel="Visible"
+                  inactiveLabel="Hidden"
+                />
+                <PolicyBadge
+                  label="National TM default"
+                  active={policy.assignNationalTmLeadsByDefault}
+                  activeLabel="Enabled"
+                  inactiveLabel="Disabled"
+                />
+                <PolicyBadge
+                  label="Strategic Growth retention"
+                  active={policy.strategicGrowthRetainsOwnership}
+                  activeLabel="Retained"
+                  inactiveLabel="Released"
+                />
+              </Group>
+            ) : null}
           </Stack>
 
           <Group gap="sm" align="center">
@@ -834,40 +856,6 @@ export function TerritoryManagement({
           {errorMessage}
         </Alert>
       ) : null}
-
-      <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
-        <Group justify="space-between" align="flex-start" gap="lg">
-          <Stack gap={4}>
-            <Title order={3}>Coverage policy and assignment posture</Title>
-            <Text c="dimmed" size="sm">
-              Territory routing stays CRM-owned until the first-order boundary. These policy flags control the live
-              assignment kernel the lead module is already using.
-            </Text>
-          </Stack>
-          {policy ? (
-            <Group gap="xs" wrap="wrap" justify="flex-end">
-              <PolicyBadge
-                label="Pre-handoff TM visibility"
-                active={policy.preHandoffTmVisibility}
-                activeLabel="Visible"
-                inactiveLabel="Hidden"
-              />
-              <PolicyBadge
-                label="National TM default"
-                active={policy.assignNationalTmLeadsByDefault}
-                activeLabel="Enabled"
-                inactiveLabel="Disabled"
-              />
-              <PolicyBadge
-                label="Strategic Growth retention"
-                active={policy.strategicGrowthRetainsOwnership}
-                activeLabel="Retained"
-                inactiveLabel="Released"
-              />
-            </Group>
-          ) : null}
-        </Group>
-      </Paper>
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
         <MetricCard label="Active Accounts" value={dashboardData.stats.activeAccounts} color="teal" />

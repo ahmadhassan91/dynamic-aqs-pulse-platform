@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildTerritoryAssignmentImpactSummary,
+  getCalendarPrototypeFilterOptions,
   getCalendarPrototypeViewOptions,
+  getTerritoryNavigationLinks,
   getTerritoryPrototypeTabs,
   resolvePaperMapTerritoryStyle,
 } from '../src/lib/prototype-parity.ts';
@@ -23,6 +25,14 @@ test('territory prototype tabs hide admin config when the actor cannot administe
     { value: 'map', label: 'Map View' },
     { value: 'list', label: 'Territory List' },
     { value: 'calendar', label: 'Calendar' },
+  ]);
+});
+
+test('territory sub-navigation matches the approved prototype labels', () => {
+  assert.deepEqual(getTerritoryNavigationLinks(), [
+    { label: 'Territory Hub', link: '/territories?tab=dashboard' },
+    { label: 'Territory Map', link: '/territories?tab=map' },
+    { label: 'Account List', link: '/territories?tab=list' },
   ]);
 });
 
@@ -70,5 +80,15 @@ test('calendar prototype options keep day week month and list available in the l
     { value: 'week', label: 'Week' },
     { value: 'month', label: 'Month' },
     { value: 'list', label: 'List' },
+  ]);
+});
+
+test('calendar prototype filters preserve the approved event-family wording', () => {
+  assert.deepEqual(getCalendarPrototypeFilterOptions(), [
+    { value: 'all', label: 'All Events' },
+    { value: 'discovery', label: 'Discovery Calls' },
+    { value: 'training', label: 'Training Sessions' },
+    { value: 'visits', label: 'Site Visits' },
+    { value: 'audits', label: 'Audits' },
   ]);
 });

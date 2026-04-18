@@ -112,6 +112,23 @@ test('public native website form submits a real lead into Pulse CRM', async ({ p
   await expect(page.getByRole('heading', { name: /Thanks, we.ve received your request\./ })).toBeVisible();
 });
 
+test('public mixed website form accepts text entry without crashing', async ({ page }) => {
+  await page.goto('/forms/lead/solace-air');
+  await expect(page.getByRole('heading', { name: 'Contact an IAQ Professional' })).toBeVisible();
+
+  await page.getByText('Contractor', { exact: true }).click();
+  await page.getByLabel('First name').fill('Ahmad');
+  await page.getByLabel('Last name').fill('Hassan');
+  await page.getByLabel('Company name').fill('Clustox Comfort');
+  await page.getByLabel('# of Service Technicians').fill('3');
+  await page.getByLabel('Email').fill('ahmad.hassan@example.com');
+  await page.getByLabel('Mobile phone number or Direct phone').fill('555-401-5010');
+
+  await expect(page.getByLabel('First name')).toHaveValue('Ahmad');
+  await expect(page.getByLabel('Last name')).toHaveValue('Hassan');
+  await expect(page.getByLabel('Company name')).toHaveValue('Clustox Comfort');
+});
+
 test('internal lead kanban supports dragging a card into the next stage', async ({ page }) => {
   const fixtures = await readFixtures();
   const companyName = `Drag Lead ${Date.now()}`;

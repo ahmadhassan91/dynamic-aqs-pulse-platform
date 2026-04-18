@@ -101,6 +101,10 @@ export function PublicWebsiteLeadCaptureForm({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedLeadId, setSubmittedLeadId] = useState<string | null>(null);
 
+  function updateFormState<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setFormState((current) => ({ ...current, [key]: value }));
+  }
+
   useEffect(() => {
     if (siteOverride) {
       setSite(siteOverride);
@@ -304,7 +308,7 @@ export function PublicWebsiteLeadCaptureForm({
                   <SegmentedControl
                     fullWidth
                     value={formState.customerStatus}
-                    onChange={(value) => setFormState((current) => ({ ...current, customerStatus: value as FormState['customerStatus'] }))}
+                    onChange={(value) => updateFormState('customerStatus', value as FormState['customerStatus'])}
                     data={[
                       { label: 'New Customer', value: 'new_customer' },
                       { label: 'Existing Customer', value: 'existing_customer' },
@@ -319,7 +323,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="First name"
                     required
                     value={formState.firstName}
-                    onChange={(event) => setFormState((current) => ({ ...current, firstName: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('firstName', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
@@ -327,7 +331,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="Last name"
                     required
                     value={formState.lastName}
-                    onChange={(event) => setFormState((current) => ({ ...current, lastName: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('lastName', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 {resolvedLeadType === 'contractor' ? (
@@ -337,7 +341,7 @@ export function PublicWebsiteLeadCaptureForm({
                         label="Company name"
                         required
                         value={formState.companyName}
-                        onChange={(event) => setFormState((current) => ({ ...current, companyName: event.currentTarget.value }))}
+                        onChange={(event) => updateFormState('companyName', event.currentTarget.value)}
                       />
                     </Grid.Col>
                     <Grid.Col span={12}>
@@ -345,7 +349,7 @@ export function PublicWebsiteLeadCaptureForm({
                         label="# of Service Technicians"
                         required
                         value={formState.serviceTechCount}
-                        onChange={(event) => setFormState((current) => ({ ...current, serviceTechCount: event.currentTarget.value }))}
+                        onChange={(event) => updateFormState('serviceTechCount', event.currentTarget.value)}
                       />
                     </Grid.Col>
                   </>
@@ -355,7 +359,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="Email"
                     required
                     value={formState.email}
-                    onChange={(event) => setFormState((current) => ({ ...current, email: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('email', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
@@ -363,7 +367,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="Mobile phone number or Direct phone"
                     required
                     value={formState.phone}
-                    onChange={(event) => setFormState((current) => ({ ...current, phone: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('phone', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
@@ -371,7 +375,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="Street address"
                     required
                     value={formState.streetAddress}
-                    onChange={(event) => setFormState((current) => ({ ...current, streetAddress: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('streetAddress', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
@@ -379,7 +383,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="City"
                     required
                     value={formState.city}
-                    onChange={(event) => setFormState((current) => ({ ...current, city: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('city', event.currentTarget.value)}
                   />
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
@@ -389,7 +393,7 @@ export function PublicWebsiteLeadCaptureForm({
                     placeholder="Select location..."
                     required
                     value={formState.state || null}
-                    onChange={(value) => setFormState((current) => ({ ...current, state: value ?? '' }))}
+                    onChange={(value) => updateFormState('state', value ?? '')}
                     data={leadRegionSelectData}
                   />
                 </Grid.Col>
@@ -398,7 +402,7 @@ export function PublicWebsiteLeadCaptureForm({
                     label="Zip / Postal Code"
                     required
                     value={formState.postalCode}
-                    onChange={(event) => setFormState((current) => ({ ...current, postalCode: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('postalCode', event.currentTarget.value)}
                   />
                 </Grid.Col>
               </Grid>
@@ -407,7 +411,7 @@ export function PublicWebsiteLeadCaptureForm({
                 label={resolvedLeadType === 'homeowner' ? site.formConfig.homeownerInquiryLabel : site.formConfig.contractorInquiryLabel}
                 required
                 value={formState.inquiryTopic}
-                onChange={(value) => setFormState((current) => ({ ...current, inquiryTopic: value ?? '' }))}
+                onChange={(value) => updateFormState('inquiryTopic', value ?? '')}
                 data={resolvedLeadType === 'homeowner' ? site.formConfig.homeownerInquiryOptions : site.formConfig.contractorInquiryOptions}
               />
 
@@ -415,7 +419,7 @@ export function PublicWebsiteLeadCaptureForm({
                 label={site.formConfig.messageLabel}
                 minRows={4}
                 value={formState.message}
-                onChange={(event) => setFormState((current) => ({ ...current, message: event.currentTarget.value }))}
+                onChange={(event) => updateFormState('message', event.currentTarget.value)}
               />
 
               {resolvedLeadType === 'contractor' ? (
@@ -423,20 +427,20 @@ export function PublicWebsiteLeadCaptureForm({
                   <Select
                     label={site.formConfig.referralSourceLabel}
                     value={formState.referralSource}
-                    onChange={(value) => setFormState((current) => ({ ...current, referralSource: value ?? '' }))}
+                    onChange={(value) => updateFormState('referralSource', value ?? '')}
                     data={site.formConfig.referralSourceOptions}
                   />
                   <TextInput
                     label={site.formConfig.referralDetailLabel}
                     value={formState.referralDetail}
-                    onChange={(event) => setFormState((current) => ({ ...current, referralDetail: event.currentTarget.value }))}
+                    onChange={(event) => updateFormState('referralDetail', event.currentTarget.value)}
                   />
                 </>
               ) : (
                 <Checkbox
                   label={site.formConfig.marketingConsentLabel}
                   checked={formState.consent}
-                  onChange={(event) => setFormState((current) => ({ ...current, consent: event.currentTarget.checked }))}
+                  onChange={(event) => updateFormState('consent', event.currentTarget.checked)}
                 />
               )}
 

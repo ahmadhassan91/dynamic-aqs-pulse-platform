@@ -28,6 +28,7 @@ import type {
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
+  UpdateLeadRequest,
   UpdateLeadLifecycleRequest,
   UpdateLeadContactRequest,
   UpdateLeadConversionPreparationRequest,
@@ -82,6 +83,7 @@ import {
   skipLeadDiscovery,
   transitionLeadStage,
   updateLeadLifecycle,
+  updateLead,
   updateLeadRoutingPolicy,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
@@ -900,8 +902,18 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         return false;
       }
 
+      if (method === 'PATCH') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'leads',
+          action: 'lead.intake_manage',
+        });
+        const body = (await readJsonBody(req)) as UpdateLeadRequest;
+        const response = await updateLead(actor, leadId, body);
+        return jsonResponse(res, 200, response);
+      }
+
       if (method !== 'GET') {
-        return methodNotAllowedResponse(res, method, ['GET']);
+        return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
       }
 
       const actor = await requireAuthenticatedActor(req, {

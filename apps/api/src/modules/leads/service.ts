@@ -78,6 +78,7 @@ import type {
   TransitionLeadStageRequest,
   UpdateLeadLifecycleRequest,
   UpdateLeadRoutingPolicyRequest,
+  UpdateLeadRequest,
   WebsiteFormLeadSummary,
   WebsiteLeadSubmissionSummary,
   WebsiteLeadTypeKey,
@@ -104,6 +105,7 @@ import {
 import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
 import {
   asString,
+  normalizeEmailAddress,
   optionalTrimmed,
   requiredTrimmed,
   toWebsiteLeadSiteFormConfig,
@@ -1031,6 +1033,401 @@ export async function getLeadDetail(actor: AuthenticatedActor, leadId: string): 
   }
 
   return toLeadDetail(lead, policy ?? buildInMemoryLeadRoutingPolicy());
+}
+
+export async function updateLead(
+  actor: AuthenticatedActor,
+  leadId: string,
+  input: UpdateLeadRequest,
+): Promise<LeadDetail> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const scopeWhere = await resolveLeadRecordScope(actor);
+
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.lead.findFirst({
+      where: scopeWhere ? { AND: [scopeWhere, { id: leadId }] } : { id: leadId },
+      include: LEAD_DETAIL_INCLUDE,
+    });
+
+    if (!current) {
+      throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    const data: Prisma.LeadUpdateInput = {};
+    const beforeData: Record<string, unknown> = {};
+    const afterData: Record<string, unknown> = {};
+
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'contactFirstName',
+      nextValue: input.contactFirstName,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'contactLastName',
+      nextValue: input.contactLastName,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'companyName',
+      nextValue: input.companyName,
+      mode: 'required',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'contactDisplayName',
+      nextValue: input.contactDisplayName,
+      mode: 'required',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'email',
+      nextValue: input.email,
+      mode: 'email',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'phone',
+      nextValue: input.phone,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'sourceDetail',
+      nextValue: input.sourceDetail,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'sourceSiteId',
+      nextValue: input.sourceSiteId,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'sourceSiteName',
+      nextValue: input.sourceSiteName,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'sourceBrandTag',
+      nextValue: input.sourceBrandTag,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'sourceCampaign',
+      nextValue: input.sourceCampaign,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'leadRating',
+      nextValue: input.leadRating,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'privateLabelName',
+      nextValue: input.privateLabelName,
+      mode: 'nullable',
+    });
+    applyLeadEditableTextPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'notes',
+      nextValue: input.notes,
+      mode: 'nullable',
+    });
+
+    if (input.state !== undefined || input.countryCode !== undefined) {
+      const nextState = input.state !== undefined
+        ? normalizeState(input.state ?? undefined) ?? null
+        : current.state ?? null;
+      const nextCountryCode = input.countryCode !== undefined
+        ? normalizeCountryCode(input.countryCode ?? undefined, nextState ?? undefined) ?? null
+        : (nextState
+            ? normalizeCountryCode(undefined, nextState) ?? current.countryCode ?? null
+            : current.countryCode ?? null);
+
+      if ((current.state ?? null) !== nextState) {
+        data.state = nextState;
+        beforeData.state = current.state ?? null;
+        afterData.state = nextState;
+      }
+      if ((current.countryCode ?? null) !== nextCountryCode) {
+        data.countryCode = nextCountryCode;
+        beforeData.countryCode = current.countryCode ?? null;
+        afterData.countryCode = nextCountryCode;
+      }
+    }
+
+    if (input.businessSegmentCode !== undefined || input.leadSourceCode !== undefined) {
+      const dependencies = await resolveLeadDependencies(
+        tx,
+        input.businessSegmentCode ?? current.businessSegment.code,
+        input.leadSourceCode ?? current.leadSource.code,
+      );
+
+      if (current.businessSegmentId !== dependencies.businessSegmentId) {
+        data.businessSegment = { connect: { id: dependencies.businessSegmentId } };
+        beforeData.businessSegmentCode = current.businessSegment.code;
+        afterData.businessSegmentCode = dependencies.businessSegmentCode;
+      }
+
+      if (current.leadSourceId !== dependencies.leadSourceId) {
+        data.leadSource = { connect: { id: dependencies.leadSourceId } };
+        beforeData.leadSourceCode = current.leadSource.code;
+        afterData.leadSourceCode = input.leadSourceCode ? normalizeCode(input.leadSourceCode) : current.leadSource.code;
+      }
+    }
+
+    applyLeadEditableNumberPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'serviceTechCount',
+      nextValue: input.serviceTechCount,
+      mode: 'required',
+    });
+    applyLeadEditableNumberPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'installTechCount',
+      nextValue: input.installTechCount,
+      mode: 'nullable',
+    });
+    applyLeadEditableNumberPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'truckCount',
+      nextValue: input.truckCount,
+      mode: 'nullable',
+    });
+    applyLeadEditableNumberPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'salesPersonCount',
+      nextValue: input.salesPersonCount,
+      mode: 'nullable',
+    });
+    applyLeadEditableNumberPatch({
+      data,
+      beforeData,
+      afterData,
+      current,
+      field: 'potentialValueCents',
+      nextValue: input.potentialValueCents,
+      mode: 'nullable',
+    });
+
+    if (
+      input.affinityGroupSelection !== undefined
+      || input.affinityGroupCode !== undefined
+      || input.ownershipGroupSelection !== undefined
+      || input.ownershipGroupCode !== undefined
+    ) {
+      const classification = await resolveLeadClassification(
+        tx,
+        {
+          companyName: current.companyName,
+          contactDisplayName: current.contactDisplayName,
+          businessSegmentCode: current.businessSegment.code,
+          leadSourceCode: current.leadSource.code,
+          leadCaptureMethod: current.leadCaptureMethod,
+          serviceTechCount: input.serviceTechCount ?? current.serviceTechCount,
+          ...(input.truckCount !== undefined
+            ? input.truckCount === null
+              ? {}
+              : { truckCount: normalizePositiveInteger(input.truckCount, 'truckCount', true) }
+            : current.truckCount !== null && current.truckCount !== undefined
+              ? { truckCount: current.truckCount }
+              : {}),
+          affinityGroupSelection: input.affinityGroupSelection ?? toGroupAxisSelectionKey(current.affinityGroupSelection),
+          ...(input.affinityGroupCode !== undefined
+            ? (optionalTrimmed(input.affinityGroupCode ?? undefined) ? { affinityGroupCode: optionalTrimmed(input.affinityGroupCode ?? undefined) } : {})
+            : current.affinityGroup?.code
+              ? { affinityGroupCode: current.affinityGroup.code }
+              : {}),
+          ownershipGroupSelection: input.ownershipGroupSelection ?? toGroupAxisSelectionKey(current.ownershipGroupSelection),
+          ...(input.ownershipGroupCode !== undefined
+            ? (optionalTrimmed(input.ownershipGroupCode ?? undefined) ? { ownershipGroupCode: optionalTrimmed(input.ownershipGroupCode ?? undefined) } : {})
+            : current.ownershipGroup?.code
+              ? { ownershipGroupCode: current.ownershipGroup.code }
+              : {}),
+        } as NormalizedLeadInput,
+        {
+          requireExplicitSelection: false,
+          disallowUnknownSelection: false,
+        },
+      );
+
+      if (current.affinityGroupSelection !== classification.affinity.selection) {
+        data.affinityGroupSelection = classification.affinity.selection;
+        beforeData.affinityGroupSelection = toGroupAxisSelectionKey(current.affinityGroupSelection);
+        afterData.affinityGroupSelection = toGroupAxisSelectionKey(classification.affinity.selection);
+      }
+      if ((current.affinityGroupId ?? null) !== classification.affinity.id) {
+        data.affinityGroup = classification.affinity.id
+          ? { connect: { id: classification.affinity.id } }
+          : { disconnect: true };
+        beforeData.affinityGroupCode = current.affinityGroup?.code ?? null;
+        afterData.affinityGroupCode = classification.affinity.code ?? null;
+      }
+
+      if (current.ownershipGroupSelection !== classification.ownership.selection) {
+        data.ownershipGroupSelection = classification.ownership.selection;
+        beforeData.ownershipGroupSelection = toGroupAxisSelectionKey(current.ownershipGroupSelection);
+        afterData.ownershipGroupSelection = toGroupAxisSelectionKey(classification.ownership.selection);
+      }
+      if ((current.ownershipGroupId ?? null) !== classification.ownership.id) {
+        data.ownershipGroup = classification.ownership.id
+          ? { connect: { id: classification.ownership.id } }
+          : { disconnect: true };
+        beforeData.ownershipGroupCode = current.ownershipGroup?.code ?? null;
+        afterData.ownershipGroupCode = classification.ownership.code ?? null;
+      }
+
+      if ((current.groupClassification ?? null) !== (classification.groupClassification ?? null)) {
+        data.groupClassification = classification.groupClassification;
+        beforeData.groupClassification = current.groupClassification ? toGroupClassificationKey(current.groupClassification) : null;
+        afterData.groupClassification = classification.groupClassification ? toGroupClassificationKey(classification.groupClassification) : null;
+      }
+    }
+
+    if (
+      input.serviceTechCount !== undefined
+      || input.truckCount !== undefined
+    ) {
+      const policy = await getRoutingPolicy(tx);
+      const routing = resolveRoutingDecision(
+        {
+          companyName: current.companyName,
+          contactDisplayName: current.contactDisplayName,
+          businessSegmentCode: current.businessSegment.code,
+          leadSourceCode: current.leadSource.code,
+          leadCaptureMethod: current.leadCaptureMethod,
+          serviceTechCount: input.serviceTechCount ?? current.serviceTechCount,
+          ...(input.truckCount !== undefined
+            ? input.truckCount === null
+              ? {}
+              : { truckCount: normalizePositiveInteger(input.truckCount, 'truckCount', true) }
+            : current.truckCount !== null && current.truckCount !== undefined
+              ? { truckCount: current.truckCount }
+              : {}),
+        } as NormalizedLeadInput,
+        policy,
+      );
+
+      if (current.routingBasisSnapshot !== routing.routingBasis) {
+        data.routingBasisSnapshot = routing.routingBasis;
+        beforeData.routingBasis = current.routingBasisSnapshot === LeadRoutingBasis.TRUCK_COUNT ? 'truck_count' : 'service_tech_count';
+        afterData.routingBasis = routing.routingBasis === LeadRoutingBasis.TRUCK_COUNT ? 'truck_count' : 'service_tech_count';
+      }
+      if (current.routingThresholdSnapshot !== routing.threshold) {
+        data.routingThresholdSnapshot = routing.threshold;
+        beforeData.routingThreshold = current.routingThresholdSnapshot;
+        afterData.routingThreshold = routing.threshold;
+      }
+      if (current.routingTeam !== routing.routingTeam) {
+        data.routingTeam = routing.routingTeam;
+        beforeData.routingTeam = current.routingTeam === LeadRoutingTeam.STRATEGIC_GROWTH ? 'strategic_growth' : 'national_tm';
+        afterData.routingTeam = routing.routingTeam === LeadRoutingTeam.STRATEGIC_GROWTH ? 'strategic_growth' : 'national_tm';
+      }
+      if ((current.leadOwnerName ?? null) !== (routing.leadOwnerName ?? null)) {
+        data.leadOwnerName = routing.leadOwnerName ?? null;
+        beforeData.leadOwnerName = current.leadOwnerName ?? null;
+        afterData.leadOwnerName = routing.leadOwnerName ?? null;
+      }
+    }
+
+    if (Object.keys(afterData).length === 0) {
+      throw new Error('Lead already matches the requested values');
+    }
+
+    await tx.lead.update({
+      where: { id: leadId },
+      data,
+    });
+
+    if (Object.prototype.hasOwnProperty.call(afterData, 'state')) {
+      await syncLeadTerritoryAssignment(tx, {
+        leadId,
+      });
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: LEAD_ENTITY_TYPE,
+        entityId: leadId,
+        beforeData,
+        afterData,
+        metadata: {
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          sessionId: actor.sessionId,
+          workflowAction: 'update_lead_record',
+        },
+      }),
+    });
+  });
+
+  return (await getLeadDetail(actor, leadId)) as LeadDetail;
 }
 
 export async function logLeadInitialContact(
@@ -3290,6 +3687,120 @@ function normalizeDiscoveryCompletionInput(
   };
 }
 
+function normalizeEditableLeadText(
+  value: string | null | undefined,
+  mode: 'required' | 'nullable' | 'email',
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    if (mode === 'required') {
+      throw new Error('Value is required');
+    }
+    return null;
+  }
+
+  if (mode === 'required') {
+    return requiredTrimmed(value, 'value');
+  }
+
+  if (mode === 'email') {
+    return optionalTrimmed(value) ? normalizeEmailAddress(value) : null;
+  }
+
+  return optionalTrimmed(value) ?? null;
+}
+
+function applyLeadEditableTextPatch(input: {
+  data: Prisma.LeadUpdateInput;
+  beforeData: Record<string, unknown>;
+  afterData: Record<string, unknown>;
+  current: LeadWithDetailRefs;
+  field:
+    | 'contactFirstName'
+    | 'contactLastName'
+    | 'companyName'
+    | 'contactDisplayName'
+    | 'email'
+    | 'phone'
+    | 'sourceDetail'
+    | 'sourceSiteId'
+    | 'sourceSiteName'
+    | 'sourceBrandTag'
+    | 'sourceCampaign'
+    | 'leadRating'
+    | 'privateLabelName'
+    | 'notes';
+  nextValue: string | null | undefined;
+  mode: 'required' | 'nullable' | 'email';
+}) {
+  if (input.nextValue === undefined) {
+    return;
+  }
+
+  const normalized = normalizeEditableLeadText(input.nextValue, input.mode) as string | null;
+  const currentValue = (input.current[input.field] ?? null) as string | null;
+
+  if (currentValue === normalized) {
+    return;
+  }
+
+  (input.data as Record<string, string | null>)[input.field] = normalized;
+  input.beforeData[input.field] = currentValue;
+  input.afterData[input.field] = normalized;
+}
+
+function normalizeEditableLeadNumber(
+  value: number | null | undefined,
+  field: string,
+  mode: 'required' | 'nullable',
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    if (mode === 'required') {
+      throw new Error(`${field} is required`);
+    }
+    return null;
+  }
+
+  return normalizePositiveInteger(value, field, true);
+}
+
+function applyLeadEditableNumberPatch(input: {
+  data: Prisma.LeadUpdateInput;
+  beforeData: Record<string, unknown>;
+  afterData: Record<string, unknown>;
+  current: LeadWithDetailRefs;
+  field:
+    | 'serviceTechCount'
+    | 'installTechCount'
+    | 'truckCount'
+    | 'salesPersonCount'
+    | 'potentialValueCents';
+  nextValue: number | null | undefined;
+  mode: 'required' | 'nullable';
+}) {
+  if (input.nextValue === undefined) {
+    return;
+  }
+
+  const normalized = normalizeEditableLeadNumber(input.nextValue, input.field, input.mode);
+  const currentValue = (input.current[input.field] ?? null) as number | null;
+
+  if (currentValue === normalized) {
+    return;
+  }
+
+  (input.data as Record<string, number | null>)[input.field] = normalized as number | null;
+  input.beforeData[input.field] = currentValue;
+  input.afterData[input.field] = normalized;
+}
+
 async function createLeadStageEvent(
   tx: Prisma.TransactionClient,
   input: {
@@ -4220,6 +4731,7 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(lead.sourceSiteId ? { sourceSiteId: lead.sourceSiteId } : {}),
     ...(lead.sourceSiteName ? { sourceSiteName: lead.sourceSiteName } : {}),
     ...(lead.sourceBrandTag ? { sourceBrandTag: lead.sourceBrandTag } : {}),
+    ...(lead.leadRating ? { leadRating: lead.leadRating } : {}),
     ...(lead.installTechCount !== null && lead.installTechCount !== undefined ? { installTechCount: lead.installTechCount } : {}),
     ...(lead.truckCount !== null && lead.truckCount !== undefined ? { truckCount: lead.truckCount } : {}),
     ...(lead.salesPersonCount !== null && lead.salesPersonCount !== undefined ? { salesPersonCount: lead.salesPersonCount } : {}),

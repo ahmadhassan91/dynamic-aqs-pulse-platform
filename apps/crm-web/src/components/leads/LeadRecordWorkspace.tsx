@@ -12,7 +12,9 @@ import {
   Divider,
   Grid,
   Group,
+  NumberInput,
   Loader,
+  Modal,
   MultiSelect,
   Paper,
   Select,
@@ -32,6 +34,7 @@ import {
   IconCalendar,
   IconCheck,
   IconClock,
+  IconEdit,
   IconFileText,
   IconLock,
   IconMail,
@@ -39,24 +42,34 @@ import {
   IconTruck,
 } from '@tabler/icons-react';
 import type {
+  AffinityGroupReferenceSummary,
   CompleteLeadDiscoveryRequest,
+  GroupAxisSelectionKey,
   LeadConsignmentEntryTimingKey,
   LeadConsignmentInterestStatusKey,
   LeadLifecycleReasonCodeKey,
   LeadDetail,
   LeadRoutingPolicySummary,
+  OwnershipGroupReferenceSummary,
+  ReferenceValueSummary,
 } from '@pulse/contracts';
 import { canPerformAction } from '@/lib/access';
 import {
   completeLeadDiscovery,
+  fetchAffinityGroups,
+  fetchBusinessSegments,
   fetchLeadDetail,
+  fetchLeadSources,
+  fetchOwnershipGroups,
   fetchLeadRoutingPolicy,
   logLeadInitialContact,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
+  updateLead,
   updateLeadLifecycle,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { APP_LEAD_RATINGS, APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { LeadCisPanel } from './LeadCisPanel';
 import { LeadOnboardingReadyPanel } from './LeadOnboardingReadyPanel';
 
@@ -65,6 +78,32 @@ type LeadRecordWorkspaceProps = {
 };
 
 type LeadRecordTab = 'overview' | 'discovery' | 'cis' | 'onboarding' | 'activity';
+type LeadEditFormState = {
+  companyName: string;
+  contactDisplayName: string;
+  email: string;
+  phone: string;
+  state: string;
+  businessSegmentCode: string;
+  leadSourceCode: string;
+  sourceDetail: string;
+  sourceSiteId: string;
+  sourceSiteName: string;
+  sourceBrandTag: string;
+  sourceCampaign: string;
+  leadRating: string;
+  serviceTechCount: number | '';
+  installTechCount: number | '';
+  truckCount: number | '';
+  salesPersonCount: number | '';
+  potentialValueDollars: number | '';
+  affinityGroupSelection: GroupAxisSelectionKey | '';
+  affinityGroupCode: string;
+  ownershipGroupSelection: GroupAxisSelectionKey | '';
+  ownershipGroupCode: string;
+  privateLabelName: string;
+  notes: string;
+};
 
 const DISCOVERY_PAIN_POINT_OPTIONS = [
   'Dust / Allergies',
@@ -88,10 +127,26 @@ const LEAD_CLOSE_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; labe
   { value: 'other', label: 'Other' },
 ];
 
+const groupAxisSelectionOptions: Array<{ value: GroupAxisSelectionKey; label: string }> = [
+  { value: 'unknown', label: 'Unknown / not assessed' },
+  { value: 'none', label: 'Independent / no group' },
+  { value: 'group', label: 'Select governed group' },
+];
+
+const leadRatingOptions = APP_LEAD_RATINGS;
+const leadRegionSelectData = APP_LEAD_REGION_OPTIONS.map((option) => ({
+  value: option.value,
+  label: `${option.label} (${option.value})`,
+}));
+
 export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
+  const [businessSegments, setBusinessSegments] = useState<ReferenceValueSummary[]>([]);
+  const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
+  const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
+  const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
   const [activeTab, setActiveTab] = useState<LeadRecordTab>('overview');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +167,34 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const [lifecycleDraftStatus, setLifecycleDraftStatus] = useState<'parked' | 'closed'>('parked');
   const [lifecycleReasonCode, setLifecycleReasonCode] = useState<LeadLifecycleReasonCodeKey>('follow_up_later');
   const [lifecycleReasonNote, setLifecycleReasonNote] = useState('');
+  const [editOpened, setEditOpened] = useState(false);
+  const [isSavingLead, setIsSavingLead] = useState(false);
+  const [leadEditForm, setLeadEditForm] = useState<LeadEditFormState>({
+    companyName: '',
+    contactDisplayName: '',
+    email: '',
+    phone: '',
+    state: '',
+    businessSegmentCode: '',
+    leadSourceCode: '',
+    sourceDetail: '',
+    sourceSiteId: '',
+    sourceSiteName: '',
+    sourceBrandTag: '',
+    sourceCampaign: '',
+    leadRating: '',
+    serviceTechCount: '',
+    installTechCount: '',
+    truckCount: '',
+    salesPersonCount: '',
+    potentialValueDollars: '',
+    affinityGroupSelection: '',
+    affinityGroupCode: '',
+    ownershipGroupSelection: '',
+    ownershipGroupCode: '',
+    privateLabelName: '',
+    notes: '',
+  });
 
   const canManageLead = auth ? canPerformAction(auth.identity.role, 'lead.intake_manage') : false;
   const canViewFinanceQueue = auth ? canPerformAction(auth.identity.role, 'lead.finance_queue_view') : false;
@@ -131,19 +214,31 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       setError(null);
 
       try {
-        const [leadResponse, routingPolicyResponse] = await Promise.all([
+        const [leadResponse, routingPolicyResponse, businessSegmentsResponse, leadSourcesResponse, affinityGroupsResponse, ownershipGroupsResponse] = await Promise.all([
           fetchLeadDetail(apiBaseUrl, accessToken, leadId),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
+          fetchBusinessSegments(apiBaseUrl, accessToken),
+          fetchLeadSources(apiBaseUrl, accessToken),
+          fetchAffinityGroups(apiBaseUrl, accessToken),
+          fetchOwnershipGroups(apiBaseUrl, accessToken),
         ]);
         if (!cancelled) {
           setLead(leadResponse);
           setRoutingPolicy(routingPolicyResponse);
+          setBusinessSegments(businessSegmentsResponse.items);
+          setLeadSources(leadSourcesResponse.items);
+          setAffinityGroups(affinityGroupsResponse.items);
+          setOwnershipGroups(ownershipGroupsResponse.items);
         }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
           setLead(null);
           setRoutingPolicy(null);
+          setBusinessSegments([]);
+          setLeadSources([]);
+          setAffinityGroups([]);
+          setOwnershipGroups([]);
         }
       } finally {
         if (!cancelled) {
@@ -178,6 +273,35 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       ?? (lead.lifecycleStatus === 'closed' ? 'not_interested' : 'follow_up_later'),
     );
     setLifecycleReasonNote(lead.lifecycleReasonNote ?? '');
+    setLeadEditForm({
+      companyName: lead.companyName,
+      contactDisplayName: lead.contactDisplayName,
+      email: lead.email ?? '',
+      phone: lead.phone ?? '',
+      state: lead.state ?? '',
+      businessSegmentCode: lead.businessSegmentCode,
+      leadSourceCode: lead.leadSourceCode,
+      sourceDetail: lead.sourceDetail ?? '',
+      sourceSiteId: lead.sourceSiteId ?? '',
+      sourceSiteName: lead.sourceSiteName ?? '',
+      sourceBrandTag: lead.sourceBrandTag ?? '',
+      sourceCampaign: lead.sourceCampaign ?? '',
+      leadRating: lead.leadRating ?? '',
+      serviceTechCount: lead.serviceTechCount,
+      installTechCount: lead.installTechCount ?? '',
+      truckCount: lead.truckCount ?? '',
+      salesPersonCount: lead.salesPersonCount ?? '',
+      potentialValueDollars:
+        lead.potentialValueCents !== undefined && lead.potentialValueCents !== null
+          ? Math.round(lead.potentialValueCents / 100)
+          : '',
+      affinityGroupSelection: lead.affinityGroupSelection,
+      affinityGroupCode: lead.affinityGroupCode ?? '',
+      ownershipGroupSelection: lead.ownershipGroupSelection,
+      ownershipGroupCode: lead.ownershipGroupCode ?? '',
+      privateLabelName: lead.privateLabelName ?? '',
+      notes: lead.notes ?? '',
+    });
   }, [lead]);
 
   const hasInitialContact = Boolean(lead?.initialContactedAt) || lead?.stage !== 'new';
@@ -486,6 +610,82 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     }
   }
 
+  async function handleSaveLeadEdits() {
+    if (!leadEditForm.companyName.trim()) {
+      setActionError('Company name is required.');
+      return;
+    }
+    if (!leadEditForm.contactDisplayName.trim()) {
+      setActionError('Contact name is required.');
+      return;
+    }
+    if (!leadEditForm.businessSegmentCode) {
+      setActionError('Business segment is required.');
+      return;
+    }
+    if (!leadEditForm.leadSourceCode) {
+      setActionError('Lead source is required.');
+      return;
+    }
+    if (leadEditForm.serviceTechCount === '') {
+      setActionError('Service tech count is required.');
+      return;
+    }
+    if (leadEditForm.affinityGroupSelection === 'group' && !leadEditForm.affinityGroupCode) {
+      setActionError('Choose an affinity group when the affinity status is set to governed group.');
+      return;
+    }
+    if (leadEditForm.ownershipGroupSelection === 'group' && !leadEditForm.ownershipGroupCode) {
+      setActionError('Choose an ownership group when the ownership status is set to governed group.');
+      return;
+    }
+
+    setIsSavingLead(true);
+    setActionError(null);
+
+    try {
+      const updated = await updateLead(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id, {
+        companyName: leadEditForm.companyName,
+        contactDisplayName: leadEditForm.contactDisplayName,
+        email: leadEditForm.email.trim() || null,
+        phone: leadEditForm.phone.trim() || null,
+        state: leadEditForm.state || null,
+        businessSegmentCode: leadEditForm.businessSegmentCode,
+        leadSourceCode: leadEditForm.leadSourceCode,
+        sourceDetail: leadEditForm.sourceDetail.trim() || null,
+        sourceSiteId: leadEditForm.sourceSiteId.trim() || null,
+        sourceSiteName: leadEditForm.sourceSiteName.trim() || null,
+        sourceBrandTag: leadEditForm.sourceBrandTag.trim() || null,
+        sourceCampaign: leadEditForm.sourceCampaign.trim() || null,
+        leadRating: leadEditForm.leadRating || null,
+        serviceTechCount: leadEditForm.serviceTechCount,
+        installTechCount: leadEditForm.installTechCount === '' ? null : leadEditForm.installTechCount,
+        truckCount: leadEditForm.truckCount === '' ? null : leadEditForm.truckCount,
+        salesPersonCount: leadEditForm.salesPersonCount === '' ? null : leadEditForm.salesPersonCount,
+        potentialValueCents:
+          leadEditForm.potentialValueDollars === ''
+            ? null
+            : leadEditForm.potentialValueDollars * 100,
+        ...(leadEditForm.affinityGroupSelection ? { affinityGroupSelection: leadEditForm.affinityGroupSelection } : {}),
+        ...(leadEditForm.affinityGroupSelection === 'group'
+          ? { affinityGroupCode: leadEditForm.affinityGroupCode }
+          : { affinityGroupCode: null }),
+        ...(leadEditForm.ownershipGroupSelection ? { ownershipGroupSelection: leadEditForm.ownershipGroupSelection } : {}),
+        ...(leadEditForm.ownershipGroupSelection === 'group'
+          ? { ownershipGroupCode: leadEditForm.ownershipGroupCode }
+          : { ownershipGroupCode: null }),
+        privateLabelName: leadEditForm.privateLabelName.trim() || null,
+        notes: leadEditForm.notes.trim() || null,
+      });
+      setLead(updated);
+      setEditOpened(false);
+    } catch (action) {
+      setActionError(action instanceof Error ? action.message : String(action));
+    } finally {
+      setIsSavingLead(false);
+    }
+  }
+
   function handleNextBestAction() {
     switch (currentLead.workflowTask.nextAction) {
       case 'Resume Lead':
@@ -523,6 +723,22 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const nextActionLabel = currentLead.stage === 'onboarding_completed'
     ? 'Awaiting first-order handoff'
     : currentLead.workflowTask.nextAction;
+  const businessSegmentSelectData = businessSegments.map((segment) => ({
+    value: segment.code,
+    label: segment.name,
+  }));
+  const leadSourceSelectData = leadSources.map((source) => ({
+    value: source.code,
+    label: source.name,
+  }));
+  const affinityGroupSelectData = affinityGroups.map((group) => ({
+    value: group.code,
+    label: group.name,
+  }));
+  const ownershipGroupSelectData = ownershipGroups.map((group) => ({
+    value: group.code,
+    label: group.name,
+  }));
 
   return (
     <Stack gap="lg">
@@ -537,6 +753,16 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
             <Stack gap="xs">
               <Group gap="sm">
                 <Title order={2}>{lead.companyName}</Title>
+                {lead.sourceSiteName ? (
+                  <Badge color="cyan" variant="light">
+                    {lead.sourceSiteName}
+                  </Badge>
+                ) : null}
+                {lead.sourceBrandTag ? (
+                  <Badge color="blue" variant="light">
+                    {lead.sourceBrandTag}
+                  </Badge>
+                ) : null}
                 <Badge color={stageColor(lead.stage)} variant="light">
                   {formatStageLabel(lead.stage)}
                 </Badge>
@@ -548,6 +774,11 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 <Badge color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'} variant="light">
                   {formatRoutingTeam(lead.routingTeam)}
                 </Badge>
+                {lead.leadRating ? (
+                  <Badge color={leadRatingColor(lead.leadRating)} variant="light">
+                    {formatLeadRatingLabel(lead.leadRating)}
+                  </Badge>
+                ) : null}
                 {slaState.overdue ? <Badge color="red">SLA Overdue</Badge> : null}
                 {!slaState.overdue && slaState.urgent ? <Badge color="orange">{slaState.hoursLeft}h SLA</Badge> : null}
                 {hasInitialContact ? <Badge color="green" variant="light">Contacted</Badge> : null}
@@ -559,6 +790,15 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
               </Text>
             </Stack>
             <Group gap="sm">
+              {canManageLead ? (
+                <Button
+                  variant="light"
+                  leftSection={<IconEdit size={16} />}
+                  onClick={() => setEditOpened(true)}
+                >
+                  Edit Record
+                </Button>
+              ) : null}
               <Button component={Link} href="/leads" variant="default">
                 Back to Pipeline
               </Button>
@@ -597,6 +837,260 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         </Stack>
       </Paper>
 
+      <Modal
+        opened={editOpened}
+        onClose={() => setEditOpened(false)}
+        title="Edit Record"
+        centered
+        size="xl"
+      >
+        <Stack gap="md">
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Company name"
+                value={leadEditForm.companyName}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, companyName: event.currentTarget.value }))}
+                required
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Contact name"
+                value={leadEditForm.contactDisplayName}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, contactDisplayName: event.currentTarget.value }))}
+                required
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Email"
+                type="email"
+                value={leadEditForm.email}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, email: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Phone"
+                value={leadEditForm.phone}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, phone: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+          </Grid>
+
+          <Divider />
+
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                label="Business segment"
+                placeholder="Select business segment..."
+                value={leadEditForm.businessSegmentCode || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, businessSegmentCode: value ?? '' }))}
+                data={businessSegmentSelectData}
+                searchable
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                label="Lead source"
+                placeholder="Select lead source..."
+                value={leadEditForm.leadSourceCode || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, leadSourceCode: value ?? '' }))}
+                data={leadSourceSelectData}
+                searchable
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Source detail"
+                value={leadEditForm.sourceDetail}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceDetail: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Source campaign"
+                value={leadEditForm.sourceCampaign}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceCampaign: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                searchable
+                clearable
+                label="State / Province"
+                placeholder="Select location..."
+                value={leadEditForm.state || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, state: value ?? '' }))}
+                data={leadRegionSelectData}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                clearable
+                label="Lead rating"
+                placeholder="Select lead rating..."
+                value={leadEditForm.leadRating || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, leadRating: value ?? '' }))}
+                data={leadRatingOptions}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Source site ID"
+                value={leadEditForm.sourceSiteId}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceSiteId: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Source site"
+                value={leadEditForm.sourceSiteName}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceSiteName: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <TextInput
+                label="Brand tag"
+                value={leadEditForm.sourceBrandTag}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceBrandTag: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+          </Grid>
+
+          <Divider />
+
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <NumberInput
+                label="Service tech count"
+                min={1}
+                value={leadEditForm.serviceTechCount}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, serviceTechCount: typeof value === 'number' ? value : '' }))}
+                required
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <NumberInput
+                label="Install tech count"
+                min={0}
+                value={leadEditForm.installTechCount}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, installTechCount: typeof value === 'number' ? value : '' }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <NumberInput
+                label="Truck count"
+                min={0}
+                value={leadEditForm.truckCount}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, truckCount: typeof value === 'number' ? value : '' }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <NumberInput
+                label="Sales person count"
+                min={0}
+                value={leadEditForm.salesPersonCount}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, salesPersonCount: typeof value === 'number' ? value : '' }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <NumberInput
+                label="Potential value"
+                min={0}
+                thousandSeparator=","
+                prefix="$"
+                value={leadEditForm.potentialValueDollars}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, potentialValueDollars: typeof value === 'number' ? value : '' }))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <TextInput
+                label="Private label"
+                value={leadEditForm.privateLabelName}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, privateLabelName: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+          </Grid>
+
+          <Divider />
+
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                label="Affinity group status"
+                value={leadEditForm.affinityGroupSelection || null}
+                onChange={(value) => setLeadEditForm((current) => ({
+                  ...current,
+                  affinityGroupSelection: (value as GroupAxisSelectionKey | null) ?? '',
+                  affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
+                }))}
+                data={groupAxisSelectionOptions}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                searchable
+                clearable
+                disabled={leadEditForm.affinityGroupSelection !== 'group'}
+                label="Affinity group"
+                placeholder={leadEditForm.affinityGroupSelection === 'group' ? 'Select governed affinity group...' : 'Choose status first'}
+                value={leadEditForm.affinityGroupCode || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, affinityGroupCode: value ?? '' }))}
+                data={affinityGroupSelectData}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                label="Ownership group status"
+                value={leadEditForm.ownershipGroupSelection || null}
+                onChange={(value) => setLeadEditForm((current) => ({
+                  ...current,
+                  ownershipGroupSelection: (value as GroupAxisSelectionKey | null) ?? '',
+                  ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
+                }))}
+                data={groupAxisSelectionOptions}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Select
+                searchable
+                clearable
+                disabled={leadEditForm.ownershipGroupSelection !== 'group'}
+                label="Ownership group"
+                placeholder={leadEditForm.ownershipGroupSelection === 'group' ? 'Select governed ownership group...' : 'Choose status first'}
+                value={leadEditForm.ownershipGroupCode || null}
+                onChange={(value) => setLeadEditForm((current) => ({ ...current, ownershipGroupCode: value ?? '' }))}
+                data={ownershipGroupSelectData}
+              />
+            </Grid.Col>
+            <Grid.Col span={12}>
+              <Textarea
+                label="Notes"
+                minRows={4}
+                value={leadEditForm.notes}
+                onChange={(event) => setLeadEditForm((current) => ({ ...current, notes: event.currentTarget.value }))}
+              />
+            </Grid.Col>
+          </Grid>
+          <Group justify="space-between">
+            <Text size="sm" c="dimmed">
+              Changes here update the live lead record and keep the detail and pipeline views aligned.
+            </Text>
+            <Group gap="sm">
+              <Button variant="default" onClick={() => setEditOpened(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSaveLeadEdits()} loading={isSavingLead}>
+                Save Changes
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as LeadRecordTab) || 'overview')} className="premium-tabs-shell">
         <Tabs.List>
           <Tabs.Tab value="overview" leftSection={<IconArrowRight size={16} />}>
@@ -628,7 +1122,12 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <DetailItem label="Email" value={lead.email ?? 'N/A'} />
                     <DetailItem label="Phone" value={lead.phone ?? 'N/A'} />
                     <DetailItem label="State" value={lead.state ?? 'N/A'} />
+                    <DetailItem label="Business Segment" value={lead.businessSegmentCode} />
+                    <DetailItem label="Lead Source" value={lead.leadSourceName} />
                     <DetailItem label="Capture Method" value={formatCaptureMethod(lead.leadCaptureMethod)} />
+                    <DetailItem label="Source Detail" value={lead.sourceDetail ?? 'N/A'} />
+                    <DetailItem label="Source Campaign" value={lead.sourceCampaign ?? 'N/A'} />
+                    <DetailItem label="Source Site ID" value={lead.sourceSiteId ?? 'N/A'} />
                   </Grid.Col>
                   <Grid.Col span={{ base: 12, md: 6 }}>
                     <DetailItem label="Affinity Group" value={formatGroupAxisLabel(lead.affinityGroupSelection, lead.affinityGroupName)} />
@@ -637,6 +1136,11 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <DetailItem label="Private Label" value={lead.privateLabelName ?? 'Dynamic AQS'} />
                     <DetailItem label="Source Site" value={lead.sourceSiteName ?? lead.sourceSiteId ?? 'N/A'} />
                     <DetailItem label="Brand Tag" value={lead.sourceBrandTag ?? 'N/A'} />
+                    <DetailItem label="Lead Rating" value={lead.leadRating ? formatLeadRatingLabel(lead.leadRating) : 'Unrated'} />
+                    <DetailItem label="Install Tech Count" value={lead.installTechCount !== undefined ? String(lead.installTechCount) : 'N/A'} />
+                    <DetailItem label="Truck Count" value={lead.truckCount !== undefined ? String(lead.truckCount) : 'N/A'} />
+                    <DetailItem label="Sales Person Count" value={lead.salesPersonCount !== undefined ? String(lead.salesPersonCount) : 'N/A'} />
+                    <DetailItem label="Potential Value" value={lead.potentialValueCents !== undefined ? formatCurrency(lead.potentialValueCents) : 'N/A'} />
                     <DetailItem label="Routing Basis Snapshot" value={`${lead.routingBasis === 'truck_count' ? 'Truck Count' : 'Service Tech Count'} ≤ ${lead.routingThreshold}`} />
                   </Grid.Col>
                 </Grid>
@@ -1115,6 +1619,14 @@ function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
   );
 }
 
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value / 100);
+}
+
 function getDiscoveryStepTitle(lead: LeadDetail, hasInitialContact: boolean) {
   if (!hasInitialContact) {
     return 'Make initial contact and open discovery';
@@ -1165,6 +1677,30 @@ function formatCaptureMethod(value: LeadDetail['leadCaptureMethod']) {
     default:
       return 'Manual Entry';
   }
+}
+
+function leadRatingColor(value: string) {
+  switch (value) {
+    case 'hot':
+      return 'orange';
+    case 'warm':
+      return 'yellow';
+    case 'cold':
+      return 'blue';
+    case 'whale':
+      return 'grape';
+    case 'not_interested':
+      return 'gray';
+    default:
+      return 'blue';
+  }
+}
+
+function formatLeadRatingLabel(value: string) {
+  return value
+    .split('_')
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');
 }
 
 function formatGroupAxisLabel(

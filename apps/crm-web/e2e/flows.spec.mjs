@@ -14,14 +14,15 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(page).toHaveURL(/\/leads$/);
   await expect(page.getByRole('heading', { name: 'Residential Lead Hub' })).toBeVisible();
   await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
-  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
-  await page.getByLabel('Company name').fill('Acme Comfort Group');
-  await page.getByLabel('Email').fill('intake@example.com');
-  await page.getByLabel('Phone').fill('555-401-5000');
-  await expect(page.getByLabel('Company name')).toHaveValue('Acme Comfort Group');
-  await expect(page.getByRole('textbox', { name: 'Affinity group status' })).toHaveValue('');
-  await expect(page.getByRole('textbox', { name: 'Ownership group status' })).toHaveValue('');
-  await page.getByRole('button', { name: 'Create Lead' }).click();
+  const intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill('Acme Comfort Group');
+  await intakeDialog.getByLabel('Email').fill('intake@example.com');
+  await intakeDialog.getByLabel('Phone').fill('555-401-5000');
+  await expect(intakeDialog.getByLabel('Company name')).toHaveValue('Acme Comfort Group');
+  await expect(intakeDialog.getByRole('textbox', { name: 'Affinity group status' })).toHaveValue('');
+  await expect(intakeDialog.getByRole('textbox', { name: 'Ownership group status' })).toHaveValue('');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
   await expect(page.getByText('Choose an affinity group status before creating a manual lead.')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'New Intake' })).not.toBeVisible();
@@ -119,15 +120,16 @@ test('public website form explains when a submission is attached to an existing 
   await loginToInternalWorkspace(page, fixtures);
   await expect(page).toHaveURL(/\/leads$/);
   await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
-  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
-  await page.getByLabel('Company name').fill(companyName);
-  await page.getByLabel('Contact name').fill('Existing Pulse Lead');
-  await page.getByLabel('Email').fill(`existing.${Date.now()}@example.com`);
-  await page.getByLabel('Phone').fill('555-401-5099');
-  await chooseSelectOption(page, 'State / Province', /Texas \(TX\)|TX/);
-  await chooseSelectOption(page, 'Affinity group status', 'Independent / no group');
-  await chooseSelectOption(page, 'Ownership group status', 'Independent / no group');
-  await page.getByRole('button', { name: 'Create Lead' }).click();
+  const intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill(companyName);
+  await intakeDialog.getByLabel('Contact name').fill('Existing Pulse Lead');
+  await intakeDialog.getByLabel('Email').fill(`existing.${Date.now()}@example.com`);
+  await intakeDialog.getByLabel('Phone').fill('555-401-5099');
+  await chooseSelectOption(intakeDialog, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(intakeDialog, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(intakeDialog, 'Ownership group status', 'Independent / no group');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
 
   await expect(page).toHaveURL(/\/leads\/.+/);
   const existingLeadId = page.url().split('/').pop();
@@ -181,15 +183,16 @@ test('internal lead kanban supports dragging a card into the next stage', async 
   await expect(page).toHaveURL(/\/leads$/);
 
   await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
-  await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
-  await page.getByLabel('Company name').fill(companyName);
-  await page.getByLabel('Contact name').fill('Drag Tester');
-  await page.getByLabel('Email').fill(`drag.${Date.now()}@example.com`);
-  await page.getByLabel('Phone').fill('555-401-5001');
-  await chooseSelectOption(page, 'State / Province', /Texas \(TX\)|TX/);
-  await chooseSelectOption(page, 'Affinity group status', 'Independent / no group');
-  await chooseSelectOption(page, 'Ownership group status', 'Independent / no group');
-  await page.getByRole('button', { name: 'Create Lead' }).click();
+  const intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill(companyName);
+  await intakeDialog.getByLabel('Contact name').fill('Drag Tester');
+  await intakeDialog.getByLabel('Email').fill(`drag.${Date.now()}@example.com`);
+  await intakeDialog.getByLabel('Phone').fill('555-401-5001');
+  await chooseSelectOption(intakeDialog, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(intakeDialog, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(intakeDialog, 'Ownership group status', 'Independent / no group');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
 
   await expect(page).toHaveURL(/\/leads\/.+/);
   const leadDetailUrl = page.url();
@@ -211,6 +214,58 @@ test('internal lead kanban supports dragging a card into the next stage', async 
   await page.goto(leadDetailUrl);
   await expect(page.getByRole('heading', { name: companyName })).toBeVisible();
   await expect(page.getByText('2. Discovery Scheduled', { exact: true }).first()).toBeVisible();
+});
+
+test('super admin can edit a lead record and sees prototype-style hero and card insights', async ({ page }) => {
+  const fixtures = await readFixtures();
+  const companyName = `Insight Lead ${Date.now()}`;
+
+  await loginToInternalWorkspace(page, fixtures);
+  await expect(page).toHaveURL(/\/leads$/);
+
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  const intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill(companyName);
+  await intakeDialog.getByLabel('Contact name').fill('Insight Tester');
+  await intakeDialog.getByLabel('Email').fill(`insight.${Date.now()}@example.com`);
+  await intakeDialog.getByLabel('Phone').fill('555-401-5033');
+  await chooseSelectOption(intakeDialog, 'State / Province', /California \(CA\)|CA/);
+  await chooseSelectOption(intakeDialog, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(intakeDialog, 'Ownership group status', 'Independent / no group');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
+
+  await expect(page).toHaveURL(/\/leads\/.+/);
+  await expect(page.getByRole('button', { name: 'Edit Record' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Record' }).click();
+  const editDialog = page.getByRole('dialog');
+  await expect(editDialog.getByText('Edit Record')).toBeVisible();
+  await chooseSelectOption(editDialog, 'Lead source', 'Branded Website');
+  await editDialog.getByLabel('Source site', { exact: true }).fill('SolaceAir.com');
+  await editDialog.getByLabel('Brand tag').fill('SLA');
+  await chooseSelectOption(editDialog, 'Lead rating', 'Warm');
+  await editDialog.getByLabel('Potential value').fill('18000');
+  await editDialog.getByLabel('Notes').fill('Hero and kanban insight regression.');
+  await editDialog.getByRole('button', { name: 'Save Changes' }).click();
+
+  await expect(page.getByRole('heading', { name: companyName })).toBeVisible();
+  await expect(page.getByText('SolaceAir.com', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('SLA', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Warm', { exact: true }).first()).toBeVisible();
+
+  await page.goto('/leads');
+  await page.getByRole('tab', { name: 'Pipeline' }).click();
+  await page.getByPlaceholder('Search leads, companies, emails...').fill(companyName);
+
+  const insightCard = page
+    .getByText(companyName, { exact: true })
+    .locator('xpath=ancestor::*[@draggable="true"][1]');
+
+  await expect(insightCard).toContainText('SOLACEAIR.COM');
+  await expect(insightCard).toContainText('SLA');
+  await expect(insightCard).toContainText('Warm');
+  await expect(insightCard).toContainText('$18,000');
+  await expect(insightCard).toContainText('Make Initial Contact');
 });
 
 test('public CIS flow loads draft data, saves, and submits for internal review', async ({ page }) => {
@@ -264,8 +319,9 @@ async function loginToInternalWorkspace(page, fixtures) {
   ]);
 }
 
-async function chooseSelectOption(page, label, optionMatcher) {
-  const control = page.getByLabel(label).first();
+async function chooseSelectOption(scope, label, optionMatcher) {
+  const control = scope.getByLabel(label).first();
+  const page = control.page();
   await control.click();
   const searchText = resolveSelectSearchText(optionMatcher);
   const visibleText = resolveSelectVisibleText(optionMatcher);
@@ -281,8 +337,8 @@ async function chooseSelectOption(page, label, optionMatcher) {
       try {
         await page.getByText(visibleText, { exact: true }).last().click({ timeout: 3_000 });
       } catch {
-        await page.keyboard.press('ArrowDown');
-        await page.keyboard.press('Enter');
+        await control.press('ArrowDown');
+        await control.press('Enter');
       }
     }
 

@@ -19,6 +19,7 @@ let authenticateAccessToken;
 let createLead;
 let listLeads;
 let getLeadDetail;
+let updateLead;
 let processLeadOperationalAlertScanJob;
 let processLeadOperationalAlertDeliveryJob;
 let createRegion;
@@ -43,6 +44,7 @@ test.before(async () => {
     createLead,
     listLeads,
     getLeadDetail,
+    updateLead,
     processLeadOperationalAlertScanJob,
     processLeadOperationalAlertDeliveryJob,
   } = await import('../dist/modules/leads/service.js'));
@@ -228,6 +230,157 @@ test('lead potential value persists through summary and detail responses', SERIA
   const detail = await getLeadDetail(actor, lead.id);
   assert.ok(detail);
   assert.equal(detail.potentialValueCents, 1250000);
+});
+
+test('lead detail updates persist editable hero fields and re-sync territory on state change', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const txFixture = await seedTerritoryFixture(actor, 'edit-tx');
+
+  const caDirector = await createUser('REGIONAL_DIRECTOR', 'rd-edit-ca@pulse.local', 'RD edit ca');
+  const caManager = await createUser('TERRITORY_MANAGER', 'tm-edit-ca@pulse.local', 'TM edit ca');
+  const caShippingCenter = await createShippingCenter(actor, {
+    code: 'ship_edit_ca',
+    name: 'Shipping edit ca',
+    city: 'Los Angeles',
+    state: 'CA',
+  });
+  const caRegion = await createRegion(actor, {
+    code: 'region_edit_ca',
+    name: 'Region edit ca',
+    directorUserId: caDirector.id,
+  });
+  const caTerritory = await createTerritory(actor, {
+    code: 'territory_edit_ca',
+    name: 'Territory edit ca',
+    regionId: caRegion.id,
+    managerUserId: caManager.id,
+    shippingCenterId: caShippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, caTerritory.id, {
+    coverage: [{ stateCode: 'CA' }],
+  });
+
+  const lead = await createLead(actor, {
+    companyName: 'Edit Me HVAC',
+    contactDisplayName: 'Taylor Original',
+    email: 'taylor.original@example.com',
+    phone: '555-100-2250',
+    state: 'TX',
+    serviceTechCount: 6,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  assert.equal(lead.territoryId, txFixture.territory.id);
+
+  const commercialSegment = await prisma.businessSegmentRef.findFirst({
+    where: {
+      code: { not: lead.businessSegmentCode },
+      isActive: true,
+    },
+  });
+  const alternateLeadSource = await prisma.leadSourceRef.findFirst({
+    where: {
+      code: { not: lead.leadSourceCode },
+      isActive: true,
+    },
+  });
+  const affinityGroup = await prisma.affinityGroupRef.findFirst({
+    where: {
+      code: { notIn: ['INDEPENDENT', 'UNKNOWN'] },
+      isActive: true,
+    },
+  });
+  const ownershipGroup = await prisma.ownershipGroupRef.findFirst({
+    where: { isActive: true },
+  });
+
+  assert.ok(commercialSegment);
+  assert.ok(alternateLeadSource);
+  assert.ok(affinityGroup);
+  assert.ok(ownershipGroup);
+
+  const updated = await updateLead(actor, lead.id, {
+    companyName: 'Edited HVAC Group',
+    contactDisplayName: 'Taylor Updated',
+    email: 'taylor.updated@example.com',
+    phone: '555-100-2260',
+    state: 'CA',
+    businessSegmentCode: commercialSegment.code,
+    leadSourceCode: alternateLeadSource.code,
+    sourceDetail: 'Prototype parity regression',
+    sourceSiteId: 'solace-air',
+    sourceSiteName: 'SolaceAir.com',
+    sourceBrandTag: 'SLA',
+    sourceCampaign: 'spring-launch',
+    leadRating: 'warm',
+    serviceTechCount: 3,
+    installTechCount: 2,
+    truckCount: 1,
+    salesPersonCount: 4,
+    potentialValueCents: 1800000,
+    affinityGroupSelection: 'group',
+    affinityGroupCode: affinityGroup.code,
+    ownershipGroupSelection: 'group',
+    ownershipGroupCode: ownershipGroup.code,
+    privateLabelName: 'Dynamic AQS',
+    notes: 'Edited from regression coverage.',
+  });
+
+  assert.equal(updated.companyName, 'Edited HVAC Group');
+  assert.equal(updated.contactDisplayName, 'Taylor Updated');
+  assert.equal(updated.email, 'taylor.updated@example.com');
+  assert.equal(updated.phone, '555-100-2260');
+  assert.equal(updated.state, 'CA');
+  assert.equal(updated.businessSegmentCode, commercialSegment.code);
+  assert.equal(updated.leadSourceCode, alternateLeadSource.code);
+  assert.equal(updated.sourceDetail, 'Prototype parity regression');
+  assert.equal(updated.sourceSiteId, 'solace-air');
+  assert.equal(updated.sourceSiteName, 'SolaceAir.com');
+  assert.equal(updated.sourceBrandTag, 'SLA');
+  assert.equal(updated.sourceCampaign, 'spring-launch');
+  assert.equal(updated.leadRating, 'warm');
+  assert.equal(updated.serviceTechCount, 3);
+  assert.equal(updated.installTechCount, 2);
+  assert.equal(updated.truckCount, 1);
+  assert.equal(updated.salesPersonCount, 4);
+  assert.equal(updated.potentialValueCents, 1800000);
+  assert.equal(updated.affinityGroupSelection, 'group');
+  assert.equal(updated.affinityGroupCode, affinityGroup.code);
+  assert.equal(updated.ownershipGroupSelection, 'group');
+  assert.equal(updated.ownershipGroupCode, ownershipGroup.code);
+  assert.equal(updated.groupClassification, 'hybrid');
+  assert.equal(updated.privateLabelName, 'Dynamic AQS');
+  assert.equal(updated.notes, 'Edited from regression coverage.');
+  assert.equal(updated.territoryId, caTerritory.id);
+  assert.equal(updated.routingTeam, 'strategic_growth');
+
+  const summary = await listLeads(actor, { search: 'Edited HVAC Group' });
+  assert.equal(summary.items.length, 1);
+  assert.equal(summary.items[0].leadRating, 'warm');
+  assert.equal(summary.items[0].potentialValueCents, 1800000);
+  assert.equal(summary.items[0].sourceSiteName, 'SolaceAir.com');
+  assert.equal(summary.items[0].sourceBrandTag, 'SLA');
+  assert.equal(summary.items[0].routingTeam, 'strategic_growth');
+  assert.equal(summary.items[0].territoryId, caTerritory.id);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'LEAD',
+      entityId: lead.id,
+      action: 'UPDATE',
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  assert.ok(audit);
+  assert.equal(audit.afterData.companyName, 'Edited HVAC Group');
+  assert.equal(audit.afterData.state, 'CA');
+  assert.equal(audit.afterData.businessSegmentCode, commercialSegment.code);
+  assert.equal(audit.afterData.leadSourceCode, alternateLeadSource.code);
+  assert.equal(audit.afterData.affinityGroupCode, affinityGroup.code);
+  assert.equal(audit.afterData.ownershipGroupCode, ownershipGroup.code);
 });
 
 test('territory managers cannot see pre-handoff leads when the policy is disabled', SERIAL, async () => {

@@ -288,6 +288,7 @@ export interface LeadSummary {
   sourceSiteId?: string;
   sourceSiteName?: string;
   sourceBrandTag?: string;
+  leadRating?: string;
   serviceTechCount: number;
   installTechCount?: number;
   truckCount?: number;
@@ -330,6 +331,36 @@ export interface LeadSummary {
   initialContactDueAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UpdateLeadRequest {
+  companyName?: string;
+  contactFirstName?: string | null;
+  contactLastName?: string | null;
+  contactDisplayName?: string;
+  email?: string | null;
+  phone?: string | null;
+  state?: string | null;
+  countryCode?: string | null;
+  businessSegmentCode?: string;
+  leadSourceCode?: string;
+  sourceDetail?: string | null;
+  sourceSiteId?: string | null;
+  sourceSiteName?: string | null;
+  sourceBrandTag?: string | null;
+  sourceCampaign?: string | null;
+  leadRating?: string | null;
+  serviceTechCount?: number;
+  installTechCount?: number | null;
+  truckCount?: number | null;
+  salesPersonCount?: number | null;
+  potentialValueCents?: number | null;
+  affinityGroupSelection?: GroupAxisSelectionKey;
+  affinityGroupCode?: string | null;
+  ownershipGroupSelection?: GroupAxisSelectionKey;
+  ownershipGroupCode?: string | null;
+  privateLabelName?: string | null;
+  notes?: string | null;
 }
 
 export interface LeadStageEventSummary {

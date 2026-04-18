@@ -156,6 +156,7 @@ import type {
   UpdateLeadContactRequest,
   UpdateAffinityGroupRequest,
   UpdateLeadLifecycleRequest,
+  UpdateLeadRequest,
   UpdateLeadConversionPreparationRequest,
   UpdateLeadReadinessItemRequest,
   UpdateOwnershipGroupRequest,
@@ -1632,6 +1633,19 @@ export async function fetchLeadDetail(apiBaseUrl: string, accessToken: string, l
 export async function createLead(apiBaseUrl: string, accessToken: string, input: CreateLeadRequest) {
   return requestJson<LeadSummary>(apiBaseUrl, '/api/v1/leads', {
     method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateLead(
+  apiBaseUrl: string,
+  accessToken: string,
+  leadId: string,
+  input: UpdateLeadRequest,
+) {
+  return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${leadId}`, {
+    method: 'PATCH',
     accessToken,
     body: input,
   });

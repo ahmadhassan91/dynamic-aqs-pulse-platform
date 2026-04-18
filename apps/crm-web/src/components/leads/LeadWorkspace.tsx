@@ -35,6 +35,8 @@ import {
   IconDownload,
   IconFileUpload,
   IconListDetails,
+  IconMail,
+  IconPhone,
   IconPlus,
   IconRefresh,
   IconTarget,
@@ -820,18 +822,83 @@ export function LeadWorkspace({
                                         <Text fw={700}>{lead.companyName}</Text>
                                         <Text size="sm" c="dimmed">{lead.contactDisplayName}</Text>
                                       </Stack>
-                                      <Badge color={stage.color} variant="light">
-                                        {lead.serviceTechCount} techs
-                                      </Badge>
+                                      {lead.potentialValueCents ? (
+                                        <Text fw={700} c="blue">
+                                          {formatCurrency(lead.potentialValueCents)}
+                                        </Text>
+                                      ) : (
+                                        <Badge color={stage.color} variant="light">
+                                          {lead.serviceTechCount} techs
+                                        </Badge>
+                                      )}
                                     </Group>
-                                    <Text size="sm" c="dimmed">{lead.leadSourceName}</Text>
-                                    <Group justify="space-between">
-                                      <Badge variant="light" color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'}>
-                                        {formatRoutingTeam(lead.routingTeam)}
+                                    <Group gap={6} wrap="wrap">
+                                      <Badge variant="light" color="cyan">
+                                        <Group gap={4} wrap="nowrap">
+                                          <IconWorld size={12} />
+                                          <Text size="xs" fw={700} inherit>{(lead.sourceSiteName ?? lead.leadSourceName).toUpperCase()}</Text>
+                                        </Group>
                                       </Badge>
-                                      <Group gap={4}>
-                                        <Text size="xs" c="dimmed">{formatDateLabel(lead.updatedAt)}</Text>
-                                        <IconChevronRight size={14} />
+                                      {lead.sourceBrandTag ? (
+                                        <Badge variant="light" color="blue">
+                                          {lead.sourceBrandTag.toUpperCase()}
+                                        </Badge>
+                                      ) : null}
+                                      {lead.leadRating ? (
+                                        <Badge variant="light" color={leadRatingColor(lead.leadRating)}>
+                                          {formatLeadRatingLabel(lead.leadRating)}
+                                        </Badge>
+                                      ) : null}
+                                      <Badge variant="outline" color="gray">
+                                        <Group gap={4} wrap="nowrap">
+                                          <IconUsers size={12} />
+                                          <Text size="xs" fw={600} inherit>{lead.serviceTechCount}</Text>
+                                        </Group>
+                                      </Badge>
+                                      {lead.stage === 'new' ? (
+                                        renderLeadSlaBadge(lead)
+                                      ) : (
+                                        <Badge variant="light" color="green">
+                                          Contacted
+                                        </Badge>
+                                      )}
+                                    </Group>
+                                    <Text size="sm" c="dimmed">
+                                      {lead.contactDisplayName}
+                                      {lead.state ? ` · ${lead.state}` : ''}
+                                    </Text>
+                                    <Divider />
+                                    <Group justify="space-between" align="center">
+                                      <Text fw={600} size="sm">{primaryLeadActionLabel(lead)}</Text>
+                                      <Group gap="xs" wrap="nowrap">
+                                        {lead.phone ? (
+                                          <ActionIcon
+                                            component="a"
+                                            href={`tel:${lead.phone}`}
+                                            variant="subtle"
+                                            color="blue"
+                                            onClick={(event) => event.stopPropagation()}
+                                            aria-label={`Call ${lead.companyName}`}
+                                          >
+                                            <IconPhone size={16} />
+                                          </ActionIcon>
+                                        ) : null}
+                                        {lead.email ? (
+                                          <ActionIcon
+                                            component="a"
+                                            href={`mailto:${lead.email}`}
+                                            variant="subtle"
+                                            color="teal"
+                                            onClick={(event) => event.stopPropagation()}
+                                            aria-label={`Email ${lead.companyName}`}
+                                          >
+                                            <IconMail size={16} />
+                                          </ActionIcon>
+                                        ) : null}
+                                        <Group gap={4}>
+                                          <Text size="xs" c="dimmed">{formatDateLabel(lead.updatedAt)}</Text>
+                                          <IconChevronRight size={14} />
+                                        </Group>
                                       </Group>
                                     </Group>
                                   </Stack>
@@ -1174,6 +1241,84 @@ function formatDateLabel(value: string) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value / 100);
+}
+
+function leadRatingColor(value: string) {
+  switch (value) {
+    case 'hot':
+      return 'orange';
+    case 'warm':
+      return 'yellow';
+    case 'cold':
+      return 'blue';
+    case 'whale':
+      return 'grape';
+    case 'not_interested':
+      return 'gray';
+    default:
+      return 'blue';
+  }
+}
+
+function formatLeadRatingLabel(value: string) {
+  return value
+    .split('_')
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');
+}
+
+function renderLeadSlaBadge(lead: LeadSummary) {
+  if (!lead.initialContactDueAt) {
+    return (
+      <Badge variant="light" color="gray">
+        SLA pending
+      </Badge>
+    );
+  }
+
+  const hoursLeft = Math.floor((new Date(lead.initialContactDueAt).getTime() - Date.now()) / 3600000);
+  if (hoursLeft < 0) {
+    return (
+      <Badge variant="filled" color="red">
+        SLA Overdue
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="light" color={hoursLeft < 12 ? 'orange' : 'blue'}>
+      {hoursLeft}h SLA
+    </Badge>
+  );
+}
+
+function primaryLeadActionLabel(lead: LeadSummary) {
+  switch (lead.stage) {
+    case 'new':
+      return 'Make Initial Contact';
+    case 'discovery_scheduled':
+      return 'Complete Discovery';
+    case 'discovery_completed':
+      return 'Send CIS';
+    case 'cis_sent':
+      return 'Follow Up CIS';
+    case 'cis_signed':
+      return 'Finish Setup';
+    case 'onboarding_completed':
+      return 'Ready for First Order';
+    case 'customer_active':
+      return 'Customer Active';
+    default:
+      return 'Open Lead';
+  }
 }
 
 function downloadCsv(filename: string, rows: Record<string, string>[]) {

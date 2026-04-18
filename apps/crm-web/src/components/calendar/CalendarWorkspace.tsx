@@ -55,6 +55,7 @@ import {
   updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
+import { getCalendarPrototypeViewOptions } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
@@ -281,12 +282,18 @@ function filterEventItem(item: CalendarEventSummary, filter: CalendarFilterMode)
   return item.eventType === 'consignment_audit';
 }
 
-export function CalendarWorkspace() {
+export function CalendarWorkspace({
+  embedded = false,
+  initialView = 'month',
+}: {
+  embedded?: boolean;
+  initialView?: CalendarViewMode;
+} = {}) {
   const { auth, apiBaseUrl } = usePulseSession();
   const searchParams = useSearchParams();
   const accessToken = auth?.tokens.accessToken ?? '';
   const role = auth?.identity.role;
-  const [view, setView] = useState<CalendarViewMode>('month');
+  const [view, setView] = useState<CalendarViewMode>(initialView);
   const [filter, setFilter] = useState<CalendarFilterMode>('all');
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
   const [workspace, setWorkspace] = useState<CalendarWorkspaceResponse | null>(null);
@@ -428,6 +435,7 @@ export function CalendarWorkspace() {
   );
 
   const monthCells = useMemo(() => buildMonthCells(anchorDate), [anchorDate]);
+  const calendarViewOptions = useMemo(() => getCalendarPrototypeViewOptions(), []);
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(anchorDate), index)),
     [anchorDate],
@@ -555,57 +563,79 @@ export function CalendarWorkspace() {
 
   return (
     <Stack gap="lg">
-      <Paper withBorder radius="xl" p="xl">
-        <Stack gap="md">
-          <Group justify="space-between" align="flex-start">
-            <Stack gap={4}>
-              <Text size="sm" fw={700} c="blue.7" tt="uppercase">
-                Pulse CRM / Calendar
-              </Text>
-              <Title order={1}>Centralized operating calendar</Title>
-              <Text c="dimmed" maw={920}>
-                One operational view for discovery calls, training sessions, field visits, and later audit activity.
-                Pulse owns the workflow truth here; provider sync can reflect it later without becoming the source system.
-              </Text>
-            </Stack>
-            <Group gap="sm">
-              <Button component={Link} href="/leads" variant="light" rightSection={<IconArrowRight size={16} />}>
-                Open lead workflow
-              </Button>
-              <Button component={Link} href="/training" rightSection={<IconArrowRight size={16} />}>
-                Open training
-              </Button>
+      {!embedded ? (
+        <Paper withBorder radius="xl" p="xl">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={6}>
+                <Text size="sm" fw={700} c="blue.7" tt="uppercase">
+                  Pulse CRM / Calendar
+                </Text>
+                <Title order={1}>CRM Calendar</Title>
+                <Text c="dimmed" maw={920}>
+                  Day, week, month, and list views for discovery, training, visits, and audit-adjacent work, with
+                  Pulse still owning the workflow truth underneath the schedule shell.
+                </Text>
+                <Group gap="xs" wrap="wrap">
+                  <Badge color="blue" variant="light">Discovery</Badge>
+                  <Badge color="green" variant="light">Training</Badge>
+                  <Badge color="orange" variant="light">Visits</Badge>
+                  <Badge color="yellow" variant="light">Audits</Badge>
+                  {outlookConnection?.isConnected ? (
+                    <Badge color="teal" variant="light">Outlook Connected</Badge>
+                  ) : null}
+                </Group>
+              </Stack>
+              <Group gap="sm">
+                <Button
+                  variant="light"
+                  leftSection={<IconLink size={16} />}
+                  disabled={Boolean(
+                    !outlookConnection?.isConfigured
+                    || outlookConnection?.isConnected
+                    || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
+                    || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
+                  )}
+                  loading={isConnectingOutlook}
+                  onClick={() => void handleStartOutlookConnect()}
+                >
+                  Sync Outlook
+                </Button>
+                <Button onClick={() => openSchedulerForDate(startOfHour(new Date()))}>
+                  Schedule &amp; Send Invite
+                </Button>
+              </Group>
             </Group>
-          </Group>
 
-          <SimpleGrid cols={{ base: 2, md: 5 }}>
-            <Card withBorder radius="lg" p="md">
-              <Text size="sm" c="dimmed">Scheduled</Text>
-              <Title order={2}>{workspace?.summary.scheduledCount ?? 0}</Title>
-            </Card>
-            <Card withBorder radius="lg" p="md">
-              <Text size="sm" c="dimmed">Completed</Text>
-              <Title order={2}>{workspace?.summary.completedCount ?? 0}</Title>
-            </Card>
-            <Card withBorder radius="lg" p="md">
-              <Text size="sm" c="dimmed">Discovery</Text>
-              <Title order={2}>{workspace?.summary.discoveryCallCount ?? 0}</Title>
-            </Card>
-            <Card withBorder radius="lg" p="md">
-              <Text size="sm" c="dimmed">Training</Text>
-              <Title order={2}>
-                {(workspace?.summary.virtualTrainingCount ?? 0) + (workspace?.summary.accountTrainingCount ?? 0)}
-              </Title>
-            </Card>
-            <Card withBorder radius="lg" p="md">
-              <Text size="sm" c="dimmed">Visits / Audits</Text>
-              <Title order={2}>
-                {(workspace?.summary.onSiteVisitCount ?? 0) + (workspace?.summary.consignmentAuditCount ?? 0)}
-              </Title>
-            </Card>
-          </SimpleGrid>
-        </Stack>
-      </Paper>
+            <SimpleGrid cols={{ base: 2, md: 5 }}>
+              <Card withBorder radius="lg" p="md">
+                <Text size="sm" c="dimmed">Scheduled</Text>
+                <Title order={2}>{workspace?.summary.scheduledCount ?? 0}</Title>
+              </Card>
+              <Card withBorder radius="lg" p="md">
+                <Text size="sm" c="dimmed">Completed</Text>
+                <Title order={2}>{workspace?.summary.completedCount ?? 0}</Title>
+              </Card>
+              <Card withBorder radius="lg" p="md">
+                <Text size="sm" c="dimmed">Discovery</Text>
+                <Title order={2}>{workspace?.summary.discoveryCallCount ?? 0}</Title>
+              </Card>
+              <Card withBorder radius="lg" p="md">
+                <Text size="sm" c="dimmed">Training</Text>
+                <Title order={2}>
+                  {(workspace?.summary.virtualTrainingCount ?? 0) + (workspace?.summary.accountTrainingCount ?? 0)}
+                </Title>
+              </Card>
+              <Card withBorder radius="lg" p="md">
+                <Text size="sm" c="dimmed">Visits / Audits</Text>
+                <Title order={2}>
+                  {(workspace?.summary.onSiteVisitCount ?? 0) + (workspace?.summary.consignmentAuditCount ?? 0)}
+                </Title>
+              </Card>
+            </SimpleGrid>
+          </Stack>
+        </Paper>
+      ) : null}
 
       <Paper withBorder radius="xl" p="lg">
         <Stack gap="md">
@@ -638,12 +668,7 @@ export function CalendarWorkspace() {
               <SegmentedControl
                 value={view}
                 onChange={(value) => setView(value as CalendarViewMode)}
-                data={[
-                  { value: 'day', label: 'Day' },
-                  { value: 'month', label: 'Month' },
-                  { value: 'week', label: 'Week' },
-                  { value: 'list', label: 'List' },
-                ]}
+                data={calendarViewOptions}
               />
             </Group>
           </Group>

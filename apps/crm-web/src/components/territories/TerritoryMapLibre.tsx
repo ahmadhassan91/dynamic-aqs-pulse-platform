@@ -8,29 +8,13 @@ import type {
   TerritoryMapPinSummary,
   TerritoryMapShippingCenterSummary,
 } from '@pulse/contracts';
+import { resolvePaperMapTerritoryStyle } from '@/lib/prototype-parity';
 
 type MapLibreModule = typeof import('maplibre-gl');
 type MapInstance = import('maplibre-gl').Map;
 type PopupInstance = import('maplibre-gl').Popup;
 type MarkerInstance = import('maplibre-gl').Marker;
 type GeoJSONSourceInstance = import('maplibre-gl').GeoJSONSource;
-
-const TERRITORY_COLORS = [
-  '#2563eb',
-  '#9333ea',
-  '#f97316',
-  '#16a34a',
-  '#e11d48',
-  '#0f766e',
-  '#b45309',
-  '#0891b2',
-  '#7c3aed',
-  '#65a30d',
-] as const;
-
-function getTerritoryColor(index: number) {
-  return TERRITORY_COLORS[index % TERRITORY_COLORS.length] ?? '#2563eb';
-}
 
 type TerritoryMapLibreProps = {
   coverageEntries: TerritoryMapCoverageEntrySummary[];
@@ -249,7 +233,6 @@ export function TerritoryMapLibre({
   const [isOverlayExpanded, setIsOverlayExpanded] = useState(false);
 
   const coverageByState = useMemo(() => {
-    const paletteByTerritory = new Map<string, string>();
     const stateMap = new Map<
       string,
       TerritoryMapCoverageEntrySummary & {
@@ -257,15 +240,14 @@ export function TerritoryMapLibre({
       }
     >();
 
-    coverageEntries.forEach((entry, index) => {
-      if (!paletteByTerritory.has(entry.territoryId)) {
-        paletteByTerritory.set(entry.territoryId, getTerritoryColor(index));
-      }
-
-      const color = paletteByTerritory.get(entry.territoryId) ?? getTerritoryColor(index);
+    coverageEntries.forEach((entry) => {
+      const style = resolvePaperMapTerritoryStyle({
+        managerName: entry.assignedTmName,
+        shippingCenterName: entry.shippingCenterName,
+      });
       stateMap.set(`${entry.countryCode}:${entry.stateCode}`, {
         ...entry,
-        color,
+        color: style.color,
       });
     });
 
@@ -842,6 +824,9 @@ function buildShippingCenterMarkers(
   shippingCenters: TerritoryMapShippingCenterSummary[],
 ) {
   return shippingCenters.map((center) => {
+    const style = resolvePaperMapTerritoryStyle({
+      shippingCenterName: center.name,
+    });
     const markerElement = document.createElement('button');
     markerElement.type = 'button';
     markerElement.setAttribute('aria-label', `${center.name} shipping hub`);
@@ -880,7 +865,7 @@ function buildShippingCenterMarkers(
     label.style.fontSize = '11px';
     label.style.fontWeight = '800';
     label.style.letterSpacing = '0.04em';
-    label.textContent = center.code.toUpperCase();
+    label.textContent = style.hubLabel ?? center.code.toUpperCase();
 
     markerElement.appendChild(badge);
     markerElement.appendChild(label);

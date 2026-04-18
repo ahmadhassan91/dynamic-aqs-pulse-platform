@@ -18,7 +18,12 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(page.getByRole('heading', { name: 'Pulse Website Lead Forms' })).toBeVisible();
 
   await page.goto('/territories');
-  await expect(page.getByRole('heading', { name: 'Territory command center' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Map View' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Territory List' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Admin Config' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Calendar' })).toBeVisible();
 
   await page.goto('/customers');
   await expect(page.getByRole('heading', { name: 'Account Management' })).toBeVisible();
@@ -35,7 +40,7 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(trainingOverview.getByText('Product Installations', { exact: true }).last()).toBeVisible();
 
   await page.goto('/calendar');
-  await expect(page.getByRole('heading', { name: 'Centralized operating calendar' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CRM Calendar' })).toBeVisible();
   await page.getByText('Day', { exact: true }).click({ force: true });
   await expect(page.getByText('Daily schedule lane')).toBeVisible();
   await page.getByText('Open slot').first().click({ force: true });

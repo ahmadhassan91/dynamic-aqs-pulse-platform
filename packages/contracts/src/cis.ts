@@ -239,7 +239,7 @@ export interface CisPaymentCaptureAttemptRecord {
   providerResultCode?: string;
   providerErrorMessage?: string;
   bin?: string;
-  hasTemporaryToken: boolean;
+  hasTemporaryToken?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -252,8 +252,8 @@ export interface CisPaymentVaultReferenceRecord {
   brand?: string;
   authorizationCapturedAt?: string;
   status: string;
-  hasVaultToken: boolean;
-  hasVaultCustomerRef: boolean;
+  hasVaultToken?: boolean;
+  hasVaultCustomerRef?: boolean;
   createdAt: string;
   updatedAt: string;
 }

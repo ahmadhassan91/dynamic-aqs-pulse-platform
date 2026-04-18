@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { assertActionAccess, assertModuleAccess, canPerformAction } from '@pulse/auth';
+import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import {
   AuditAction,
   CisEntryMethod,
@@ -61,6 +61,13 @@ import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import { encryptSecret } from '../../utils/secrets.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { resolveLeadRecordScope } from '../auth/visibility.js';
+import {
+  canViewCustomerFinancials,
+  maskCisFinanceDecisionFields,
+  maskCisFormFinancialFields,
+  maskCisPaymentCaptureAttemptFinancialFields,
+  maskCisPaymentVaultReferenceFinancialFields,
+} from '../accounts/financials.js';
 import { normalizeMonerisHostedCaptureResult } from './moneris.js';
 import { getResolvedPaymentIntegrationPolicy } from './policy.js';
 
@@ -2477,12 +2484,14 @@ function toCisFormUpdateInput(form: MutableCisFormSnapshot, now: Date): Prisma.C
 function toCisPackageDetail(actor: AuthenticatedActor, cisPackage: CisPackageWithRelations): CisPackageDetail {
   return {
     ...toCisPackageSummary(cisPackage),
-    formData: toCisFormRecord(cisPackage.formData),
+    formData: maskCisFormFinancialFields(actor, toCisFormRecord(cisPackage.formData)),
     ...(cisPackage.internalReview ? { internalReview: toCisInternalReviewRecord(cisPackage.internalReview) } : {}),
     ...(cisPackage.financeDecision ? { financeDecision: toCisFinanceDecisionRecord(actor, cisPackage.financeDecision) } : {}),
     paymentCaptureHealth: toCisPaymentCaptureHealthRecord(cisPackage),
-    paymentCaptureAttempts: cisPackage.paymentCaptureAttempts.map(toCisPaymentCaptureAttemptRecord),
-    paymentVaultReferences: cisPackage.paymentVaultReferences.map(toCisPaymentVaultReferenceRecord),
+    paymentCaptureAttempts: cisPackage.paymentCaptureAttempts.map((attempt) =>
+      maskCisPaymentCaptureAttemptFinancialFields(actor, toCisPaymentCaptureAttemptRecord(attempt))),
+    paymentVaultReferences: cisPackage.paymentVaultReferences.map((reference) =>
+      maskCisPaymentVaultReferenceFinancialFields(actor, toCisPaymentVaultReferenceRecord(reference))),
     events: cisPackage.events.map(toCisPackageEventSummary),
   };
 }
@@ -2557,24 +2566,7 @@ function toCisFinanceDecisionRecord(
   actor: AuthenticatedActor,
   financeDecision: Prisma.CisFinanceDecisionGetPayload<Record<string, never>>,
 ): CisFinanceDecisionRecord {
-  const canViewFinancialTerms = canViewCisFinancials(actor);
-
-  return {
-    status: toCisFinanceDecisionStatusKey(financeDecision.status),
-    ...(financeDecision.submittedByUserId ? { submittedByUserId: financeDecision.submittedByUserId } : {}),
-    ...(financeDecision.submittedAt ? { submittedAt: financeDecision.submittedAt.toISOString() } : {}),
-    ...(canViewFinancialTerms && financeDecision.creditLineAmountCents !== null
-      ? { creditLineAmount: financeDecision.creditLineAmountCents / 100 }
-      : {}),
-    ...(canViewFinancialTerms && financeDecision.paymentTerms
-      ? { paymentTerms: toCisPaymentTermsKey(financeDecision.paymentTerms) }
-      : {}),
-    ...(financeDecision.submissionNotes ? { submissionNotes: financeDecision.submissionNotes } : {}),
-    ...(financeDecision.requestedInfoNotes ? { requestedInfoNotes: financeDecision.requestedInfoNotes } : {}),
-    ...(financeDecision.decisionNotes ? { decisionNotes: financeDecision.decisionNotes } : {}),
-    ...(financeDecision.decidedByUserId ? { decidedByUserId: financeDecision.decidedByUserId } : {}),
-    ...(financeDecision.decidedAt ? { decidedAt: financeDecision.decidedAt.toISOString() } : {}),
-  };
+  return maskCisFinanceDecisionFields(actor, toRawCisFinanceDecisionRecord(financeDecision));
 }
 
 function toFinanceQueueItem(cisPackage: CisPackageWithRelations): FinanceQueueItem {
@@ -2614,7 +2606,7 @@ function toFinanceQueueItem(cisPackage: CisPackageWithRelations): FinanceQueueIt
 }
 
 function maskFinanceQueueItem(actor: AuthenticatedActor, item: FinanceQueueItem): FinanceQueueItem {
-  if (canViewCisFinancials(actor)) {
+  if (canViewCustomerFinancials(actor)) {
     return item;
   }
 
@@ -2637,10 +2629,6 @@ function toRawCisFinanceDecisionRecord(
     ...(financeDecision.decidedByUserId ? { decidedByUserId: financeDecision.decidedByUserId } : {}),
     ...(financeDecision.decidedAt ? { decidedAt: financeDecision.decidedAt.toISOString() } : {}),
   };
-}
-
-function canViewCisFinancials(actor: AuthenticatedActor) {
-  return canPerformAction(actor.role, 'customer.financials_view');
 }
 
 function toCisDocumentRecord(document: Prisma.CisDocumentGetPayload<Record<string, never>>): CisDocumentRecord {

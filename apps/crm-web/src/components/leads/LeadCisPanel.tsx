@@ -61,6 +61,7 @@ import {
   submitLeadCisToFinance,
   uploadLeadCisScan,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 
 type LeadCisPanelProps = {
   apiBaseUrl: string;
@@ -178,6 +179,7 @@ export function LeadCisPanel({
 
   const canManageCis = CIS_MANAGE_ROLES.has(actorRole);
   const canDecideFinance = FINANCE_DECISION_ROLES.has(actorRole);
+  const canViewFinancials = canPerformAction(actorRole, 'customer.financials_view');
   const canIssueCis = SENDABLE_LEAD_STAGES.has(lead.stage);
   const leadLifecycleLocked = lead.lifecycleStatus !== 'active';
   const latestTokenizedCaptureAttempt = useMemo(
@@ -1216,24 +1218,39 @@ export function LeadCisPanel({
                         <ReadOnlyField label="Ordering contact" value={cisPackage.formData.orderingContactName} />
                         <ReadOnlyField label="Ordering contact cell" value={cisPackage.formData.orderingContactCellPhone} />
                         <ReadOnlyField label="Ordering contact email" value={cisPackage.formData.orderingContactEmail} />
-                        <ReadOnlyField label="Accounts payable" value={cisPackage.formData.apContactName} />
-                        <ReadOnlyField label="AP direct phone" value={cisPackage.formData.apDirectPhone} />
-                        <ReadOnlyField label="AP email" value={cisPackage.formData.apEmail} />
+                        {canViewFinancials ? (
+                          <>
+                            <ReadOnlyField label="Accounts payable" value={cisPackage.formData.apContactName} />
+                            <ReadOnlyField label="AP direct phone" value={cisPackage.formData.apDirectPhone} />
+                            <ReadOnlyField label="AP email" value={cisPackage.formData.apEmail} />
+                          </>
+                        ) : null}
                       </SimpleGrid>
+                      {!canViewFinancials ? (
+                        <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                          Accounts payable contact details are restricted to finance-enabled roles.
+                        </Alert>
+                      ) : null}
                     </Stack>
                   </Tabs.Panel>
 
                   <Tabs.Panel value="payment" pt="md">
                     <Stack gap="md">
                       <Text fw={600} size="sm" c="blue.7">Payment Authorization</Text>
-                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-                        <ReadOnlyField label="Preferred payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
-                        <ReadOnlyField label="ACH authorized" value={cisPackage.formData.achAuthorized ? 'Yes' : 'No'} />
-                        <ReadOnlyField label="Card on file authorized" value={cisPackage.formData.cardOnFileAuthorized ? 'Yes' : 'No'} />
-                        <ReadOnlyField label="Resale certificate attached" value={cisPackage.formData.resaleCertificateAttached ? 'Yes' : 'No'} />
-                        <ReadOnlyField label="Signature captured" value={cisPackage.formData.signatureCapturedAt ? formatDateTimeLabel(cisPackage.formData.signatureCapturedAt) : 'Pending'} />
-                        <ReadOnlyField label="Prospect last saved" value={formatOptionalDate(cisPackage.formData.lastSavedAt)} />
-                      </SimpleGrid>
+                      {canViewFinancials ? (
+                        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                          <ReadOnlyField label="Preferred payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
+                          <ReadOnlyField label="ACH authorized" value={cisPackage.formData.achAuthorized ? 'Yes' : 'No'} />
+                          <ReadOnlyField label="Card on file authorized" value={cisPackage.formData.cardOnFileAuthorized ? 'Yes' : 'No'} />
+                          <ReadOnlyField label="Resale certificate attached" value={cisPackage.formData.resaleCertificateAttached ? 'Yes' : 'No'} />
+                          <ReadOnlyField label="Signature captured" value={cisPackage.formData.signatureCapturedAt ? formatDateTimeLabel(cisPackage.formData.signatureCapturedAt) : 'Pending'} />
+                          <ReadOnlyField label="Prospect last saved" value={formatOptionalDate(cisPackage.formData.lastSavedAt)} />
+                        </SimpleGrid>
+                      ) : (
+                        <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                          Payment authorization details are restricted to finance-enabled roles.
+                        </Alert>
+                      )}
                     </Stack>
                   </Tabs.Panel>
                 </Tabs>
@@ -1399,122 +1416,130 @@ export function LeadCisPanel({
                       Pulse does not store raw card or bank details here. This lane tracks hosted capture progress and masked/tokenized vault outcomes only.
                     </Alert>
 
-                    {cisPackage.paymentCaptureHealth.replayedCallbackCount > 0 ? (
-                      <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                        Moneris retried the callback {cisPackage.paymentCaptureHealth.replayedCallbackCount} time{cisPackage.paymentCaptureHealth.replayedCallbackCount === 1 ? '' : 's'} for this CIS package. Pulse ignored the duplicate payload safely and kept one authoritative tokenization outcome.
-                      </Alert>
-                    ) : null}
+                    {canViewFinancials ? (
+                      <>
+                        {cisPackage.paymentCaptureHealth.replayedCallbackCount > 0 ? (
+                          <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                            Moneris retried the callback {cisPackage.paymentCaptureHealth.replayedCallbackCount} time{cisPackage.paymentCaptureHealth.replayedCallbackCount === 1 ? '' : 's'} for this CIS package. Pulse ignored the duplicate payload safely and kept one authoritative tokenization outcome.
+                          </Alert>
+                        ) : null}
 
-                    {cisPackage.paymentCaptureHealth.needsFinanceRelaunch ? (
-                      <Alert color="orange" icon={<IconAlertCircle size={16} />}>
-                        The latest hosted capture attempt expired without a permanent vault reference. Finance should relaunch a fresh secure capture when the prospect is ready.
-                      </Alert>
-                    ) : null}
+                        {cisPackage.paymentCaptureHealth.needsFinanceRelaunch ? (
+                          <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                            The latest hosted capture attempt expired without a permanent vault reference. Finance should relaunch a fresh secure capture when the prospect is ready.
+                          </Alert>
+                        ) : null}
 
-                    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-                      <ReadOnlyField label="Payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
-                      <ReadOnlyField label="Vault references" value={String(cisPackage.paymentVaultReferences.length)} />
-                      <ReadOnlyField
-                        label="Latest hosted attempt"
-                        value={latestCaptureAttempt ? `${formatCaptureAttemptStatus(latestCaptureAttempt.status)} • ${formatDateTimeLabel(latestCaptureAttempt.createdAt)}` : '—'}
-                      />
-                    </SimpleGrid>
+                        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                          <ReadOnlyField label="Payment method" value={formatPaymentMethod(cisPackage.formData.paymentMethod)} />
+                          <ReadOnlyField label="Vault references" value={String(cisPackage.paymentVaultReferences.length)} />
+                          <ReadOnlyField
+                            label="Latest hosted attempt"
+                            value={latestCaptureAttempt ? `${formatCaptureAttemptStatus(latestCaptureAttempt.status)} • ${formatDateTimeLabel(latestCaptureAttempt.createdAt)}` : '—'}
+                          />
+                        </SimpleGrid>
 
-                    <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-                      <ReadOnlyField
-                        label="Active attempts"
-                        value={String(cisPackage.paymentCaptureHealth.activeAttemptCount)}
-                      />
-                      <ReadOnlyField
-                        label="Expired attempts"
-                        value={String(cisPackage.paymentCaptureHealth.expiredAttemptCount)}
-                      />
-                      <ReadOnlyField
-                        label="Replay-safe callbacks"
-                        value={String(cisPackage.paymentCaptureHealth.replayedCallbackCount)}
-                      />
-                      <ReadOnlyField
-                        label="Last cleanup / replay"
-                        value={
-                          cisPackage.paymentCaptureHealth.lastCallbackReplayAt
-                            ? `Replay ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastCallbackReplayAt)}`
-                            : cisPackage.paymentCaptureHealth.lastExpiredAt
-                              ? `Cleanup ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastExpiredAt)}`
-                              : '—'
-                        }
-                      />
-                    </SimpleGrid>
+                        <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
+                          <ReadOnlyField
+                            label="Active attempts"
+                            value={String(cisPackage.paymentCaptureHealth.activeAttemptCount)}
+                          />
+                          <ReadOnlyField
+                            label="Expired attempts"
+                            value={String(cisPackage.paymentCaptureHealth.expiredAttemptCount)}
+                          />
+                          <ReadOnlyField
+                            label="Replay-safe callbacks"
+                            value={String(cisPackage.paymentCaptureHealth.replayedCallbackCount)}
+                          />
+                          <ReadOnlyField
+                            label="Last cleanup / replay"
+                            value={
+                              cisPackage.paymentCaptureHealth.lastCallbackReplayAt
+                                ? `Replay ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastCallbackReplayAt)}`
+                                : cisPackage.paymentCaptureHealth.lastExpiredAt
+                                  ? `Cleanup ${formatDateTimeLabel(cisPackage.paymentCaptureHealth.lastExpiredAt)}`
+                                  : '—'
+                            }
+                          />
+                        </SimpleGrid>
 
-                    {cisPackage.paymentCaptureAttempts.length > 0 ? (
-                      <Stack gap="xs">
-                        <Text fw={600}>Hosted capture attempts</Text>
-                        {cisPackage.paymentCaptureAttempts.map((attempt) => (
-                          <Card key={attempt.id} withBorder radius="lg" p="sm">
-                            <Group justify="space-between" align="flex-start">
-                              <Stack gap={2}>
-                                <Group gap="xs">
-                                  <Badge color="blue" variant="light">{formatVaultProvider(attempt.provider)}</Badge>
-                                  <Badge color={captureAttemptColor(attempt.status)} variant="light">{formatCaptureAttemptStatus(attempt.status)}</Badge>
-                                  {attempt.providerResultCode ? <Badge color="gray" variant="light">Code {attempt.providerResultCode}</Badge> : null}
-                                  {attempt.bin ? <Badge color="teal" variant="light">BIN {attempt.bin}</Badge> : null}
+                        {cisPackage.paymentCaptureAttempts.length > 0 ? (
+                          <Stack gap="xs">
+                            <Text fw={600}>Hosted capture attempts</Text>
+                            {cisPackage.paymentCaptureAttempts.map((attempt) => (
+                              <Card key={attempt.id} withBorder radius="lg" p="sm">
+                                <Group justify="space-between" align="flex-start">
+                                  <Stack gap={2}>
+                                    <Group gap="xs">
+                                      <Badge color="blue" variant="light">{formatVaultProvider(attempt.provider)}</Badge>
+                                      <Badge color={captureAttemptColor(attempt.status)} variant="light">{formatCaptureAttemptStatus(attempt.status)}</Badge>
+                                      {attempt.providerResultCode ? <Badge color="gray" variant="light">Code {attempt.providerResultCode}</Badge> : null}
+                                      {attempt.bin ? <Badge color="teal" variant="light">BIN {attempt.bin}</Badge> : null}
+                                    </Group>
+                                    <Text size="sm" c="dimmed">
+                                      Temporary token present: {attempt.hasTemporaryToken ? 'Yes' : 'No'}
+                                      {attempt.providerErrorMessage ? ` • ${attempt.providerErrorMessage}` : ''}
+                                    </Text>
+                                    {canDecideFinance && attempt.provider === 'moneris' && (attempt.status === 'launched' || attempt.status === 'token_received') ? (
+                                      <Group gap="xs" mt={4}>
+                                        <Button
+                                          size="xs"
+                                          variant="light"
+                                          color="red"
+                                          loading={isCancellingHostedCapture}
+                                          onClick={() => {
+                                            void handleCancelMonerisHostedCapture(attempt.id);
+                                          }}
+                                        >
+                                          Cancel active hosted capture
+                                        </Button>
+                                      </Group>
+                                    ) : null}
+                                  </Stack>
+                                  <Text size="sm" c="dimmed">
+                                    {attempt.completedAt ? formatDateTimeLabel(attempt.completedAt) : formatDateTimeLabel(attempt.launchedAt)}
+                                  </Text>
                                 </Group>
-                                <Text size="sm" c="dimmed">
-                                  Temporary token present: {attempt.hasTemporaryToken ? 'Yes' : 'No'}
-                                  {attempt.providerErrorMessage ? ` • ${attempt.providerErrorMessage}` : ''}
-                                </Text>
-                                {canDecideFinance && attempt.provider === 'moneris' && (attempt.status === 'launched' || attempt.status === 'token_received') ? (
-                                  <Group gap="xs" mt={4}>
-                                    <Button
-                                      size="xs"
-                                      variant="light"
-                                      color="red"
-                                      loading={isCancellingHostedCapture}
-                                      onClick={() => {
-                                        void handleCancelMonerisHostedCapture(attempt.id);
-                                      }}
-                                    >
-                                      Cancel active hosted capture
-                                    </Button>
-                                  </Group>
-                                ) : null}
-                              </Stack>
-                              <Text size="sm" c="dimmed">
-                                {attempt.completedAt ? formatDateTimeLabel(attempt.completedAt) : formatDateTimeLabel(attempt.launchedAt)}
-                              </Text>
-                            </Group>
-                          </Card>
-                        ))}
-                      </Stack>
-                    ) : null}
+                              </Card>
+                            ))}
+                          </Stack>
+                        ) : null}
 
-                    {cisPackage.paymentVaultReferences.length > 0 ? (
-                      <Stack gap="xs">
-                        {cisPackage.paymentVaultReferences.map((reference) => (
-                          <Card key={reference.id} withBorder radius="lg" p="sm">
-                            <Group justify="space-between" align="flex-start">
-                              <Stack gap={2}>
-                                <Group gap="xs">
-                                  <Badge color="blue" variant="light">{formatVaultProvider(reference.provider)}</Badge>
-                                  <Badge color="grape" variant="light">{reference.status}</Badge>
-                                  {reference.last4 ? <Badge color="gray" variant="light">•••• {reference.last4}</Badge> : null}
-                                  {reference.brand ? <Badge color="teal" variant="light">{reference.brand}</Badge> : null}
+                        {cisPackage.paymentVaultReferences.length > 0 ? (
+                          <Stack gap="xs">
+                            {cisPackage.paymentVaultReferences.map((reference) => (
+                              <Card key={reference.id} withBorder radius="lg" p="sm">
+                                <Group justify="space-between" align="flex-start">
+                                  <Stack gap={2}>
+                                    <Group gap="xs">
+                                      <Badge color="blue" variant="light">{formatVaultProvider(reference.provider)}</Badge>
+                                      <Badge color="grape" variant="light">{reference.status}</Badge>
+                                      {reference.last4 ? <Badge color="gray" variant="light">•••• {reference.last4}</Badge> : null}
+                                      {reference.brand ? <Badge color="teal" variant="light">{reference.brand}</Badge> : null}
+                                    </Group>
+                                    <Text size="sm" c="dimmed">
+                                      Stored as masked/tokenized provider data only. Vault token present: {reference.hasVaultToken ? 'Yes' : 'No'} • Customer ref present: {reference.hasVaultCustomerRef ? 'Yes' : 'No'}
+                                      {reference.sourceCaptureAttemptId ? ' • Linked to hosted capture attempt' : ''}
+                                    </Text>
+                                  </Stack>
+                                  <Text size="sm" c="dimmed">
+                                    {reference.authorizationCapturedAt ? formatDateTimeLabel(reference.authorizationCapturedAt) : formatDateTimeLabel(reference.createdAt)}
+                                  </Text>
                                 </Group>
-                                <Text size="sm" c="dimmed">
-                                  Stored as masked/tokenized provider data only. Vault token present: {reference.hasVaultToken ? 'Yes' : 'No'} • Customer ref present: {reference.hasVaultCustomerRef ? 'Yes' : 'No'}
-                                  {reference.sourceCaptureAttemptId ? ' • Linked to hosted capture attempt' : ''}
-                                </Text>
-                              </Stack>
-                              <Text size="sm" c="dimmed">
-                                {reference.authorizationCapturedAt ? formatDateTimeLabel(reference.authorizationCapturedAt) : formatDateTimeLabel(reference.createdAt)}
-                              </Text>
-                            </Group>
-                          </Card>
-                        ))}
-                      </Stack>
+                              </Card>
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Text size="sm" c="dimmed">
+                            No tokenized vault reference has been recorded on this CIS package yet.
+                          </Text>
+                        )}
+                      </>
                     ) : (
-                      <Text size="sm" c="dimmed">
-                        No tokenized vault reference has been recorded on this CIS package yet.
-                      </Text>
+                      <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                        Hosted payment capture progress and tokenized provider references are restricted to finance-enabled roles.
+                      </Alert>
                     )}
 
                     {canDecideFinance ? (

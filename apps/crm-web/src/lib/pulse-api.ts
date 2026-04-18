@@ -139,6 +139,11 @@ import type {
   ReferenceImportResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
+  BulkReassignAccountsTerritoryRequest,
+  BulkReassignAccountsTerritoryResponse,
+  CreateRegionRequest,
+  CreateShippingCenterRequest,
+  CreateTerritoryRequest,
   ReassignAccountTerritoryRequest,
   ReassignLeadTerritoryRequest,
   AffinityGroupReferenceSummary,
@@ -159,13 +164,20 @@ import type {
   UploadCisScanRequest,
   UploadCisScanResponse,
   ApplyCisParsedDraftRequest,
-  TerritoryPolicySummary,
   ListRegionsResponse,
   ListShippingCentersResponse,
   ListTerritoryAssignableUsersResponse,
   ListTerritoriesResponse,
   ListTerritoryAssignmentHistoryResponse,
+  RegionSummary,
+  ShippingCenterSummary,
   TerritoryMapWorkspaceResponse,
+  TerritoryPolicySummary,
+  TerritorySummary,
+  UpdateRegionRequest,
+  UpdateShippingCenterRequest,
+  UpdateTerritoryRequest,
+  ReplaceTerritoryCoverageRequest,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
   TokenPair,
@@ -671,6 +683,98 @@ export async function fetchTerritories(apiBaseUrl: string, accessToken: string) 
   });
 }
 
+export async function createTerritoryRegion(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateRegionRequest,
+) {
+  return requestJson<RegionSummary>(apiBaseUrl, '/api/v1/territories/regions', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateTerritoryRegion(
+  apiBaseUrl: string,
+  accessToken: string,
+  regionId: string,
+  input: UpdateRegionRequest,
+) {
+  return requestJson<RegionSummary>(apiBaseUrl, `/api/v1/territories/regions/${regionId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createTerritoryShippingCenter(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateShippingCenterRequest,
+) {
+  return requestJson<ShippingCenterSummary>(apiBaseUrl, '/api/v1/territories/shipping-centers', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateTerritoryShippingCenter(
+  apiBaseUrl: string,
+  accessToken: string,
+  shippingCenterId: string,
+  input: UpdateShippingCenterRequest,
+) {
+  return requestJson<ShippingCenterSummary>(
+    apiBaseUrl,
+    `/api/v1/territories/shipping-centers/${shippingCenterId}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function createTerritoryRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateTerritoryRequest,
+) {
+  return requestJson<TerritorySummary>(apiBaseUrl, '/api/v1/territories', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateTerritoryRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  territoryId: string,
+  input: UpdateTerritoryRequest,
+) {
+  return requestJson<TerritorySummary>(apiBaseUrl, `/api/v1/territories/${territoryId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function replaceTerritoryCoverage(
+  apiBaseUrl: string,
+  accessToken: string,
+  territoryId: string,
+  input: ReplaceTerritoryCoverageRequest,
+) {
+  return requestJson<TerritorySummary>(apiBaseUrl, `/api/v1/territories/${territoryId}/coverage`, {
+    method: 'PUT',
+    accessToken,
+    body: input,
+  });
+}
+
 export async function fetchTerritoryAssignableUsers(apiBaseUrl: string, accessToken: string) {
   return requestJson<ListTerritoryAssignableUsersResponse>(apiBaseUrl, '/api/v1/territories/assignable-users', {
     method: 'GET',
@@ -732,6 +836,22 @@ export async function reassignAccountTerritory(
   return requestJson<AccountTerritoryAssignmentSummary>(
     apiBaseUrl,
     `/api/v1/territories/assignments/accounts/${accountId}`,
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function bulkReassignAccountsTerritory(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: BulkReassignAccountsTerritoryRequest,
+) {
+  return requestJson<BulkReassignAccountsTerritoryResponse>(
+    apiBaseUrl,
+    '/api/v1/territories/assignments/accounts/bulk',
     {
       method: 'POST',
       accessToken,
@@ -1943,7 +2063,7 @@ async function requestJson<TResponse>(
   apiBaseUrl: string,
   pathname: string,
   options: {
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     accessToken?: string;
     body?: unknown;
   },
@@ -1974,7 +2094,7 @@ async function requestJsonMaybeNotFound<TResponse>(
   apiBaseUrl: string,
   pathname: string,
   options: {
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     accessToken?: string;
     body?: unknown;
   },

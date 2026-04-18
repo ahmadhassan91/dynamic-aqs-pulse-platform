@@ -33,6 +33,7 @@ import {
   IconMapPin,
   IconRefresh,
   IconRouteSquare,
+  IconSettings,
   IconTargetArrow,
   IconUsers,
 } from '@tabler/icons-react';
@@ -62,8 +63,9 @@ import {
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { TerritoryCommandDashboard } from './TerritoryCommandDashboard';
+import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
 
-type TerritoryTab = 'dashboard' | 'map' | 'list';
+type TerritoryTab = 'dashboard' | 'map' | 'list' | 'operations';
 
 const TERRITORY_OVERRIDE_REASON_OPTIONS = [
   { value: 'manual_override', label: 'Manual Override' },
@@ -199,6 +201,7 @@ export function TerritoryManagement({
     [leads],
   );
   const canReassignTerritory = auth ? canPerformAction(auth.identity.role, 'territory.reassign') : false;
+  const canAdminTerritory = auth ? canPerformAction(auth.identity.role, 'territory.admin') : false;
   const canViewCustomers = auth ? canPerformAction(auth.identity.role, 'customer.view') : false;
   const activeAccounts = useMemo(() => accounts.filter((account) => account.isActive), [accounts]);
 
@@ -628,6 +631,11 @@ export function TerritoryManagement({
           <Tabs.Tab value="list" leftSection={<IconRouteSquare size={16} />}>
             Territory List
           </Tabs.Tab>
+          {canAdminTerritory || canReassignTerritory ? (
+            <Tabs.Tab value="operations" leftSection={<IconSettings size={16} />}>
+              Operations
+            </Tabs.Tab>
+          ) : null}
         </Tabs.List>
 
         <Tabs.Panel value="dashboard" pt="lg">
@@ -1253,6 +1261,22 @@ export function TerritoryManagement({
               </Paper>
             ) : null}
           </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="operations" pt="lg">
+          <TerritoryOperationsPanel
+            apiBaseUrl={apiBaseUrl}
+            accessToken={auth.tokens.accessToken}
+            regions={regions}
+            shippingCenters={shippingCenters}
+            territories={territories}
+            activeAccounts={activeAccounts}
+            assignableUsers={assignableUsers}
+            canAdminTerritory={canAdminTerritory}
+            canReassignTerritory={canReassignTerritory}
+            onRefresh={() => setRefreshNonce((value) => value + 1)}
+            onOpenAccountHistory={(account) => setHistoryAccount(account)}
+          />
         </Tabs.Panel>
       </Tabs>
 

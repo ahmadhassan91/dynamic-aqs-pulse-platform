@@ -32,6 +32,7 @@ let listShippingCenters;
 let listTerritories;
 let listTerritoryAssignmentHistory;
 let listTerritoryAssignableUsers;
+let bulkReassignAccountTerritories;
 let reassignAccountTerritory;
 let reassignLeadTerritory;
 let replaceTerritoryCoverage;
@@ -88,6 +89,7 @@ test.before(async () => {
     listTerritories,
     listTerritoryAssignmentHistory,
     listTerritoryAssignableUsers,
+    bulkReassignAccountTerritories,
     reassignAccountTerritory,
     reassignLeadTerritory,
     replaceTerritoryCoverage,
@@ -1428,6 +1430,93 @@ test('manual account override survives later primary-location changes until the 
   assert.equal(history.items.length, 2, 'location changes should not churn account history when an override still owns the account');
   assert.equal(history.items[0].nextTerritoryCode, florida.territory.code);
   assert.equal(history.items[1].nextTerritoryCode, texas.territory.code);
+});
+
+test('bulk account transfer reassigns multiple accounts with individual history and audit-safe ownership updates', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_account_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_account_fl',
+    stateCode: 'FL',
+  });
+
+  const first = await createAccount(actor, {
+    displayName: 'Bulk Transfer Alpha',
+    legalName: 'Bulk Transfer Alpha LLC',
+    accountType: 'Dealer',
+  });
+  const second = await createAccount(actor, {
+    displayName: 'Bulk Transfer Bravo',
+    legalName: 'Bulk Transfer Bravo LLC',
+    accountType: 'Dealer',
+  });
+
+  await createAccountLocation(actor, first.id, {
+    name: 'Primary',
+    city: 'Dallas',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await createAccountLocation(actor, second.id, {
+    name: 'Primary',
+    city: 'Austin',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const response = await bulkReassignAccountTerritories(actor, {
+    accountIds: [first.id, second.id],
+    territoryId: florida.territory.id,
+    assignedTmUserId: florida.manager.id,
+    assignedRdUserId: florida.director.id,
+    reasonCode: 'territory_realignment',
+    reasonNote: 'Bulk transfer after leadership approved the new Florida alignment.',
+  });
+
+  assert.equal(response.items.length, 2);
+  assert.deepEqual(
+    response.items.map((item) => item.accountId).sort(),
+    [first.id, second.id].sort(),
+  );
+  assert.ok(response.items.every((item) => item.territoryId === florida.territory.id));
+  assert.ok(response.items.every((item) => item.assignmentMethod === 'manual_override'));
+
+  const firstDetail = await getAccountDetail(actor, first.id);
+  const secondDetail = await getAccountDetail(actor, second.id);
+  assert.equal(firstDetail?.territoryId, florida.territory.id);
+  assert.equal(secondDetail?.territoryId, florida.territory.id);
+  assert.equal(firstDetail?.assignedTmUserId, florida.manager.id);
+  assert.equal(secondDetail?.assignedRdUserId, florida.director.id);
+
+  const firstHistory = await listTerritoryAssignmentHistory(actor, 'account', first.id);
+  const secondHistory = await listTerritoryAssignmentHistory(actor, 'account', second.id);
+  assert.equal(firstHistory.items.length, 2);
+  assert.equal(secondHistory.items.length, 2);
+  assert.equal(firstHistory.items[0].reasonCode, 'territory_realignment');
+  assert.equal(secondHistory.items[0].reasonCode, 'territory_realignment');
+  assert.equal(firstHistory.items[0].previousTerritoryCode, texas.territory.code);
+  assert.equal(secondHistory.items[0].previousTerritoryCode, texas.territory.code);
+  assert.equal(firstHistory.items[0].nextTerritoryCode, florida.territory.code);
+  assert.equal(secondHistory.items[0].nextTerritoryCode, florida.territory.code);
+
+  const bulkAuditEntries = await prisma.auditEntry.findMany({
+    where: {
+      entityType: 'TERRITORY_ASSIGNMENT_OVERRIDE',
+      entityId: {
+        in: [first.id, second.id],
+      },
+      metadata: {
+        path: ['operation'],
+        equals: 'territory.bulk_reassign_accounts',
+      },
+    },
+  });
+  assert.equal(bulkAuditEntries.length, 2);
 });
 
 test('territory admin updates refresh downstream account ownership and shipping alignment', SERIAL, async () => {

@@ -12,6 +12,8 @@ import {
 } from '@pulse/db';
 import type {
   AccountTerritoryAssignmentSummary,
+  BulkReassignAccountsTerritoryRequest,
+  BulkReassignAccountsTerritoryResponse,
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
@@ -1382,6 +1384,126 @@ export async function reassignAccountTerritory(
   });
 
   return toAccountTerritoryAssignmentSummary(updated);
+}
+
+export async function bulkReassignAccountTerritories(
+  actor: AuthenticatedActor,
+  input: BulkReassignAccountsTerritoryRequest,
+): Promise<BulkReassignAccountsTerritoryResponse> {
+  assertModuleAccess(actor.role, 'territories');
+  assertActionAccess(actor.role, 'territory.reassign');
+
+  const requestedAccountIds = Array.isArray(input.accountIds) ? input.accountIds : [];
+  const accountIds = Array.from(
+    new Set(
+      requestedAccountIds
+        .map((value: string) => value.trim())
+        .filter((value: string): value is string => value.length > 0),
+    ),
+  );
+  if (accountIds.length === 0) {
+    throw new Error('At least one account is required');
+  }
+
+  const territory = await prisma.territory.findUnique({
+    where: { id: input.territoryId },
+    include: TERRITORY_INCLUDE,
+  });
+  if (!territory || !territory.isActive) {
+    throw new Error('Unknown or inactive territory');
+  }
+
+  const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
+  const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
+  const reasonCode = requireText(input.reasonCode, 'reasonCode');
+  const reasonNote = optionalText(input.reasonNote);
+
+  const accounts = await prisma.account.findMany({
+    where: {
+      id: {
+        in: accountIds,
+      },
+    },
+    include: ACCOUNT_TERRITORY_INCLUDE,
+  });
+
+  if (accounts.length !== accountIds.length) {
+    const foundIds = new Set(accounts.map((account) => account.id));
+    const missingId = accountIds.find((accountId) => !foundIds.has(accountId));
+    throw new Error(`Account not found: ${missingId ?? 'unknown'}`);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const nextAccounts: AccountWithTerritoryRefs[] = [];
+
+    for (const accountId of accountIds) {
+      await tx.territoryAssignmentOverride.upsert({
+        where: {
+          entityType_entityId: {
+            entityType: TerritoryAssignmentEntityType.ACCOUNT,
+            entityId: accountId,
+          },
+        },
+        update: {
+          territoryId: territory.id,
+          ...(assignedTmUserId !== undefined ? { assignedTmUserId } : { assignedTmUserId: null }),
+          ...(assignedRdUserId !== undefined ? { assignedRdUserId } : { assignedRdUserId: null }),
+          reasonCode,
+          ...(reasonNote !== undefined ? { reasonNote } : { reasonNote: null }),
+          createdByUserId: actor.userId,
+        },
+        create: {
+          entityType: TerritoryAssignmentEntityType.ACCOUNT,
+          entityId: accountId,
+          territoryId: territory.id,
+          ...(assignedTmUserId !== undefined ? { assignedTmUserId } : {}),
+          ...(assignedRdUserId !== undefined ? { assignedRdUserId } : {}),
+          reasonCode,
+          ...(reasonNote !== undefined ? { reasonNote } : {}),
+          createdByUserId: actor.userId,
+        },
+      });
+
+      const next = await syncAccountTerritoryAssignment(tx, {
+        accountId,
+        assignmentMethod: TerritoryAssignmentMethod.MANUAL_OVERRIDE,
+        changedByUserId: actor.userId,
+        reasonCode,
+        ...(reasonNote !== undefined ? { reasonNote } : {}),
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.UPDATE,
+          entityType: TERRITORY_OVERRIDE_ENTITY_TYPE,
+          entityId: accountId,
+          afterData: {
+            territoryId: territory.id,
+            territoryCode: territory.code,
+            accountId,
+            assignedTmUserId: assignedTmUserId ?? undefined,
+            assignedRdUserId: assignedRdUserId ?? undefined,
+            reasonCode,
+            reasonNote: reasonNote ?? undefined,
+          },
+          metadata: {
+            ...baseMetadata(actor, 'territory.bulk_reassign_accounts'),
+            accountCount: accountIds.length,
+            bulkOperation: true,
+          },
+        }),
+      });
+
+      nextAccounts.push(next);
+    }
+
+    return nextAccounts;
+  });
+
+  return {
+    items: updated.map((account) => toAccountTerritoryAssignmentSummary(account)),
+  };
 }
 
 export async function resolveLeadTerritoryContext(

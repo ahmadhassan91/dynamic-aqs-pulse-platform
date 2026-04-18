@@ -244,6 +244,19 @@ export interface ReassignAccountTerritoryRequest {
   reasonNote?: string;
 }
 
+export interface BulkReassignAccountsTerritoryRequest {
+  accountIds: string[];
+  territoryId: string;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
+  reasonCode: string;
+  reasonNote?: string;
+}
+
+export interface BulkReassignAccountsTerritoryResponse {
+  items: AccountTerritoryAssignmentSummary[];
+}
+
 export interface AccountTerritoryAssignmentSummary {
   accountId: string;
   territoryId?: string;

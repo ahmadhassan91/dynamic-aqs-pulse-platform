@@ -1,6 +1,7 @@
 import { assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
 import {
   AuditAction,
+  AccountLifecycleStatus,
   LeadLifecycleStatus,
   LeadStage,
   LeadRoutingTeam,
@@ -18,7 +19,10 @@ import type {
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
   TerritoryDashboardAlert,
+  TerritoryDashboardCoverageSummary,
+  TerritoryDashboardLifecycleSummary,
   TerritoryDashboardOwnerMetricSummary,
+  TerritoryDashboardPipelineSummary,
   TerritoryDashboardQueueSummary,
   TerritoryDashboardRegionRollupSummary,
   TerritoryDashboardResponse,
@@ -129,6 +133,7 @@ type TerritoryDashboardLeadRecord = {
   assignedTmUserId: string | null;
   assignedRdUserId: string | null;
   routingTeam: LeadRoutingTeam;
+  stage: LeadStage;
 };
 
 type TerritoryDashboardAccountRecord = {
@@ -137,6 +142,9 @@ type TerritoryDashboardAccountRecord = {
   shippingCenterId: string | null;
   assignedTmUserId: string | null;
   assignedRdUserId: string | null;
+  isActive: boolean;
+  lifecycleStatus: AccountLifecycleStatus;
+  lastEngagementAt: Date | null;
 };
 
 const ASSIGNABLE_TERRITORY_ROLE_CODES = ['TERRITORY_MANAGER', 'REGIONAL_DIRECTOR'] as const;
@@ -772,27 +780,20 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
         assignedTmUserId: true,
         assignedRdUserId: true,
         routingTeam: true,
+        stage: true,
       },
     }),
     prisma.account.findMany({
-      where: accountScope
-        ? {
-            AND: [
-              accountScope,
-              {
-                isActive: true,
-              },
-            ],
-          }
-        : {
-            isActive: true,
-          },
+      ...(accountScope ? { where: accountScope } : {}),
       select: {
         id: true,
         territoryId: true,
         shippingCenterId: true,
         assignedTmUserId: true,
         assignedRdUserId: true,
+        isActive: true,
+        lifecycleStatus: true,
+        lastEngagementAt: true,
       },
     }),
   ]);
@@ -806,40 +807,59 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
   );
   const leadRecords = leadItems as TerritoryDashboardLeadRecord[];
   const accountRecords = accountItems as TerritoryDashboardAccountRecord[];
+  const activeAccountRecords = accountRecords.filter((account) => account.isActive);
 
   const territoryById = new Map(territories.map((territory) => [territory.id, territory]));
   const territoryLeadCounts = new Map<string, number>();
   const territoryAccountCounts = new Map<string, number>();
   const regionLeadCounts = new Map<string, number>();
   const regionAccountCounts = new Map<string, number>();
+  const territoryPipelineCounts = new Map<string, PipelinePhaseCounts>();
+  const regionPipelineCounts = new Map<string, PipelinePhaseCounts>();
+  const territoryCoverageCounts = new Map<string, CoverageCounts>();
+  const regionCoverageCounts = new Map<string, CoverageCounts>();
+  const territoryLifecycleCounts = new Map<string, LifecycleCounts>();
+  const regionLifecycleCounts = new Map<string, LifecycleCounts>();
 
   for (const lead of leadRecords) {
+    const phase = getLeadPipelinePhase(lead.stage);
     if (!lead.territoryId) {
       continue;
     }
 
     territoryLeadCounts.set(lead.territoryId, (territoryLeadCounts.get(lead.territoryId) ?? 0) + 1);
+    incrementPipelineCounts(territoryPipelineCounts, lead.territoryId, phase);
     const territory = territoryById.get(lead.territoryId);
     if (territory) {
       regionLeadCounts.set(territory.regionId, (regionLeadCounts.get(territory.regionId) ?? 0) + 1);
+      incrementPipelineCounts(regionPipelineCounts, territory.regionId, phase);
     }
   }
 
   for (const account of accountRecords) {
-    if (!account.territoryId) {
-      continue;
+    const coverageSnapshot = summarizeCoverage(account);
+
+    if (account.territoryId) {
+      if (account.isActive) {
+        territoryAccountCounts.set(account.territoryId, (territoryAccountCounts.get(account.territoryId) ?? 0) + 1);
+      }
+      incrementCoverageCounts(territoryCoverageCounts, account.territoryId, coverageSnapshot);
+      incrementLifecycleCounts(territoryLifecycleCounts, account.territoryId, account.lifecycleStatus);
     }
 
-    territoryAccountCounts.set(account.territoryId, (territoryAccountCounts.get(account.territoryId) ?? 0) + 1);
-    const territory = territoryById.get(account.territoryId);
+    const territory = account.territoryId ? territoryById.get(account.territoryId) : undefined;
     if (territory) {
-      regionAccountCounts.set(territory.regionId, (regionAccountCounts.get(territory.regionId) ?? 0) + 1);
+      if (account.isActive) {
+        regionAccountCounts.set(territory.regionId, (regionAccountCounts.get(territory.regionId) ?? 0) + 1);
+      }
+      incrementCoverageCounts(regionCoverageCounts, territory.regionId, coverageSnapshot);
+      incrementLifecycleCounts(regionLifecycleCounts, territory.regionId, account.lifecycleStatus);
     }
   }
 
   const queue: TerritoryDashboardQueueSummary = {
     unassignedLeads: leadRecords.filter((lead) => !lead.territoryId).length,
-    unassignedAccounts: accountRecords.filter((account) => !account.territoryId).length,
+    unassignedAccounts: activeAccountRecords.filter((account) => !account.territoryId).length,
     strategicGrowthLeads: leadRecords.filter((lead) => lead.routingTeam === LeadRoutingTeam.STRATEGIC_GROWTH).length,
     nationalTmLeads: leadRecords.filter((lead) => lead.routingTeam === LeadRoutingTeam.NATIONAL_TM).length,
     territoriesMissingManager: territories.filter((territory) => !territory.managerUserId).length,
@@ -853,22 +873,35 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
     coveredStates: territories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
     shippingCenters: shippingCenterItems.filter((center) => center.isActive).length,
     activeLeads: leadRecords.length,
-    activeAccounts: accountRecords.length,
+    activeAccounts: activeAccountRecords.length,
     assignedLeads: leadRecords.filter((lead) => Boolean(lead.territoryId)).length,
-    assignedAccounts: accountRecords.filter((account) => Boolean(account.territoryId)).length,
+    assignedAccounts: activeAccountRecords.filter((account) => Boolean(account.territoryId)).length,
     unassignedLeads: queue.unassignedLeads,
     unassignedAccounts: queue.unassignedAccounts,
     strategicGrowthLeads: queue.strategicGrowthLeads,
     nationalTmLeads: queue.nationalTmLeads,
   };
 
+  const coverage = toTerritoryDashboardCoverageSummary(summarizeCoverageCollection(accountRecords));
+  const lifecycle = toTerritoryDashboardLifecycleSummary(summarizeLifecycleCollection(accountRecords));
+  const pipeline = toTerritoryDashboardPipelineSummary(summarizePipelineCollection(leadRecords));
   const alerts = buildTerritoryDashboardAlerts(queue);
-  const workloads = buildTerritoryDashboardWorkloads(territories, territoryLeadCounts, territoryAccountCounts);
+  const workloads = buildTerritoryDashboardWorkloads(
+    territories,
+    territoryLeadCounts,
+    territoryAccountCounts,
+    territoryCoverageCounts,
+    territoryLifecycleCounts,
+    territoryPipelineCounts,
+  );
   const regionRollups = buildTerritoryDashboardRegionRollups(
     regions,
     territories,
     regionLeadCounts,
     regionAccountCounts,
+    regionCoverageCounts,
+    regionLifecycleCounts,
+    regionPipelineCounts,
   );
   const ownerMetrics = await buildTerritoryDashboardOwnerMetrics({
     regions,
@@ -880,6 +913,9 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
 
   return {
     stats,
+    coverage,
+    lifecycle,
+    pipeline,
     alerts,
     workloads,
     regionRollups,
@@ -2369,6 +2405,199 @@ function toTerritorySummary(item: TerritoryWithRefs): TerritorySummary {
   };
 }
 
+type CoverageCounts = {
+  eligibleAccountCount: number;
+  engaged30DayCount: number;
+  engaged60DayCount: number;
+  engaged90DayCount: number;
+  overdue90DayCount: number;
+};
+
+type LifecycleCounts = {
+  activeAccountCount: number;
+  atRiskAccountCount: number;
+  inactiveAccountCount: number;
+  churnedAccountCount: number;
+};
+
+type PipelinePhaseCounts = {
+  newLeadCount: number;
+  discoveryLeadCount: number;
+  cisLeadCount: number;
+  onboardingLeadCount: number;
+};
+
+function createCoverageCounts(): CoverageCounts {
+  return {
+    eligibleAccountCount: 0,
+    engaged30DayCount: 0,
+    engaged60DayCount: 0,
+    engaged90DayCount: 0,
+    overdue90DayCount: 0,
+  };
+}
+
+function createLifecycleCounts(): LifecycleCounts {
+  return {
+    activeAccountCount: 0,
+    atRiskAccountCount: 0,
+    inactiveAccountCount: 0,
+    churnedAccountCount: 0,
+  };
+}
+
+function createPipelinePhaseCounts(): PipelinePhaseCounts {
+  return {
+    newLeadCount: 0,
+    discoveryLeadCount: 0,
+    cisLeadCount: 0,
+    onboardingLeadCount: 0,
+  };
+}
+
+function getLeadPipelinePhase(stage: LeadStage): keyof PipelinePhaseCounts {
+  if (stage === LeadStage.NEW) {
+    return 'newLeadCount';
+  }
+  if (stage === LeadStage.DISCOVERY_SCHEDULED || stage === LeadStage.DISCOVERY_COMPLETED) {
+    return 'discoveryLeadCount';
+  }
+  if (stage === LeadStage.CIS_SENT || stage === LeadStage.CIS_SIGNED) {
+    return 'cisLeadCount';
+  }
+  return 'onboardingLeadCount';
+}
+
+function isCoverageEligibleAccount(account: TerritoryDashboardAccountRecord): boolean {
+  return account.isActive
+    && (account.lifecycleStatus === AccountLifecycleStatus.ACTIVE || account.lifecycleStatus === AccountLifecycleStatus.AT_RISK);
+}
+
+function getDaysSince(date: Date | null): number {
+  if (!date) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const diff = Date.now() - date.getTime();
+  if (diff < 0) {
+    return 0;
+  }
+
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+function summarizeCoverage(account: TerritoryDashboardAccountRecord): CoverageCounts {
+  const counts = createCoverageCounts();
+  if (!isCoverageEligibleAccount(account)) {
+    return counts;
+  }
+
+  const daysSinceLastEngagement = getDaysSince(account.lastEngagementAt);
+  counts.eligibleAccountCount = 1;
+  if (daysSinceLastEngagement <= 30) {
+    counts.engaged30DayCount = 1;
+  }
+  if (daysSinceLastEngagement <= 60) {
+    counts.engaged60DayCount = 1;
+  }
+  if (daysSinceLastEngagement <= 90) {
+    counts.engaged90DayCount = 1;
+  } else {
+    counts.overdue90DayCount = 1;
+  }
+  return counts;
+}
+
+function summarizeCoverageCollection(accounts: TerritoryDashboardAccountRecord[]): CoverageCounts {
+  const counts = createCoverageCounts();
+  for (const account of accounts) {
+    mergeCoverageCounts(counts, summarizeCoverage(account));
+  }
+  return counts;
+}
+
+function summarizeLifecycleCollection(accounts: TerritoryDashboardAccountRecord[]): LifecycleCounts {
+  const counts = createLifecycleCounts();
+  for (const account of accounts) {
+    incrementLifecycleCounter(counts, account.lifecycleStatus);
+  }
+  return counts;
+}
+
+function summarizePipelineCollection(leads: TerritoryDashboardLeadRecord[]): PipelinePhaseCounts {
+  const counts = createPipelinePhaseCounts();
+  for (const lead of leads) {
+    counts[getLeadPipelinePhase(lead.stage)] += 1;
+  }
+  return counts;
+}
+
+function mergeCoverageCounts(target: CoverageCounts, next: CoverageCounts) {
+  target.eligibleAccountCount += next.eligibleAccountCount;
+  target.engaged30DayCount += next.engaged30DayCount;
+  target.engaged60DayCount += next.engaged60DayCount;
+  target.engaged90DayCount += next.engaged90DayCount;
+  target.overdue90DayCount += next.overdue90DayCount;
+}
+
+function incrementCoverageCounts(collection: Map<string, CoverageCounts>, key: string, snapshot: CoverageCounts) {
+  const current = collection.get(key) ?? createCoverageCounts();
+  mergeCoverageCounts(current, snapshot);
+  collection.set(key, current);
+}
+
+function incrementLifecycleCounter(target: LifecycleCounts, status: AccountLifecycleStatus) {
+  if (status === AccountLifecycleStatus.ACTIVE) {
+    target.activeAccountCount += 1;
+    return;
+  }
+  if (status === AccountLifecycleStatus.AT_RISK) {
+    target.atRiskAccountCount += 1;
+    return;
+  }
+  if (status === AccountLifecycleStatus.INACTIVE) {
+    target.inactiveAccountCount += 1;
+    return;
+  }
+  target.churnedAccountCount += 1;
+}
+
+function incrementLifecycleCounts(collection: Map<string, LifecycleCounts>, key: string, status: AccountLifecycleStatus) {
+  const current = collection.get(key) ?? createLifecycleCounts();
+  incrementLifecycleCounter(current, status);
+  collection.set(key, current);
+}
+
+function incrementPipelineCounts(collection: Map<string, PipelinePhaseCounts>, key: string, phase: keyof PipelinePhaseCounts) {
+  const current = collection.get(key) ?? createPipelinePhaseCounts();
+  current[phase] += 1;
+  collection.set(key, current);
+}
+
+function toCoveragePercent(value: number, total: number): number {
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.round((value / total) * 100);
+}
+
+function toTerritoryDashboardCoverageSummary(counts: CoverageCounts): TerritoryDashboardCoverageSummary {
+  return {
+    ...counts,
+    engaged30DayPercent: toCoveragePercent(counts.engaged30DayCount, counts.eligibleAccountCount),
+    engaged60DayPercent: toCoveragePercent(counts.engaged60DayCount, counts.eligibleAccountCount),
+    engaged90DayPercent: toCoveragePercent(counts.engaged90DayCount, counts.eligibleAccountCount),
+  };
+}
+
+function toTerritoryDashboardLifecycleSummary(counts: LifecycleCounts): TerritoryDashboardLifecycleSummary {
+  return counts;
+}
+
+function toTerritoryDashboardPipelineSummary(counts: PipelinePhaseCounts): TerritoryDashboardPipelineSummary {
+  return counts;
+}
+
 function buildTerritoryDashboardAlerts(queue: TerritoryDashboardQueueSummary): TerritoryDashboardAlert[] {
   const alerts: TerritoryDashboardAlert[] = [];
 
@@ -2419,11 +2648,17 @@ function buildTerritoryDashboardWorkloads(
   territories: TerritorySummary[],
   territoryLeadCounts: Map<string, number>,
   territoryAccountCounts: Map<string, number>,
+  territoryCoverageCounts: Map<string, CoverageCounts>,
+  territoryLifecycleCounts: Map<string, LifecycleCounts>,
+  territoryPipelineCounts: Map<string, PipelinePhaseCounts>,
 ): TerritoryDashboardWorkload[] {
   return territories
     .map((territory) => {
       const activeLeadCount = territoryLeadCounts.get(territory.id) ?? 0;
       const activeAccountCount = territoryAccountCounts.get(territory.id) ?? 0;
+      const coverage = territoryCoverageCounts.get(territory.id) ?? createCoverageCounts();
+      const lifecycle = territoryLifecycleCounts.get(territory.id) ?? createLifecycleCounts();
+      const pipeline = territoryPipelineCounts.get(territory.id) ?? createPipelinePhaseCounts();
 
       return {
         territoryId: territory.id,
@@ -2440,6 +2675,14 @@ function buildTerritoryDashboardWorkloads(
         coveredStates: territory.coverageStates,
         activeLeadCount,
         activeAccountCount,
+        engaged30DayAccountCount: coverage.engaged30DayCount,
+        engaged90DayAccountCount: coverage.engaged90DayCount,
+        overdue90DayAccountCount: coverage.overdue90DayCount,
+        atRiskAccountCount: lifecycle.atRiskAccountCount,
+        newLeadCount: pipeline.newLeadCount,
+        discoveryLeadCount: pipeline.discoveryLeadCount,
+        cisLeadCount: pipeline.cisLeadCount,
+        onboardingLeadCount: pipeline.onboardingLeadCount,
         totalWorkloadCount: activeLeadCount + activeAccountCount,
       };
     })
@@ -2457,11 +2700,17 @@ function buildTerritoryDashboardRegionRollups(
   territories: TerritorySummary[],
   regionLeadCounts: Map<string, number>,
   regionAccountCounts: Map<string, number>,
+  regionCoverageCounts: Map<string, CoverageCounts>,
+  regionLifecycleCounts: Map<string, LifecycleCounts>,
+  regionPipelineCounts: Map<string, PipelinePhaseCounts>,
 ): TerritoryDashboardRegionRollupSummary[] {
   return regions
     .map((region) => {
       const regionTerritories = territories.filter((territory) => territory.regionId === region.id);
       const shippingCenterIds = new Set(regionTerritories.flatMap((territory) => territory.shippingCenterId ? [territory.shippingCenterId] : []));
+      const coverage = regionCoverageCounts.get(region.id) ?? createCoverageCounts();
+      const lifecycle = regionLifecycleCounts.get(region.id) ?? createLifecycleCounts();
+      const pipeline = regionPipelineCounts.get(region.id) ?? createPipelinePhaseCounts();
 
       return {
         regionId: region.id,
@@ -2474,6 +2723,14 @@ function buildTerritoryDashboardRegionRollups(
         coveredStates: regionTerritories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
         activeLeadCount: regionLeadCounts.get(region.id) ?? 0,
         activeAccountCount: regionAccountCounts.get(region.id) ?? 0,
+        engaged30DayAccountCount: coverage.engaged30DayCount,
+        engaged90DayAccountCount: coverage.engaged90DayCount,
+        overdue90DayAccountCount: coverage.overdue90DayCount,
+        atRiskAccountCount: lifecycle.atRiskAccountCount,
+        newLeadCount: pipeline.newLeadCount,
+        discoveryLeadCount: pipeline.discoveryLeadCount,
+        cisLeadCount: pipeline.cisLeadCount,
+        onboardingLeadCount: pipeline.onboardingLeadCount,
         shippingCenterCount: shippingCenterIds.size,
         territoriesMissingManager: regionTerritories.filter((territory) => !territory.managerUserId).length,
         territoriesMissingShippingCenter: regionTerritories.filter((territory) => !territory.shippingCenterId).length,
@@ -2503,6 +2760,9 @@ async function buildTerritoryDashboardOwnerMetrics(input: {
     coveredStates: number;
     activeLeadCount: number;
     activeAccountCount: number;
+    engaged30DayAccountCount: number;
+    engaged90DayAccountCount: number;
+    atRiskAccountCount: number;
   };
 
   const metrics = new Map<string, WorkingOwnerMetric>();
@@ -2521,6 +2781,9 @@ async function buildTerritoryDashboardOwnerMetrics(input: {
         coveredStates: 0,
         activeLeadCount: 0,
         activeAccountCount: 0,
+        engaged30DayAccountCount: 0,
+        engaged90DayAccountCount: 0,
+        atRiskAccountCount: 0,
       };
       metrics.set(key, metric);
     }
@@ -2577,19 +2840,46 @@ async function buildTerritoryDashboardOwnerMetrics(input: {
   }
 
   for (const account of input.accountRecords) {
+    const coverage = summarizeCoverage(account);
+    const lifecycle = account.lifecycleStatus === AccountLifecycleStatus.AT_RISK ? 1 : 0;
+
     if (account.assignedTmUserId) {
-      ensureMetric('territory_manager', account.assignedTmUserId).activeAccountCount += 1;
+      const metric = ensureMetric('territory_manager', account.assignedTmUserId);
+      if (account.isActive) {
+        metric.activeAccountCount += 1;
+      }
+      metric.engaged30DayAccountCount += coverage.engaged30DayCount;
+      metric.engaged90DayAccountCount += coverage.engaged90DayCount;
+      metric.atRiskAccountCount += lifecycle;
     }
     if (account.assignedRdUserId) {
-      ensureMetric('regional_director', account.assignedRdUserId).activeAccountCount += 1;
+      const metric = ensureMetric('regional_director', account.assignedRdUserId);
+      if (account.isActive) {
+        metric.activeAccountCount += 1;
+      }
+      metric.engaged30DayAccountCount += coverage.engaged30DayCount;
+      metric.engaged90DayAccountCount += coverage.engaged90DayCount;
+      metric.atRiskAccountCount += lifecycle;
     }
 
     const territory = account.territoryId ? input.territoryById.get(account.territoryId) : undefined;
     if (territory?.managerUserId && !account.assignedTmUserId) {
-      ensureMetric('territory_manager', territory.managerUserId).activeAccountCount += 1;
+      const metric = ensureMetric('territory_manager', territory.managerUserId);
+      if (account.isActive) {
+        metric.activeAccountCount += 1;
+      }
+      metric.engaged30DayAccountCount += coverage.engaged30DayCount;
+      metric.engaged90DayAccountCount += coverage.engaged90DayCount;
+      metric.atRiskAccountCount += lifecycle;
     }
     if (territory?.directorUserId && !account.assignedRdUserId) {
-      ensureMetric('regional_director', territory.directorUserId).activeAccountCount += 1;
+      const metric = ensureMetric('regional_director', territory.directorUserId);
+      if (account.isActive) {
+        metric.activeAccountCount += 1;
+      }
+      metric.engaged30DayAccountCount += coverage.engaged30DayCount;
+      metric.engaged90DayAccountCount += coverage.engaged90DayCount;
+      metric.atRiskAccountCount += lifecycle;
     }
   }
 
@@ -2631,6 +2921,9 @@ async function buildTerritoryDashboardOwnerMetrics(input: {
       territoryCount: metric.territoryIds.size,
       activeLeadCount: metric.activeLeadCount,
       activeAccountCount: metric.activeAccountCount,
+      engaged30DayAccountCount: metric.engaged30DayAccountCount,
+      engaged90DayAccountCount: metric.engaged90DayAccountCount,
+      atRiskAccountCount: metric.atRiskAccountCount,
       shippingCenterCount: metric.shippingCenterIds.size,
       coveredStates: metric.coveredStates,
     }))

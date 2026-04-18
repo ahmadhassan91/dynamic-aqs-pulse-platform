@@ -1221,6 +1221,256 @@ test('territory dashboard scopes regional rollups and peer territory workload fo
   assert.ok(!dashboard.workloads.some((item) => item.territoryId === hidden.territory.id));
 });
 
+test('territory dashboard reports coverage score, lifecycle posture, and pipeline phases from CRM-owned data', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_reporting_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_reporting_fl',
+    stateCode: 'FL',
+  });
+
+  const newLead = await createLead(actor, {
+    companyName: 'Dashboard Reporting New Lead',
+    serviceTechCount: 8,
+    state: 'TX',
+  });
+  const cisLead = await createLead(actor, {
+    companyName: 'Dashboard Reporting CIS Lead',
+    serviceTechCount: 8,
+    state: 'TX',
+  });
+  const onboardingLead = await createLead(actor, {
+    companyName: 'Dashboard Reporting Onboarding Lead',
+    serviceTechCount: 4,
+    state: 'FL',
+  });
+  const discoveryLead = await createLead(actor, {
+    companyName: 'Dashboard Reporting Discovery Lead',
+    serviceTechCount: 4,
+  });
+
+  await prisma.lead.update({
+    where: { id: cisLead.id },
+    data: { stage: 'CIS_SENT' },
+  });
+  await prisma.lead.update({
+    where: { id: onboardingLead.id },
+    data: { stage: 'ONBOARDING_COMPLETED' },
+  });
+  await prisma.lead.update({
+    where: { id: discoveryLead.id },
+    data: { stage: 'DISCOVERY_SCHEDULED' },
+  });
+
+  const engagedAccount = await createAccount(actor, {
+    displayName: 'Dashboard Reporting Engaged Account',
+    legalName: 'Dashboard Reporting Engaged Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, engagedAccount.id, {
+    name: 'Primary',
+    city: 'Dallas',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await prisma.account.update({
+    where: { id: engagedAccount.id },
+    data: {
+      lifecycleStatus: 'ACTIVE',
+      lastEngagementAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const atRiskAccount = await createAccount(actor, {
+    displayName: 'Dashboard Reporting At Risk Account',
+    legalName: 'Dashboard Reporting At Risk Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, atRiskAccount.id, {
+    name: 'Primary',
+    city: 'Miami',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await prisma.account.update({
+    where: { id: atRiskAccount.id },
+    data: {
+      lifecycleStatus: 'AT_RISK',
+      lastEngagementAt: new Date(Date.now() - 75 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const churnedAccount = await createAccount(actor, {
+    displayName: 'Dashboard Reporting Churned Account',
+    legalName: 'Dashboard Reporting Churned Account LLC',
+    accountType: 'Dealer',
+  });
+  await prisma.account.update({
+    where: { id: churnedAccount.id },
+    data: {
+      isActive: false,
+      lifecycleStatus: 'CHURNED',
+      lastEngagementAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const dashboard = await getTerritoryDashboard(actor);
+
+  assert.equal(dashboard.coverage.eligibleAccountCount, 2);
+  assert.equal(dashboard.coverage.engaged30DayCount, 1);
+  assert.equal(dashboard.coverage.engaged60DayCount, 1);
+  assert.equal(dashboard.coverage.engaged90DayCount, 2);
+  assert.equal(dashboard.coverage.overdue90DayCount, 0);
+  assert.equal(dashboard.coverage.engaged30DayPercent, 50);
+  assert.equal(dashboard.coverage.engaged90DayPercent, 100);
+
+  assert.equal(dashboard.lifecycle.activeAccountCount, 1);
+  assert.equal(dashboard.lifecycle.atRiskAccountCount, 1);
+  assert.equal(dashboard.lifecycle.inactiveAccountCount, 0);
+  assert.equal(dashboard.lifecycle.churnedAccountCount, 1);
+
+  assert.equal(dashboard.pipeline.newLeadCount, 1);
+  assert.equal(dashboard.pipeline.discoveryLeadCount, 1);
+  assert.equal(dashboard.pipeline.cisLeadCount, 1);
+  assert.equal(dashboard.pipeline.onboardingLeadCount, 1);
+
+  const texasWorkload = dashboard.workloads.find((item) => item.territoryId === texas.territory.id);
+  assert.ok(texasWorkload);
+  assert.equal(texasWorkload.engaged30DayAccountCount, 1);
+  assert.equal(texasWorkload.overdue90DayAccountCount, 0);
+  assert.equal(texasWorkload.atRiskAccountCount, 0);
+  assert.equal(texasWorkload.newLeadCount, 1);
+  assert.equal(texasWorkload.discoveryLeadCount, 0);
+  assert.equal(texasWorkload.cisLeadCount, 1);
+  assert.equal(texasWorkload.onboardingLeadCount, 0);
+
+  const floridaWorkload = dashboard.workloads.find((item) => item.territoryId === florida.territory.id);
+  assert.ok(floridaWorkload);
+  assert.equal(floridaWorkload.engaged30DayAccountCount, 0);
+  assert.equal(floridaWorkload.engaged90DayAccountCount, 1);
+  assert.equal(floridaWorkload.atRiskAccountCount, 1);
+  assert.equal(floridaWorkload.newLeadCount, 0);
+  assert.equal(floridaWorkload.discoveryLeadCount, 0);
+  assert.equal(floridaWorkload.cisLeadCount, 0);
+  assert.equal(floridaWorkload.onboardingLeadCount, 1);
+
+  const texasRegionRollup = dashboard.regionRollups.find((item) => item.regionId === texas.region.id);
+  assert.ok(texasRegionRollup);
+  assert.equal(texasRegionRollup.engaged30DayAccountCount, 1);
+  assert.equal(texasRegionRollup.overdue90DayAccountCount, 0);
+  assert.equal(texasRegionRollup.atRiskAccountCount, 0);
+  assert.equal(texasRegionRollup.newLeadCount, 1);
+  assert.equal(texasRegionRollup.cisLeadCount, 1);
+
+  const floridaRegionRollup = dashboard.regionRollups.find((item) => item.regionId === florida.region.id);
+  assert.ok(floridaRegionRollup);
+  assert.equal(floridaRegionRollup.engaged30DayAccountCount, 0);
+  assert.equal(floridaRegionRollup.engaged90DayAccountCount, 1);
+  assert.equal(floridaRegionRollup.atRiskAccountCount, 1);
+  assert.equal(floridaRegionRollup.onboardingLeadCount, 1);
+
+  const texasTmMetric = dashboard.ownerMetrics.find(
+    (item) => item.ownerRole === 'territory_manager' && item.ownerUserId === texas.manager.id,
+  );
+  assert.ok(texasTmMetric);
+  assert.equal(texasTmMetric.engaged30DayAccountCount, 1);
+  assert.equal(texasTmMetric.atRiskAccountCount, 0);
+
+  const floridaTmMetric = dashboard.ownerMetrics.find(
+    (item) => item.ownerRole === 'territory_manager' && item.ownerUserId === florida.manager.id,
+  );
+  assert.ok(floridaTmMetric);
+  assert.equal(floridaTmMetric.engaged30DayAccountCount, 0);
+  assert.equal(floridaTmMetric.atRiskAccountCount, 1);
+});
+
+test('territory dashboard reporting metrics stay scoped to the visible TM slice', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  await updateTerritoryPolicy(actor, {
+    preHandoffTmVisibility: true,
+  });
+
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_reporting_tm_visible',
+    stateCode: 'TX',
+  });
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'dashboard_reporting_tm_hidden',
+    stateCode: 'FL',
+  });
+
+  await createLead(actor, {
+    companyName: 'Dashboard Reporting TM Visible Lead',
+    serviceTechCount: 7,
+    state: 'TX',
+  });
+  const hiddenLead = await createLead(actor, {
+    companyName: 'Dashboard Reporting TM Hidden Lead',
+    serviceTechCount: 7,
+    state: 'FL',
+  });
+  await prisma.lead.update({
+    where: { id: hiddenLead.id },
+    data: { stage: 'CIS_SENT' },
+  });
+
+  const visibleAccount = await createAccount(actor, {
+    displayName: 'Dashboard Reporting TM Visible Account',
+    legalName: 'Dashboard Reporting TM Visible Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, visibleAccount.id, {
+    name: 'Primary',
+    city: 'Houston',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await prisma.account.update({
+    where: { id: visibleAccount.id },
+    data: {
+      lifecycleStatus: 'ACTIVE',
+      lastEngagementAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const hiddenAccount = await createAccount(actor, {
+    displayName: 'Dashboard Reporting TM Hidden Account',
+    legalName: 'Dashboard Reporting TM Hidden Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, hiddenAccount.id, {
+    name: 'Primary',
+    city: 'Miami',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await prisma.account.update({
+    where: { id: hiddenAccount.id },
+    data: {
+      lifecycleStatus: 'AT_RISK',
+      lastEngagementAt: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const dashboard = await getTerritoryDashboard(actorForUser(visible.manager));
+
+  assert.equal(dashboard.coverage.eligibleAccountCount, 1);
+  assert.equal(dashboard.coverage.engaged30DayCount, 1);
+  assert.equal(dashboard.coverage.overdue90DayCount, 0);
+  assert.equal(dashboard.lifecycle.activeAccountCount, 1);
+  assert.equal(dashboard.lifecycle.atRiskAccountCount, 0);
+  assert.equal(dashboard.pipeline.newLeadCount, 1);
+  assert.equal(dashboard.pipeline.cisLeadCount, 0);
+  assert.deepEqual(dashboard.workloads.map((item) => item.territoryId), [visible.territory.id]);
+});
+
 test('territory assignment history denies out-of-scope entity reads for TMs while keeping visible records accessible', SERIAL, async () => {
   const { actor } = await createAdminSession();
   await updateTerritoryPolicy(actor, {

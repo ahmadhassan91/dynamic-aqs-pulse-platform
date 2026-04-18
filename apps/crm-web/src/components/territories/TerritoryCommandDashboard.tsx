@@ -2,7 +2,10 @@
 
 import type {
   TerritoryDashboardAlert,
+  TerritoryDashboardCoverageSummary,
+  TerritoryDashboardLifecycleSummary,
   TerritoryDashboardOwnerMetricSummary,
+  TerritoryDashboardPipelineSummary,
   TerritoryDashboardQueueSummary,
   TerritoryDashboardRegionRollupSummary,
   TerritoryDashboardStats,
@@ -30,6 +33,9 @@ import {
 
 export function TerritoryCommandDashboard({
   stats,
+  coverage,
+  lifecycle,
+  pipeline,
   alerts,
   workloads,
   queue,
@@ -37,6 +43,9 @@ export function TerritoryCommandDashboard({
   ownerMetrics,
 }: {
   stats: TerritoryDashboardStats;
+  coverage: TerritoryDashboardCoverageSummary;
+  lifecycle: TerritoryDashboardLifecycleSummary;
+  pipeline: TerritoryDashboardPipelineSummary;
   alerts: TerritoryDashboardAlert[];
   workloads: TerritoryDashboardWorkload[];
   queue: TerritoryDashboardQueueSummary;
@@ -96,6 +105,13 @@ export function TerritoryCommandDashboard({
               <Metric label="Territories w/ Manager" value={workloads.filter((item) => item.managerName).length} />
               <Metric label="Territories w/ Shipping" value={workloads.filter((item) => item.shippingCenterName).length} />
             </SimpleGrid>
+
+            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+              <Metric label="30 Day Coverage %" value={coverage.engaged30DayPercent} tone={coverage.engaged30DayPercent >= 75 ? 'teal' : 'orange'} />
+              <Metric label="60 Day Coverage %" value={coverage.engaged60DayPercent} tone={coverage.engaged60DayPercent >= 85 ? 'teal' : 'orange'} />
+              <Metric label="90 Day Coverage %" value={coverage.engaged90DayPercent} tone={coverage.engaged90DayPercent >= 90 ? 'teal' : 'orange'} />
+              <Metric label="90 Day Stale" value={coverage.overdue90DayCount} tone={coverage.overdue90DayCount > 0 ? 'red' : 'teal'} />
+            </SimpleGrid>
           </Stack>
         </Paper>
 
@@ -140,6 +156,52 @@ export function TerritoryCommandDashboard({
         </Paper>
       </SimpleGrid>
 
+      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Title order={4}>Lifecycle posture</Title>
+              <Badge color="teal" variant="light">
+                Account mix
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+              <Metric label="Active" value={lifecycle.activeAccountCount} tone="teal" />
+              <Metric label="At Risk" value={lifecycle.atRiskAccountCount} tone={lifecycle.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
+              <Metric label="Inactive" value={lifecycle.inactiveAccountCount} tone={lifecycle.inactiveAccountCount > 0 ? 'grape' : 'teal'} />
+              <Metric label="Churned" value={lifecycle.churnedAccountCount} tone={lifecycle.churnedAccountCount > 0 ? 'red' : 'teal'} />
+            </SimpleGrid>
+
+            <Text size="sm" c="dimmed">
+              This gives RDs and leadership a clean account-status posture from the CRM-owned lifecycle data, without pretending we already have ERP revenue truth in the territory kernel.
+            </Text>
+          </Stack>
+        </Paper>
+
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Title order={4}>Pipeline posture</Title>
+              <Badge color="blue" variant="light">
+                Lead phases
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+              <Metric label="New" value={pipeline.newLeadCount} tone="blue" />
+              <Metric label="Discovery" value={pipeline.discoveryLeadCount} tone="grape" />
+              <Metric label="CIS" value={pipeline.cisLeadCount} tone="orange" />
+              <Metric label="Onboarding" value={pipeline.onboardingLeadCount} tone="teal" />
+            </SimpleGrid>
+
+            <Text size="sm" c="dimmed">
+              Territory pipeline is grouped by real workflow phase so TMs and RDs can see where prospecting load is accumulating before first-order conversion.
+            </Text>
+          </Stack>
+        </Paper>
+      </SimpleGrid>
+
       <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
         <Stack gap="md">
           <Group justify="space-between">
@@ -160,6 +222,10 @@ export function TerritoryCommandDashboard({
                   <Table.Th>States</Table.Th>
                   <Table.Th>Leads</Table.Th>
                   <Table.Th>Accounts</Table.Th>
+                  <Table.Th>30d Coverage</Table.Th>
+                  <Table.Th>90d Stale</Table.Th>
+                  <Table.Th>At Risk</Table.Th>
+                  <Table.Th>Pipeline</Table.Th>
                   <Table.Th>Total</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -188,6 +254,14 @@ export function TerritoryCommandDashboard({
                     </Table.Td>
                     <Table.Td>{item.activeLeadCount}</Table.Td>
                     <Table.Td>{item.activeAccountCount}</Table.Td>
+                    <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
+                    <Table.Td>{item.overdue90DayAccountCount}</Table.Td>
+                    <Table.Td>{item.atRiskAccountCount}</Table.Td>
+                    <Table.Td>
+                      <Text size="sm" c="dimmed">
+                        N {item.newLeadCount} · D {item.discoveryLeadCount} · C {item.cisLeadCount} · O {item.onboardingLeadCount}
+                      </Text>
+                    </Table.Td>
                     <Table.Td>{item.totalWorkloadCount}</Table.Td>
                   </Table.Tr>
                 ))}
@@ -213,12 +287,15 @@ export function TerritoryCommandDashboard({
                   <Table.Tr>
                     <Table.Th>Region</Table.Th>
                     <Table.Th>Director</Table.Th>
-                    <Table.Th>Territories</Table.Th>
-                    <Table.Th>Leads</Table.Th>
-                    <Table.Th>Accounts</Table.Th>
-                    <Table.Th>Coverage</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
+                  <Table.Th>Territories</Table.Th>
+                  <Table.Th>Leads</Table.Th>
+                  <Table.Th>Accounts</Table.Th>
+                  <Table.Th>30d Coverage</Table.Th>
+                  <Table.Th>At Risk</Table.Th>
+                  <Table.Th>Pipeline</Table.Th>
+                  <Table.Th>Coverage</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
                 <Table.Tbody>
                   {regionRollups.map((item) => (
                     <Table.Tr key={item.regionId}>
@@ -234,6 +311,13 @@ export function TerritoryCommandDashboard({
                       <Table.Td>{item.territoryCount}</Table.Td>
                       <Table.Td>{item.activeLeadCount}</Table.Td>
                       <Table.Td>{item.activeAccountCount}</Table.Td>
+                      <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
+                      <Table.Td>{item.atRiskAccountCount}</Table.Td>
+                      <Table.Td>
+                        <Text size="sm" c="dimmed">
+                          N {item.newLeadCount} · D {item.discoveryLeadCount} · C {item.cisLeadCount} · O {item.onboardingLeadCount}
+                        </Text>
+                      </Table.Td>
                       <Table.Td>{item.coveredStates} states</Table.Td>
                     </Table.Tr>
                   ))}
@@ -258,12 +342,15 @@ export function TerritoryCommandDashboard({
                   <Table.Tr>
                     <Table.Th>Owner</Table.Th>
                     <Table.Th>Role</Table.Th>
-                    <Table.Th>Territories</Table.Th>
-                    <Table.Th>Leads</Table.Th>
-                    <Table.Th>Accounts</Table.Th>
-                    <Table.Th>Coverage</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
+                  <Table.Th>Territories</Table.Th>
+                  <Table.Th>Leads</Table.Th>
+                  <Table.Th>Accounts</Table.Th>
+                  <Table.Th>30d Coverage</Table.Th>
+                  <Table.Th>90d Coverage</Table.Th>
+                  <Table.Th>At Risk</Table.Th>
+                  <Table.Th>Coverage</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
                 <Table.Tbody>
                   {ownerMetrics.map((item) => (
                     <Table.Tr key={`${item.ownerRole}:${item.ownerUserId ?? item.ownerName}`}>
@@ -272,6 +359,9 @@ export function TerritoryCommandDashboard({
                       <Table.Td>{item.territoryCount}</Table.Td>
                       <Table.Td>{item.activeLeadCount}</Table.Td>
                       <Table.Td>{item.activeAccountCount}</Table.Td>
+                      <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
+                      <Table.Td>{item.engaged90DayAccountCount}</Table.Td>
+                      <Table.Td>{item.atRiskAccountCount}</Table.Td>
                       <Table.Td>{item.coveredStates} states</Table.Td>
                     </Table.Tr>
                   ))}

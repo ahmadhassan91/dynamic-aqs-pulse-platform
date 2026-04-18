@@ -267,6 +267,28 @@ export function TerritoryManagement({
           strategicGrowthLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'strategic_growth').length,
           nationalTmLeads: activePipelineLeads.filter((lead) => lead.routingTeam === 'national_tm').length,
         },
+        coverage: {
+          eligibleAccountCount: activeAccounts.filter((account) => account.lifecycleStatus === 'active' || account.lifecycleStatus === 'at_risk').length,
+          engaged30DayCount: 0,
+          engaged60DayCount: 0,
+          engaged90DayCount: 0,
+          overdue90DayCount: 0,
+          engaged30DayPercent: 0,
+          engaged60DayPercent: 0,
+          engaged90DayPercent: 0,
+        },
+        lifecycle: {
+          activeAccountCount: activeAccounts.filter((account) => account.lifecycleStatus === 'active').length,
+          atRiskAccountCount: activeAccounts.filter((account) => account.lifecycleStatus === 'at_risk').length,
+          inactiveAccountCount: accounts.filter((account) => account.lifecycleStatus === 'inactive').length,
+          churnedAccountCount: accounts.filter((account) => account.lifecycleStatus === 'churned').length,
+        },
+        pipeline: {
+          newLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'new').length,
+          discoveryLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'discovery_scheduled' || lead.stage === 'discovery_completed').length,
+          cisLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'cis_sent' || lead.stage === 'cis_signed').length,
+          onboardingLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'onboarding_completed').length,
+        },
         alerts: [],
         workloads: [],
         regionRollups: [],
@@ -282,7 +304,7 @@ export function TerritoryManagement({
         },
         generatedAt: new Date().toISOString(),
       },
-    [activeAccounts, activePipelineLeads, dashboard, regions, shippingCenters, territories, unassignedAccounts.length, unassignedLeads.length],
+    [accounts, activeAccounts, activePipelineLeads, dashboard, regions, shippingCenters, territories, unassignedAccounts.length, unassignedLeads.length],
   );
 
   const mapRegionSummaries = useMemo(
@@ -642,6 +664,9 @@ export function TerritoryManagement({
           <Stack gap="lg">
             <TerritoryCommandDashboard
               stats={dashboardData.stats}
+              coverage={dashboardData.coverage}
+              lifecycle={dashboardData.lifecycle}
+              pipeline={dashboardData.pipeline}
               alerts={dashboardData.alerts}
               workloads={dashboardData.workloads}
               queue={dashboardData.queue}

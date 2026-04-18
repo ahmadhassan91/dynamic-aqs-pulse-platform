@@ -382,6 +382,14 @@ export interface TerritoryDashboardWorkload {
   coveredStates: string[];
   activeLeadCount: number;
   activeAccountCount: number;
+  engaged30DayAccountCount: number;
+  engaged90DayAccountCount: number;
+  overdue90DayAccountCount: number;
+  atRiskAccountCount: number;
+  newLeadCount: number;
+  discoveryLeadCount: number;
+  cisLeadCount: number;
+  onboardingLeadCount: number;
   totalWorkloadCount: number;
 }
 
@@ -396,6 +404,14 @@ export interface TerritoryDashboardRegionRollupSummary {
   coveredStates: number;
   activeLeadCount: number;
   activeAccountCount: number;
+  engaged30DayAccountCount: number;
+  engaged90DayAccountCount: number;
+  overdue90DayAccountCount: number;
+  atRiskAccountCount: number;
+  newLeadCount: number;
+  discoveryLeadCount: number;
+  cisLeadCount: number;
+  onboardingLeadCount: number;
   shippingCenterCount: number;
   territoriesMissingManager: number;
   territoriesMissingShippingCenter: number;
@@ -409,8 +425,36 @@ export interface TerritoryDashboardOwnerMetricSummary {
   territoryCount: number;
   activeLeadCount: number;
   activeAccountCount: number;
+  engaged30DayAccountCount: number;
+  engaged90DayAccountCount: number;
+  atRiskAccountCount: number;
   shippingCenterCount: number;
   coveredStates: number;
+}
+
+export interface TerritoryDashboardCoverageSummary {
+  eligibleAccountCount: number;
+  engaged30DayCount: number;
+  engaged60DayCount: number;
+  engaged90DayCount: number;
+  overdue90DayCount: number;
+  engaged30DayPercent: number;
+  engaged60DayPercent: number;
+  engaged90DayPercent: number;
+}
+
+export interface TerritoryDashboardLifecycleSummary {
+  activeAccountCount: number;
+  atRiskAccountCount: number;
+  inactiveAccountCount: number;
+  churnedAccountCount: number;
+}
+
+export interface TerritoryDashboardPipelineSummary {
+  newLeadCount: number;
+  discoveryLeadCount: number;
+  cisLeadCount: number;
+  onboardingLeadCount: number;
 }
 
 export interface TerritoryDashboardQueueSummary {
@@ -425,6 +469,9 @@ export interface TerritoryDashboardQueueSummary {
 
 export interface TerritoryDashboardResponse {
   stats: TerritoryDashboardStats;
+  coverage: TerritoryDashboardCoverageSummary;
+  lifecycle: TerritoryDashboardLifecycleSummary;
+  pipeline: TerritoryDashboardPipelineSummary;
   alerts: TerritoryDashboardAlert[];
   workloads: TerritoryDashboardWorkload[];
   regionRollups: TerritoryDashboardRegionRollupSummary[];

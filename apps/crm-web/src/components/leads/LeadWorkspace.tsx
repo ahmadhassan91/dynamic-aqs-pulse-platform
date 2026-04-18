@@ -71,15 +71,16 @@ import { usePulseSession } from '@/lib/pulse-session';
 
 type LeadWorkspaceTab = 'overview' | 'pipeline' | 'analytics';
 type ViewMode = 'kanban' | 'list';
+type ManualGroupAxisSelection = GroupAxisSelectionKey | '';
 type LeadCreateFormState = {
   companyName: string;
   contactDisplayName: string;
   email: string;
   phone: string;
   state: string;
-  affinityGroupSelection: GroupAxisSelectionKey;
+  affinityGroupSelection: ManualGroupAxisSelection;
   affinityGroupCode: string;
-  ownershipGroupSelection: GroupAxisSelectionKey;
+  ownershipGroupSelection: ManualGroupAxisSelection;
   ownershipGroupCode: string;
   sourceCampaign: string;
   leadRating: string;
@@ -112,9 +113,9 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
   email: '',
   phone: '',
   state: '',
-  affinityGroupSelection: 'unknown',
+  affinityGroupSelection: '',
   affinityGroupCode: '',
-  ownershipGroupSelection: 'unknown',
+  ownershipGroupSelection: '',
   ownershipGroupCode: '',
   sourceCampaign: '',
   leadRating: '',
@@ -127,11 +128,10 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
 const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
 const leadMarketingSourceOptions = APP_LEAD_MARKETING_SOURCES;
 const leadRatingOptions = APP_LEAD_RATINGS;
-const groupAxisSelectionOptions = [
-  { value: 'unknown', label: 'Unknown / not assessed' },
+const manualGroupAxisSelectionOptions = [
   { value: 'none', label: 'Independent / no group' },
   { value: 'group', label: 'Select governed group' },
-] satisfies ReadonlyArray<{ value: GroupAxisSelectionKey; label: string }>;
+] satisfies ReadonlyArray<{ value: Exclude<GroupAxisSelectionKey, 'unknown'>; label: string }>;
 
 const leadRegionSelectData = leadRegionOptions.map((option) => ({
   value: option.value,
@@ -328,6 +328,18 @@ export function LeadWorkspace({
     setCreateLeadError(null);
 
     try {
+      if (!createLeadForm.affinityGroupSelection) {
+        setCreateLeadError('Choose an affinity group status before creating a manual lead.');
+        setIsCreatingLead(false);
+        return;
+      }
+
+      if (!createLeadForm.ownershipGroupSelection) {
+        setCreateLeadError('Choose an ownership group status before creating a manual lead.');
+        setIsCreatingLead(false);
+        return;
+      }
+
       if (createLeadForm.affinityGroupSelection === 'group' && !createLeadForm.affinityGroupCode) {
         setCreateLeadError('Choose an affinity group when the affinity selection is set to a governed group.');
         setIsCreatingLead(false);
@@ -849,25 +861,27 @@ export function LeadWorkspace({
             />
             <Select
               label="Affinity group status"
-              value={createLeadForm.affinityGroupSelection}
+              placeholder="Select affinity status..."
+              value={createLeadForm.affinityGroupSelection || null}
               onChange={(value) =>
                 setCreateLeadForm((current) => ({
                   ...current,
-                  affinityGroupSelection: (value as GroupAxisSelectionKey | null) ?? 'unknown',
+                  affinityGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
                   affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
                 }))}
-              data={groupAxisSelectionOptions}
+              data={manualGroupAxisSelectionOptions}
             />
             <Select
               label="Ownership group status"
-              value={createLeadForm.ownershipGroupSelection}
+              placeholder="Select ownership status..."
+              value={createLeadForm.ownershipGroupSelection || null}
               onChange={(value) =>
                 setCreateLeadForm((current) => ({
                   ...current,
-                  ownershipGroupSelection: (value as GroupAxisSelectionKey | null) ?? 'unknown',
+                  ownershipGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
                   ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
                 }))}
-              data={groupAxisSelectionOptions}
+              data={manualGroupAxisSelectionOptions}
             />
             {createLeadForm.affinityGroupSelection === 'group' ? (
               <Select

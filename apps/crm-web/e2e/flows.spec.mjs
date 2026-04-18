@@ -16,7 +16,13 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
   await expect(page.getByRole('heading', { name: 'New Intake' })).toBeVisible();
   await page.getByLabel('Company name').fill('Acme Comfort Group');
+  await page.getByLabel('Email').fill('intake@example.com');
+  await page.getByLabel('Phone').fill('555-401-5000');
   await expect(page.getByLabel('Company name')).toHaveValue('Acme Comfort Group');
+  await expect(page.getByRole('textbox', { name: 'Affinity group status' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'Ownership group status' })).toHaveValue('');
+  await page.getByRole('button', { name: 'Create Lead' }).click();
+  await expect(page.getByText('Choose an affinity group status before creating a manual lead.')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'New Intake' })).not.toBeVisible();
 

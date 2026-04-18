@@ -92,3 +92,20 @@ The clean follow-through from here is:
 - dealer-group reference model
 - price-class reference model
 - later dealer-group resolver behavior on top of the now-governed classification masters
+
+## Parked Deliberately
+
+This stewardship slice stops at governed master-data management.
+
+It does **not** yet include:
+- recurring roster-membership ingestion for affinity and ownership
+- row-to-lead/account matching and steward reconciliation of roster imports
+- dealer-group derived resolution
+- price-class sync or ERP-owned price-class truth
+- guessed Acumatica behavior
+
+Those boundaries are intentional:
+- the current slice manages the list of valid groups
+- the later roster slice will manage who belongs to those groups over time
+- dealer-group stays downstream because it is derived from more than just the master list
+- price class remains Acumatica-owned and should stay parked until sandbox access and certified mappings exist

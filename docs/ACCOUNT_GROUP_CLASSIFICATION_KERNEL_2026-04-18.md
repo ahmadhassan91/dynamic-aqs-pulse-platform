@@ -142,14 +142,33 @@ So the rule is now:
 
 ## What Is Still Next
 
-This slice intentionally stops before:
-- dealer-group derived resolution
-- price-class governed reference model
-- roster-import stewardship pipeline
-- admin CRUD/import UI for affinity and ownership masters
+The immediate follow-through from this slice is:
+- stewardship CRUD/import UI for affinity and ownership masters
+- roster-membership ingestion and reconciliation for recurring group rosters
 - richer account and customer maintenance surfaces for editing these classifications
 
-Those are now follow-up slices instead of hidden architecture debt.
+Those are the next CRM-owned slices on top of the kernel instead of hidden architecture debt.
+
+## What Is Intentionally Parked
+
+These items are deliberately not bundled into the kernel slice:
+- dealer-group derived resolution
+- dealer-group reference data
+- price-class reference data and write ownership
+- Acumatica-driven price-class sync
+- ERP-side dealer-context behavior that depends on sandbox-certified contracts
+
+Why they are parked:
+- `DealerGroup` is a downstream derived output, not one of the two core stored axes
+- `PriceClass` is ERP-governed and should not be invented inside CRM before the Acumatica contract is real
+- sandbox access and certified endpoint behavior still need to exist before we hardcode ERP-dependent assumptions
+
+So the kernel slice ends at:
+- governed affinity and ownership axes
+- derived classification
+- lead/account/CIS propagation
+
+And it intentionally does **not** pretend that dealer-group or price-class truth belongs to CRM yet.
 
 ## Regression and Verification
 

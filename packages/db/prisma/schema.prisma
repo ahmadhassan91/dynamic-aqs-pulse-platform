@@ -239,6 +239,19 @@ enum LeadOperationalAlertType {
   INITIAL_CONTACT_LEADERSHIP_ESCALATION
 }
 
+enum LeadOperationalAlertDeliveryMode {
+  PREVIEW
+  DISABLED
+}
+
+enum LeadOperationalAlertDeliveryStatus {
+  PENDING
+  PREVIEWED
+  SENT
+  SKIPPED
+  FAILED
+}
+
 enum TerritoryAssignmentMethod {
   DEFAULT_STATE
   MANUAL_OVERRIDE
@@ -1370,20 +1383,47 @@ model LeadOperationalAlert {
   recipientId      String?                 @db.Uuid
   recipientUserId  String?                 @db.Uuid
   alertType        LeadOperationalAlertType
+  deliveryStatus   LeadOperationalAlertDeliveryStatus @default(PENDING)
   recipientName    String
   recipientEmail   String?
   dedupeKey        String                  @unique
   metadata         Json?
   createdAt        DateTime                @default(now())
+  lastDeliveryAttemptAt DateTime?
+  deliveredAt      DateTime?
 
   lead             Lead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
   recipient        LeadOperationalAlertRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
   recipientUser    User?                   @relation("LeadOperationalAlertRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  deliveryAttempts LeadOperationalAlertDeliveryAttempt[]
 
   @@index([leadId, alertType])
   @@index([recipientId])
   @@index([recipientUserId])
+  @@index([deliveryStatus, createdAt])
   @@index([createdAt])
+}
+
+model LeadOperationalAlertDeliveryAttempt {
+  id            String                          @id @default(uuid()) @db.Uuid
+  alertId       String                          @db.Uuid
+  attemptNumber Int
+  deliveryMode  LeadOperationalAlertDeliveryMode
+  status        LeadOperationalAlertDeliveryStatus
+  providerKey   String
+  recipientName String
+  recipientEmail String?
+  subject       String
+  errorMessage  String?
+  metadata      Json?
+  createdAt     DateTime                        @default(now())
+  completedAt   DateTime?
+
+  alert         LeadOperationalAlert            @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, attemptNumber])
+  @@index([alertId, createdAt])
+  @@index([status, createdAt])
 }
 
 model WebsiteLeadSubmission {

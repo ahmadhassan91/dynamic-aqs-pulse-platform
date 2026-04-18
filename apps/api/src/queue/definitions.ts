@@ -112,3 +112,13 @@ export const LEAD_OPERATIONAL_ALERT_SCAN_QUEUE: QueueDefinition = {
     retryLimit: 3,
   },
 };
+
+export const LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE: QueueDefinition = {
+  name: 'lead.operational-alert-delivery',
+  tier: 'STANDARD',
+  description: 'Dispatches persisted lead operational alerts through the configured preview or provider-neutral delivery mode',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 3,
+  },
+};

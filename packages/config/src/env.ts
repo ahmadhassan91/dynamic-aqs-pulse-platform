@@ -37,6 +37,7 @@ export type AppQueueConfig = {
 
 export type AppLeadOperationsConfig = {
   operationalAlertScanIntervalMinutes: number;
+  operationalAlertDeliveryMode: 'preview' | 'disabled';
 };
 
 export type AppMigrationConfig = {
@@ -190,6 +191,10 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     leads: {
       operationalAlertScanIntervalMinutes: parseNumber(env.LEAD_OPERATIONAL_ALERT_SCAN_INTERVAL_MINUTES, 15),
+      operationalAlertDeliveryMode: parseLeadOperationalAlertDeliveryMode(
+        env.LEAD_OPERATIONAL_ALERT_DELIVERY_MODE,
+        environment === 'production' ? 'disabled' : 'preview',
+      ),
     },
     migration: {
       adminToken: optionalString(env.MIGRATION_ADMIN_TOKEN),
@@ -283,6 +288,18 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
 
   if (['0', 'false', 'no', 'off'].includes(normalized)) {
     return false;
+  }
+
+  return fallback;
+}
+
+function parseLeadOperationalAlertDeliveryMode(
+  value: string | undefined,
+  fallback: AppLeadOperationsConfig['operationalAlertDeliveryMode'],
+): AppLeadOperationsConfig['operationalAlertDeliveryMode'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'preview' || normalized === 'disabled') {
+    return normalized;
   }
 
   return fallback;

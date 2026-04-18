@@ -99,7 +99,7 @@ Highlights from that run:
 
 Still parked after this slice:
 
-- real outbound alert delivery for SGT/manager/leadership recipients
+- provider-neutral preview delivery now has its own follow-up slice; real outbound provider delivery for SGT/manager/leadership recipients is still pending
 - richer alert preferences/admin management beyond the seeded SGT recipient set
 - broader lead operational reporting on top of the new alert records
 - more complete field masking on sensitive non-lead domains

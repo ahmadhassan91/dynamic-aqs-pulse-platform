@@ -20,6 +20,7 @@ let createLead;
 let listLeads;
 let getLeadDetail;
 let processLeadOperationalAlertScanJob;
+let processLeadOperationalAlertDeliveryJob;
 let createRegion;
 let createShippingCenter;
 let createTerritory;
@@ -43,6 +44,7 @@ test.before(async () => {
     listLeads,
     getLeadDetail,
     processLeadOperationalAlertScanJob,
+    processLeadOperationalAlertDeliveryJob,
   } = await import('../dist/modules/leads/service.js'));
   ({
     ensureTerritoryPolicySeeded,
@@ -113,6 +115,64 @@ function actorForUser(user) {
     actorType: 'internal',
     email: user.email,
     displayName: user.displayName,
+  };
+}
+
+function createLeadAlertJob(data = {}) {
+  return {
+    id: 'job-lead-alert-scan',
+    type: 'lead.operational-alert-scan',
+    attempts: 1,
+    createdAt: new Date().toISOString(),
+    signal: AbortSignal.abort(),
+    payload: {
+      jobType: 'lead.operational-alert-scan',
+      triggeredBy: 'system',
+      triggerSource: 'scheduler',
+      correlationId: 'lead-alert-scan-regression',
+      data: {
+        limit: 50,
+        ...data,
+      },
+    },
+  };
+}
+
+function createLeadAlertDeliveryJob(alertId, correlationId = 'lead-alert-delivery-regression') {
+  return {
+    id: `job-lead-alert-delivery-${alertId}`,
+    type: 'lead.operational-alert-delivery',
+    attempts: 1,
+    createdAt: new Date().toISOString(),
+    signal: AbortSignal.abort(),
+    payload: {
+      jobType: 'lead.operational-alert-delivery',
+      triggeredBy: 'worker',
+      triggerSource: 'worker',
+      correlationId,
+      data: {
+        alertId,
+      },
+    },
+  };
+}
+
+function createLoggerStub() {
+  const entries = {
+    debug: [],
+    info: [],
+    warn: [],
+    error: [],
+  };
+
+  return {
+    entries,
+    logger: {
+      debug: (message, meta) => entries.debug.push({ message, meta }),
+      info: (message, meta) => entries.info.push({ message, meta }),
+      warn: (message, meta) => entries.warn.push({ message, meta }),
+      error: (message, meta) => entries.error.push({ message, meta }),
+    },
   };
 }
 
@@ -238,20 +298,7 @@ test('lead operational alert scan creates SGT broadcast alerts and SLA escalatio
   });
 
   const result = await processLeadOperationalAlertScanJob({
-    id: 'job-lead-alert-scan',
-    type: 'lead.operational-alert-scan',
-    attempts: 1,
-    createdAt: new Date().toISOString(),
-    signal: AbortSignal.abort(),
-    payload: {
-      jobType: 'lead.operational-alert-scan',
-      triggeredBy: 'system',
-      triggerSource: 'scheduler',
-      correlationId: 'lead-alert-scan-regression',
-      data: {
-        limit: 50,
-      },
-    },
+    ...createLeadAlertJob(),
   });
 
   assert.ok(result.processedLeadCount >= 2);
@@ -283,4 +330,231 @@ test('lead operational alert scan creates SGT broadcast alerts and SLA escalatio
   assert.equal(tmManagerAlert.recipientUserId, manager.id);
   assert.ok(tmLeadershipAlert);
   assert.equal(tmLeadershipAlert.recipientUserId, director.id);
+});
+
+test('lead operational alert scan returns zero work when no leads match', SERIAL, async () => {
+  const result = await processLeadOperationalAlertScanJob(createLeadAlertJob());
+
+  assert.equal(result.processedLeadCount, 0);
+  assert.equal(result.createdAlertCount, 0);
+});
+
+test('lead operational alert scan tolerates an empty SGT recipient roster without creating broadcasts', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  await prisma.leadOperationalAlertRecipient.updateMany({
+    data: { isActive: false },
+  });
+
+  const sgtLead = await createLead(actor, {
+    companyName: 'SGT No Recipient HVAC',
+    contactDisplayName: 'Taylor Empty',
+    email: 'taylor.empty@example.com',
+    phone: '555-100-2600',
+    state: 'CA',
+    serviceTechCount: 3,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  const result = await processLeadOperationalAlertScanJob(createLeadAlertJob());
+
+  assert.equal(result.processedLeadCount, 1);
+  assert.equal(result.createdAlertCount, 0);
+
+  const alerts = await prisma.leadOperationalAlert.findMany({
+    where: { leadId: sgtLead.id },
+  });
+  assert.equal(alerts.length, 0);
+});
+
+test('lead operational alert scan falls back to default escalation thresholds when policy is missing', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const { director, manager } = await seedTerritoryFixture(actor, 'fallback');
+
+  const tmLead = await createLead(actor, {
+    companyName: 'Fallback Threshold HVAC',
+    contactDisplayName: 'Jamie Fallback',
+    email: 'jamie.fallback@example.com',
+    phone: '555-100-2700',
+    state: 'TX',
+    serviceTechCount: 8,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  await prisma.leadRoutingPolicy.delete({
+    where: { id: 'default' },
+  });
+
+  await prisma.lead.update({
+    where: { id: tmLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (26 * 3600000)),
+      initialContactDueAt: new Date(Date.now() - (2 * 3600000)),
+    },
+  });
+
+  const result = await processLeadOperationalAlertScanJob(createLeadAlertJob());
+  assert.equal(result.createdAlertCount, 2);
+
+  const alerts = await prisma.leadOperationalAlert.findMany({
+    where: { leadId: tmLead.id },
+    orderBy: { alertType: 'asc' },
+  });
+
+  assert.deepEqual(
+    alerts.map((entry) => entry.alertType),
+    ['INITIAL_CONTACT_MANAGER_ESCALATION', 'INITIAL_CONTACT_LEADERSHIP_ESCALATION'],
+  );
+  assert.equal(alerts.find((entry) => entry.alertType === 'INITIAL_CONTACT_MANAGER_ESCALATION')?.recipientUserId, manager.id);
+  assert.equal(alerts.find((entry) => entry.alertType === 'INITIAL_CONTACT_LEADERSHIP_ESCALATION')?.recipientUserId, director.id);
+});
+
+test('lead operational alert scan dedupes repeated runs for the same leads', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  await seedTerritoryFixture(actor, 'dedupe');
+
+  const sgtLead = await createLead(actor, {
+    companyName: 'SGT Dedupe HVAC',
+    contactDisplayName: 'Jordan Dedupe',
+    email: 'jordan.dedupe@example.com',
+    phone: '555-100-2800',
+    state: 'CA',
+    serviceTechCount: 3,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  await prisma.lead.update({
+    where: { id: sgtLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (26 * 3600000)),
+      initialContactDueAt: new Date(Date.now() - (2 * 3600000)),
+    },
+  });
+
+  const first = await processLeadOperationalAlertScanJob(createLeadAlertJob());
+  const second = await processLeadOperationalAlertScanJob(createLeadAlertJob());
+
+  assert.equal(first.createdAlertCount, 3);
+  assert.equal(second.createdAlertCount, 0);
+
+  const alerts = await prisma.leadOperationalAlert.findMany({
+    where: { leadId: sgtLead.id },
+  });
+  assert.equal(alerts.length, 3);
+});
+
+test('lead operational alert delivery records preview attempts and stays idempotent on retries', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const sgtLead = await createLead(actor, {
+    companyName: 'SGT Delivery Preview HVAC',
+    contactDisplayName: 'Morgan Preview',
+    email: 'morgan.preview@example.com',
+    phone: '555-100-2900',
+    state: 'CA',
+    serviceTechCount: 3,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  await prisma.lead.update({
+    where: { id: sgtLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (26 * 3600000)),
+      initialContactDueAt: new Date(Date.now() - (2 * 3600000)),
+    },
+  });
+
+  await processLeadOperationalAlertScanJob(createLeadAlertJob());
+  const alert = await prisma.leadOperationalAlert.findFirstOrThrow({
+    where: {
+      leadId: sgtLead.id,
+      alertType: 'ROUTING_BROADCAST',
+    },
+  });
+
+  const { logger, entries } = createLoggerStub();
+  const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+    config,
+    logger,
+    createLeadAlertDeliveryJob(alert.id),
+  );
+  const retryResult = await processLeadOperationalAlertDeliveryJob(
+    config,
+    logger,
+    createLeadAlertDeliveryJob(alert.id, 'lead-alert-delivery-regression-retry'),
+  );
+
+  assert.equal(deliveryResult.status, 'previewed');
+  assert.equal(retryResult.status, 'already_processed');
+
+  const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+    where: { alertId: alert.id },
+    orderBy: { attemptNumber: 'asc' },
+  });
+
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, 'PREVIEWED');
+  assert.equal(attempts[0].deliveryMode, 'PREVIEW');
+  assert.ok(entries.info.some((entry) => entry.message === 'lead.operational_alert.preview'));
+});
+
+test('lead operational alert delivery records disabled mode when alert transport is unavailable', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const sgtLead = await createLead(actor, {
+    companyName: 'SGT Delivery Disabled HVAC',
+    contactDisplayName: 'Casey Disabled',
+    email: 'casey.disabled@example.com',
+    phone: '555-100-3000',
+    state: 'CA',
+    serviceTechCount: 3,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  await prisma.lead.update({
+    where: { id: sgtLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (26 * 3600000)),
+      initialContactDueAt: new Date(Date.now() - (2 * 3600000)),
+    },
+  });
+
+  await processLeadOperationalAlertScanJob(createLeadAlertJob());
+  const alert = await prisma.leadOperationalAlert.findFirstOrThrow({
+    where: {
+      leadId: sgtLead.id,
+      alertType: 'ROUTING_BROADCAST',
+    },
+  });
+
+  const { logger, entries } = createLoggerStub();
+  const disabledConfig = {
+    ...config,
+    leads: {
+      ...config.leads,
+      operationalAlertDeliveryMode: 'disabled',
+    },
+  };
+
+  const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+    disabledConfig,
+    logger,
+    createLeadAlertDeliveryJob(alert.id),
+  );
+
+  assert.equal(deliveryResult.status, 'skipped');
+
+  const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+    where: { alertId: alert.id },
+  });
+
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, 'SKIPPED');
+  assert.equal(attempts[0].deliveryMode, 'DISABLED');
+  assert.ok(entries.warn.some((entry) => entry.message === 'lead.operational_alert.delivery_skipped'));
 });

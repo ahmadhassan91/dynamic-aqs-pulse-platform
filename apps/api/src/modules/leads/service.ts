@@ -112,6 +112,7 @@ import {
 } from '../territories/service.js';
 export {
   ensureLeadOperationalAlertRecipientsSeeded,
+  processLeadOperationalAlertDeliveryJob,
   processLeadOperationalAlertScanJob,
 } from './alerts.js';
 export {

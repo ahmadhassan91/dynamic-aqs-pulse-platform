@@ -15,6 +15,7 @@ import {
   ensureLeadOperationalAlertRecipientsSeeded,
   ensureLeadRoutingPolicySeeded,
   ensureWebsiteLeadConfigSeeded,
+  processLeadOperationalAlertDeliveryJob,
   processLeadOperationalAlertScanJob,
 } from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
@@ -25,6 +26,7 @@ import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
 import { handleTrainingRoutes } from './modules/training/http.js';
 import { ensureTrainingSeeded } from './modules/training/service.js';
 import {
+  LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE,
   LEAD_OPERATIONAL_ALERT_SCAN_QUEUE,
   MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE,
   MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE,
@@ -83,8 +85,11 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   workers.register(MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE, async (job) => (
     processMonerisHostedCaptureCleanupJob(job)
   ));
+  workers.register(LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE, async (job) => (
+    processLeadOperationalAlertDeliveryJob(config, logger, job)
+  ));
   workers.register(LEAD_OPERATIONAL_ALERT_SCAN_QUEUE, async (job) => (
-    processLeadOperationalAlertScanJob(job)
+    processLeadOperationalAlertScanJob(job, { queue, logger })
   ));
 
   await prisma.$connect();

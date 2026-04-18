@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "test": "pnpm run test:e2e",
-    "test:e2e": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/db build && pnpm --dir ../.. --filter @pulse/api build && NEXT_PUBLIC_PULSE_API_BASE_URL=http://127.0.0.1:4100 NEXT_PUBLIC_PULSE_WEB_BASE_URL=http://127.0.0.1:3101 pnpm run build && node e2e/prepare-e2e.mjs && playwright test -c e2e/playwright.config.mjs",
+    "test:e2e": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm --dir ../.. --filter @pulse/api build && NEXT_PUBLIC_PULSE_API_BASE_URL=http://127.0.0.1:4100 NEXT_PUBLIC_PULSE_WEB_BASE_URL=http://127.0.0.1:3101 pnpm run build && node e2e/prepare-e2e.mjs && playwright test -c e2e/playwright.config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf .next out tsconfig.tsbuildinfo"
   },

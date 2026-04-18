@@ -382,6 +382,9 @@ export interface TerritoryDashboardWorkload {
   coveredStates: string[];
   activeLeadCount: number;
   activeAccountCount: number;
+  trainedAccounts: number;
+  activeProgramsCount: number;
+  trainingPenetrationPercent: number;
   engaged30DayAccountCount: number;
   engaged90DayAccountCount: number;
   overdue90DayAccountCount: number;
@@ -404,6 +407,9 @@ export interface TerritoryDashboardRegionRollupSummary {
   coveredStates: number;
   activeLeadCount: number;
   activeAccountCount: number;
+  trainedAccounts: number;
+  activeProgramsCount: number;
+  trainingPenetrationPercent: number;
   engaged30DayAccountCount: number;
   engaged90DayAccountCount: number;
   overdue90DayAccountCount: number;
@@ -430,6 +436,33 @@ export interface TerritoryDashboardOwnerMetricSummary {
   atRiskAccountCount: number;
   shippingCenterCount: number;
   coveredStates: number;
+}
+
+export interface TerritoryDashboardTrainingPenetrationSummary {
+  totalAccounts: number;
+  trainedAccounts: number;
+  activeProgramsCount: number;
+  penetrationPercent: number;
+}
+
+export interface TerritoryTrainingPenetrationTerritorySummary extends TerritoryDashboardTrainingPenetrationSummary {
+  territoryId: string;
+  territoryCode: string;
+  territoryName: string;
+  regionId: string;
+  regionName: string;
+}
+
+export interface TerritoryTrainingPenetrationRegionSummary extends TerritoryDashboardTrainingPenetrationSummary {
+  regionId: string;
+  regionCode: string;
+  regionName: string;
+}
+
+export interface TerritoryTrainingPenetrationResponse {
+  summary: TerritoryDashboardTrainingPenetrationSummary;
+  territories: TerritoryTrainingPenetrationTerritorySummary[];
+  regions: TerritoryTrainingPenetrationRegionSummary[];
 }
 
 export interface TerritoryDashboardCoverageSummary {
@@ -472,6 +505,7 @@ export interface TerritoryDashboardResponse {
   coverage: TerritoryDashboardCoverageSummary;
   lifecycle: TerritoryDashboardLifecycleSummary;
   pipeline: TerritoryDashboardPipelineSummary;
+  trainingPenetration: TerritoryDashboardTrainingPenetrationSummary;
   alerts: TerritoryDashboardAlert[];
   workloads: TerritoryDashboardWorkload[];
   regionRollups: TerritoryDashboardRegionRollupSummary[];

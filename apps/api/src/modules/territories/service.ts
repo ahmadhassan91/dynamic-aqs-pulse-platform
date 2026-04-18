@@ -1,10 +1,13 @@
 import { assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
 import {
   AuditAction,
+  AccountTrainingProgramStatus,
   AccountLifecycleStatus,
   LeadLifecycleStatus,
   LeadStage,
   LeadRoutingTeam,
+  TrainingActivityKind,
+  TrainingSessionStatus,
   UserKind,
   Prisma,
   TerritoryAssignmentEntityType,
@@ -27,6 +30,7 @@ import type {
   TerritoryDashboardRegionRollupSummary,
   TerritoryDashboardResponse,
   TerritoryDashboardStats,
+  TerritoryDashboardTrainingPenetrationSummary,
   TerritoryDashboardWorkload,
   LeadTerritoryAssignmentSummary,
   ListTerritoryAssignableUsersResponse,
@@ -145,6 +149,13 @@ type TerritoryDashboardAccountRecord = {
   isActive: boolean;
   lifecycleStatus: AccountLifecycleStatus;
   lastEngagementAt: Date | null;
+  trainingPrograms: Array<{
+    status: AccountTrainingProgramStatus;
+  }>;
+  trainingSessions: Array<{
+    status: TrainingSessionStatus;
+    activityKind: TrainingActivityKind;
+  }>;
 };
 
 const ASSIGNABLE_TERRITORY_ROLE_CODES = ['TERRITORY_MANAGER', 'REGIONAL_DIRECTOR'] as const;
@@ -794,6 +805,17 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
         isActive: true,
         lifecycleStatus: true,
         lastEngagementAt: true,
+        trainingPrograms: {
+          select: {
+            status: true,
+          },
+        },
+        trainingSessions: {
+          select: {
+            status: true,
+            activityKind: true,
+          },
+        },
       },
     }),
   ]);
@@ -820,6 +842,8 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
   const regionCoverageCounts = new Map<string, CoverageCounts>();
   const territoryLifecycleCounts = new Map<string, LifecycleCounts>();
   const regionLifecycleCounts = new Map<string, LifecycleCounts>();
+  const territoryTrainingCounts = new Map<string, TrainingPenetrationCounts>();
+  const regionTrainingCounts = new Map<string, TrainingPenetrationCounts>();
 
   for (const lead of leadRecords) {
     const phase = getLeadPipelinePhase(lead.stage);
@@ -838,6 +862,7 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
 
   for (const account of accountRecords) {
     const coverageSnapshot = summarizeCoverage(account);
+    const trainingSnapshot = summarizeTrainingPenetration(account);
 
     if (account.territoryId) {
       if (account.isActive) {
@@ -845,6 +870,7 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
       }
       incrementCoverageCounts(territoryCoverageCounts, account.territoryId, coverageSnapshot);
       incrementLifecycleCounts(territoryLifecycleCounts, account.territoryId, account.lifecycleStatus);
+      incrementTrainingPenetrationCounts(territoryTrainingCounts, account.territoryId, trainingSnapshot);
     }
 
     const territory = account.territoryId ? territoryById.get(account.territoryId) : undefined;
@@ -854,6 +880,7 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
       }
       incrementCoverageCounts(regionCoverageCounts, territory.regionId, coverageSnapshot);
       incrementLifecycleCounts(regionLifecycleCounts, territory.regionId, account.lifecycleStatus);
+      incrementTrainingPenetrationCounts(regionTrainingCounts, territory.regionId, trainingSnapshot);
     }
   }
 
@@ -885,11 +912,15 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
   const coverage = toTerritoryDashboardCoverageSummary(summarizeCoverageCollection(accountRecords));
   const lifecycle = toTerritoryDashboardLifecycleSummary(summarizeLifecycleCollection(accountRecords));
   const pipeline = toTerritoryDashboardPipelineSummary(summarizePipelineCollection(leadRecords));
+  const trainingPenetration = toTerritoryDashboardTrainingPenetrationSummary(
+    summarizeTrainingPenetrationCollection(accountRecords),
+  );
   const alerts = buildTerritoryDashboardAlerts(queue);
   const workloads = buildTerritoryDashboardWorkloads(
     territories,
     territoryLeadCounts,
     territoryAccountCounts,
+    territoryTrainingCounts,
     territoryCoverageCounts,
     territoryLifecycleCounts,
     territoryPipelineCounts,
@@ -899,6 +930,7 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
     territories,
     regionLeadCounts,
     regionAccountCounts,
+    regionTrainingCounts,
     regionCoverageCounts,
     regionLifecycleCounts,
     regionPipelineCounts,
@@ -916,6 +948,7 @@ export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<
     coverage,
     lifecycle,
     pipeline,
+    trainingPenetration,
     alerts,
     workloads,
     regionRollups,
@@ -2427,6 +2460,12 @@ type PipelinePhaseCounts = {
   onboardingLeadCount: number;
 };
 
+type TrainingPenetrationCounts = {
+  totalAccounts: number;
+  trainedAccounts: number;
+  activeProgramsCount: number;
+};
+
 function createCoverageCounts(): CoverageCounts {
   return {
     eligibleAccountCount: 0,
@@ -2452,6 +2491,14 @@ function createPipelinePhaseCounts(): PipelinePhaseCounts {
     discoveryLeadCount: 0,
     cisLeadCount: 0,
     onboardingLeadCount: 0,
+  };
+}
+
+function createTrainingPenetrationCounts(): TrainingPenetrationCounts {
+  return {
+    totalAccounts: 0,
+    trainedAccounts: 0,
+    activeProgramsCount: 0,
   };
 }
 
@@ -2532,6 +2579,35 @@ function summarizePipelineCollection(leads: TerritoryDashboardLeadRecord[]): Pip
   return counts;
 }
 
+function summarizeTrainingPenetration(account: TerritoryDashboardAccountRecord): TrainingPenetrationCounts {
+  const counts = createTrainingPenetrationCounts();
+  if (!account.isActive) {
+    return counts;
+  }
+
+  counts.totalAccounts = 1;
+  counts.activeProgramsCount = account.trainingPrograms.filter((program) => (
+    program.status === AccountTrainingProgramStatus.ACTIVE
+      || program.status === AccountTrainingProgramStatus.NOT_STARTED
+      || program.status === AccountTrainingProgramStatus.OVERDUE
+  )).length;
+  counts.trainedAccounts = account.trainingSessions.some((session) => (
+    session.status === TrainingSessionStatus.COMPLETED
+      && session.activityKind === TrainingActivityKind.TRAINING
+  ))
+    ? 1
+    : 0;
+  return counts;
+}
+
+function summarizeTrainingPenetrationCollection(accounts: TerritoryDashboardAccountRecord[]): TrainingPenetrationCounts {
+  const counts = createTrainingPenetrationCounts();
+  for (const account of accounts) {
+    mergeTrainingPenetrationCounts(counts, summarizeTrainingPenetration(account));
+  }
+  return counts;
+}
+
 function mergeCoverageCounts(target: CoverageCounts, next: CoverageCounts) {
   target.eligibleAccountCount += next.eligibleAccountCount;
   target.engaged30DayCount += next.engaged30DayCount;
@@ -2543,6 +2619,22 @@ function mergeCoverageCounts(target: CoverageCounts, next: CoverageCounts) {
 function incrementCoverageCounts(collection: Map<string, CoverageCounts>, key: string, snapshot: CoverageCounts) {
   const current = collection.get(key) ?? createCoverageCounts();
   mergeCoverageCounts(current, snapshot);
+  collection.set(key, current);
+}
+
+function mergeTrainingPenetrationCounts(target: TrainingPenetrationCounts, next: TrainingPenetrationCounts) {
+  target.totalAccounts += next.totalAccounts;
+  target.trainedAccounts += next.trainedAccounts;
+  target.activeProgramsCount += next.activeProgramsCount;
+}
+
+function incrementTrainingPenetrationCounts(
+  collection: Map<string, TrainingPenetrationCounts>,
+  key: string,
+  snapshot: TrainingPenetrationCounts,
+) {
+  const current = collection.get(key) ?? createTrainingPenetrationCounts();
+  mergeTrainingPenetrationCounts(current, snapshot);
   collection.set(key, current);
 }
 
@@ -2587,6 +2679,17 @@ function toTerritoryDashboardCoverageSummary(counts: CoverageCounts): TerritoryD
     engaged30DayPercent: toCoveragePercent(counts.engaged30DayCount, counts.eligibleAccountCount),
     engaged60DayPercent: toCoveragePercent(counts.engaged60DayCount, counts.eligibleAccountCount),
     engaged90DayPercent: toCoveragePercent(counts.engaged90DayCount, counts.eligibleAccountCount),
+  };
+}
+
+function toTerritoryDashboardTrainingPenetrationSummary(
+  counts: TrainingPenetrationCounts,
+): TerritoryDashboardTrainingPenetrationSummary {
+  return {
+    totalAccounts: counts.totalAccounts,
+    trainedAccounts: counts.trainedAccounts,
+    activeProgramsCount: counts.activeProgramsCount,
+    penetrationPercent: toCoveragePercent(counts.trainedAccounts, counts.totalAccounts),
   };
 }
 
@@ -2648,6 +2751,7 @@ function buildTerritoryDashboardWorkloads(
   territories: TerritorySummary[],
   territoryLeadCounts: Map<string, number>,
   territoryAccountCounts: Map<string, number>,
+  territoryTrainingCounts: Map<string, TrainingPenetrationCounts>,
   territoryCoverageCounts: Map<string, CoverageCounts>,
   territoryLifecycleCounts: Map<string, LifecycleCounts>,
   territoryPipelineCounts: Map<string, PipelinePhaseCounts>,
@@ -2656,6 +2760,7 @@ function buildTerritoryDashboardWorkloads(
     .map((territory) => {
       const activeLeadCount = territoryLeadCounts.get(territory.id) ?? 0;
       const activeAccountCount = territoryAccountCounts.get(territory.id) ?? 0;
+      const trainingPenetration = territoryTrainingCounts.get(territory.id) ?? createTrainingPenetrationCounts();
       const coverage = territoryCoverageCounts.get(territory.id) ?? createCoverageCounts();
       const lifecycle = territoryLifecycleCounts.get(territory.id) ?? createLifecycleCounts();
       const pipeline = territoryPipelineCounts.get(territory.id) ?? createPipelinePhaseCounts();
@@ -2675,6 +2780,12 @@ function buildTerritoryDashboardWorkloads(
         coveredStates: territory.coverageStates,
         activeLeadCount,
         activeAccountCount,
+        trainedAccounts: trainingPenetration.trainedAccounts,
+        activeProgramsCount: trainingPenetration.activeProgramsCount,
+        trainingPenetrationPercent: toCoveragePercent(
+          trainingPenetration.trainedAccounts,
+          trainingPenetration.totalAccounts,
+        ),
         engaged30DayAccountCount: coverage.engaged30DayCount,
         engaged90DayAccountCount: coverage.engaged90DayCount,
         overdue90DayAccountCount: coverage.overdue90DayCount,
@@ -2700,6 +2811,7 @@ function buildTerritoryDashboardRegionRollups(
   territories: TerritorySummary[],
   regionLeadCounts: Map<string, number>,
   regionAccountCounts: Map<string, number>,
+  regionTrainingCounts: Map<string, TrainingPenetrationCounts>,
   regionCoverageCounts: Map<string, CoverageCounts>,
   regionLifecycleCounts: Map<string, LifecycleCounts>,
   regionPipelineCounts: Map<string, PipelinePhaseCounts>,
@@ -2708,6 +2820,7 @@ function buildTerritoryDashboardRegionRollups(
     .map((region) => {
       const regionTerritories = territories.filter((territory) => territory.regionId === region.id);
       const shippingCenterIds = new Set(regionTerritories.flatMap((territory) => territory.shippingCenterId ? [territory.shippingCenterId] : []));
+      const trainingPenetration = regionTrainingCounts.get(region.id) ?? createTrainingPenetrationCounts();
       const coverage = regionCoverageCounts.get(region.id) ?? createCoverageCounts();
       const lifecycle = regionLifecycleCounts.get(region.id) ?? createLifecycleCounts();
       const pipeline = regionPipelineCounts.get(region.id) ?? createPipelinePhaseCounts();
@@ -2723,6 +2836,12 @@ function buildTerritoryDashboardRegionRollups(
         coveredStates: regionTerritories.reduce((sum, territory) => sum + territory.coverageStates.length, 0),
         activeLeadCount: regionLeadCounts.get(region.id) ?? 0,
         activeAccountCount: regionAccountCounts.get(region.id) ?? 0,
+        trainedAccounts: trainingPenetration.trainedAccounts,
+        activeProgramsCount: trainingPenetration.activeProgramsCount,
+        trainingPenetrationPercent: toCoveragePercent(
+          trainingPenetration.trainedAccounts,
+          trainingPenetration.totalAccounts,
+        ),
         engaged30DayAccountCount: coverage.engaged30DayCount,
         engaged90DayAccountCount: coverage.engaged90DayCount,
         overdue90DayAccountCount: coverage.overdue90DayCount,

@@ -4,6 +4,7 @@ import {
   AccountTrainingProgramStatus,
   AuditAction,
   prisma,
+  TrainingProofDocumentType,
   TrainingActivityKind,
   TrainingCatalogFamily,
   TrainingCategoryKind,
@@ -33,12 +34,17 @@ import type {
   ListTrainingAccountsResponse,
   ListTrainingOperationalQueueRequest,
   ListTrainingOperationalQueueResponse,
+  ListTrainingRecertificationQueueRequest,
+  ListTrainingRecertificationQueueResponse,
   ListTrainingComplianceReportRequest,
   ListTrainingComplianceReportResponse,
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   RevokeTrainingCertificationRequest,
   ResolveTrainingCertificationDecisionRequest,
+  TrainingCoachingFollowUpTaskItem,
+  TrainingCoachingUpcomingSessionItem,
+  TrainingCoachingWorkloadResponse,
   ListTrainingTrainersResponse,
   TrainingAccountSummary,
   TrainingCadencePolicySummary,
@@ -60,20 +66,29 @@ import type {
   TrainingFollowUpTaskSummary,
   TrainingExecutionStateKey,
   TrainingOverviewResponse,
+  TrainingProofDocumentSummary,
+  TrainingProofDocumentTypeKey,
   TrainingProofRequirementKey,
   TrainingSessionSummary,
   TrainingTrainerSummary,
   TrainingTemplateSummary,
   TrainingTypeSummary,
+  UploadTrainingSessionProofRequest,
+  UploadTrainingSessionProofResponse,
   UpdateTrainingSessionScheduleRequest,
+  TerritoryTrainingPenetrationResponse,
+  TerritoryTrainingPenetrationTerritorySummary,
+  TerritoryTrainingPenetrationRegionSummary,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildAccountRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   tryAutoSyncCalendarEventToOutlook,
   tryAutoUnsyncCalendarEventFromOutlook,
 } from '../calendar/outlook.js';
+import { storeBase64Document } from '../documents/storage.js';
 
 const TRAINING_CATEGORY_ENTITY = 'TRAINING_CATEGORY';
 const TRAINING_TYPE_ENTITY = 'TRAINING_TYPE';
@@ -82,6 +97,7 @@ const TRAINING_PROGRAM_ENTITY = 'ACCOUNT_TRAINING_PROGRAM';
 const TRAINING_SESSION_ENTITY = 'TRAINING_SESSION';
 const TRAINING_CERTIFICATION_ENTITY = 'TRAINING_CERTIFICATION_RECORD';
 const TRAINING_FOLLOW_UP_TASK_ENTITY = 'TRAINING_FOLLOW_UP_TASK';
+const TRAINING_PROOF_DOCUMENT_ENTITY = 'TRAINING_PROOF_DOCUMENT';
 
 const DEFAULT_TRAINING_CATEGORIES = [
   {
@@ -563,6 +579,17 @@ const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>(
       },
       orderBy: [{ awardedAt: 'desc' }, { createdAt: 'desc' }],
     },
+    proofDocuments: {
+      include: {
+        uploadedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+      orderBy: [{ uploadedAt: 'desc' }, { createdAt: 'desc' }],
+    },
   },
 });
 
@@ -616,6 +643,7 @@ type TrainingSessionRecord = Prisma.TrainingSessionGetPayload<typeof trainingSes
 type TrainingAccountRecord = Prisma.AccountGetPayload<typeof trainingAccountArgs>;
 type TrainingFollowUpTaskRecord = TrainingSessionRecord['followUpTasks'][number];
 type TrainingCertificationRecord = TrainingSessionRecord['certifications'][number];
+type TrainingProofDocumentRecord = TrainingSessionRecord['proofDocuments'][number];
 type TrainingCategoryRecord = Prisma.TrainingCategoryGetPayload<{
   include: { _count: { select: { trainingTypes: true } } };
 }>;
@@ -1132,18 +1160,24 @@ export async function listTrainingAccounts(
 
   const search = query.search?.trim();
   const status = query.status ?? 'all';
+  const accountScope = buildAccountRecordScope(actor);
 
   const accounts = await prisma.account.findMany({
     where: {
-      ...(query.includeInactive ? {} : { isActive: true }),
-      ...(search
-        ? {
-            displayName: {
-              contains: search,
-              mode: 'insensitive',
-            },
-          }
-        : {}),
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          ...(query.includeInactive ? {} : { isActive: true }),
+          ...(search
+            ? {
+                displayName: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              }
+            : {}),
+        },
+      ],
     },
     orderBy: [{ displayName: 'asc' }],
     take: query.limit ?? 100,
@@ -1165,9 +1199,15 @@ export async function getAccountTrainingHistory(
   accountId: string,
 ): Promise<AccountTrainingHistoryResponse | null> {
   assertModuleAccess(actor.role, 'training');
+  const accountScope = buildAccountRecordScope(actor);
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
+  const account = await prisma.account.findFirst({
+    where: {
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        { id: accountId },
+      ],
+    },
     include: trainingAccountArgs.include,
   });
 
@@ -1320,11 +1360,17 @@ export async function listTrainingSessions(
   assertModuleAccess(actor.role, 'training');
 
   const status = query.status ?? 'all';
+  const sessionScope = buildTrainingSessionRecordScope(actor);
   const sessions = await prisma.trainingSession.findMany({
     where: {
-      ...(query.accountId ? { accountId: query.accountId } : {}),
-      ...(query.trainerUserId ? { trainerUserId: query.trainerUserId } : {}),
-      ...(query.includeVisits ? {} : { activityKind: TrainingActivityKind.TRAINING }),
+      AND: [
+        ...(sessionScope ? [sessionScope] : []),
+        {
+          ...(query.accountId ? { accountId: query.accountId } : {}),
+          ...(query.trainerUserId ? { trainerUserId: query.trainerUserId } : {}),
+          ...(query.includeVisits ? {} : { activityKind: TrainingActivityKind.TRAINING }),
+        },
+      ],
     },
     orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
     take: query.limit ?? 100,
@@ -1352,15 +1398,21 @@ export async function listTrainingOperationalQueue(
   assertModuleAccess(actor.role, 'training');
 
   const scope = resolveTrainingOperationalQueueScope(actor, query);
+  const accountScope = buildAccountRecordScope(actor);
   const accounts = await prisma.account.findMany({
     where: {
-      isActive: true,
-      ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
-      ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
-      OR: [
-        { trainingPrograms: { some: {} } },
-        { trainingSessions: { some: {} } },
-        { trainingCertifications: { some: {} } },
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          isActive: true,
+          ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
+          ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
+          OR: [
+            { trainingPrograms: { some: {} } },
+            { trainingSessions: { some: {} } },
+            { trainingCertifications: { some: {} } },
+          ],
+        },
       ],
     },
     orderBy: [{ displayName: 'asc' }],
@@ -1405,15 +1457,21 @@ export async function listTrainingComplianceReport(
   assertModuleAccess(actor.role, 'training');
 
   const scope = resolveTrainingComplianceScope(actor, query);
+  const accountScope = buildAccountRecordScope(actor);
   const accounts = await prisma.account.findMany({
     where: {
-      isActive: true,
-      ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
-      ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
-      OR: [
-        { trainingPrograms: { some: {} } },
-        { trainingSessions: { some: {} } },
-        { trainingCertifications: { some: {} } },
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          isActive: true,
+          ...(scope.ownerTmUserId ? { assignedTmUserId: scope.ownerTmUserId } : {}),
+          ...(scope.ownerRdUserId ? { assignedRdUserId: scope.ownerRdUserId } : {}),
+          OR: [
+            { trainingPrograms: { some: {} } },
+            { trainingSessions: { some: {} } },
+            { trainingCertifications: { some: {} } },
+          ],
+        },
       ],
     },
     orderBy: [{ displayName: 'asc' }],
@@ -1539,6 +1597,130 @@ export async function listTrainingComplianceReport(
       || (left.trainingTypeName ?? left.trainingTypeCode ?? '').localeCompare(right.trainingTypeName ?? right.trainingTypeCode ?? '')
     )),
   };
+}
+
+export async function listTrainingRecertificationQueue(
+  actor: AuthenticatedActor,
+  query: ListTrainingRecertificationQueueRequest = {},
+): Promise<ListTrainingRecertificationQueueResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const windowDays = query.windowDays && query.windowDays > 0 ? query.windowDays : 45;
+  const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 200) : 100;
+  const accountScope = buildAccountRecordScope(actor);
+  const ownerScope = resolveTrainingComplianceScope(actor, {
+    ...(query.ownerTmUserId ? { ownerTmUserId: query.ownerTmUserId } : {}),
+    ...(query.ownerRdUserId ? { ownerRdUserId: query.ownerRdUserId } : {}),
+    certificationWindowDays: windowDays,
+  });
+
+  const accounts = await prisma.account.findMany({
+    where: {
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          isActive: true,
+          ...(ownerScope.ownerTmUserId ? { assignedTmUserId: ownerScope.ownerTmUserId } : {}),
+          ...(ownerScope.ownerRdUserId ? { assignedRdUserId: ownerScope.ownerRdUserId } : {}),
+          trainingCertifications: { some: {} },
+        },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    include: trainingAccountArgs.include,
+  });
+
+  const expiringItems = accounts
+    .flatMap((account) => buildExpiringTrainingCertificationQueueItems(account, windowDays));
+  const expiredItems = accounts
+    .flatMap(buildExpiredTrainingCertificationQueueItems);
+  const items = [...expiredItems, ...expiringItems]
+    .sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry || compareQueueAccountNames(left.accountName, right.accountName))
+    .slice(0, limit);
+
+  return {
+    items,
+    summary: {
+      windowDays,
+      totalDueCount: expiringItems.length + expiredItems.length,
+      expiringCount: expiringItems.length,
+      expiredCount: expiredItems.length,
+    },
+  };
+}
+
+export async function getTrainingCoachingWorkload(
+  actor: AuthenticatedActor,
+): Promise<TrainingCoachingWorkloadResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const accountScope = buildAccountRecordScope(actor);
+  const accounts = await prisma.account.findMany({
+    where: {
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          isActive: true,
+          OR: [
+            { trainingPrograms: { some: {} } },
+            { trainingSessions: { some: {} } },
+            { trainingCertifications: { some: {} } },
+          ],
+        },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    include: trainingAccountArgs.include,
+  });
+
+  const upcomingSessions = accounts
+    .flatMap((account) => buildTrainingCoachingUpcomingSessions(account))
+    .sort((left, right) => compareIsoDate(left.scheduledAt, right.scheduledAt) || compareQueueAccountNames(left.accountName, right.accountName));
+  const overduePrograms = accounts
+    .flatMap(buildOverdueTrainingProgramQueueItems)
+    .sort((left, right) => right.daysOverdue - left.daysOverdue || compareQueueAccountNames(left.accountName, right.accountName));
+  const openFollowUpTasks = accounts
+    .flatMap((account) => buildTrainingCoachingFollowUpTasks(account))
+    .sort((left, right) => compareIsoDate(left.dueAt, right.dueAt) || compareQueueAccountNames(left.accountName, right.accountName));
+  const expiringCertifications = accounts
+    .flatMap((account) => buildExpiringTrainingCertificationQueueItems(account, 45))
+    .sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry || compareQueueAccountNames(left.accountName, right.accountName));
+
+  return {
+    summary: {
+      upcomingSessionCount: upcomingSessions.length,
+      overdueProgramCount: overduePrograms.length,
+      openFollowUpTaskCount: openFollowUpTasks.length,
+      expiringCertificationCount: expiringCertifications.length,
+    },
+    upcomingSessions: upcomingSessions.slice(0, 25),
+    overduePrograms: overduePrograms.slice(0, 25),
+    openFollowUpTasks: openFollowUpTasks.slice(0, 25),
+    expiringCertifications: expiringCertifications.slice(0, 25),
+  };
+}
+
+export async function getTerritoryTrainingPenetration(
+  actor: AuthenticatedActor,
+): Promise<TerritoryTrainingPenetrationResponse> {
+  assertModuleAccess(actor.role, 'training');
+
+  const accountScope = buildAccountRecordScope(actor);
+  const accounts = await prisma.account.findMany({
+    where: {
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        {
+          isActive: true,
+          territoryId: { not: null },
+        },
+      ],
+    },
+    orderBy: [{ displayName: 'asc' }],
+    include: trainingAccountArgs.include,
+  });
+
+  return buildTerritoryTrainingPenetrationResponse(accounts);
 }
 
 export async function createTrainingSession(
@@ -1851,7 +2033,10 @@ export async function completeTrainingSession(
     throw new Error('checkedOutAt cannot be before check-in');
   }
 
-  const proofAttachmentCount = input.proofAttachmentCount ?? 0;
+  const proofAttachmentCount = Math.max(
+    input.proofAttachmentCount ?? session.proofAttachmentCount,
+    session.proofDocuments.length,
+  );
   if (proofAttachmentCount < 0) {
     throw new Error('proofAttachmentCount cannot be negative');
   }
@@ -2000,6 +2185,113 @@ export async function completeTrainingSession(
   }
 
   return toTrainingSessionSummary(updated);
+}
+
+export async function uploadTrainingSessionProof(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  sessionId: string,
+  input: UploadTrainingSessionProofRequest,
+): Promise<UploadTrainingSessionProofResponse> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const session = await prisma.trainingSession.findFirst({
+    where: {
+      AND: [
+        ...(sessionScope ? [sessionScope] : []),
+        { id: sessionId },
+      ],
+    },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  if (session.status === TrainingSessionStatus.CANCELLED || session.status === TrainingSessionStatus.NO_SHOW) {
+    throw new Error('Proof cannot be uploaded to cancelled or no-show sessions');
+  }
+
+  const fileName = input.fileName?.trim();
+  const mimeType = input.mimeType?.trim();
+  if (!fileName) {
+    throw new Error('fileName is required');
+  }
+  if (!mimeType) {
+    throw new Error('mimeType is required');
+  }
+
+  const documentType = toTrainingProofDocumentType(input.documentType ?? 'proof_attachment');
+  const storageKey = input.storageKey?.trim() || buildTrainingProofStorageKey(sessionId, fileName);
+  const stored = await storeBase64Document(config, {
+    storageKey,
+    contentBase64: input.contentBase64,
+  });
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const document = await tx.trainingProofDocument.create({
+      data: {
+        sessionId,
+        documentType,
+        storageKey,
+        fileName,
+        mimeType,
+        sizeBytes: stored.sizeBytes,
+        uploadedByUserId: actor.userId,
+        sha256: stored.sha256,
+      },
+      include: {
+        uploadedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    const nextSession = await tx.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        proofAttachmentCount: {
+          increment: 1,
+        },
+        proofCapturedAt: new Date(),
+      },
+      include: trainingSessionArgs.include,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: TRAINING_PROOF_DOCUMENT_ENTITY,
+        entityId: document.id,
+        afterData: {
+          sessionId,
+          documentType: toTrainingProofDocumentTypeKey(document.documentType),
+          fileName: document.fileName,
+          mimeType: document.mimeType,
+          storageKey: document.storageKey,
+          sizeBytes: document.sizeBytes,
+        },
+        metadata: {
+          ...trainingAuditMetadata(actor),
+          operation: 'upload_proof',
+        },
+      }),
+    });
+
+    return {
+      session: nextSession,
+      document,
+    };
+  });
+
+  return {
+    session: toTrainingSessionSummary(updated.session),
+    document: toTrainingProofDocumentSummary(updated.document),
+  };
 }
 
 export async function resolveTrainingCertificationDecision(
@@ -2534,6 +2826,7 @@ function toTrainingSessionSummary(
     ...(session.proofNotes ? { proofNotes: session.proofNotes } : {}),
     proofAttachmentCount: session.proofAttachmentCount,
     ...(session.proofCapturedAt ? { proofCapturedAt: session.proofCapturedAt.toISOString() } : {}),
+    proofDocuments: session.proofDocuments.map(toTrainingProofDocumentSummary),
     ...(session.completionSummary ? { completionSummary: session.completionSummary } : {}),
     isOverdue: session.status === TrainingSessionStatus.SCHEDULED && Boolean(session.scheduledAt && session.scheduledAt.getTime() < Date.now()),
     countsTowardHours: session.trainingType?.countsTowardHours ?? false,
@@ -2587,6 +2880,24 @@ function toTrainingFollowUpTaskSummary(
     ...(task.completedAt ? { completedAt: task.completedAt.toISOString() } : {}),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
+  };
+}
+
+function toTrainingProofDocumentSummary(
+  document: TrainingProofDocumentRecord,
+): TrainingProofDocumentSummary {
+  return {
+    id: document.id,
+    sessionId: document.sessionId,
+    documentType: toTrainingProofDocumentTypeKey(document.documentType),
+    storageKey: document.storageKey,
+    fileName: document.fileName,
+    mimeType: document.mimeType,
+    sizeBytes: document.sizeBytes,
+    ...(document.uploadedByUserId ? { uploadedByUserId: document.uploadedByUserId } : {}),
+    ...(document.uploadedByUser?.displayName ? { uploadedByName: document.uploadedByUser.displayName } : {}),
+    uploadedAt: document.uploadedAt.toISOString(),
+    ...(document.sha256 ? { sha256: document.sha256 } : {}),
   };
 }
 
@@ -2745,6 +3056,19 @@ function toTrainingProofRequirement(input: TrainingProofRequirementKey) {
 
 function toTrainingProofRequirementKey(input: TrainingProofRequirement) {
   return input.toLowerCase() as TrainingProofRequirementKey;
+}
+
+function toTrainingProofDocumentType(input: TrainingProofDocumentTypeKey) {
+  const value = input.trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(TrainingProofDocumentType, value)) {
+    throw new Error(`Unsupported training proof document type: ${input}`);
+  }
+
+  return value as TrainingProofDocumentType;
+}
+
+function toTrainingProofDocumentTypeKey(input: TrainingProofDocumentType) {
+  return input.toLowerCase() as TrainingProofDocumentTypeKey;
 }
 
 function toAccountTrainingProgramStatusKey(input: AccountTrainingProgramStatus) {
@@ -3114,6 +3438,40 @@ function buildTrainingOperationalExceptionQueueItems(
   });
 }
 
+function buildTrainingCoachingUpcomingSessions(
+  account: TrainingAccountRecord,
+): TrainingCoachingUpcomingSessionItem[] {
+  return account.trainingSessions
+    .filter((session) => session.status === TrainingSessionStatus.SCHEDULED)
+    .map((session) => ({
+      sessionId: session.id,
+      accountId: account.id,
+      accountName: account.displayName,
+      title: session.title,
+      ...(session.scheduledAt ? { scheduledAt: session.scheduledAt.toISOString() } : {}),
+      ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+      ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+      ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+      ...(session.trainerUserId ? { trainerUserId: session.trainerUserId } : {}),
+      ...(session.trainerUser?.displayName ? { trainerName: session.trainerUser.displayName } : {}),
+    }));
+}
+
+function buildTrainingCoachingFollowUpTasks(
+  account: TrainingAccountRecord,
+): TrainingCoachingFollowUpTaskItem[] {
+  return account.trainingSessions.flatMap((session) => session.followUpTasks
+    .filter((task) => task.status === TrainingFollowUpTaskStatus.OPEN)
+    .map((task) => ({
+      ...toTrainingFollowUpTaskSummary(task),
+      accountName: account.displayName,
+      ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+      ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+      ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+      sessionTitle: session.title,
+    })));
+}
+
 function toTrainingOperationalCertificationQueueItem(
   account: TrainingAccountRecord,
   certification: TrainingAccountRecord['trainingCertifications'][number],
@@ -3138,6 +3496,87 @@ function toTrainingOperationalCertificationQueueItem(
     awardedAt: certification.awardedAt.toISOString(),
     expiresAt: (certification.expiresAt ?? certification.awardedAt).toISOString(),
     daysUntilExpiry: certification.expiresAt ? daysBetween(new Date(), certification.expiresAt) : 0,
+  };
+}
+
+function buildTerritoryTrainingPenetrationResponse(
+  accounts: TrainingAccountRecord[],
+): TerritoryTrainingPenetrationResponse {
+  const territoryMap = new Map<string, TerritoryTrainingPenetrationTerritorySummary>();
+  const regionMap = new Map<string, TerritoryTrainingPenetrationRegionSummary>();
+
+  let totalAccounts = 0;
+  let trainedAccounts = 0;
+  let activeProgramsCount = 0;
+
+  for (const account of accounts) {
+    if (!account.territoryId || !account.territory) {
+      continue;
+    }
+
+    totalAccounts += 1;
+    const metrics = summarizeTrainingPenetrationAccount(account);
+    if (metrics.isTrained) {
+      trainedAccounts += 1;
+    }
+    activeProgramsCount += metrics.activeProgramsCount;
+
+    const territoryCurrent = territoryMap.get(account.territoryId) ?? {
+      territoryId: account.territoryId,
+      territoryCode: account.territory.code,
+      territoryName: account.territory.name,
+      regionId: account.territory.regionId,
+      regionName: account.territory.region?.name ?? 'Region',
+      totalAccounts: 0,
+      trainedAccounts: 0,
+      activeProgramsCount: 0,
+      penetrationPercent: 0,
+    };
+    territoryCurrent.totalAccounts += 1;
+    territoryCurrent.trainedAccounts += metrics.isTrained ? 1 : 0;
+    territoryCurrent.activeProgramsCount += metrics.activeProgramsCount;
+    territoryCurrent.penetrationPercent = calculatePercent(territoryCurrent.trainedAccounts, territoryCurrent.totalAccounts);
+    territoryMap.set(account.territoryId, territoryCurrent);
+
+    const regionId = account.territory.regionId;
+    const regionCurrent = regionMap.get(regionId) ?? {
+      regionId,
+      regionCode: account.territory.region?.code ?? regionId,
+      regionName: account.territory.region?.name ?? 'Region',
+      totalAccounts: 0,
+      trainedAccounts: 0,
+      activeProgramsCount: 0,
+      penetrationPercent: 0,
+    };
+    regionCurrent.totalAccounts += 1;
+    regionCurrent.trainedAccounts += metrics.isTrained ? 1 : 0;
+    regionCurrent.activeProgramsCount += metrics.activeProgramsCount;
+    regionCurrent.penetrationPercent = calculatePercent(regionCurrent.trainedAccounts, regionCurrent.totalAccounts);
+    regionMap.set(regionId, regionCurrent);
+  }
+
+  return {
+    summary: {
+      totalAccounts,
+      trainedAccounts,
+      activeProgramsCount,
+      penetrationPercent: calculatePercent(trainedAccounts, totalAccounts),
+    },
+    territories: Array.from(territoryMap.values()).sort((left, right) => left.territoryName.localeCompare(right.territoryName)),
+    regions: Array.from(regionMap.values()).sort((left, right) => left.regionName.localeCompare(right.regionName)),
+  };
+}
+
+function summarizeTrainingPenetrationAccount(account: TrainingAccountRecord) {
+  const activeProgramsCount = account.trainingPrograms.filter((entry) => isProgramActive(entry.status)).length;
+  const isTrained = account.trainingSessions.some((entry) => (
+    entry.status === TrainingSessionStatus.COMPLETED
+    && entry.activityKind === TrainingActivityKind.TRAINING
+  ));
+
+  return {
+    activeProgramsCount,
+    isTrained,
   };
 }
 
@@ -3205,8 +3644,33 @@ function daysBetween(start: Date, end: Date) {
   return Math.ceil((end.getTime() - start.getTime()) / millisecondsPerDay);
 }
 
+function calculatePercent(numerator: number, denominator: number) {
+  if (denominator <= 0) {
+    return 0;
+  }
+  return Math.round((numerator / denominator) * 100);
+}
+
+function compareIsoDate(left?: string, right?: string) {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left) {
+    return 1;
+  }
+  if (!right) {
+    return -1;
+  }
+  return new Date(left).getTime() - new Date(right).getTime();
+}
+
 function compareQueueAccountNames(left: string | undefined, right: string | undefined) {
   return (left ?? '').localeCompare(right ?? '');
+}
+
+function buildTrainingProofStorageKey(sessionId: string, fileName: string) {
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return ['training-proof', sessionId, `${Date.now()}-${safeFileName}`].join('/');
 }
 
 function severityWeight(severity: TrainingExecutionExceptionSeverityKey) {

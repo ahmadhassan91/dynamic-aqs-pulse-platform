@@ -14,10 +14,12 @@ import type {
   CreateTrainingTypeRequest,
   ListTrainingAccountsRequest,
   ListTrainingComplianceReportRequest,
+  ListTrainingRecertificationQueueRequest,
   ListTrainingOperationalQueueRequest,
   ListTrainingSessionsRequest,
   RevokeTrainingCertificationRequest,
   ResolveTrainingCertificationDecisionRequest,
+  UploadTrainingSessionProofRequest,
   UpdateTrainingSessionScheduleRequest,
 } from '@pulse/contracts';
 import {
@@ -47,16 +49,20 @@ import {
   createTrainingTemplate,
   createTrainingType,
   getAccountTrainingHistory,
+  getTerritoryTrainingPenetration,
+  getTrainingCoachingWorkload,
   listTrainingAccounts,
   listTrainingCatalog,
   listTrainingComplianceReport,
   listTrainingOperationalQueue,
+  listTrainingRecertificationQueue,
   listTrainingOverview,
   listTrainingSessions,
   listTrainingTrainers,
   resolveTrainingCertificationDecision,
   revokeTrainingCertification,
   rescheduleTrainingSession,
+  uploadTrainingSessionProof,
 } from './service.js';
 
 export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
@@ -66,6 +72,9 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
     pathname === '/api/v1/training/overview'
     || pathname === '/api/v1/training/catalog'
     || pathname === '/api/v1/training/ops'
+    || pathname === '/api/v1/training/recertification'
+    || pathname === '/api/v1/training/coaching'
+    || pathname === '/api/v1/training/territory-penetration'
     || pathname === '/api/v1/training/reporting'
     || pathname === '/api/v1/training/trainers'
     || pathname === '/api/v1/training/sessions'
@@ -79,6 +88,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
     || /^\/api\/v1\/training\/sessions\/[^/]+\/check-in$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/reschedule$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/certification-decision$/.test(pathname)
+    || /^\/api\/v1\/training\/sessions\/[^/]+\/proof$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/complete$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/cancel$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/follow-up-tasks$/.test(pathname)
@@ -138,6 +148,58 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
         }
 
         const response = await listTrainingOperationalQueue(actor, query);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/recertification') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const query: ListTrainingRecertificationQueueRequest = {};
+        const ownerTmUserId = url.searchParams.get('ownerTmUserId')?.trim();
+        const ownerRdUserId = url.searchParams.get('ownerRdUserId')?.trim();
+        const windowDays = parseInteger(url.searchParams.get('windowDays'));
+        const limit = parseInteger(url.searchParams.get('limit'));
+
+        if (ownerTmUserId) {
+          query.ownerTmUserId = ownerTmUserId;
+        }
+        if (ownerRdUserId) {
+          query.ownerRdUserId = ownerRdUserId;
+        }
+        if (windowDays !== undefined) {
+          query.windowDays = windowDays;
+        }
+        if (limit !== undefined) {
+          query.limit = limit;
+        }
+
+        const response = await listTrainingRecertificationQueue(actor, query);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/coaching') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const response = await getTrainingCoachingWorkload(actor);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    if (pathname === '/api/v1/training/territory-penetration') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      return withTrainingAuth(req, res, { module: 'training' }, async (actor) => {
+        const response = await getTerritoryTrainingPenetration(actor);
         return jsonResponse(res, 200, response);
       });
     }
@@ -411,6 +473,27 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
         const body = (await readJsonBody(req)) as CompleteTrainingSessionRequest;
         const response = await completeTrainingSession(actor, sessionId, body, config);
         return jsonResponse(res, 200, response);
+      });
+    }
+
+    const sessionProofUploadMatch = pathname.match(/^\/api\/v1\/training\/sessions\/([^/]+)\/proof$/);
+    if (sessionProofUploadMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const sessionId = sessionProofUploadMatch[1];
+      if (!sessionId) {
+        return badRequestResponse(res, 'Session id is required');
+      }
+      if (!config) {
+        return badRequestResponse(res, 'Training proof storage is not configured');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as UploadTrainingSessionProofRequest;
+        const response = await uploadTrainingSessionProof(actor, config, sessionId, body);
+        return jsonResponse(res, 201, response);
       });
     }
 

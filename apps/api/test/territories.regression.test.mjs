@@ -10,6 +10,7 @@ let config;
 let loadAppConfig;
 let createPulseServer;
 let ensureReferenceDataSeeded;
+let ensureTrainingSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
 let ensureTerritoryPolicySeeded;
@@ -46,6 +47,7 @@ test.before(async () => {
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
+  ({ ensureTrainingSeeded } = await import('../dist/modules/training/service.js'));
   ({
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
@@ -112,6 +114,7 @@ test.after(async () => {
 test.beforeEach(async () => {
   await resetDatabase(prisma);
   await ensureReferenceDataSeeded();
+  await ensureTrainingSeeded();
   await ensureLeadRoutingPolicySeeded();
   await ensureWebsiteLeadConfigSeeded();
   await ensureTerritoryPolicySeeded();
@@ -933,6 +936,28 @@ test('territory dashboard returns operational workload, queue, region, and owner
     countryCode: 'US',
     isPrimary: true,
   });
+  const trainingType = await prisma.trainingType.findUniqueOrThrow({
+    where: { code: 'how_and_when' },
+  });
+  await prisma.trainingSession.create({
+    data: {
+      accountId: texasAccount.id,
+      trainingTypeId: trainingType.id,
+      trainerUserId: texas.manager.id,
+      title: 'Territory Dashboard Training',
+      status: 'COMPLETED',
+      activityKind: 'TRAINING',
+      certificationOutcome: 'NOT_APPLICABLE',
+      scheduledAt: new Date('2026-03-01T09:00:00.000Z'),
+      checkedInAt: new Date('2026-03-01T09:00:00.000Z'),
+      checkedOutAt: new Date('2026-03-01T10:00:00.000Z'),
+      completedAt: new Date('2026-03-01T10:00:00.000Z'),
+      durationMinutes: 60,
+      attendeeCount: 4,
+      checkoutNotes: 'Completed successfully.',
+      proofCapturedAt: new Date('2026-03-01T10:00:00.000Z'),
+    },
+  });
 
   const floridaAccount = await createAccount(actor, {
     displayName: 'Dashboard Florida Account',
@@ -982,6 +1007,8 @@ test('territory dashboard returns operational workload, queue, region, and owner
   assert.equal(texasRegionRollup.activeLeadCount, 2);
   assert.equal(texasRegionRollup.activeAccountCount, 1);
   assert.equal(texasRegionRollup.territoryCount, 1);
+  assert.equal(texasRegionRollup.trainedAccounts, 1);
+  assert.equal(texasRegionRollup.trainingPenetrationPercent, 100);
 
   const texasTmMetric = dashboard.ownerMetrics.find(
     (item) => item.ownerRole === 'territory_manager' && item.ownerUserId === texas.manager.id,

@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export type AppEnvironmentName = 'development' | 'test' | 'staging' | 'production';
 
 export type AppServerConfig = {
@@ -10,6 +12,10 @@ export type AppLoggingConfig = {
 
 export type AppWebConfig = {
   publicBaseUrl: string;
+};
+
+export type AppStorageConfig = {
+  rootDir: string;
 };
 
 export type AppAcumaticaConfig = {
@@ -109,6 +115,7 @@ export type AppConfig = {
   server: AppServerConfig;
   logging: AppLoggingConfig;
   web: AppWebConfig;
+  storage: AppStorageConfig;
   database: AppDatabaseConfig;
   acumatica: AppAcumaticaConfig;
   queue: AppQueueConfig;
@@ -168,6 +175,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     web: {
       publicBaseUrl: env.APP_WEB_BASE_URL?.trim() || 'http://localhost:3000',
+    },
+    storage: {
+      rootDir: optionalString(env.APP_STORAGE_ROOT_DIR) ?? path.resolve(process.cwd(), '.pulse-storage'),
     },
     database: {
       url: databaseUrl,

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,7 @@ const supportDir = path.dirname(fileURLToPath(import.meta.url));
 const apiAppDir = path.resolve(supportDir, '..', '..');
 const repoRootDir = path.resolve(apiAppDir, '..', '..');
 const dbPackageDir = path.join(repoRootDir, 'packages', 'db');
+const testStorageDir = path.join(repoRootDir, '.tmp', 'test-storage');
 
 export const TEST_DATABASE_NAME = 'pulse_platform_test';
 export const TEST_DATABASE_URL = `postgresql://postgres@localhost:5432/${TEST_DATABASE_NAME}`;
@@ -42,6 +44,7 @@ export function applyTestEnvironment() {
   process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME =
     process.env.AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME || 'Pulse Bootstrap Admin';
   process.env.AUTH_BOOTSTRAP_ADMIN_ROLE = process.env.AUTH_BOOTSTRAP_ADMIN_ROLE || 'SUPER_ADMIN';
+  process.env.APP_STORAGE_ROOT_DIR = process.env.APP_STORAGE_ROOT_DIR || testStorageDir;
 }
 
 export function ensureTestDatabaseReady() {
@@ -90,6 +93,8 @@ export async function resetDatabase(prisma) {
   execFileSync('psql', [TEST_DATABASE_URL, '-c', `TRUNCATE TABLE ${quotedTables} RESTART IDENTITY CASCADE;`], {
     stdio: 'inherit',
   });
+
+  rmSync(testStorageDir, { recursive: true, force: true });
 
   await prisma.$connect();
 }

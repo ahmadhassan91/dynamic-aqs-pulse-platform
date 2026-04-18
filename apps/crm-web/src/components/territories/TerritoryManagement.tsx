@@ -289,6 +289,12 @@ export function TerritoryManagement({
           cisLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'cis_sent' || lead.stage === 'cis_signed').length,
           onboardingLeadCount: activePipelineLeads.filter((lead) => lead.stage === 'onboarding_completed').length,
         },
+        trainingPenetration: {
+          totalAccounts: activeAccounts.length,
+          trainedAccounts: 0,
+          activeProgramsCount: 0,
+          penetrationPercent: 0,
+        },
         alerts: [],
         workloads: [],
         regionRollups: [],
@@ -667,6 +673,7 @@ export function TerritoryManagement({
               coverage={dashboardData.coverage}
               lifecycle={dashboardData.lifecycle}
               pipeline={dashboardData.pipeline}
+              trainingPenetration={dashboardData.trainingPenetration}
               alerts={dashboardData.alerts}
               workloads={dashboardData.workloads}
               queue={dashboardData.queue}

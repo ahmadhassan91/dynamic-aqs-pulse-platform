@@ -180,8 +180,10 @@ import type {
   ReplaceTerritoryCoverageRequest,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
+  ListTrainingRecertificationQueueResponse,
   TokenPair,
   TrainingCatalogResponse,
+  TrainingCoachingWorkloadResponse,
   TrainingOverviewResponse,
   AccountTrainingHistoryResponse,
   CreateTrainingCategoryRequest,
@@ -198,6 +200,8 @@ import type {
   TrainingTemplateSummary,
   TrainingSessionSummary,
   TrainingTrainerSummary,
+  UploadTrainingSessionProofRequest,
+  UploadTrainingSessionProofResponse,
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   ListTrainingTrainersResponse,
@@ -1080,6 +1084,47 @@ export async function fetchTrainingTrainers(apiBaseUrl: string, accessToken: str
   });
 }
 
+export async function fetchTrainingRecertificationQueue(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: {
+    ownerTmUserId?: string;
+    ownerRdUserId?: string;
+    windowDays?: number;
+    limit?: number;
+  } = {},
+) {
+  const searchParams = new URLSearchParams();
+  if (query.ownerTmUserId) {
+    searchParams.set('ownerTmUserId', query.ownerTmUserId);
+  }
+  if (query.ownerRdUserId) {
+    searchParams.set('ownerRdUserId', query.ownerRdUserId);
+  }
+  if (query.windowDays !== undefined) {
+    searchParams.set('windowDays', String(query.windowDays));
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/training/recertification?${searchParams.toString()}`
+    : '/api/v1/training/recertification';
+
+  return requestJson<ListTrainingRecertificationQueueResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchTrainingCoachingWorkload(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TrainingCoachingWorkloadResponse>(apiBaseUrl, '/api/v1/training/coaching', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function createTrainingCategoryRecord(
   apiBaseUrl: string,
   accessToken: string,
@@ -1245,6 +1290,19 @@ export async function completeTrainingSessionRecord(
   input: CompleteTrainingSessionRequest,
 ) {
   return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function uploadTrainingSessionProofRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  sessionId: string,
+  input: UploadTrainingSessionProofRequest,
+) {
+  return requestJson<UploadTrainingSessionProofResponse>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/proof`, {
     method: 'POST',
     accessToken,
     body: input,

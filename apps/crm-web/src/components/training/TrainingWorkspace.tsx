@@ -34,7 +34,9 @@ import {
   createTrainingTypeRecord,
   fetchTrainingAccounts,
   fetchTrainingCatalog,
+  fetchTrainingCoachingWorkload,
   fetchTrainingOverview,
+  fetchTrainingRecertificationQueue,
   fetchTrainingSessions,
   fetchTrainingTrainers,
 } from '@/lib/pulse-api';
@@ -45,11 +47,13 @@ import type {
   ListTrainingComplianceReportResponse,
   ListTrainingAccountStatusKey,
   ListTrainingOperationalQueueResponse,
+  ListTrainingRecertificationQueueResponse,
   ListTrainingSessionsResponse,
   ListTrainingSessionStatusKey,
   ResolveTrainingCertificationDecisionRequest,
   RevokeTrainingCertificationRequest,
   TrainingCatalogResponse,
+  TrainingCoachingWorkloadResponse,
   TrainingOperationalCertificationQueueItem,
   TrainingOperationalExceptionQueueItem,
   TrainingOverviewResponse,
@@ -365,6 +369,8 @@ export function TrainingWorkspace() {
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof fetchTrainingAccounts>> | null>(null);
   const [sessions, setSessions] = useState<ListTrainingSessionsResponse | null>(null);
   const [operationalQueue, setOperationalQueue] = useState<ListTrainingOperationalQueueResponse | null>(null);
+  const [recertificationQueue, setRecertificationQueue] = useState<ListTrainingRecertificationQueueResponse | null>(null);
+  const [coachingWorkload, setCoachingWorkload] = useState<TrainingCoachingWorkloadResponse | null>(null);
   const [complianceReport, setComplianceReport] = useState<ListTrainingComplianceReportResponse | null>(null);
   const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
   const [search, setSearch] = useState('');
@@ -402,7 +408,17 @@ export function TrainingWorkspace() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [nextOverview, nextCatalog, nextAccounts, nextSessions, nextTrainers, nextOperationalQueue, nextComplianceReport] = await Promise.all([
+      const [
+        nextOverview,
+        nextCatalog,
+        nextAccounts,
+        nextSessions,
+        nextTrainers,
+        nextOperationalQueue,
+        nextRecertificationQueue,
+        nextCoachingWorkload,
+        nextComplianceReport,
+      ] = await Promise.all([
         fetchTrainingOverview(apiBaseUrl, accessToken),
         fetchTrainingCatalog(apiBaseUrl, accessToken),
         fetchTrainingAccounts(apiBaseUrl, accessToken, {
@@ -421,6 +437,12 @@ export function TrainingWorkspace() {
           ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
           certificationWindowDays: Number(opsCertificationWindowDays || 45),
         }),
+        fetchTrainingRecertificationQueue(apiBaseUrl, accessToken, {
+          ...(opsTmFilter ? { ownerTmUserId: opsTmFilter } : {}),
+          ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
+          windowDays: Number(opsCertificationWindowDays || 45),
+        }),
+        fetchTrainingCoachingWorkload(apiBaseUrl, accessToken),
         fetchTrainingComplianceReport(apiBaseUrl, accessToken, {
           ...(opsTmFilter ? { ownerTmUserId: opsTmFilter } : {}),
           ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
@@ -434,6 +456,8 @@ export function TrainingWorkspace() {
       setSessions(nextSessions);
       setTrainers(nextTrainers.items);
       setOperationalQueue(nextOperationalQueue);
+      setRecertificationQueue(nextRecertificationQueue);
+      setCoachingWorkload(nextCoachingWorkload);
       setComplianceReport(nextComplianceReport);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1035,6 +1059,113 @@ export function TrainingWorkspace() {
                       {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0}
                     </Text>
                   </Card>
+                </SimpleGrid>
+
+                <SimpleGrid cols={{ base: 1, xl: 2 }}>
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Recertification queue</Title>
+                        <Badge color="blue" variant="light">
+                          {recertificationQueue?.summary.totalDueCount ?? 0} due
+                        </Badge>
+                      </Group>
+                      <Text size="sm" c="dimmed">
+                        Accounts with certifications due inside the current window or already expired.
+                      </Text>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Certification</Table.Th>
+                            <Table.Th>Due</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(recertificationQueue?.items ?? []).length > 0 ? recertificationQueue?.items.slice(0, 6).map((item) => (
+                            <Table.Tr key={item.certificationId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.title}</Table.Td>
+                              <Table.Td>
+                                <Badge color={certificationQueueColor(item)} variant="light">
+                                  {item.daysUntilExpiry >= 0 ? `${item.daysUntilExpiry} days` : `${Math.abs(item.daysUntilExpiry)} days past`}
+                                </Badge>
+                              </Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={3}>
+                                <Text c="dimmed">No accounts are currently in the recertification queue.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
+                        <Title order={4}>Coaching workload</Title>
+                        <Badge color="grape" variant="light">
+                          {coachingWorkload?.summary.upcomingSessionCount ?? 0} upcoming
+                        </Badge>
+                      </Group>
+                      <SimpleGrid cols={{ base: 2, sm: 4 }}>
+                        <Card withBorder radius="md" p="sm">
+                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Upcoming</Text>
+                          <Text fw={700} size="lg">{coachingWorkload?.summary.upcomingSessionCount ?? 0}</Text>
+                        </Card>
+                        <Card withBorder radius="md" p="sm">
+                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue cadence</Text>
+                          <Text fw={700} size="lg">{coachingWorkload?.summary.overdueProgramCount ?? 0}</Text>
+                        </Card>
+                        <Card withBorder radius="md" p="sm">
+                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
+                          <Text fw={700} size="lg">{coachingWorkload?.summary.openFollowUpTaskCount ?? 0}</Text>
+                        </Card>
+                        <Card withBorder radius="md" p="sm">
+                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expiring certs</Text>
+                          <Text fw={700} size="lg">{coachingWorkload?.summary.expiringCertificationCount ?? 0}</Text>
+                        </Card>
+                      </SimpleGrid>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Upcoming session</Table.Th>
+                            <Table.Th>Scheduled</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(coachingWorkload?.upcomingSessions ?? []).length > 0 ? coachingWorkload?.upcomingSessions.slice(0, 6).map((item) => (
+                            <Table.Tr key={item.sessionId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.title}</Table.Td>
+                              <Table.Td>{formatDateTime(item.scheduledAt)}</Table.Td>
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={3}>
+                                <Text c="dimmed">No upcoming coaching sessions are currently in your scoped queue.</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
                 </SimpleGrid>
 
                 <Paper withBorder radius="md" p="lg">

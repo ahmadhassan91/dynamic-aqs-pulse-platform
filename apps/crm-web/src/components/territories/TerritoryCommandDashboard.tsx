@@ -9,6 +9,7 @@ import type {
   TerritoryDashboardQueueSummary,
   TerritoryDashboardRegionRollupSummary,
   TerritoryDashboardStats,
+  TerritoryDashboardTrainingPenetrationSummary,
   TerritoryDashboardWorkload,
 } from '@pulse/contracts';
 import {
@@ -36,6 +37,7 @@ export function TerritoryCommandDashboard({
   coverage,
   lifecycle,
   pipeline,
+  trainingPenetration,
   alerts,
   workloads,
   queue,
@@ -46,6 +48,7 @@ export function TerritoryCommandDashboard({
   coverage: TerritoryDashboardCoverageSummary;
   lifecycle: TerritoryDashboardLifecycleSummary;
   pipeline: TerritoryDashboardPipelineSummary;
+  trainingPenetration: TerritoryDashboardTrainingPenetrationSummary;
   alerts: TerritoryDashboardAlert[];
   workloads: TerritoryDashboardWorkload[];
   queue: TerritoryDashboardQueueSummary;
@@ -155,6 +158,28 @@ export function TerritoryCommandDashboard({
           </Stack>
         </Paper>
       </SimpleGrid>
+
+      <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+        <Stack gap="md">
+          <Group justify="space-between">
+            <Title order={4}>Training penetration</Title>
+            <Badge color="grape" variant="light">
+              CRM-owned signal
+            </Badge>
+          </Group>
+
+          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+            <Metric label="Tracked Accounts" value={trainingPenetration.totalAccounts} />
+            <Metric label="Trained Accounts" value={trainingPenetration.trainedAccounts} tone="teal" />
+            <Metric label="Active Programs" value={trainingPenetration.activeProgramsCount} tone="blue" />
+            <Metric label="Penetration %" value={trainingPenetration.penetrationPercent} tone={trainingPenetration.penetrationPercent >= 75 ? 'teal' : 'orange'} />
+          </SimpleGrid>
+
+          <Text size="sm" c="dimmed">
+            This gives RDs and territory leadership a clean answer to how much of the active account base has actually received training, using the CRM-owned training history instead of waiting on ERP reporting.
+          </Text>
+        </Stack>
+      </Paper>
 
       <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
         <Paper withBorder radius="xl" p="lg" className="premium-stat-card">

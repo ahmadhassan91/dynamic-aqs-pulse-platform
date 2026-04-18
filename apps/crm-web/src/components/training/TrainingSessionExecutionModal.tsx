@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Checkbox,
+  FileInput,
   Grid,
   Modal,
   NumberInput,
@@ -16,6 +17,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import type {
   TrainingCertificationOutcomeKey,
+  TrainingProofDocumentSummary,
   TrainingSessionSummary,
   TrainingTrainerSummary,
   TrainingSessionStatusKey,
@@ -24,6 +26,7 @@ import {
   cancelTrainingSessionRecord,
   checkInTrainingSessionRecord,
   completeTrainingSessionRecord,
+  uploadTrainingSessionProofRecord,
 } from '@/lib/pulse-api';
 
 type SessionActionMode = 'check_in' | Extract<TrainingSessionStatusKey, 'completed' | 'cancelled' | 'no_show'>;
@@ -40,6 +43,16 @@ function toLocalDateTimeInput(value?: string) {
 
 function fromLocalDateTimeInput(value: string) {
   return new Date(value).toISOString();
+}
+
+async function fileToBase64(file: File) {
+  const buffer = await file.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 export function TrainingSessionExecutionModal({
@@ -68,6 +81,8 @@ export function TrainingSessionExecutionModal({
   const [checkoutNotes, setCheckoutNotes] = useState('');
   const [proofNotes, setProofNotes] = useState('');
   const [proofAttachmentCount, setProofAttachmentCount] = useState<number | string>(0);
+  const [proofDocuments, setProofDocuments] = useState<TrainingProofDocumentSummary[]>([]);
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
   const [completionSummary, setCompletionSummary] = useState('');
   const [certificationOutcome, setCertificationOutcome] = useState<TrainingCertificationOutcomeKey>('not_applicable');
   const [certificationTitle, setCertificationTitle] = useState('');
@@ -80,6 +95,7 @@ export function TrainingSessionExecutionModal({
   const [followUpDueAt, setFollowUpDueAt] = useState('');
   const [followUpOwnerUserId, setFollowUpOwnerUserId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   useEffect(() => {
     if (!opened || !session) {
@@ -97,6 +113,8 @@ export function TrainingSessionExecutionModal({
     setCheckoutNotes(session.checkoutNotes ?? '');
     setProofNotes(session.proofNotes ?? '');
     setProofAttachmentCount(session.proofAttachmentCount);
+    setProofDocuments(session.proofDocuments);
+    setProofFiles([]);
     setCompletionSummary(session.completionSummary ?? '');
     setCertificationOutcome(session.isCertificationTrack ? session.certificationOutcome : 'not_applicable');
     setCertificationTitle(session.certifications[0]?.title ?? session.trainingTypeName ?? session.title);
@@ -129,7 +147,49 @@ export function TrainingSessionExecutionModal({
     : mode === 'completed'
     ? Boolean(completedAt && checkoutNotes.trim() && Number(durationMinutes) > 0)
       && (!createFollowUpTask || followUpTitle.trim())
-    : true;
+      : true;
+
+  const handleProofFilesSelected = async (files: File[] | null) => {
+    if (!files?.length || !session) {
+      setProofFiles([]);
+      return;
+    }
+
+    setProofFiles(files);
+    setIsUploadingProof(true);
+    try {
+      let latestSession: TrainingSessionSummary | null = null;
+      for (const file of files) {
+        const response = await uploadTrainingSessionProofRecord(apiBaseUrl, accessToken, session.id, {
+          documentType: 'proof_attachment',
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          contentBase64: await fileToBase64(file),
+        });
+        latestSession = response.session;
+      }
+
+      if (latestSession) {
+        setProofDocuments(latestSession.proofDocuments);
+        setProofAttachmentCount(latestSession.proofAttachmentCount);
+      }
+
+      notifications.show({
+        color: 'blue',
+        title: 'Proof uploaded',
+        message: `${files.length} proof file${files.length === 1 ? '' : 's'} attached to ${session.title}.`,
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Proof upload failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsUploadingProof(false);
+      setProofFiles([]);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -313,6 +373,33 @@ export function TrainingSessionExecutionModal({
               value={proofNotes}
               onChange={(event) => setProofNotes(event.currentTarget.value)}
             />
+
+            <FileInput
+              label="Attach proof files"
+              description="Upload trainer proof directly into Pulse before completing the session."
+              multiple
+              value={proofFiles}
+              onChange={(value) => {
+                void handleProofFilesSelected(value);
+              }}
+              disabled={isUploadingProof || isSaving}
+              clearable
+            />
+
+            <Stack gap="xs">
+              <Text size="sm" fw={600}>
+                Stored proof documents
+              </Text>
+              {proofDocuments.length > 0 ? proofDocuments.map((document) => (
+                <Text key={document.id} size="sm" c="dimmed">
+                  {document.fileName} • {document.mimeType}
+                </Text>
+              )) : (
+                <Text size="sm" c="dimmed">
+                  No proof files uploaded yet.
+                </Text>
+              )}
+            </Stack>
 
             {session.isCertificationTrack ? (
               <Stack gap="sm">

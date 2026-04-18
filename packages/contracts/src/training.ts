@@ -42,6 +42,16 @@ export const TRAINING_PROOF_REQUIREMENTS = [
 
 export type TrainingProofRequirementKey = (typeof TRAINING_PROOF_REQUIREMENTS)[number];
 
+export const TRAINING_PROOF_DOCUMENT_TYPES = [
+  'proof_attachment',
+  'certificate',
+  'attendance_record',
+  'photo',
+  'other',
+] as const;
+
+export type TrainingProofDocumentTypeKey = (typeof TRAINING_PROOF_DOCUMENT_TYPES)[number];
+
 export const ACCOUNT_TRAINING_PROGRAM_STATUSES = [
   'not_started',
   'active',
@@ -348,6 +358,20 @@ export interface TrainingFollowUpTaskSummary {
   updatedAt: string;
 }
 
+export interface TrainingProofDocumentSummary {
+  id: string;
+  sessionId: string;
+  documentType: TrainingProofDocumentTypeKey;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedByUserId?: string;
+  uploadedByName?: string;
+  uploadedAt: string;
+  sha256?: string;
+}
+
 export interface TrainingCertificationSummary {
   id: string;
   accountId: string;
@@ -456,6 +480,23 @@ export interface ListTrainingOperationalQueueResponse {
   };
 }
 
+export interface ListTrainingRecertificationQueueRequest {
+  ownerTmUserId?: string;
+  ownerRdUserId?: string;
+  windowDays?: number;
+  limit?: number;
+}
+
+export interface ListTrainingRecertificationQueueResponse {
+  items: TrainingOperationalCertificationQueueItem[];
+  summary: {
+    windowDays: number;
+    totalDueCount: number;
+    expiringCount: number;
+    expiredCount: number;
+  };
+}
+
 export interface TrainingComplianceSummary {
   accountsInScope: number;
   accountsWithActivePrograms: number;
@@ -507,6 +548,40 @@ export interface ListTrainingComplianceReportResponse {
   certificationTracks: TrainingComplianceCertificationTrackRollup[];
 }
 
+export interface TrainingCoachingUpcomingSessionItem {
+  sessionId: string;
+  accountId: string;
+  accountName: string;
+  title: string;
+  scheduledAt?: string;
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  trainerUserId?: string;
+  trainerName?: string;
+}
+
+export interface TrainingCoachingFollowUpTaskItem extends TrainingFollowUpTaskSummary {
+  accountName: string;
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  sessionTitle?: string;
+}
+
+export interface TrainingCoachingWorkloadResponse {
+  summary: {
+    upcomingSessionCount: number;
+    overdueProgramCount: number;
+    openFollowUpTaskCount: number;
+    expiringCertificationCount: number;
+  };
+  upcomingSessions: TrainingCoachingUpcomingSessionItem[];
+  overduePrograms: TrainingOperationalCadenceQueueItem[];
+  openFollowUpTasks: TrainingCoachingFollowUpTaskItem[];
+  expiringCertifications: TrainingOperationalCertificationQueueItem[];
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;
@@ -537,6 +612,7 @@ export interface TrainingSessionSummary {
   proofNotes?: string;
   proofAttachmentCount: number;
   proofCapturedAt?: string;
+  proofDocuments: TrainingProofDocumentSummary[];
   completionSummary?: string;
   isOverdue: boolean;
   countsTowardHours: boolean;
@@ -650,6 +726,19 @@ export interface CompleteTrainingSessionRequest {
   certificationExpiresAt?: string;
   certificationNotes?: string;
   createFollowUpTask?: CreateTrainingFollowUpTaskRequest;
+}
+
+export interface UploadTrainingSessionProofRequest {
+  documentType?: TrainingProofDocumentTypeKey;
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+  storageKey?: string;
+}
+
+export interface UploadTrainingSessionProofResponse {
+  session: TrainingSessionSummary;
+  document: TrainingProofDocumentSummary;
 }
 
 export interface ResolveTrainingCertificationDecisionRequest {

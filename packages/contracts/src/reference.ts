@@ -30,6 +30,62 @@ export interface CreateLeadSourceRequest {
   sortOrder?: number;
 }
 
+export interface CreateAffinityGroupRequest {
+  code: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  groupType: AffinityGroupTypeKey;
+  isActive?: boolean;
+  sortOrder?: number;
+  notes?: string;
+}
+
+export interface UpdateAffinityGroupRequest extends UpdateReferenceValueRequest {
+  shortName?: string;
+  groupType?: AffinityGroupTypeKey;
+  notes?: string;
+}
+
+export interface AffinityGroupImportRow {
+  code: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  groupType: AffinityGroupTypeKey;
+  isActive?: boolean;
+  sortOrder?: number;
+  notes?: string;
+}
+
+export interface CreateOwnershipGroupRequest {
+  code: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  ownershipType: OwnershipGroupTypeKey;
+  isActive?: boolean;
+  sortOrder?: number;
+  notes?: string;
+}
+
+export interface UpdateOwnershipGroupRequest extends UpdateReferenceValueRequest {
+  shortName?: string;
+  ownershipType?: OwnershipGroupTypeKey;
+  notes?: string;
+}
+
+export interface OwnershipGroupImportRow {
+  code: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  ownershipType: OwnershipGroupTypeKey;
+  isActive?: boolean;
+  sortOrder?: number;
+  notes?: string;
+}
+
 export interface LeadSourceImportRow {
   code: string;
   name: string;

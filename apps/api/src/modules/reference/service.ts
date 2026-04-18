@@ -3,23 +3,31 @@ import { AuditAction, LeadStage, prisma } from '@pulse/db';
 import type {
   AffinityGroupReferenceSummary,
   AffinityGroupTypeKey,
+  AffinityGroupImportRow,
+  CreateAffinityGroupRequest,
   CreateLeadSourceRequest,
+  CreateOwnershipGroupRequest,
   LeadSourceImportRow,
   LeadStageReferenceSummary,
   LeadStageImportRow,
   OwnershipGroupReferenceSummary,
+  OwnershipGroupImportRow,
   OwnershipGroupTypeKey,
   ReferenceImportRequest,
   ReferenceImportResponse,
   ReferenceListResponse,
   ReferenceValueSummary,
+  UpdateAffinityGroupRequest,
   UpdateLeadStageReferenceRequest,
+  UpdateOwnershipGroupRequest,
   UpdateReferenceValueRequest,
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 
 const BUSINESS_SEGMENT_ENTITY_TYPE = 'BUSINESS_SEGMENT_REF';
+const AFFINITY_GROUP_ENTITY_TYPE = 'AFFINITY_GROUP_REF';
+const OWNERSHIP_GROUP_ENTITY_TYPE = 'OWNERSHIP_GROUP_REF';
 const LEAD_SOURCE_ENTITY_TYPE = 'LEAD_SOURCE_REF';
 const LEAD_STAGE_ENTITY_TYPE = 'LEAD_STAGE_REF';
 let referenceSeedPromise: Promise<void> | null = null;
@@ -381,13 +389,367 @@ export async function listOwnershipGroups(actor: AuthenticatedActor): Promise<Re
   };
 }
 
+export async function createAffinityGroup(
+  actor: AuthenticatedActor,
+  input: CreateAffinityGroupRequest,
+): Promise<AffinityGroupReferenceSummary> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  const normalized = normalizeAffinityGroupCreateInput(input);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const next = await tx.affinityGroupRef.create({
+      data: {
+        code: normalized.code,
+        name: normalized.name,
+        ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+        ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+        groupType: toAffinityGroupTypeEnum(normalized.groupType),
+        isActive: normalized.isActive ?? true,
+        sortOrder: normalized.sortOrder ?? 0,
+        ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: AFFINITY_GROUP_ENTITY_TYPE,
+        entityId: next.id,
+        afterData: toAffinityGroupAuditPayload(next),
+        metadata: baseReferenceAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toAffinityGroupReferenceSummary(created);
+}
+
+export async function updateAffinityGroup(
+  actor: AuthenticatedActor,
+  id: string,
+  input: UpdateAffinityGroupRequest,
+): Promise<AffinityGroupReferenceSummary | null> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  const current = await prisma.affinityGroupRef.findUnique({
+    where: { id },
+  });
+  if (!current) {
+    return null;
+  }
+
+  const data = buildAffinityGroupUpdateData(input);
+  if (Object.keys(data).length === 0) {
+    throw new Error('At least one field must be provided');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.affinityGroupRef.update({
+      where: { id },
+      data,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: AFFINITY_GROUP_ENTITY_TYPE,
+        entityId: next.id,
+        beforeData: toAffinityGroupAuditPayload(current),
+        afterData: toAffinityGroupAuditPayload(next),
+        metadata: baseReferenceAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toAffinityGroupReferenceSummary(updated);
+}
+
+export async function importAffinityGroups(
+  actor: AuthenticatedActor,
+  input: ReferenceImportRequest<AffinityGroupImportRow>,
+): Promise<ReferenceImportResponse<AffinityGroupReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  validateReferenceImportRows(input.rows, 'rows');
+  assertUniqueNormalizedGroupCodes(input.rows);
+
+  const batchName = optionalTrimmed(input.batchName);
+  const sourceLabel = optionalTrimmed(input.sourceLabel);
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  const items = await prisma.$transaction(async (tx) => {
+    const results: AffinityGroupReferenceSummary[] = [];
+
+    for (const [index, row] of input.rows.entries()) {
+      const normalized = normalizeAffinityGroupImportRow(row, index);
+      const current = await tx.affinityGroupRef.findUnique({
+        where: { code: normalized.code },
+      });
+
+      if (current) {
+        const next = await tx.affinityGroupRef.update({
+          where: { id: current.id },
+          data: {
+            name: normalized.name,
+            ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+            ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+            groupType: toAffinityGroupTypeEnum(normalized.groupType),
+            ...(normalized.isActive !== undefined ? { isActive: normalized.isActive } : {}),
+            ...(normalized.sortOrder !== undefined ? { sortOrder: normalized.sortOrder } : {}),
+            ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+          },
+        });
+
+        await tx.auditEntry.create({
+          data: buildAuditEntryData({
+            actorUserId: actor.userId,
+            action: AuditAction.UPDATE,
+            entityType: AFFINITY_GROUP_ENTITY_TYPE,
+            entityId: next.id,
+            beforeData: toAffinityGroupAuditPayload(current),
+            afterData: toAffinityGroupAuditPayload(next),
+            metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+          }),
+        });
+
+        results.push(toAffinityGroupReferenceSummary(next));
+        updatedCount += 1;
+        continue;
+      }
+
+      const next = await tx.affinityGroupRef.create({
+        data: {
+          code: normalized.code,
+          name: normalized.name,
+          ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+          ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+          groupType: toAffinityGroupTypeEnum(normalized.groupType),
+          isActive: normalized.isActive ?? true,
+          sortOrder: normalized.sortOrder ?? 0,
+          ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: AFFINITY_GROUP_ENTITY_TYPE,
+          entityId: next.id,
+          afterData: toAffinityGroupAuditPayload(next),
+          metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+        }),
+      });
+
+      results.push(toAffinityGroupReferenceSummary(next));
+      createdCount += 1;
+    }
+
+    return results;
+  });
+
+  return {
+    ...(batchName !== undefined ? { batchName } : {}),
+    ...(sourceLabel !== undefined ? { sourceLabel } : {}),
+    processedCount: input.rows.length,
+    createdCount,
+    updatedCount,
+    items,
+  };
+}
+
+export async function createOwnershipGroup(
+  actor: AuthenticatedActor,
+  input: CreateOwnershipGroupRequest,
+): Promise<OwnershipGroupReferenceSummary> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  const normalized = normalizeOwnershipGroupCreateInput(input);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const next = await tx.ownershipGroupRef.create({
+      data: {
+        code: normalized.code,
+        name: normalized.name,
+        ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+        ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+        ownershipType: toOwnershipGroupTypeEnum(normalized.ownershipType),
+        isActive: normalized.isActive ?? true,
+        sortOrder: normalized.sortOrder ?? 0,
+        ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: OWNERSHIP_GROUP_ENTITY_TYPE,
+        entityId: next.id,
+        afterData: toOwnershipGroupAuditPayload(next),
+        metadata: baseReferenceAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toOwnershipGroupReferenceSummary(created);
+}
+
+export async function updateOwnershipGroup(
+  actor: AuthenticatedActor,
+  id: string,
+  input: UpdateOwnershipGroupRequest,
+): Promise<OwnershipGroupReferenceSummary | null> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  const current = await prisma.ownershipGroupRef.findUnique({
+    where: { id },
+  });
+  if (!current) {
+    return null;
+  }
+
+  const data = buildOwnershipGroupUpdateData(input);
+  if (Object.keys(data).length === 0) {
+    throw new Error('At least one field must be provided');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.ownershipGroupRef.update({
+      where: { id },
+      data,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: OWNERSHIP_GROUP_ENTITY_TYPE,
+        entityId: next.id,
+        beforeData: toOwnershipGroupAuditPayload(current),
+        afterData: toOwnershipGroupAuditPayload(next),
+        metadata: baseReferenceAuditMetadata(actor),
+      }),
+    });
+
+    return next;
+  });
+
+  return toOwnershipGroupReferenceSummary(updated);
+}
+
+export async function importOwnershipGroups(
+  actor: AuthenticatedActor,
+  input: ReferenceImportRequest<OwnershipGroupImportRow>,
+): Promise<ReferenceImportResponse<OwnershipGroupReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  validateReferenceImportRows(input.rows, 'rows');
+  assertUniqueNormalizedGroupCodes(input.rows);
+
+  const batchName = optionalTrimmed(input.batchName);
+  const sourceLabel = optionalTrimmed(input.sourceLabel);
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  const items = await prisma.$transaction(async (tx) => {
+    const results: OwnershipGroupReferenceSummary[] = [];
+
+    for (const [index, row] of input.rows.entries()) {
+      const normalized = normalizeOwnershipGroupImportRow(row, index);
+      const current = await tx.ownershipGroupRef.findUnique({
+        where: { code: normalized.code },
+      });
+
+      if (current) {
+        const next = await tx.ownershipGroupRef.update({
+          where: { id: current.id },
+          data: {
+            name: normalized.name,
+            ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+            ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+            ownershipType: toOwnershipGroupTypeEnum(normalized.ownershipType),
+            ...(normalized.isActive !== undefined ? { isActive: normalized.isActive } : {}),
+            ...(normalized.sortOrder !== undefined ? { sortOrder: normalized.sortOrder } : {}),
+            ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+          },
+        });
+
+        await tx.auditEntry.create({
+          data: buildAuditEntryData({
+            actorUserId: actor.userId,
+            action: AuditAction.UPDATE,
+            entityType: OWNERSHIP_GROUP_ENTITY_TYPE,
+            entityId: next.id,
+            beforeData: toOwnershipGroupAuditPayload(current),
+            afterData: toOwnershipGroupAuditPayload(next),
+            metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+          }),
+        });
+
+        results.push(toOwnershipGroupReferenceSummary(next));
+        updatedCount += 1;
+        continue;
+      }
+
+      const next = await tx.ownershipGroupRef.create({
+        data: {
+          code: normalized.code,
+          name: normalized.name,
+          ...(normalized.shortName !== undefined ? { shortName: normalized.shortName } : {}),
+          ...(normalized.description !== undefined ? { description: normalized.description } : {}),
+          ownershipType: toOwnershipGroupTypeEnum(normalized.ownershipType),
+          isActive: normalized.isActive ?? true,
+          sortOrder: normalized.sortOrder ?? 0,
+          ...(normalized.notes !== undefined ? { notes: normalized.notes } : {}),
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: OWNERSHIP_GROUP_ENTITY_TYPE,
+          entityId: next.id,
+          afterData: toOwnershipGroupAuditPayload(next),
+          metadata: buildReferenceImportAuditMetadata(actor, batchName, sourceLabel, index),
+        }),
+      });
+
+      results.push(toOwnershipGroupReferenceSummary(next));
+      createdCount += 1;
+    }
+
+    return results;
+  });
+
+  return {
+    ...(batchName !== undefined ? { batchName } : {}),
+    ...(sourceLabel !== undefined ? { sourceLabel } : {}),
+    processedCount: input.rows.length,
+    createdCount,
+    updatedCount,
+    items,
+  };
+}
+
 export async function createLeadSource(
   actor: AuthenticatedActor,
   input: CreateLeadSourceRequest,
 ): Promise<ReferenceValueSummary> {
   assertActionAccess(actor.role, 'reference.manage');
 
-  const code = normalizeReferenceCode(input.code);
+  const code = normalizeGroupReferenceCode(input.code);
   const name = input.name?.trim();
   if (!code) {
     throw new Error('code is required');
@@ -725,6 +1087,54 @@ function buildReferenceValueUpdateData(input: UpdateReferenceValueRequest) {
   return data;
 }
 
+function buildAffinityGroupUpdateData(input: UpdateAffinityGroupRequest) {
+  const data: {
+    name?: string;
+    shortName?: string | null;
+    description?: string | null;
+    groupType?: import('@pulse/db').AffinityGroupType;
+    isActive?: boolean;
+    sortOrder?: number;
+    notes?: string | null;
+  } = buildReferenceValueUpdateData(input);
+
+  if (input.shortName !== undefined) {
+    data.shortName = optionalTrimmed(input.shortName) ?? null;
+  }
+  if (input.groupType !== undefined) {
+    data.groupType = toAffinityGroupTypeEnum(input.groupType);
+  }
+  if (input.notes !== undefined) {
+    data.notes = optionalTrimmed(input.notes) ?? null;
+  }
+
+  return data;
+}
+
+function buildOwnershipGroupUpdateData(input: UpdateOwnershipGroupRequest) {
+  const data: {
+    name?: string;
+    shortName?: string | null;
+    description?: string | null;
+    ownershipType?: import('@pulse/db').OwnershipGroupType;
+    isActive?: boolean;
+    sortOrder?: number;
+    notes?: string | null;
+  } = buildReferenceValueUpdateData(input);
+
+  if (input.shortName !== undefined) {
+    data.shortName = optionalTrimmed(input.shortName) ?? null;
+  }
+  if (input.ownershipType !== undefined) {
+    data.ownershipType = toOwnershipGroupTypeEnum(input.ownershipType);
+  }
+  if (input.notes !== undefined) {
+    data.notes = optionalTrimmed(input.notes) ?? null;
+  }
+
+  return data;
+}
+
 function buildLeadStageUpdateData(input: UpdateLeadStageReferenceRequest) {
   const data: {
     name?: string;
@@ -760,7 +1170,7 @@ function buildLeadStageUpdateData(input: UpdateLeadStageReferenceRequest) {
 }
 
 function normalizeLeadSourceImportRow(row: LeadSourceImportRow, rowIndex: number) {
-  const code = normalizeReferenceCode(row.code);
+  const code = normalizeGroupReferenceCode(row.code);
   const name = row.name?.trim();
   if (!code) {
     throw new Error(`rows[${rowIndex}].code is required`);
@@ -775,6 +1185,94 @@ function normalizeLeadSourceImportRow(row: LeadSourceImportRow, rowIndex: number
     ...(row.description !== undefined ? { description: optionalTrimmed(row.description) ?? null } : {}),
     ...(row.isActive !== undefined ? { isActive: row.isActive } : {}),
     ...(row.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(row.sortOrder) } : {}),
+  };
+}
+
+function normalizeAffinityGroupCreateInput(input: CreateAffinityGroupRequest) {
+  const code = normalizeGroupReferenceCode(input.code);
+  const name = input.name?.trim();
+  if (!code) {
+    throw new Error('code is required');
+  }
+  if (!name) {
+    throw new Error('name is required');
+  }
+
+  return {
+    code,
+    name,
+    ...(input.shortName !== undefined ? { shortName: optionalTrimmed(input.shortName) ?? null } : {}),
+    ...(input.description !== undefined ? { description: optionalTrimmed(input.description) ?? null } : {}),
+    groupType: input.groupType,
+    ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    ...(input.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(input.sortOrder) } : {}),
+    ...(input.notes !== undefined ? { notes: optionalTrimmed(input.notes) ?? null } : {}),
+  };
+}
+
+function normalizeAffinityGroupImportRow(row: AffinityGroupImportRow, rowIndex: number) {
+  const code = normalizeGroupReferenceCode(row.code);
+  const name = row.name?.trim();
+  if (!code) {
+    throw new Error(`rows[${rowIndex}].code is required`);
+  }
+  if (!name) {
+    throw new Error(`rows[${rowIndex}].name is required`);
+  }
+
+  return {
+    code,
+    name,
+    ...(row.shortName !== undefined ? { shortName: optionalTrimmed(row.shortName) ?? null } : {}),
+    ...(row.description !== undefined ? { description: optionalTrimmed(row.description) ?? null } : {}),
+    groupType: row.groupType,
+    ...(row.isActive !== undefined ? { isActive: row.isActive } : {}),
+    ...(row.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(row.sortOrder) } : {}),
+    ...(row.notes !== undefined ? { notes: optionalTrimmed(row.notes) ?? null } : {}),
+  };
+}
+
+function normalizeOwnershipGroupCreateInput(input: CreateOwnershipGroupRequest) {
+  const code = normalizeGroupReferenceCode(input.code);
+  const name = input.name?.trim();
+  if (!code) {
+    throw new Error('code is required');
+  }
+  if (!name) {
+    throw new Error('name is required');
+  }
+
+  return {
+    code,
+    name,
+    ...(input.shortName !== undefined ? { shortName: optionalTrimmed(input.shortName) ?? null } : {}),
+    ...(input.description !== undefined ? { description: optionalTrimmed(input.description) ?? null } : {}),
+    ownershipType: input.ownershipType,
+    ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    ...(input.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(input.sortOrder) } : {}),
+    ...(input.notes !== undefined ? { notes: optionalTrimmed(input.notes) ?? null } : {}),
+  };
+}
+
+function normalizeOwnershipGroupImportRow(row: OwnershipGroupImportRow, rowIndex: number) {
+  const code = normalizeGroupReferenceCode(row.code);
+  const name = row.name?.trim();
+  if (!code) {
+    throw new Error(`rows[${rowIndex}].code is required`);
+  }
+  if (!name) {
+    throw new Error(`rows[${rowIndex}].name is required`);
+  }
+
+  return {
+    code,
+    name,
+    ...(row.shortName !== undefined ? { shortName: optionalTrimmed(row.shortName) ?? null } : {}),
+    ...(row.description !== undefined ? { description: optionalTrimmed(row.description) ?? null } : {}),
+    ownershipType: row.ownershipType,
+    ...(row.isActive !== undefined ? { isActive: row.isActive } : {}),
+    ...(row.sortOrder !== undefined ? { sortOrder: normalizeSortOrder(row.sortOrder) } : {}),
+    ...(row.notes !== undefined ? { notes: optionalTrimmed(row.notes) ?? null } : {}),
   };
 }
 
@@ -929,6 +1427,42 @@ function toReferenceValueAuditPayload(value: {
   };
 }
 
+function toAffinityGroupAuditPayload(value: {
+  code: string;
+  name: string;
+  shortName: string | null;
+  description: string | null;
+  groupType: import('@pulse/db').AffinityGroupType;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+}) {
+  return {
+    ...toReferenceValueAuditPayload(value),
+    shortName: value.shortName,
+    groupType: toAffinityGroupTypeKey(value.groupType),
+    notes: value.notes,
+  };
+}
+
+function toOwnershipGroupAuditPayload(value: {
+  code: string;
+  name: string;
+  shortName: string | null;
+  description: string | null;
+  ownershipType: import('@pulse/db').OwnershipGroupType;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+}) {
+  return {
+    ...toReferenceValueAuditPayload(value),
+    shortName: value.shortName,
+    ownershipType: toOwnershipGroupTypeKey(value.ownershipType),
+    notes: value.notes,
+  };
+}
+
 function toLeadStageAuditPayload(value: {
   stage: LeadStage;
   code: string;
@@ -1044,6 +1578,15 @@ function normalizeReferenceCode(value: string | undefined) {
   return trimmed.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
+function normalizeGroupReferenceCode(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return trimmed.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase();
+}
+
 function normalizeSortOrder(value: number | undefined) {
   if (value === undefined) {
     return 0;
@@ -1069,6 +1612,20 @@ function assertUniqueNormalizedCodes(rows: LeadSourceImportRow[]) {
   const seen = new Set<string>();
   for (const [index, row] of rows.entries()) {
     const code = normalizeReferenceCode(row.code);
+    if (!code) {
+      continue;
+    }
+    if (seen.has(code)) {
+      throw new Error(`rows[${index}].code duplicates another row: ${code}`);
+    }
+    seen.add(code);
+  }
+}
+
+function assertUniqueNormalizedGroupCodes(rows: Array<{ code: string }>) {
+  const seen = new Set<string>();
+  for (const [index, row] of rows.entries()) {
+    const code = normalizeGroupReferenceCode(row.code);
     if (!code) {
       continue;
     }

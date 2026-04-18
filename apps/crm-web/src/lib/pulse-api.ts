@@ -77,6 +77,8 @@ import type {
   CaptureWebsiteLeadRequest,
   CommitLeadImportRunRequest,
   CreateLeadRequest,
+  CreateAffinityGroupRequest,
+  CreateOwnershipGroupRequest,
   CompleteLeadDiscoveryRequest,
   ConvertLeadOnFirstOrderRequest,
   ConvertLeadOnFirstOrderResponse,
@@ -96,6 +98,8 @@ import type {
   ListFinanceQueueResponse,
   ImportLeadFileRequest,
   ImportLeadFileResponse,
+  AffinityGroupImportRow,
+  OwnershipGroupImportRow,
   LeadImportFilePreviewRequest,
   LeadImportFilePreviewResponse,
   LeadImportRunDetail,
@@ -124,6 +128,8 @@ import type {
   LoginRequest,
   PublicWebsiteLeadSite,
   ReferenceListResponse,
+  ReferenceImportRequest,
+  ReferenceImportResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
   ReassignAccountTerritoryRequest,
@@ -135,9 +141,11 @@ import type {
   SavePublicCisDraftRequest,
   SkipLeadDiscoveryRequest,
   UpdateLeadContactRequest,
+  UpdateAffinityGroupRequest,
   UpdateLeadLifecycleRequest,
   UpdateLeadConversionPreparationRequest,
   UpdateLeadReadinessItemRequest,
+  UpdateOwnershipGroupRequest,
   UpdateWebsiteLeadNotificationRecipientRequest,
   UpdateWebsiteLeadSiteRequest,
   SubmitPublicCisRequest,
@@ -521,6 +529,62 @@ export async function fetchOwnershipGroups(apiBaseUrl: string, accessToken: stri
   return requestJson<ReferenceListResponse<OwnershipGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/ownership-groups', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function createAffinityGroup(apiBaseUrl: string, accessToken: string, input: CreateAffinityGroupRequest) {
+  return requestJson<AffinityGroupReferenceSummary>(apiBaseUrl, '/api/v1/reference/affinity-groups', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAffinityGroup(apiBaseUrl: string, accessToken: string, affinityGroupId: string, input: UpdateAffinityGroupRequest) {
+  return requestJson<AffinityGroupReferenceSummary>(apiBaseUrl, `/api/v1/reference/affinity-groups/${affinityGroupId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function importAffinityGroups(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: ReferenceImportRequest<AffinityGroupImportRow>,
+) {
+  return requestJson<ReferenceImportResponse<AffinityGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/affinity-groups/import', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createOwnershipGroup(apiBaseUrl: string, accessToken: string, input: CreateOwnershipGroupRequest) {
+  return requestJson<OwnershipGroupReferenceSummary>(apiBaseUrl, '/api/v1/reference/ownership-groups', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateOwnershipGroup(apiBaseUrl: string, accessToken: string, ownershipGroupId: string, input: UpdateOwnershipGroupRequest) {
+  return requestJson<OwnershipGroupReferenceSummary>(apiBaseUrl, `/api/v1/reference/ownership-groups/${ownershipGroupId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function importOwnershipGroups(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: ReferenceImportRequest<OwnershipGroupImportRow>,
+) {
+  return requestJson<ReferenceImportResponse<OwnershipGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/ownership-groups/import', {
+    method: 'POST',
+    accessToken,
+    body: input,
   });
 }
 

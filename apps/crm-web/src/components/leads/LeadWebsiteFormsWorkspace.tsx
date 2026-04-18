@@ -47,11 +47,15 @@ import {
   IconWorld,
 } from '@tabler/icons-react';
 import type {
+  AffinityGroupReferenceSummary,
+  AffinityGroupTypeKey,
   ListWebsiteLeadSubmissionsResponse,
   LeadRoutingPolicySummary,
   LeadRoutingBasisKey,
   LeadSummary,
   LeadStageKey,
+  OwnershipGroupReferenceSummary,
+  OwnershipGroupTypeKey,
   ResolveWebsiteLeadSubmissionRequest,
   WebsiteLeadSiteFormConfig,
   WebsiteLeadFormTypeKey,
@@ -61,20 +65,33 @@ import type {
   WebsiteLeadTypeKey,
 } from '@pulse/contracts';
 import {
+  createAffinityGroup,
+  createOwnershipGroup,
   createWebsiteLeadNotificationRecipient,
   fetchLeads,
+  fetchAffinityGroups,
   createWebsiteLeadSite,
   fetchLeadRoutingPolicy,
+  fetchOwnershipGroups,
   fetchWebsiteLeadNotificationRecipients,
   fetchWebsiteLeadSites,
   fetchWebsiteLeadSubmissions,
+  importAffinityGroups,
+  importOwnershipGroups,
   resolveWebsiteLeadSubmission,
+  updateAffinityGroup,
   updateLeadRoutingPolicy,
+  updateOwnershipGroup,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  GroupReferenceManager,
+  type GroupReferenceDraft,
+  type GroupReferenceRecord,
+} from './GroupReferenceManager';
 import { PublicWebsiteLeadCaptureForm } from './PublicWebsiteLeadCaptureForm';
 
 const DEFAULT_WEB_BASE_URL = process.env.NEXT_PUBLIC_PULSE_WEB_BASE_URL ?? 'http://localhost:3000';
@@ -89,7 +106,47 @@ const STAGE_META: Record<LeadStageKey, { label: string; color: string }> = {
   customer_active: { label: 'Customer Active', color: 'green' },
 };
 
-type WebsiteFormsTab = 'sites' | 'notifications' | 'flow' | 'duplicates';
+type WebsiteFormsTab = 'sites' | 'notifications' | 'flow' | 'duplicates' | 'classification';
+
+const AFFINITY_GROUP_TYPE_LABELS: Record<AffinityGroupTypeKey, string> = {
+  buying_group: 'Buying Group',
+  coaching_network: 'Coaching Network',
+  franchise: 'Franchise',
+  community: 'Community',
+  other: 'Other',
+};
+
+const OWNERSHIP_GROUP_TYPE_LABELS: Record<OwnershipGroupTypeKey, string> = {
+  private_equity: 'Private Equity',
+  common_owner: 'Common Owner',
+  franchise_system: 'Franchise System',
+  other: 'Other',
+};
+
+const AFFINITY_GROUP_TYPE_VALUES: AffinityGroupTypeKey[] = [
+  'buying_group',
+  'coaching_network',
+  'franchise',
+  'community',
+  'other',
+];
+
+const OWNERSHIP_GROUP_TYPE_VALUES: OwnershipGroupTypeKey[] = [
+  'private_equity',
+  'common_owner',
+  'franchise_system',
+  'other',
+];
+
+const AFFINITY_GROUP_TYPE_OPTIONS = AFFINITY_GROUP_TYPE_VALUES.map((value) => ({
+  value,
+  label: AFFINITY_GROUP_TYPE_LABELS[value],
+}));
+
+const OWNERSHIP_GROUP_TYPE_OPTIONS = OWNERSHIP_GROUP_TYPE_VALUES.map((value) => ({
+  value,
+  label: OWNERSHIP_GROUP_TYPE_LABELS[value],
+}));
 
 type SiteDraft = {
   siteId: string;
@@ -262,9 +319,79 @@ function toSiteFormConfigPayload(draft: SiteDraft): Partial<WebsiteLeadSiteFormC
   };
 }
 
+function sortReferenceItems<T extends { code: string; name: string; sortOrder: number }>(items: T[]) {
+  return [...items].sort((left, right) => (
+    left.sortOrder - right.sortOrder
+    || left.name.localeCompare(right.name)
+    || left.code.localeCompare(right.code)
+  ));
+}
+
+function upsertReferenceItems<T extends { id: string }>(current: T[], incoming: T[]) {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    byId.set(item.id, item);
+  }
+  return Array.from(byId.values());
+}
+
+function buildAffinityGroupRequest(draft: GroupReferenceDraft) {
+  return {
+    name: draft.name,
+    groupType: draft.typeValue as AffinityGroupTypeKey,
+    isActive: draft.isActive,
+    sortOrder: draft.sortOrder,
+    ...(draft.shortName.trim() ? { shortName: draft.shortName.trim() } : {}),
+    ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+    ...(draft.notes.trim() ? { notes: draft.notes.trim() } : {}),
+  };
+}
+
+function buildOwnershipGroupRequest(draft: GroupReferenceDraft) {
+  return {
+    name: draft.name,
+    ownershipType: draft.typeValue as OwnershipGroupTypeKey,
+    isActive: draft.isActive,
+    sortOrder: draft.sortOrder,
+    ...(draft.shortName.trim() ? { shortName: draft.shortName.trim() } : {}),
+    ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+    ...(draft.notes.trim() ? { notes: draft.notes.trim() } : {}),
+  };
+}
+
+function toAffinityGroupRecord(item: AffinityGroupReferenceSummary): GroupReferenceRecord {
+  return {
+    id: item.id,
+    code: item.code,
+    name: item.name,
+    isActive: item.isActive,
+    sortOrder: item.sortOrder,
+    typeValue: item.groupType,
+    ...(item.shortName ? { shortName: item.shortName } : {}),
+    ...(item.description ? { description: item.description } : {}),
+    ...(item.notes ? { notes: item.notes } : {}),
+  };
+}
+
+function toOwnershipGroupRecord(item: OwnershipGroupReferenceSummary): GroupReferenceRecord {
+  return {
+    id: item.id,
+    code: item.code,
+    name: item.name,
+    isActive: item.isActive,
+    sortOrder: item.sortOrder,
+    typeValue: item.ownershipType,
+    ...(item.shortName ? { shortName: item.shortName } : {}),
+    ...(item.description ? { description: item.description } : {}),
+    ...(item.notes ? { notes: item.notes } : {}),
+  };
+}
+
 export function LeadWebsiteFormsWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<WebsiteFormsTab>('sites');
+  const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
+  const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
   const [sites, setSites] = useState<WebsiteLeadSiteSummary[]>([]);
   const [recipients, setRecipients] = useState<WebsiteLeadNotificationRecipientSummary[]>([]);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
@@ -292,6 +419,8 @@ export function LeadWebsiteFormsWorkspace() {
 
   useEffect(() => {
     if (!auth) {
+      setAffinityGroups([]);
+      setOwnershipGroups([]);
       setSites([]);
       setRecipients([]);
       setRoutingPolicy(null);
@@ -310,7 +439,16 @@ export function LeadWebsiteFormsWorkspace() {
       setErrorMessage(null);
 
       try {
-        const [siteResponse, recipientResponse, routingPolicyResponse, duplicateResponse] = await Promise.all([
+        const [
+          affinityGroupResponse,
+          ownershipGroupResponse,
+          siteResponse,
+          recipientResponse,
+          routingPolicyResponse,
+          duplicateResponse,
+        ] = await Promise.all([
+          fetchAffinityGroups(apiBaseUrl, accessToken),
+          fetchOwnershipGroups(apiBaseUrl, accessToken),
           fetchWebsiteLeadSites(apiBaseUrl, accessToken),
           fetchWebsiteLeadNotificationRecipients(apiBaseUrl, accessToken),
           fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
@@ -324,6 +462,8 @@ export function LeadWebsiteFormsWorkspace() {
           return;
         }
 
+        setAffinityGroups(sortReferenceItems(affinityGroupResponse.items));
+        setOwnershipGroups(sortReferenceItems(ownershipGroupResponse.items));
         setSites(siteResponse.items);
         setRecipients(recipientResponse.items);
         setRoutingPolicy(routingPolicyResponse);
@@ -730,6 +870,117 @@ export function LeadWebsiteFormsWorkspace() {
     }
   }
 
+  async function handleCreateAffinityGroup(draft: GroupReferenceDraft) {
+    const created = await createAffinityGroup(apiBaseUrl, accessToken, {
+      code: draft.code,
+      ...buildAffinityGroupRequest(draft),
+    });
+
+    setAffinityGroups((current) => sortReferenceItems(upsertReferenceItems(current, [created])));
+    notifications.show({
+      title: 'Affinity group added',
+      message: `${created.name} is now available in governed lead and account classification.`,
+      color: 'green',
+    });
+  }
+
+  async function handleUpdateAffinityGroup(groupId: string, draft: GroupReferenceDraft) {
+    const updated = await updateAffinityGroup(apiBaseUrl, accessToken, groupId, buildAffinityGroupRequest(draft));
+
+    setAffinityGroups((current) => sortReferenceItems(upsertReferenceItems(current, [updated])));
+    notifications.show({
+      title: 'Affinity group updated',
+      message: `${updated.name} stewardship changes are now live.`,
+      color: 'green',
+    });
+  }
+
+  async function handleImportAffinityGroups(payload: {
+    batchName?: string;
+    sourceLabel?: string;
+    rows: GroupReferenceDraft[];
+  }) {
+    const request: Parameters<typeof importAffinityGroups>[2] = {
+      rows: payload.rows.map((row) => ({
+        code: row.code,
+        ...buildAffinityGroupRequest(row),
+      })),
+    };
+    if (payload.batchName) {
+      request.batchName = payload.batchName;
+    }
+    if (payload.sourceLabel) {
+      request.sourceLabel = payload.sourceLabel;
+    }
+
+    const response = await importAffinityGroups(apiBaseUrl, accessToken, request);
+
+    setAffinityGroups((current) => sortReferenceItems(upsertReferenceItems(current, response.items)));
+    notifications.show({
+      title: 'Affinity groups imported',
+      message: `${response.processedCount} rows processed: ${response.createdCount} created, ${response.updatedCount} updated.`,
+      color: 'green',
+    });
+  }
+
+  async function handleCreateOwnershipGroup(draft: GroupReferenceDraft) {
+    const created = await createOwnershipGroup(apiBaseUrl, accessToken, {
+      code: draft.code,
+      ...buildOwnershipGroupRequest(draft),
+    });
+
+    setOwnershipGroups((current) => sortReferenceItems(upsertReferenceItems(current, [created])));
+    notifications.show({
+      title: 'Ownership group added',
+      message: `${created.name} is now available in PE and common-owner classification.`,
+      color: 'green',
+    });
+  }
+
+  async function handleUpdateOwnershipGroup(groupId: string, draft: GroupReferenceDraft) {
+    const updated = await updateOwnershipGroup(
+      apiBaseUrl,
+      accessToken,
+      groupId,
+      buildOwnershipGroupRequest(draft),
+    );
+
+    setOwnershipGroups((current) => sortReferenceItems(upsertReferenceItems(current, [updated])));
+    notifications.show({
+      title: 'Ownership group updated',
+      message: `${updated.name} stewardship changes are now live.`,
+      color: 'green',
+    });
+  }
+
+  async function handleImportOwnershipGroups(payload: {
+    batchName?: string;
+    sourceLabel?: string;
+    rows: GroupReferenceDraft[];
+  }) {
+    const request: Parameters<typeof importOwnershipGroups>[2] = {
+      rows: payload.rows.map((row) => ({
+        code: row.code,
+        ...buildOwnershipGroupRequest(row),
+      })),
+    };
+    if (payload.batchName) {
+      request.batchName = payload.batchName;
+    }
+    if (payload.sourceLabel) {
+      request.sourceLabel = payload.sourceLabel;
+    }
+
+    const response = await importOwnershipGroups(apiBaseUrl, accessToken, request);
+
+    setOwnershipGroups((current) => sortReferenceItems(upsertReferenceItems(current, response.items)));
+    notifications.show({
+      title: 'Ownership groups imported',
+      message: `${response.processedCount} rows processed: ${response.createdCount} created, ${response.updatedCount} updated.`,
+      color: 'green',
+    });
+  }
+
   return (
     <Stack gap="md">
       <Paper withBorder radius="md" p="lg">
@@ -798,6 +1049,7 @@ export function LeadWebsiteFormsWorkspace() {
           <Tabs.Tab value="notifications" leftSection={<IconBell size={16} />}>Notifications</Tabs.Tab>
           <Tabs.Tab value="flow" leftSection={<IconArrowRight size={16} />}>Submission Flow</Tabs.Tab>
           <Tabs.Tab value="duplicates" leftSection={<IconHistory size={16} />}>Repeat Submissions ({duplicateSubmissionTotal})</Tabs.Tab>
+          <Tabs.Tab value="classification" leftSection={<IconUsers size={16} />}>Classification Stewardship</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="sites" pt="md">
@@ -1275,6 +1527,45 @@ export function LeadWebsiteFormsWorkspace() {
               ) : null}
             </Stack>
           </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="classification" pt="md">
+          <Stack gap="md">
+            <Alert color="blue" variant="light">
+              Affinity and ownership groups are governed classification masters. These values drive lead intake, CIS review,
+              account segmentation, and the independent vs hybrid business model without falling back to free-text drift.
+            </Alert>
+
+            <SimpleGrid cols={{ base: 1, xl: 2 }}>
+              <GroupReferenceManager
+                title="Affinity groups"
+                description="Maintain buying-group, coaching-network, franchise, and community classifications used during lead and account setup."
+                emptyMessage="No affinity groups are available yet. Seed at least Independent and Unknown before more intake flows go live."
+                typeLabel="Affinity type"
+                importTypeField="groupType"
+                items={affinityGroups.map<GroupReferenceRecord>(toAffinityGroupRecord)}
+                typeOptions={AFFINITY_GROUP_TYPE_OPTIONS}
+                canManage={canManageReference}
+                onCreate={handleCreateAffinityGroup}
+                onUpdate={handleUpdateAffinityGroup}
+                onImport={handleImportAffinityGroups}
+              />
+
+              <GroupReferenceManager
+                title="Ownership groups"
+                description="Maintain PE and common-owner groupings separately from affinity so hybrid accounts remain first-class."
+                emptyMessage="No ownership groups are available yet. Add PE or common-owner groups here before operator setup begins."
+                typeLabel="Ownership type"
+                importTypeField="ownershipType"
+                items={ownershipGroups.map<GroupReferenceRecord>(toOwnershipGroupRecord)}
+                typeOptions={OWNERSHIP_GROUP_TYPE_OPTIONS}
+                canManage={canManageReference}
+                onCreate={handleCreateOwnershipGroup}
+                onUpdate={handleUpdateOwnershipGroup}
+                onImport={handleImportOwnershipGroups}
+              />
+            </SimpleGrid>
+          </Stack>
         </Tabs.Panel>
       </Tabs>
 

@@ -1,25 +1,18 @@
-import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   ApplyCisParsedDraftRequest,
-  CancelMonerisHostedPaymentCaptureRequest,
   CisFinanceDecisionRequest,
   CisLinkIssueRequest,
-  RecordMonerisHostedCaptureResultRequest,
-  RecordCisPaymentVaultReferenceRequest,
-  RequestCisPaymentCaptureRequest,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   ListFinanceQueueRequest,
   SavePublicCisDraftRequest,
-  StartMonerisHostedPaymentCaptureRequest,
   SubmitPublicCisRequest,
   UploadCisScanRequest,
 } from '@pulse/contracts';
 import type { AppConfig } from '../../config.js';
 import type { QueueManager } from '../../queue/contracts.js';
-import { MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE } from '../../queue/definitions.js';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -27,8 +20,6 @@ import {
   methodNotAllowedResponse,
   notFoundResponse,
   readJsonBody,
-  readTextBody,
-  serviceUnavailableResponse,
   unauthorizedResponse,
 } from '../../utils/http.js';
 import {
@@ -44,14 +35,9 @@ import {
   listCisParsedDrafts,
   listFinanceQueue,
   applyCisParsedDraft,
-  cancelMonerisHostedPaymentCapture,
   recordFinanceDecision,
-  recordCisPaymentVaultReference,
-  recordMonerisHostedCaptureResult,
   reviewAndSignOffCis,
-  requestCisPaymentCapture,
   savePublicCisDraft,
-  startMonerisHostedPaymentCapture,
   submitCisToFinance,
   submitPublicCis,
   uploadLeadCisScan,
@@ -66,21 +52,18 @@ export async function handleCisRoutes(
     queue: QueueManager;
   },
 ) {
-  const { config, queue } = context;
+  const { config } = context;
   const pathname = url.pathname;
   const method = req.method ?? 'GET';
 
   const internalLeadMatch = pathname.match(/^\/api\/v1\/leads\/([^/]+)\/cis(?:\/(send-link|resend-link|upload-scan))?$/);
   const financeQueueRoute = pathname === '/api/v1/cis/finance-queue';
-  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision|request-payment-capture|payment-vault-reference|moneris-hosted-capture\/start))?$/);
+  const internalPackageMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)(?:\/(review-signoff|submit-to-finance|finance-decision))?$/);
   const parsedDraftCollectionMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts$/);
   const parsedDraftApplyMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/parsed-drafts\/([^/]+)\/apply$/);
-  const hostedCaptureResultMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-result$/);
-  const hostedCaptureCancelMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-cancel$/);
-  const hostedCaptureCallbackMatch = pathname.match(/^\/api\/v1\/cis\/([^/]+)\/payment-capture-attempts\/([^/]+)\/moneris-callback$/);
   const publicBaseMatch = pathname.match(/^\/api\/v1\/public\/cis\/([^/]+)(?:\/(save-draft|submit))?$/);
 
-  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !hostedCaptureResultMatch && !hostedCaptureCancelMatch && !hostedCaptureCallbackMatch && !publicBaseMatch) {
+  if (!internalLeadMatch && !financeQueueRoute && !internalPackageMatch && !parsedDraftCollectionMatch && !parsedDraftApplyMatch && !publicBaseMatch) {
     return false;
   }
 
@@ -299,136 +282,6 @@ export async function handleCisRoutes(
         return jsonResponse(res, 200, response);
       }
 
-      if (action === 'request-payment-capture') {
-        if (method !== 'POST') {
-          return methodNotAllowedResponse(res, method, ['POST']);
-        }
-
-        const actor = await requireAuthenticatedActor(req, {
-          module: 'cis',
-          action: 'lead.finance_decide',
-        });
-        const body = (await readJsonBody(req)) as RequestCisPaymentCaptureRequest;
-        const response = await requestCisPaymentCapture(actor, cisPackageId, body);
-        return jsonResponse(res, 200, response);
-      }
-
-      if (action === 'payment-vault-reference') {
-        if (method !== 'POST') {
-          return methodNotAllowedResponse(res, method, ['POST']);
-        }
-
-        const actor = await requireAuthenticatedActor(req, {
-          module: 'cis',
-          action: 'lead.finance_decide',
-        });
-        const body = (await readJsonBody(req)) as RecordCisPaymentVaultReferenceRequest;
-        const response = await recordCisPaymentVaultReference(actor, cisPackageId, body);
-        return jsonResponse(res, 200, response);
-      }
-
-      if (action === 'moneris-hosted-capture/start') {
-        if (method !== 'POST') {
-          return methodNotAllowedResponse(res, method, ['POST']);
-        }
-
-        const actor = await requireAuthenticatedActor(req, {
-          module: 'cis',
-          action: 'lead.finance_decide',
-        });
-        const body = (await readJsonBody(req)) as StartMonerisHostedPaymentCaptureRequest;
-        const response = await startMonerisHostedPaymentCapture(actor, config, cisPackageId, body);
-        return jsonResponse(res, 200, response);
-      }
-    }
-
-    if (hostedCaptureResultMatch) {
-      const cisPackageId = hostedCaptureResultMatch[1];
-      const attemptId = hostedCaptureResultMatch[2];
-      if (!cisPackageId || !attemptId) {
-        return false;
-      }
-
-      if (method !== 'POST') {
-        return methodNotAllowedResponse(res, method, ['POST']);
-      }
-
-      const actor = await requireAuthenticatedActor(req, {
-        module: 'cis',
-        action: 'lead.finance_decide',
-      });
-      const body = (await readJsonBody(req)) as RecordMonerisHostedCaptureResultRequest;
-      const response = await recordMonerisHostedCaptureResult(actor, config, cisPackageId, attemptId, body);
-      return jsonResponse(res, 200, response);
-    }
-
-    if (hostedCaptureCancelMatch) {
-      const cisPackageId = hostedCaptureCancelMatch[1];
-      const attemptId = hostedCaptureCancelMatch[2];
-      if (!cisPackageId || !attemptId) {
-        return false;
-      }
-
-      if (method !== 'POST') {
-        return methodNotAllowedResponse(res, method, ['POST']);
-      }
-
-      const actor = await requireAuthenticatedActor(req, {
-        module: 'cis',
-        action: 'lead.finance_decide',
-      });
-      const body = (await readJsonBody(req)) as CancelMonerisHostedPaymentCaptureRequest;
-      const response = await cancelMonerisHostedPaymentCapture(actor, cisPackageId, attemptId, body);
-      return jsonResponse(res, 200, response);
-    }
-
-    if (hostedCaptureCallbackMatch) {
-      const cisPackageId = hostedCaptureCallbackMatch[1];
-      const attemptId = hostedCaptureCallbackMatch[2];
-      if (!cisPackageId || !attemptId) {
-        return false;
-      }
-
-      if (method !== 'POST') {
-        return methodNotAllowedResponse(res, method, ['POST']);
-      }
-
-      const configuredSecret = config.monerisHostedTokenization.callbackSecret;
-      if (!configuredSecret) {
-        return serviceUnavailableResponse(res, 'Moneris callback ingress is not configured for this environment');
-      }
-
-      const requestSecret = readHeader(req, 'x-pulse-callback-secret');
-      if (!secretsMatch(requestSecret, configuredSecret)) {
-        return unauthorizedResponse(res, 'Invalid Moneris callback secret');
-      }
-
-      const rawPayload = await readTextBody(req);
-      const payloadHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
-      const receipt = await queue.enqueue(MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, {
-        jobType: MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE.name,
-        triggeredBy: 'moneris',
-        triggerSource: 'webhook',
-        correlationId: crypto.randomUUID(),
-        metadata: {
-          idempotencyKey: `moneris-callback:${attemptId}:${payloadHash}`,
-          expireInSeconds: 60 * 10,
-        },
-        data: {
-          cisPackageId,
-          attemptId,
-          rawPayload,
-          payloadHash,
-          contentType: readHeader(req, 'content-type'),
-          receivedAt: new Date().toISOString(),
-          remoteAddress: req.socket.remoteAddress,
-        },
-      });
-
-      return jsonResponse(res, 202, {
-        accepted: true,
-        job: receipt,
-      });
     }
   } catch (error) {
     if (isAuthenticationError(error)) {
@@ -449,23 +302,4 @@ export async function handleCisRoutes(
   }
 
   return false;
-}
-
-function readHeader(req: IncomingMessage, name: string) {
-  const raw = req.headers[name]?.toString().trim();
-  return raw ? raw : undefined;
-}
-
-function secretsMatch(left: string | undefined, right: string | undefined) {
-  if (!left || !right) {
-    return false;
-  }
-
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }

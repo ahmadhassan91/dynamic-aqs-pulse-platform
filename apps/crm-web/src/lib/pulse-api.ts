@@ -62,18 +62,10 @@ import type {
   CisLinkIssueRequest,
   CisLinkIssueResponse,
   CisPackageDetail,
-  CancelMonerisHostedPaymentCaptureRequest,
-  CancelMonerisHostedPaymentCaptureResponse,
-  RecordMonerisHostedCaptureResultRequest,
-  RecordMonerisHostedCaptureResultResponse,
-  RecordCisPaymentVaultReferenceRequest,
-  RequestCisPaymentCaptureRequest,
   CisPublicPackage,
   CisReviewSignoffRequest,
   CisSubmitToFinanceRequest,
   ListCisParsedDraftsResponse,
-  StartMonerisHostedPaymentCaptureRequest,
-  StartMonerisHostedPaymentCaptureResponse,
   CaptureWebsiteLeadRequest,
   CaptureWebsiteLeadResponse,
   CommitLeadImportRunRequest,
@@ -1747,81 +1739,6 @@ export async function recordLeadCisFinanceDecision(
     accessToken,
     body: input,
   });
-}
-
-export async function requestLeadCisPaymentCapture(
-  apiBaseUrl: string,
-  accessToken: string,
-  cisPackageId: string,
-  input: RequestCisPaymentCaptureRequest = {},
-) {
-  return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/request-payment-capture`, {
-    method: 'POST',
-    accessToken,
-    body: input,
-  });
-}
-
-export async function recordLeadCisPaymentVaultReference(
-  apiBaseUrl: string,
-  accessToken: string,
-  cisPackageId: string,
-  input: RecordCisPaymentVaultReferenceRequest,
-) {
-  return requestJson<CisPackageDetail>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/payment-vault-reference`, {
-    method: 'POST',
-    accessToken,
-    body: input,
-  });
-}
-
-export async function startLeadMonerisHostedCapture(
-  apiBaseUrl: string,
-  accessToken: string,
-  cisPackageId: string,
-  input: StartMonerisHostedPaymentCaptureRequest = {},
-) {
-  return requestJson<StartMonerisHostedPaymentCaptureResponse>(apiBaseUrl, `/api/v1/cis/${cisPackageId}/moneris-hosted-capture/start`, {
-    method: 'POST',
-    accessToken,
-    body: input,
-  });
-}
-
-export async function cancelLeadMonerisHostedCapture(
-  apiBaseUrl: string,
-  accessToken: string,
-  cisPackageId: string,
-  attemptId: string,
-  input: CancelMonerisHostedPaymentCaptureRequest = {},
-) {
-  return requestJson<CancelMonerisHostedPaymentCaptureResponse>(
-    apiBaseUrl,
-    `/api/v1/cis/${cisPackageId}/payment-capture-attempts/${attemptId}/moneris-cancel`,
-    {
-      method: 'POST',
-      accessToken,
-      body: input,
-    },
-  );
-}
-
-export async function recordLeadMonerisHostedCaptureResult(
-  apiBaseUrl: string,
-  accessToken: string,
-  cisPackageId: string,
-  attemptId: string,
-  input: RecordMonerisHostedCaptureResultRequest,
-) {
-  return requestJson<RecordMonerisHostedCaptureResultResponse>(
-    apiBaseUrl,
-    `/api/v1/cis/${cisPackageId}/payment-capture-attempts/${attemptId}/moneris-result`,
-    {
-      method: 'POST',
-      accessToken,
-      body: input,
-    },
-  );
 }
 
 export async function fetchFinanceQueue(

@@ -187,7 +187,7 @@ test('admin integrations surface tokenized payment capture settings and persist 
     assert.equal(settingsPayload.isConfigured, true);
     assert.equal(settingsPayload.policy.captureMode, 'manual_recording');
     assert.equal(settingsPayload.policy.defaultProvider, 'unknown');
-    assert.equal(settingsPayload.policy.allowCisCaptureTracking, true);
+    assert.equal(settingsPayload.policy.allowCisCaptureTracking, false);
     assert.equal(settingsPayload.policy.allowAccountPaymentMethodManagement, true);
 
     const updateResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations/payments`, {
@@ -225,7 +225,7 @@ test('admin integrations surface tokenized payment capture settings and persist 
   }
 });
 
-test('admin integrations flag Moneris provider runtime readiness based on environment configuration', SERIAL, async () => {
+test('admin integrations keep CIS provider runtime parked while account payment methods remain configurable', SERIAL, async () => {
   const auth = await createAdminAuth();
   let runtime = await createPulseServer(config);
   await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
@@ -251,8 +251,9 @@ test('admin integrations flag Moneris provider runtime readiness based on enviro
     const missingConfigPayload = await missingConfigResponse.json();
     assert.equal(missingConfigPayload.policy.captureMode, 'provider_runtime');
     assert.equal(missingConfigPayload.policy.defaultProvider, 'moneris');
+    assert.equal(missingConfigPayload.policy.allowCisCaptureTracking, false);
     assert.equal(missingConfigPayload.isConfigured, false);
-    assert.ok(missingConfigPayload.configurationIssues.some((issue) => issue.includes('MONERIS_HOSTED_TOKENIZATION_PROFILE_ID')));
+    assert.ok(missingConfigPayload.configurationIssues.some((issue) => /parked pending the revised card-capture flow/i.test(issue)));
 
     const missingStatusesResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations`, {
       headers: {
@@ -262,7 +263,7 @@ test('admin integrations flag Moneris provider runtime readiness based on enviro
     const missingStatusesPayload = await missingStatusesResponse.json();
     const missingPaymentStatus = missingStatusesPayload.integrations.find((entry) => entry.key === 'tokenized-payments');
     assert.ok(missingPaymentStatus);
-    assert.match(missingPaymentStatus.detail, /MONERIS_HOSTED_TOKENIZATION_PROFILE_ID/i);
+    assert.match(missingPaymentStatus.detail, /parked pending the revised card-capture flow/i);
   } finally {
     await runtime.close();
   }
@@ -295,8 +296,9 @@ test('admin integrations flag Moneris provider runtime readiness based on enviro
     const readyPayload = await readyResponse.json();
     assert.equal(readyPayload.policy.captureMode, 'provider_runtime');
     assert.equal(readyPayload.policy.defaultProvider, 'moneris');
-    assert.equal(readyPayload.isConfigured, true);
-    assert.deepEqual(readyPayload.configurationIssues, []);
+    assert.equal(readyPayload.policy.allowCisCaptureTracking, false);
+    assert.equal(readyPayload.isConfigured, false);
+    assert.ok(readyPayload.configurationIssues.some((issue) => /parked pending the revised card-capture flow/i.test(issue)));
 
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/v1/admin/integrations`, {
       headers: {
@@ -306,8 +308,8 @@ test('admin integrations flag Moneris provider runtime readiness based on enviro
     const statusPayload = await statusResponse.json();
     const paymentStatus = statusPayload.integrations.find((entry) => entry.key === 'tokenized-payments');
     assert.ok(paymentStatus);
-    assert.equal(paymentStatus.status, 'connected');
-    assert.match(paymentStatus.detail, /Moneris hosted tokenization runtime is ready/i);
+    assert.equal(paymentStatus.status, 'warning');
+    assert.match(paymentStatus.detail, /parked pending the revised card-capture flow/i);
   } finally {
     await runtime.close();
   }

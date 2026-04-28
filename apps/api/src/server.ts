@@ -8,7 +8,6 @@ import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleCalendarRoutes } from './modules/calendar/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
-import { processMonerisHostedCaptureCallbackJob, processMonerisHostedCaptureCleanupJob } from './modules/cis/service.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
 import {
@@ -28,8 +27,6 @@ import { ensureTrainingSeeded } from './modules/training/service.js';
 import {
   LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE,
   LEAD_OPERATIONAL_ALERT_SCAN_QUEUE,
-  MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE,
-  MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE,
   SYSTEM_HEALTH_CHECK_QUEUE,
 } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
@@ -79,12 +76,6 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
     correlationId: job.payload.correlationId,
     processedAt: new Date().toISOString(),
   }));
-  workers.register(MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE, async (job) => (
-    processMonerisHostedCaptureCallbackJob(config, job)
-  ));
-  workers.register(MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE, async (job) => (
-    processMonerisHostedCaptureCleanupJob(job)
-  ));
   workers.register(LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE, async (job) => (
     processLeadOperationalAlertDeliveryJob(config, logger, job)
   ));
@@ -118,29 +109,6 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   });
 
   let closed = false;
-  const monerisCleanupTimer = config.monerisHostedTokenization.cleanupIntervalMinutes > 0
-    ? setInterval(() => {
-        void queue.enqueue(MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE, {
-          jobType: MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE.name,
-          triggeredBy: 'system',
-          triggerSource: 'scheduler',
-          correlationId: `moneris-cleanup-${Date.now()}`,
-          metadata: {
-            singletonKey: 'moneris-hosted-capture-cleanup',
-            expireInSeconds: 60 * 10,
-          },
-          data: {
-            limit: 250,
-          },
-        }).catch((error) => {
-          logger.warn('queue.enqueue_failed', {
-            type: MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE.name,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-      }, config.monerisHostedTokenization.cleanupIntervalMinutes * 60 * 1000)
-    : undefined;
-  monerisCleanupTimer?.unref();
   const leadOperationalAlertTimer = config.leads.operationalAlertScanIntervalMinutes > 0
     ? setInterval(() => {
         void queue.enqueue(LEAD_OPERATIONAL_ALERT_SCAN_QUEUE, {
@@ -174,9 +142,6 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       }
 
       closed = true;
-      if (monerisCleanupTimer) {
-        clearInterval(monerisCleanupTimer);
-      }
       if (leadOperationalAlertTimer) {
         clearInterval(leadOperationalAlertTimer);
       }

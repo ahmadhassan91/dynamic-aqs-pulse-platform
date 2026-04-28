@@ -85,12 +85,12 @@ export function AdminPaymentIntegrationPanel({
             <Stack gap={4}>
               <Title order={3}>Payment integration settings</Title>
               <Text size="sm" c="dimmed">
-                Keep CRM-owned CIS and account payment references PCI-safe while controlling whether this environment is still manual-recording only or ready for a real hosted provider adapter later.
+                Keep account payment references PCI-safe while CIS card capture stays parked until Dynamic AQS confirms the revised capture flow.
               </Text>
             </Stack>
             <Badge color={settings?.isConfigured ? 'green' : 'yellow'} variant="light">
               {settings?.policy.captureMode === 'provider_runtime'
-                ? settings?.isConfigured ? 'Provider runtime ready' : 'Provider runtime blocked'
+                ? 'CIS runtime parked'
                 : settings?.isConfigured ? 'Manual lane ready' : 'Manual lane needs setup'}
             </Badge>
           </Group>
@@ -98,12 +98,12 @@ export function AdminPaymentIntegrationPanel({
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <Select
               label="Capture mode"
-              description="Manual recording keeps hosted capture outside Pulse while we store only token references and masked descriptors."
+              description="CIS-hosted provider runtime is parked. Account payment-method management remains available separately."
               value={policy?.captureMode ?? 'manual_recording'}
               disabled={!canManage || !settings}
               data={[
-                { value: 'manual_recording', label: 'Manual hosted-capture recording' },
-                { value: 'provider_runtime', label: 'Provider runtime (parked until adapter is wired)' },
+                { value: 'manual_recording', label: 'CIS card capture parked' },
+                { value: 'provider_runtime', label: 'Provider runtime (parked)' },
               ]}
               onChange={(value) => {
                 if (!policy || !value) {
@@ -121,7 +121,7 @@ export function AdminPaymentIntegrationPanel({
 
             <Select
               label="Default provider"
-              description="This is the operator default shown in manual recording flows today and the target runtime provider later."
+              description="Used for account payment-method planning only until CIS card capture is re-approved."
               value={policy?.defaultProvider ?? 'unknown'}
               disabled={!canManage || !settings}
               data={[
@@ -146,22 +146,10 @@ export function AdminPaymentIntegrationPanel({
 
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <Switch
-              label="Allow CIS payment capture tracking"
-              description="Lets finance mark hosted capture requested and record vaulted references on CIS packages."
-              checked={policy?.allowCisCaptureTracking ?? false}
-              disabled={!canManage || !settings}
-              onChange={(event) => {
-                if (!policy) {
-                  return;
-                }
-
-                void onSave({
-                  captureMode: policy.captureMode,
-                  defaultProvider: policy.defaultProvider,
-                  allowCisCaptureTracking: event.currentTarget.checked,
-                  allowAccountPaymentMethodManagement: policy.allowAccountPaymentMethodManagement,
-                });
-              }}
+              label="CIS card capture tracking"
+              description="Parked after the April 20 scope change. Pulse will not launch or record eBizCharge/Moneris capture from CIS."
+              checked={false}
+              disabled
             />
 
             <Switch
@@ -215,12 +203,8 @@ export function AdminPaymentIntegrationPanel({
                 <Table.Td>{policy?.captureMode === 'provider_runtime' ? 'Provider runtime' : 'Manual recording'}</Table.Td>
                 <Table.Td>
                   {policy?.captureMode === 'provider_runtime'
-                    ? policy?.defaultProvider === 'moneris'
-                      ? settings?.isConfigured
-                        ? 'Moneris hosted tokenization can be launched directly from CIS finance flows in this environment.'
-                        : 'Moneris is selected, but runtime launch is blocked until the remaining environment config is supplied.'
-                      : 'Provider runtime is reserved until the selected adapter is wired and configured.'
-                    : 'Hosted capture still happens outside Pulse; only token references and masked descriptors are recorded.'}
+                    ? 'Provider runtime is parked for CIS until the revised card-capture flow is approved.'
+                    : 'CIS card capture stays outside Pulse; account payment methods are handled separately.'}
                 </Table.Td>
               </Table.Tr>
               <Table.Tr>
@@ -231,7 +215,7 @@ export function AdminPaymentIntegrationPanel({
               <Table.Tr>
                 <Table.Td>CIS capture tracking</Table.Td>
                 <Table.Td>{policy?.allowCisCaptureTracking ? 'Enabled' : 'Disabled'}</Table.Td>
-                <Table.Td>Controls whether finance can log hosted-capture requests and tokenized vault outcomes on CIS packages.</Table.Td>
+                <Table.Td>Disabled while Dynamic AQS changes the CIS card-capture flow.</Table.Td>
               </Table.Tr>
               <Table.Tr>
                 <Table.Td>Account payment methods</Table.Td>

@@ -23,7 +23,7 @@ type StoredPaymentIntegrationPolicy = {
 const DEFAULT_PAYMENT_POLICY: StoredPaymentIntegrationPolicy = {
   captureMode: 'manual_recording',
   defaultProvider: 'unknown',
-  allowCisCaptureTracking: true,
+  allowCisCaptureTracking: false,
   allowAccountPaymentMethodManagement: true,
 };
 
@@ -48,7 +48,7 @@ export async function updatePaymentIntegrationAdminSettings(
   const next: StoredPaymentIntegrationPolicy = {
     captureMode: normalizeCaptureMode(input.captureMode ?? current.captureMode),
     defaultProvider: normalizeVaultProvider(input.defaultProvider ?? current.defaultProvider),
-    allowCisCaptureTracking: parseBoolean(input.allowCisCaptureTracking, current.allowCisCaptureTracking),
+    allowCisCaptureTracking: false,
     allowAccountPaymentMethodManagement: parseBoolean(
       input.allowAccountPaymentMethodManagement,
       current.allowAccountPaymentMethodManagement,
@@ -61,7 +61,7 @@ export async function updatePaymentIntegrationAdminSettings(
       create: {
         key: PAYMENT_POLICY_FLAG_KEY,
         name: PAYMENT_POLICY_FLAG_NAME,
-        description: 'Controls manual tokenized payment capture recording and future hosted provider rollout in Pulse.',
+        description: 'Controls tokenized account payment methods while CIS card capture is parked pending the revised business flow.',
         state: next.allowCisCaptureTracking || next.allowAccountPaymentMethodManagement
           ? FeatureFlagState.ON
           : FeatureFlagState.OFF,
@@ -143,10 +143,8 @@ export async function listPaymentIntegrationStatusesForConfig(config: AppConfig)
       lastCheckedAt: checkedAt,
       detail: settings.isConfigured
         ? settings.policy.captureMode === 'manual_recording'
-          ? 'Manual hosted-capture recording is enabled. Pulse stores token references and masked payment descriptors only.'
-          : settings.policy.defaultProvider === 'moneris'
-            ? 'Moneris hosted tokenization runtime is ready for secure CIS capture launches in this environment.'
-            : 'Provider runtime mode has been selected and the environment is ready for the chosen adapter.'
+          ? 'CIS card capture is parked pending the revised flow. Account payment-method management stores token references and masked descriptors only.'
+          : 'CIS hosted provider runtime is parked pending the revised card-capture flow.'
         : settings.configurationIssues.join(' '),
     },
   ];
@@ -168,7 +166,7 @@ function normalizeStoredPaymentIntegrationPolicy(metadata: unknown): StoredPayme
   return {
     captureMode: normalizeCaptureMode(raw.captureMode),
     defaultProvider: normalizeVaultProvider(raw.defaultProvider),
-    allowCisCaptureTracking: parseBoolean(raw.allowCisCaptureTracking, DEFAULT_PAYMENT_POLICY.allowCisCaptureTracking),
+    allowCisCaptureTracking: false,
     allowAccountPaymentMethodManagement: parseBoolean(
       raw.allowAccountPaymentMethodManagement,
       DEFAULT_PAYMENT_POLICY.allowAccountPaymentMethodManagement,
@@ -194,27 +192,12 @@ function toPolicySummary(policy: StoredPaymentIntegrationPolicy): PaymentIntegra
   };
 }
 
-function getPaymentIntegrationConfigurationIssues(config: AppConfig, policy: StoredPaymentIntegrationPolicy) {
+function getPaymentIntegrationConfigurationIssues(_config: AppConfig, policy: StoredPaymentIntegrationPolicy) {
   if (policy.captureMode !== 'provider_runtime') {
     return [];
   }
 
-  if (policy.defaultProvider === 'moneris') {
-    const issues: string[] = [];
-    if (!config.monerisHostedTokenization.profileId) {
-      issues.push('Missing MONERIS_HOSTED_TOKENIZATION_PROFILE_ID for Moneris hosted tokenization.');
-    }
-    if (!config.monerisHostedTokenization.encryptionKey) {
-      issues.push('Missing APP_ENCRYPTION_KEY for Moneris temporary-token protection.');
-    }
-    return issues;
-  }
-
-  if (policy.defaultProvider === 'unknown') {
-    return ['Select a supported hosted payment provider before enabling provider runtime.'];
-  }
-
-  return ['Hosted provider runtime is not enabled in this environment yet for the selected provider.'];
+  return ['CIS hosted provider runtime is parked pending the revised card-capture flow confirmed after the April 20 meeting.'];
 }
 
 function normalizeCaptureMode(value: unknown): PaymentIntegrationCaptureModeKey {

@@ -83,26 +83,6 @@ export const SYSTEM_HEALTH_CHECK_QUEUE: QueueDefinition = {
   },
 };
 
-export const MONERIS_HOSTED_CAPTURE_CALLBACK_QUEUE: QueueDefinition = {
-  name: 'cis.moneris-hosted-capture-callback',
-  tier: 'HIGH',
-  description: 'Processes guarded Moneris hosted-capture callback payloads into CIS payment-attempt truth',
-  queueOptions: {
-    expireInSeconds: 60 * 10,
-    retryLimit: 5,
-  },
-};
-
-export const MONERIS_HOSTED_CAPTURE_CLEANUP_QUEUE: QueueDefinition = {
-  name: 'cis.moneris-hosted-capture-cleanup',
-  tier: 'STANDARD',
-  description: 'Sweeps stale Moneris hosted-capture attempts so abandoned payment sessions do not linger indefinitely',
-  queueOptions: {
-    expireInSeconds: 60 * 10,
-    retryLimit: 3,
-  },
-};
-
 export const LEAD_OPERATIONAL_ALERT_SCAN_QUEUE: QueueDefinition = {
   name: 'lead.operational-alert-scan',
   tier: 'STANDARD',

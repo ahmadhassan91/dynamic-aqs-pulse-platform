@@ -39,7 +39,7 @@ Readiness legend:
 | Commercial CRM Enablement | `MODULE_BY_MODULE_PRD_PACK.md` | Shared pack coverage | Coverage Only | Covered at pack level, but no strong standalone PRD for this module. |
 | Product Management & Dealer Catalog Governance | `PRODUCT_MANAGEMENT_PRD.md`, `PRODUCT_MANAGEMENT_ENHANCEMENT_PLAN.md` | PRD + enhancement plan | Mostly Ready | Audit rates Product as usable but still short of fully ready. |
 | Digital Assets & Document Handling | `DIGITAL_ASSETS_DOCUMENTS_PRD.md` | Standalone PRD | Mostly Ready | BA closure pass added Widen-behavior preservation, mandatory metadata, link-first sharing, access-mode separation, and mobile quick-share expectations. |
-| Consignment Management | `CONSIGNMENT_MANAGEMENT_PRD.md`, `CONSIGNMENT_STAKEHOLDER_SWIMLANE.md` | PRD + swimlane | Mostly Ready | BA closure pass clarified warehouse-setup sequence, BLUE/PURPLE semantics, shared-mailbox operations, on-site audit mode, and formal exit handling. |
+| Consignment Management | `docs/client-scope-confirmation-2026-04-20/05_CONSIGNMENT_PRD.md`, `CONSIGNMENT_STAKEHOLDER_SWIMLANE.md` | Copied working PRD + source swimlane | Mostly Ready | BA closure pass clarified warehouse-setup sequence, BLUE/PURPLE semantics, shared-mailbox operations, on-site audit mode, and formal exit handling. Pulse-owned workflow, audit, document, calendar, and dashboard scope is build-ready; Acumatica execution for warehouse, inventory, transfer/receipt, PO, and financial truth is parked until sandbox access and certified mappings are available. |
 | Executive Dashboard | `REPORTING_REQUIREMENTS_MASTER.md`, `WEB_DASHBOARD_SUPPLEMENT.md` | Shared reporting coverage | Partial | Covered through reporting/dashboard artifacts, not a clean standalone PRD. |
 
 ## Summary

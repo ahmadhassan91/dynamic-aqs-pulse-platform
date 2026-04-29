@@ -43,7 +43,19 @@ export type AppQueueConfig = {
 
 export type AppLeadOperationsConfig = {
   operationalAlertScanIntervalMinutes: number;
-  operationalAlertDeliveryMode: 'preview' | 'disabled';
+  operationalAlertDeliveryMode: 'preview' | 'disabled' | 'microsoft_graph';
+  operationalAlertMicrosoftGraph: {
+    provider: 'microsoft_graph';
+    tenantId?: string | undefined;
+    clientId?: string | undefined;
+    clientSecret?: string | undefined;
+    fromUser?: string | undefined;
+    authBaseUrl: string;
+    graphBaseUrl: string;
+  };
+  websiteLeadCaptureRateLimitWindowSeconds: number;
+  websiteLeadCaptureRateLimitMax: number;
+  websiteLeadCapturePreflightRateLimitMax: number;
 };
 
 export type AppMigrationConfig = {
@@ -205,6 +217,24 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         env.LEAD_OPERATIONAL_ALERT_DELIVERY_MODE,
         environment === 'production' ? 'disabled' : 'preview',
       ),
+      operationalAlertMicrosoftGraph: {
+        provider: 'microsoft_graph',
+        tenantId: optionalString(env.NOTIFICATION_MICROSOFT_GRAPH_TENANT_ID) ?? outlookTenantId,
+        clientId: optionalString(env.NOTIFICATION_MICROSOFT_GRAPH_CLIENT_ID) ?? outlookClientId,
+        clientSecret: optionalString(env.NOTIFICATION_MICROSOFT_GRAPH_CLIENT_SECRET) ?? outlookClientSecret,
+        fromUser: optionalString(env.NOTIFICATION_MICROSOFT_GRAPH_FROM_USER),
+        authBaseUrl: env.MICROSOFT_ENTRA_AUTH_BASE_URL?.trim() || 'https://login.microsoftonline.com',
+        graphBaseUrl: env.MICROSOFT_GRAPH_API_BASE_URL?.trim() || 'https://graph.microsoft.com/v1.0',
+      },
+      websiteLeadCaptureRateLimitWindowSeconds: parseNumber(
+        env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_WINDOW_SECONDS,
+        60,
+      ),
+      websiteLeadCaptureRateLimitMax: parseNumber(env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_MAX, 10),
+      websiteLeadCapturePreflightRateLimitMax: parseNumber(
+        env.WEBSITE_LEAD_CAPTURE_PREFLIGHT_RATE_LIMIT_MAX,
+        60,
+      ),
     },
     migration: {
       adminToken: optionalString(env.MIGRATION_ADMIN_TOKEN),
@@ -308,7 +338,7 @@ function parseLeadOperationalAlertDeliveryMode(
   fallback: AppLeadOperationsConfig['operationalAlertDeliveryMode'],
 ): AppLeadOperationsConfig['operationalAlertDeliveryMode'] {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === 'preview' || normalized === 'disabled') {
+  if (normalized === 'preview' || normalized === 'disabled' || normalized === 'microsoft_graph') {
     return normalized;
   }
 

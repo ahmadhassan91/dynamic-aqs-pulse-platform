@@ -158,6 +158,59 @@ test('public website form explains when a submission is attached to an existing 
   await expect(page.getByText('Duplicate review status: pending review')).toBeVisible();
 });
 
+test('manual intake shows duplicate candidates before acknowledged create-new override', async ({ page }) => {
+  const fixtures = await readFixtures();
+  const timestamp = Date.now();
+  const companyName = `Manual Duplicate ${timestamp}`;
+  const email = `manual.duplicate.${timestamp}@example.com`;
+  const phone = '555-401-5991';
+
+  await loginToInternalWorkspace(page, fixtures);
+  await expect(page).toHaveURL(/\/leads$/);
+
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  let intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill(companyName);
+  await intakeDialog.getByLabel('Contact name').fill('Manual Original');
+  await intakeDialog.getByLabel('Email').fill(email);
+  await intakeDialog.getByLabel('Phone').fill(phone);
+  await chooseSelectOption(intakeDialog, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(intakeDialog, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(intakeDialog, 'Ownership group status', 'Independent / no group');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
+
+  await expect(page).toHaveURL(/\/leads\/.+/);
+  const originalLeadId = page.url().split('/').pop();
+  expect(originalLeadId).toBeTruthy();
+
+  await page.goto('/leads');
+  await page.getByLabel('Overview').getByRole('button', { name: 'New Intake' }).click();
+  intakeDialog = page.getByRole('dialog');
+  await expect(intakeDialog.getByText('New Intake')).toBeVisible();
+  await intakeDialog.getByLabel('Company name').fill(companyName);
+  await intakeDialog.getByLabel('Contact name').fill('Manual Duplicate');
+  await intakeDialog.getByLabel('Email').fill(email);
+  await intakeDialog.getByLabel('Phone').fill(phone);
+  await chooseSelectOption(intakeDialog, 'State / Province', /Texas \(TX\)|TX/);
+  await chooseSelectOption(intakeDialog, 'Affinity group status', 'Independent / no group');
+  await chooseSelectOption(intakeDialog, 'Ownership group status', 'Independent / no group');
+  await intakeDialog.getByRole('button', { name: 'Create Lead' }).click();
+
+  await expect(intakeDialog.getByText('Potential duplicate matches')).toBeVisible();
+  await expect(intakeDialog.getByText(companyName).first()).toBeVisible();
+  await expect(intakeDialog.getByText(email).first()).toBeVisible();
+  await expect(intakeDialog.getByRole('button', { name: 'Create Lead Anyway' })).toBeDisabled();
+
+  await intakeDialog.getByLabel('Reason for separate lead').fill('Confirmed this is a separate branch from the same show.');
+  await intakeDialog.getByRole('button', { name: 'Create Lead Anyway' }).click();
+
+  await expect(page).toHaveURL(/\/leads\/.+/);
+  const duplicateLeadId = page.url().split('/').pop();
+  expect(duplicateLeadId).toBeTruthy();
+  expect(duplicateLeadId).not.toBe(originalLeadId);
+});
+
 test('public mixed website form accepts text entry without crashing', async ({ page }) => {
   await page.goto('/forms/lead/solace-air');
   await expect(page.getByRole('heading', { name: 'Contact an IAQ Professional' })).toBeVisible();

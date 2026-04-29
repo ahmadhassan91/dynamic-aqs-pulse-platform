@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { URL } from 'node:url';
+import { URL } from 'node:url';
 import type { AppConfig } from '../../config.js';
 import type {
   CaptureWebsiteLeadRequest,
@@ -24,6 +24,8 @@ import type {
   ListLeadsRequest,
   ListWebsiteLeadSubmissionsRequest,
   ListWebsiteFormLeadsRequest,
+  PreviewLeadDuplicateCandidatesRequest,
+  PreviewLeadOcrCaptureRequest,
   ResolveWebsiteLeadSubmissionRequest,
   ScheduleLeadDiscoveryRequest,
   SkipLeadDiscoveryRequest,
@@ -48,8 +50,10 @@ import {
   readIntegerQuery,
   readJsonBody,
   readTrimmedQuery,
+  tooManyRequestsResponse,
   unauthorizedResponse,
 } from '../../utils/http.js';
+import type { FixedWindowRateLimiter } from '../../utils/rate-limit.js';
 import {
   isAuthenticationError,
   isAuthorizationError,
@@ -63,6 +67,7 @@ import {
   createWebsiteLeadSite,
   getLeadImportRun,
   getLeadDetail,
+  getPublicWebsiteLeadSiteAllowedOrigins,
   getPublicWebsiteLeadSite,
   importLeadFile,
   getLeadRoutingPolicy,
@@ -70,12 +75,14 @@ import {
   logLeadInitialContact,
   listLeadWorkflowQueue,
   listLeadHistoryFeed,
+  listActivePublicWebsiteLeadOrigins,
   listLeads,
   listWebsiteLeadNotificationRecipients,
   listWebsiteLeadSites,
   listWebsiteLeadSubmissions,
   listWebsiteFormLeads,
   previewLeadImport,
+  previewLeadDuplicateCandidates,
   reviewLeadImport,
   commitLeadImportRun,
   resolveWebsiteLeadSubmission,
@@ -88,6 +95,7 @@ import {
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
 } from './service.js';
+import { previewLeadOcrCapture } from './ocr.js';
 import {
   convertLeadOnFirstOrder,
   createLeadContact,
@@ -103,9 +111,22 @@ import {
   validateLeadConversionPreparation,
 } from './readiness.js';
 
-export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
+type LeadRouteDependencies = {
+  config?: AppConfig | undefined;
+  websiteLeadCaptureLimiter?: FixedWindowRateLimiter | undefined;
+  websiteLeadCapturePreflightLimiter?: FixedWindowRateLimiter | undefined;
+};
+
+export async function handleLeadRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  deps?: AppConfig | LeadRouteDependencies,
+) {
   const pathname = url.pathname;
   const method = req.method ?? 'GET';
+  const routeDeps = normalizeLeadRouteDependencies(deps);
+  const config = routeDeps.config;
 
   const publicCaptureRoute =
     pathname === '/api/leads/capture'
@@ -120,6 +141,8 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
     || matchesPath(pathname, '/api/v1/leads/website-submissions/:submissionId/resolve')
     || pathname === '/api/v1/leads/website-sites'
     || pathname === '/api/v1/leads/website-notification-recipients'
+    || pathname === '/api/v1/leads/duplicates/preview'
+    || pathname === '/api/v1/leads/ocr/preview'
     || pathname === '/api/v1/leads/workflow-queue'
     || pathname === '/api/v1/leads/history-feed'
     || pathname === '/api/v1/leads/import'
@@ -155,9 +178,22 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
 
   try {
     if (publicCaptureRoute) {
-      applyPublicCaptureCors(res);
+      applyPublicCaptureCommonCorsHeaders(res);
 
       if (method === 'OPTIONS') {
+        const preflightLimit = consumePublicCaptureRateLimit(
+          routeDeps.websiteLeadCapturePreflightLimiter,
+          ['preflight', pathname, getClientIp(req)].join(':'),
+        );
+        if (!preflightLimit.allowed) {
+          await applyPublicCaptureCors(req, res, pathname, config);
+          return tooManyRequestsResponse(
+            res,
+            'Too many website lead form preflight requests. Please try again shortly.',
+            preflightLimit.retryAfterSeconds,
+          );
+        }
+        await applyPublicCaptureCors(req, res, pathname, config);
         res.writeHead(204);
         res.end();
         return true;
@@ -174,6 +210,12 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
           return badRequestResponse(res, 'siteId is required');
         }
 
+        if (!(await isPublicOriginAllowedForSite(req, siteId, config))) {
+          clearAllowedPublicOriginHeader(res);
+          return forbiddenResponse(res, 'Origin is not allowed for this website lead form');
+        }
+        applyAllowedPublicOriginHeader(req, res);
+
         const response = await getPublicWebsiteLeadSite(siteId);
         return jsonResponse(res, 200, response);
       }
@@ -182,7 +224,36 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
         return methodNotAllowedResponse(res, method, ['OPTIONS', 'POST']);
       }
 
+      const coarseLimit = consumePublicCaptureRateLimit(
+        routeDeps.websiteLeadCaptureLimiter,
+        ['public-capture', pathname, getClientIp(req)].join(':'),
+      );
+      if (!coarseLimit.allowed) {
+        await applyPublicCaptureCors(req, res, pathname, config);
+        return tooManyRequestsResponse(
+          res,
+          'Too many website lead form submissions. Please try again shortly.',
+          coarseLimit.retryAfterSeconds,
+        );
+      }
+
       const body = (await readJsonBody(req)) as CaptureWebsiteLeadRequest;
+      if (!(await isPublicOriginAllowedForSite(req, body.siteId, config))) {
+        clearAllowedPublicOriginHeader(res);
+        return forbiddenResponse(res, 'Origin is not allowed for this website lead form');
+      }
+      applyAllowedPublicOriginHeader(req, res);
+      const siteLimit = consumePublicCaptureRateLimit(
+        routeDeps.websiteLeadCaptureLimiter,
+        ['website-site-capture', body.siteId, getClientIp(req)].join(':'),
+      );
+      if (!siteLimit.allowed) {
+        return tooManyRequestsResponse(
+          res,
+          'Too many website lead form submissions for this site. Please try again shortly.',
+          siteLimit.retryAfterSeconds,
+        );
+      }
       const response = await captureWebsiteLead(body);
       return jsonResponse(res, 201, response);
     }
@@ -248,6 +319,34 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
       };
 
       const response = await listWebsiteFormLeads(actor, query);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/leads/duplicates/preview') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.view',
+      });
+      const body = (await readJsonBody(req)) as PreviewLeadDuplicateCandidatesRequest;
+      const response = await previewLeadDuplicateCandidates(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/leads/ocr/preview') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req, 5_000_000)) as PreviewLeadOcrCaptureRequest;
+      const response = await previewLeadOcrCapture(actor, body);
       return jsonResponse(res, 200, response);
     }
 
@@ -948,8 +1047,116 @@ export async function handleLeadRoutes(req: IncomingMessage, res: ServerResponse
   return false;
 }
 
-function applyPublicCaptureCors(res: ServerResponse) {
-  res.setHeader('access-control-allow-origin', '*');
-  res.setHeader('access-control-allow-methods', 'OPTIONS, POST');
+function normalizeLeadRouteDependencies(deps?: AppConfig | LeadRouteDependencies): LeadRouteDependencies {
+  if (!deps) {
+    return {};
+  }
+
+  if ('app' in deps) {
+    return {
+      config: deps,
+    };
+  }
+
+  return deps;
+}
+
+async function applyPublicCaptureCors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  config?: AppConfig,
+) {
+  const origin = req.headers.origin;
+  if (origin && await isPublicOriginAllowedForPath(origin, pathname, config)) {
+    applyAllowedPublicOriginHeader(req, res);
+  }
+}
+
+function applyPublicCaptureCommonCorsHeaders(res: ServerResponse) {
+  res.setHeader('access-control-allow-methods', 'GET, OPTIONS, POST');
   res.setHeader('access-control-allow-headers', 'content-type');
+}
+
+function applyAllowedPublicOriginHeader(req: IncomingMessage, res: ServerResponse) {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return;
+  }
+
+  res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('vary', 'Origin');
+}
+
+function clearAllowedPublicOriginHeader(res: ServerResponse) {
+  res.removeHeader('access-control-allow-origin');
+  res.removeHeader('vary');
+}
+
+function consumePublicCaptureRateLimit(limiter: FixedWindowRateLimiter | undefined, key: string) {
+  return limiter?.consume(key) ?? {
+    allowed: true,
+    remaining: Number.POSITIVE_INFINITY,
+    resetAt: new Date(),
+    retryAfterSeconds: 1,
+  };
+}
+
+function getClientIp(req: IncomingMessage) {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const firstForwardedIp = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : forwardedFor?.split(',')[0];
+  const normalizedForwardedIp = firstForwardedIp?.trim();
+
+  return normalizedForwardedIp || req.socket.remoteAddress || 'unknown';
+}
+
+async function isPublicOriginAllowedForPath(origin: string, pathname: string, config?: AppConfig) {
+  const siteMatch = matchPath(pathname, '/api/v1/public/website-sites/:siteId');
+  if (siteMatch?.siteId) {
+    const allowedOrigins = new Set([
+      ...getInternalPublicCaptureAllowedOrigins(config),
+      ...(await getPublicWebsiteLeadSiteAllowedOrigins(siteMatch.siteId)),
+    ]);
+    return allowedOrigins.has(origin);
+  }
+
+  const allowedOrigins = new Set([
+    ...getInternalPublicCaptureAllowedOrigins(config),
+    ...(await listActivePublicWebsiteLeadOrigins()),
+  ]);
+  return allowedOrigins.has(origin);
+}
+
+async function isPublicOriginAllowedForSite(req: IncomingMessage, siteId: string, config?: AppConfig) {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return false;
+  }
+
+  const allowedOrigins = new Set([
+    ...getInternalPublicCaptureAllowedOrigins(config),
+    ...(await getPublicWebsiteLeadSiteAllowedOrigins(siteId)),
+  ]);
+  return allowedOrigins.has(origin);
+}
+
+function getInternalPublicCaptureAllowedOrigins(config?: AppConfig) {
+  const allowedOrigins = new Set<string>([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3010',
+    'http://127.0.0.1:3010',
+  ]);
+
+  if (config) {
+    try {
+      allowedOrigins.add(new URL(config.web.publicBaseUrl).origin);
+    } catch {
+      // Ignore invalid public base URL.
+    }
+  }
+
+  return allowedOrigins;
 }

@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Badge,
   Button,
   Checkbox,
   FileInput,
   Grid,
+  Group,
   Modal,
   NumberInput,
   Select,
@@ -26,6 +28,8 @@ import {
   cancelTrainingSessionRecord,
   checkInTrainingSessionRecord,
   completeTrainingSessionRecord,
+  downloadTrainingSessionProofRecord,
+  reviewTrainingSessionProofRecord,
   uploadTrainingSessionProofRecord,
 } from '@/lib/pulse-api';
 
@@ -53,6 +57,31 @@ async function fileToBase64(file: File) {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
+}
+
+function downloadBase64File(fileName: string, mimeType: string, contentBase64: string) {
+  const binary = atob(contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName || 'training-proof';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function proofReviewBadgeColor(status: TrainingProofDocumentSummary['reviewStatus']) {
+  if (status === 'approved') {
+    return 'teal';
+  }
+  if (status === 'rejected') {
+    return 'red';
+  }
+  return 'yellow';
 }
 
 export function TrainingSessionExecutionModal({
@@ -96,6 +125,8 @@ export function TrainingSessionExecutionModal({
   const [followUpOwnerUserId, setFollowUpOwnerUserId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
+  const [reviewingProofDocumentId, setReviewingProofDocumentId] = useState<string | null>(null);
+  const [downloadingProofDocumentId, setDownloadingProofDocumentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!opened || !session) {
@@ -188,6 +219,49 @@ export function TrainingSessionExecutionModal({
     } finally {
       setIsUploadingProof(false);
       setProofFiles([]);
+    }
+  };
+
+  const handleReviewProof = async (
+    document: TrainingProofDocumentSummary,
+    reviewStatus: 'approved' | 'rejected',
+  ) => {
+    setReviewingProofDocumentId(document.id);
+    try {
+      const response = await reviewTrainingSessionProofRecord(apiBaseUrl, accessToken, document.id, {
+        reviewStatus,
+      });
+      setProofDocuments(response.session.proofDocuments);
+      notifications.show({
+        color: reviewStatus === 'approved' ? 'green' : 'orange',
+        title: reviewStatus === 'approved' ? 'Proof approved' : 'Proof rejected',
+        message: `${document.fileName} was marked ${reviewStatus.replace('_', ' ')}.`,
+      });
+      await onSaved();
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Proof review failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setReviewingProofDocumentId(null);
+    }
+  };
+
+  const handleDownloadProof = async (document: TrainingProofDocumentSummary) => {
+    setDownloadingProofDocumentId(document.id);
+    try {
+      const response = await downloadTrainingSessionProofRecord(apiBaseUrl, accessToken, document.id);
+      downloadBase64File(response.document.fileName, response.document.mimeType, response.contentBase64);
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Proof download failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDownloadingProofDocumentId(null);
     }
   };
 
@@ -391,9 +465,50 @@ export function TrainingSessionExecutionModal({
                 Stored proof documents
               </Text>
               {proofDocuments.length > 0 ? proofDocuments.map((document) => (
-                <Text key={document.id} size="sm" c="dimmed">
-                  {document.fileName} • {document.mimeType}
-                </Text>
+                <Group key={document.id} justify="space-between" align="center" gap="sm" wrap="nowrap">
+                  <Stack gap={2}>
+                    <Group gap="xs">
+                      <Text size="sm">{document.fileName}</Text>
+                      <Badge color={proofReviewBadgeColor(document.reviewStatus)} variant="light">
+                        {document.reviewStatus.replace(/_/g, ' ')}
+                      </Badge>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      {document.mimeType}
+                      {document.reviewedByName ? ` • reviewed by ${document.reviewedByName}` : ''}
+                    </Text>
+                  </Stack>
+                  <Group gap="xs" wrap="nowrap">
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      loading={downloadingProofDocumentId === document.id}
+                      disabled={isSaving || isUploadingProof}
+                      onClick={() => void handleDownloadProof(document)}
+                    >
+                      Download
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="default"
+                      loading={reviewingProofDocumentId === document.id}
+                      disabled={isSaving || isUploadingProof || document.reviewStatus === 'approved'}
+                      onClick={() => void handleReviewProof(document, 'approved')}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="xs"
+                      color="red"
+                      variant="light"
+                      loading={reviewingProofDocumentId === document.id}
+                      disabled={isSaving || isUploadingProof || document.reviewStatus === 'rejected'}
+                      onClick={() => void handleReviewProof(document, 'rejected')}
+                    >
+                      Reject
+                    </Button>
+                  </Group>
+                </Group>
               )) : (
                 <Text size="sm" c="dimmed">
                   No proof files uploaded yet.

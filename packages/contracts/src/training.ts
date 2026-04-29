@@ -52,6 +52,14 @@ export const TRAINING_PROOF_DOCUMENT_TYPES = [
 
 export type TrainingProofDocumentTypeKey = (typeof TRAINING_PROOF_DOCUMENT_TYPES)[number];
 
+export const TRAINING_PROOF_REVIEW_STATUSES = [
+  'pending_review',
+  'approved',
+  'rejected',
+] as const;
+
+export type TrainingProofReviewStatusKey = (typeof TRAINING_PROOF_REVIEW_STATUSES)[number];
+
 export const ACCOUNT_TRAINING_PROGRAM_STATUSES = [
   'not_started',
   'active',
@@ -108,6 +116,7 @@ export type TrainingExecutionStateKey = (typeof TRAINING_EXECUTION_STATES)[numbe
 export const TRAINING_EXECUTION_EXCEPTION_TYPES = [
   'session_overdue',
   'proof_missing',
+  'proof_rejected',
   'certification_decision_pending',
 ] as const;
 
@@ -370,6 +379,11 @@ export interface TrainingProofDocumentSummary {
   uploadedByName?: string;
   uploadedAt: string;
   sha256?: string;
+  reviewStatus: TrainingProofReviewStatusKey;
+  reviewedByUserId?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
 }
 
 export interface TrainingCertificationSummary {
@@ -535,6 +549,53 @@ export interface TrainingComplianceCertificationTrackRollup {
   revokedCertificationCount: number;
 }
 
+export interface TrainingComplianceHoursRollup {
+  key: string;
+  label: string;
+  completedSessionCount: number;
+  deliveredTrainingHours: number;
+  accountId?: string;
+  accountName?: string;
+  territoryId?: string;
+  territoryName?: string;
+  trainerUserId?: string;
+  trainerName?: string;
+  trainingTypeId?: string;
+  trainingTypeCode?: string;
+  trainingTypeName?: string;
+  state?: string;
+}
+
+export type TrainingComplianceAccountRiskLevel = 'healthy' | 'attention' | 'critical';
+
+export interface TrainingComplianceAccountExportRow {
+  accountId: string;
+  accountName: string;
+  businessSegmentCode?: string;
+  territoryId?: string;
+  territoryName?: string;
+  regionName?: string;
+  ownerTmUserId?: string;
+  ownerTmName?: string;
+  ownerRdUserId?: string;
+  ownerRdName?: string;
+  activeProgramCount: number;
+  overdueProgramCount: number;
+  activeCertificationCount: number;
+  expiringCertificationCount: number;
+  expiredCertificationCount: number;
+  revokedCertificationCount: number;
+  pendingCertificationDecisionCount: number;
+  unresolvedExecutionExceptionCount: number;
+  completedTrainingSessionCount: number;
+  deliveredTrainingHours: number;
+  proofDocumentCount: number;
+  certificationProofMissingCount: number;
+  lastTrainingAt?: string;
+  nextDueAt?: string;
+  riskLevel: TrainingComplianceAccountRiskLevel;
+}
+
 export interface ListTrainingComplianceReportRequest {
   ownerTmUserId?: string;
   ownerRdUserId?: string;
@@ -546,6 +607,12 @@ export interface ListTrainingComplianceReportResponse {
   territoryManagers: TrainingComplianceOwnerRollup[];
   regionalDirectors: TrainingComplianceOwnerRollup[];
   certificationTracks: TrainingComplianceCertificationTrackRollup[];
+  trainingHoursByAccount: TrainingComplianceHoursRollup[];
+  trainingHoursByTerritory: TrainingComplianceHoursRollup[];
+  trainingHoursByTrainer: TrainingComplianceHoursRollup[];
+  trainingHoursByTrainingType: TrainingComplianceHoursRollup[];
+  trainingHoursByState: TrainingComplianceHoursRollup[];
+  accountExportRows: TrainingComplianceAccountExportRow[];
 }
 
 export interface TrainingCoachingUpcomingSessionItem {
@@ -739,6 +806,23 @@ export interface UploadTrainingSessionProofRequest {
 export interface UploadTrainingSessionProofResponse {
   session: TrainingSessionSummary;
   document: TrainingProofDocumentSummary;
+}
+
+export interface ReviewTrainingSessionProofRequest {
+  reviewStatus: Extract<TrainingProofReviewStatusKey, 'approved' | 'rejected'>;
+  reviewNotes?: string;
+}
+
+export interface ReviewTrainingSessionProofResponse {
+  session: TrainingSessionSummary;
+  document: TrainingProofDocumentSummary;
+}
+
+export interface DownloadTrainingSessionProofResponse {
+  document: TrainingProofDocumentSummary;
+  contentBase64: string;
+  sizeBytes: number;
+  sha256?: string;
 }
 
 export interface ResolveTrainingCertificationDecisionRequest {

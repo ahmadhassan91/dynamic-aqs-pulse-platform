@@ -1,0 +1,1 @@
+ALTER TYPE "LeadImportDuplicateDecision" ADD VALUE IF NOT EXISTS 'ENRICH_EXISTING';

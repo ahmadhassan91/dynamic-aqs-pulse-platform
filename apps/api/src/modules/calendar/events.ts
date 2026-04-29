@@ -1,4 +1,6 @@
 import { prisma } from '@pulse/db';
+import type { Prisma } from '@pulse/db';
+import { canAccessModule, canPerformAction } from '@pulse/auth';
 import type {
   CalendarEventSummary,
   CalendarEventTypeKey,
@@ -9,6 +11,48 @@ import type { AuthenticatedActor } from '../auth/types.js';
 import { resolveLeadRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
 
 export const MAX_CALENDAR_RANGE_DAYS = 180;
+
+type CalendarTerritory = {
+  name: string;
+  region: {
+    name: string;
+  } | null;
+};
+
+type ConsignmentCalendarSite = {
+  id: string;
+  name: string;
+  status: string;
+  nextAuditDueAt: Date | null;
+  primaryContactName: string | null;
+  primaryContactEmail: string | null;
+  notes: string | null;
+  account: {
+    id: string;
+    displayName: string;
+    territory: CalendarTerritory | null;
+    assignedTmUser: {
+      displayName: string;
+    } | null;
+  };
+  location: {
+    name: string | null;
+    city: string | null;
+    state: string | null;
+  } | null;
+  ownerTmUser: {
+    displayName: string;
+  } | null;
+  territory: CalendarTerritory | null;
+  audits: Array<{
+    id: string;
+    scheduledFor: Date;
+    completedAt: Date | null;
+    status: string;
+    reconciliationStatus: string;
+    notes: string | null;
+  }>;
+};
 
 export function parseCalendarRange(input: CalendarWorkspaceRequest) {
   const rangeStart = parseIsoDate(input.startDate, 'startDate');
@@ -34,12 +78,13 @@ export async function listCalendarEvents(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<CalendarEventSummary[]> {
-  const [leadEvents, trainingEvents] = await Promise.all([
+  const [leadEvents, trainingEvents, consignmentEvents] = await Promise.all([
     listLeadCalendarEvents(actor, rangeStart, rangeEnd),
     listTrainingCalendarEvents(actor, rangeStart, rangeEnd),
+    listConsignmentCalendarEvents(actor, rangeStart, rangeEnd),
   ]);
 
-  return [...leadEvents, ...trainingEvents].sort((left, right) => {
+  return [...leadEvents, ...trainingEvents, ...consignmentEvents].sort((left, right) => {
     const leftTime = new Date(left.startsAt).getTime();
     const rightTime = new Date(right.startsAt).getTime();
     return leftTime - rightTime || left.title.localeCompare(right.title);
@@ -165,6 +210,8 @@ async function listLeadCalendarEvents(
   rangeEnd: Date,
 ): Promise<CalendarEventSummary[]> {
   const scopeWhere = await resolveLeadRecordScope(actor);
+  const consignmentAnchorStart = new Date(rangeStart.getTime() - 90 * 86400000);
+  const consignmentAnchorEnd = new Date(rangeEnd.getTime() - 90 * 86400000);
   const leads = await prisma.lead.findMany({
     where: {
       AND: [
@@ -188,6 +235,34 @@ async function listLeadCalendarEvents(
                 lte: rangeEnd,
               },
             },
+            {
+              AND: [
+                { consignmentInterestStatus: 'APPROVED' },
+                { consignmentEntryTiming: 'AT_ONBOARDING' },
+                {
+                  OR: [
+                    { convertedAccount: null },
+                    { convertedAccount: { consignmentSites: { none: {} } } },
+                  ],
+                },
+                {
+                  OR: [
+                    {
+                      firstOrderAt: {
+                        gte: consignmentAnchorStart,
+                        lte: consignmentAnchorEnd,
+                      },
+                    },
+                    {
+                      onboardingCompletedAt: {
+                        gte: consignmentAnchorStart,
+                        lte: consignmentAnchorEnd,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ],
@@ -199,6 +274,10 @@ async function listLeadCalendarEvents(
       email: true,
       discoveryScheduledAt: true,
       discoveryCompletedAt: true,
+      onboardingCompletedAt: true,
+      firstOrderAt: true,
+      consignmentInterestStatus: true,
+      consignmentEntryTiming: true,
       assignedTmName: true,
       discoverySummary: true,
       territory: {
@@ -211,6 +290,14 @@ async function listLeadCalendarEvents(
           },
         },
       },
+      convertedAccount: {
+        select: {
+          consignmentSites: {
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
     },
     orderBy: [
       { discoveryScheduledAt: 'asc' },
@@ -219,8 +306,9 @@ async function listLeadCalendarEvents(
   });
 
   return leads.flatMap((lead) => {
-    const item = mapLeadToCalendarEvent(lead);
-    return item ? [item] : [];
+    const discoveryEvent = mapLeadToCalendarEvent(lead);
+    const consignmentAuditEvent = mapLeadToConsignmentAuditCalendarEvent(lead, rangeStart, rangeEnd);
+    return [discoveryEvent, consignmentAuditEvent].filter((item): item is CalendarEventSummary => Boolean(item));
   });
 }
 
@@ -313,6 +401,154 @@ async function listTrainingCalendarEvents(
   });
 }
 
+async function listConsignmentCalendarEvents(
+  actor: AuthenticatedActor,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<CalendarEventSummary[]> {
+  if (!canAccessModule(actor.role, 'consignment') || !canPerformAction(actor.role, 'consignment.audit')) {
+    return [];
+  }
+
+  const sites = await prisma.consignmentSite.findMany({
+    where: {
+      AND: [
+        buildConsignmentSiteRecordScope(actor),
+        {
+          status: {
+            not: 'EXITED',
+          },
+        },
+        {
+          OR: [
+            {
+              nextAuditDueAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+            {
+              audits: {
+                some: {
+                  OR: [
+                    {
+                      scheduledFor: {
+                        gte: rangeStart,
+                        lte: rangeEnd,
+                      },
+                    },
+                    {
+                      completedAt: {
+                        gte: rangeStart,
+                        lte: rangeEnd,
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      nextAuditDueAt: true,
+      primaryContactName: true,
+      primaryContactEmail: true,
+      notes: true,
+      account: {
+        select: {
+          id: true,
+          displayName: true,
+          territory: {
+            select: {
+              name: true,
+              region: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          assignedTmUser: {
+            select: {
+              displayName: true,
+            },
+          },
+        },
+      },
+      location: {
+        select: {
+          name: true,
+          city: true,
+          state: true,
+        },
+      },
+      ownerTmUser: {
+        select: {
+          displayName: true,
+        },
+      },
+      territory: {
+        select: {
+          name: true,
+          region: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      audits: {
+        where: {
+          OR: [
+            {
+              scheduledFor: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+            {
+              completedAt: {
+                gte: rangeStart,
+                lte: rangeEnd,
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          scheduledFor: true,
+          completedAt: true,
+          status: true,
+          reconciliationStatus: true,
+          notes: true,
+        },
+        orderBy: [
+          { scheduledFor: 'asc' },
+          { createdAt: 'asc' },
+        ],
+      },
+    },
+    orderBy: [
+      { nextAuditDueAt: 'asc' },
+      { updatedAt: 'desc' },
+    ],
+  });
+
+  return sites.flatMap((site) => {
+    const auditEvents = site.audits.map((audit) => mapConsignmentAuditToCalendarEvent(site, audit));
+    if (auditEvents.length > 0 || !site.nextAuditDueAt) {
+      return auditEvents;
+    }
+
+    return [mapConsignmentSiteDueToCalendarEvent(site)];
+  });
+}
+
 function mapLeadToCalendarEvent(lead: {
   id: string;
   companyName: string;
@@ -352,6 +588,132 @@ function mapLeadToCalendarEvent(lead: {
     ...(lead.territory?.region?.name ? { regionName: lead.territory.region.name } : {}),
     ...(lead.discoverySummary ? { notes: lead.discoverySummary } : {}),
   };
+}
+
+function mapLeadToConsignmentAuditCalendarEvent(
+  lead: {
+    id: string;
+    companyName: string;
+    contactDisplayName: string;
+    email: string | null;
+    onboardingCompletedAt: Date | null;
+    firstOrderAt: Date | null;
+    consignmentInterestStatus: string | null;
+    consignmentEntryTiming: string | null;
+    assignedTmName: string | null;
+    territory: {
+      name: string;
+      region: {
+        name: string;
+      } | null;
+    } | null;
+    convertedAccount: {
+      consignmentSites: Array<{ id: string }>;
+    } | null;
+  },
+  rangeStart: Date,
+  rangeEnd: Date,
+): CalendarEventSummary | null {
+  if (
+    lead.consignmentInterestStatus !== 'APPROVED'
+    || lead.consignmentEntryTiming !== 'AT_ONBOARDING'
+  ) {
+    return null;
+  }
+
+  const lifecycleAnchor = lead.firstOrderAt ?? lead.onboardingCompletedAt;
+  if (!lifecycleAnchor) {
+    return null;
+  }
+
+  if (lead.convertedAccount?.consignmentSites.length) {
+    return null;
+  }
+
+  const dueAt = new Date(lifecycleAnchor.getTime() + 90 * 86400000);
+  if (dueAt.getTime() < rangeStart.getTime() || dueAt.getTime() > rangeEnd.getTime()) {
+    return null;
+  }
+
+  return {
+    id: `lead:${lead.id}:consignment-audit`,
+    sourceModule: 'leads',
+    sourceRecordId: lead.id,
+    sourcePath: `/leads/${lead.id}`,
+    eventType: 'consignment_audit',
+    status: 'scheduled',
+    title: `Consignment ROSE Audit — ${lead.companyName}`,
+    startsAt: dueAt.toISOString(),
+    contactName: lead.contactDisplayName,
+    leadId: lead.id,
+    leadName: lead.companyName,
+    ...(lead.assignedTmName ? { assignedToName: lead.assignedTmName } : {}),
+    ...(lead.email ? { contactEmail: lead.email } : {}),
+    ...(lead.territory?.name ? { territoryName: lead.territory.name } : {}),
+    ...(lead.territory?.region?.name ? { regionName: lead.territory.region.name } : {}),
+    notes: 'Lead-backed consignment audit hint; create a durable consignment site and ROSE audit record when onboarding converts.',
+  };
+}
+
+function mapConsignmentAuditToCalendarEvent(
+  site: ConsignmentCalendarSite,
+  audit: ConsignmentCalendarSite['audits'][number],
+): CalendarEventSummary {
+  const startsAt = audit.completedAt ?? audit.scheduledFor;
+
+  return {
+    ...baseConsignmentCalendarEvent(site),
+    id: `consignment-audit:${audit.id}`,
+    sourceRecordId: audit.id,
+    status: mapConsignmentAuditStatus(audit.status),
+    startsAt: startsAt.toISOString(),
+    ...(audit.notes ? { notes: audit.notes } : {}),
+  };
+}
+
+function mapConsignmentSiteDueToCalendarEvent(site: ConsignmentCalendarSite): CalendarEventSummary {
+  return {
+    ...baseConsignmentCalendarEvent(site),
+    id: `consignment-site:${site.id}:next-audit`,
+    sourceRecordId: site.id,
+    status: 'scheduled',
+    startsAt: site.nextAuditDueAt!.toISOString(),
+    ...(site.notes ? { notes: site.notes } : {}),
+  };
+}
+
+function baseConsignmentCalendarEvent(site: ConsignmentCalendarSite): Omit<CalendarEventSummary, 'id' | 'sourceRecordId' | 'status' | 'startsAt'> {
+  const territory = site.territory ?? site.account.territory;
+  const assignedToName = site.ownerTmUser?.displayName ?? site.account.assignedTmUser?.displayName;
+  const fallbackLocationName = [site.location?.city, site.location?.state].filter(Boolean).join(', ');
+  const locationName = site.location?.name ?? (fallbackLocationName || undefined);
+
+  return {
+    sourceModule: 'consignment',
+    sourcePath: `/consignment/sites/${site.id}`,
+    eventType: 'consignment_audit',
+    title: `Consignment ROSE Audit — ${site.account.displayName}`,
+    accountId: site.account.id,
+    accountName: site.account.displayName,
+    ...(assignedToName ? { assignedToName } : {}),
+    ...(site.primaryContactName ? { contactName: site.primaryContactName } : {}),
+    ...(site.primaryContactEmail ? { contactEmail: site.primaryContactEmail } : {}),
+    ...(territory?.name ? { territoryName: territory.name } : {}),
+    ...(territory?.region?.name ? { regionName: territory.region.name } : {}),
+    ...(locationName ? { locationName } : {}),
+  };
+}
+
+function buildConsignmentSiteRecordScope(actor: AuthenticatedActor): Prisma.ConsignmentSiteWhereInput {
+  if (actor.role === 'TERRITORY_MANAGER') {
+    return { ownerTmUserId: actor.userId };
+  }
+
+  if (actor.role === 'REGIONAL_DIRECTOR') {
+    return { OR: [{ ownerRdUserId: actor.userId }, { region: { directorUserId: actor.userId } }] };
+  }
+
+  return {};
 }
 
 function mapTrainingToCalendarEvent(session: {
@@ -454,6 +816,17 @@ function mapTrainingStatus(status: string): CalendarEventSummary['status'] {
       return 'cancelled';
     case 'NO_SHOW':
       return 'no_show';
+    default:
+      return 'scheduled';
+  }
+}
+
+function mapConsignmentAuditStatus(status: string): CalendarEventSummary['status'] {
+  switch (status) {
+    case 'COMPLETED':
+      return 'completed';
+    case 'CANCELLED':
+      return 'cancelled';
     default:
       return 'scheduled';
   }

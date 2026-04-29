@@ -5,6 +5,7 @@ import {
   AuditAction,
   prisma,
   TrainingProofDocumentType,
+  TrainingProofReviewStatus,
   TrainingActivityKind,
   TrainingCatalogFamily,
   TrainingCategoryKind,
@@ -30,6 +31,7 @@ import type {
   CreateTrainingSessionRequest,
   CreateTrainingTemplateRequest,
   CreateTrainingTypeRequest,
+  DownloadTrainingSessionProofResponse,
   ListTrainingAccountsRequest,
   ListTrainingAccountsResponse,
   ListTrainingOperationalQueueRequest,
@@ -41,6 +43,8 @@ import type {
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   RevokeTrainingCertificationRequest,
+  ReviewTrainingSessionProofRequest,
+  ReviewTrainingSessionProofResponse,
   ResolveTrainingCertificationDecisionRequest,
   TrainingCoachingFollowUpTaskItem,
   TrainingCoachingUpcomingSessionItem,
@@ -60,10 +64,12 @@ import type {
   TrainingOperationalExceptionQueueItem,
   TrainingComplianceCertificationTrackRollup,
   TrainingComplianceOwnerRollup,
+  TrainingComplianceAccountExportRow,
   TrainingExecutionExceptionSummary,
   TrainingExecutionExceptionTypeKey,
   TrainingFollowUpTaskStatusKey,
   TrainingFollowUpTaskSummary,
+  TrainingComplianceHoursRollup,
   TrainingExecutionStateKey,
   TrainingOverviewResponse,
   TrainingProofDocumentSummary,
@@ -88,7 +94,7 @@ import {
   tryAutoSyncCalendarEventToOutlook,
   tryAutoUnsyncCalendarEventFromOutlook,
 } from '../calendar/outlook.js';
-import { storeBase64Document } from '../documents/storage.js';
+import { readStoredDocument, storeBase64Document } from '../documents/storage.js';
 
 const TRAINING_CATEGORY_ENTITY = 'TRAINING_CATEGORY';
 const TRAINING_TYPE_ENTITY = 'TRAINING_TYPE';
@@ -582,6 +588,12 @@ const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>(
     proofDocuments: {
       include: {
         uploadedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        reviewedByUser: {
           select: {
             id: true,
             displayName: true,
@@ -1481,6 +1493,12 @@ export async function listTrainingComplianceReport(
   const tmRollups = new Map<string, TrainingComplianceOwnerRollup>();
   const rdRollups = new Map<string, TrainingComplianceOwnerRollup>();
   const certificationTrackRollups = new Map<string, TrainingComplianceCertificationTrackRollup>();
+  const hoursByAccount = new Map<string, TrainingComplianceHoursRollup>();
+  const hoursByTerritory = new Map<string, TrainingComplianceHoursRollup>();
+  const hoursByTrainer = new Map<string, TrainingComplianceHoursRollup>();
+  const hoursByTrainingType = new Map<string, TrainingComplianceHoursRollup>();
+  const hoursByState = new Map<string, TrainingComplianceHoursRollup>();
+  const accountExportRows: TrainingComplianceAccountExportRow[] = [];
 
   let activeCertificationCount = 0;
   let expiringCertificationCount = 0;
@@ -1506,6 +1524,15 @@ export async function listTrainingComplianceReport(
     if (metrics.hasActivePrograms) {
       accountsWithActivePrograms += 1;
     }
+    accountExportRows.push(buildTrainingComplianceAccountExportRow(account, metrics));
+    accumulateTrainingHoursRollups({
+      account,
+      hoursByAccount,
+      hoursByTerritory,
+      hoursByTrainer,
+      hoursByTrainingType,
+      hoursByState,
+    });
 
     if (account.assignedTmUserId && account.assignedTmUser?.displayName) {
       accumulateTrainingComplianceOwnerRollup(
@@ -1596,6 +1623,12 @@ export async function listTrainingComplianceReport(
       - (left.expiringCertificationCount + left.expiredCertificationCount + left.revokedCertificationCount)
       || (left.trainingTypeName ?? left.trainingTypeCode ?? '').localeCompare(right.trainingTypeName ?? right.trainingTypeCode ?? '')
     )),
+    trainingHoursByAccount: sortTrainingHoursRollups(hoursByAccount),
+    trainingHoursByTerritory: sortTrainingHoursRollups(hoursByTerritory),
+    trainingHoursByTrainer: sortTrainingHoursRollups(hoursByTrainer),
+    trainingHoursByTrainingType: sortTrainingHoursRollups(hoursByTrainingType),
+    trainingHoursByState: sortTrainingHoursRollups(hoursByState),
+    accountExportRows: sortTrainingComplianceAccountExportRows(accountExportRows),
   };
 }
 
@@ -2247,6 +2280,12 @@ export async function uploadTrainingSessionProof(
             displayName: true,
           },
         },
+        reviewedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
       },
     });
 
@@ -2291,6 +2330,177 @@ export async function uploadTrainingSessionProof(
   return {
     session: toTrainingSessionSummary(updated.session),
     document: toTrainingProofDocumentSummary(updated.document),
+  };
+}
+
+export async function reviewTrainingSessionProof(
+  actor: AuthenticatedActor,
+  documentId: string,
+  input: ReviewTrainingSessionProofRequest,
+): Promise<ReviewTrainingSessionProofResponse> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const normalizedDocumentId = documentId?.trim();
+  if (!normalizedDocumentId) {
+    throw new Error('Training proof document id is required');
+  }
+
+  const reviewStatus = toTrainingProofReviewStatus(input.reviewStatus);
+  const reviewNotes = input.reviewNotes?.trim();
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const proofDocument = await prisma.trainingProofDocument.findFirst({
+    where: {
+      id: normalizedDocumentId,
+      ...(sessionScope ? { session: sessionScope } : {}),
+    },
+    include: {
+      session: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+  if (!proofDocument) {
+    throw new Error('Training proof document not found');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const document = await tx.trainingProofDocument.update({
+      where: { id: normalizedDocumentId },
+      data: {
+        reviewStatus,
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+        reviewNotes: reviewNotes || null,
+      },
+      include: {
+        uploadedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+        reviewedByUser: {
+          select: {
+            id: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    const session = await tx.trainingSession.findUniqueOrThrow({
+      where: { id: proofDocument.session.id },
+      include: trainingSessionArgs.include,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: TRAINING_PROOF_DOCUMENT_ENTITY,
+        entityId: document.id,
+        beforeData: {
+          reviewStatus: toTrainingProofReviewStatusKey(proofDocument.reviewStatus),
+          reviewedByUserId: proofDocument.reviewedByUserId,
+          reviewedAt: proofDocument.reviewedAt?.toISOString(),
+          reviewNotes: proofDocument.reviewNotes,
+        },
+        afterData: {
+          reviewStatus: toTrainingProofReviewStatusKey(document.reviewStatus),
+          reviewedByUserId: document.reviewedByUserId,
+          reviewedAt: document.reviewedAt?.toISOString(),
+          reviewNotes: document.reviewNotes,
+        },
+        metadata: {
+          ...trainingAuditMetadata(actor),
+          operation: 'review_proof',
+          sessionId: proofDocument.session.id,
+        },
+      }),
+    });
+
+    return {
+      session,
+      document,
+    };
+  });
+
+  return {
+    session: toTrainingSessionSummary(updated.session),
+    document: toTrainingProofDocumentSummary(updated.document),
+  };
+}
+
+export async function downloadTrainingSessionProof(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  documentId: string,
+): Promise<DownloadTrainingSessionProofResponse> {
+  assertActionAccess(actor.role, 'training.schedule');
+
+  const normalizedDocumentId = documentId?.trim();
+  if (!normalizedDocumentId) {
+    throw new Error('Training proof document id is required');
+  }
+
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const document = await prisma.trainingProofDocument.findFirst({
+    where: {
+      id: normalizedDocumentId,
+      ...(sessionScope ? { session: sessionScope } : {}),
+    },
+    include: {
+      uploadedByUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+      reviewedByUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+  if (!document) {
+    throw new Error('Training proof document not found');
+  }
+
+  const stored = await readStoredDocument(config, document.storageKey);
+  if (document.sha256 && stored.sha256 !== document.sha256) {
+    throw new Error('Training proof document checksum mismatch');
+  }
+
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.EXPORT,
+      entityType: TRAINING_PROOF_DOCUMENT_ENTITY,
+      entityId: document.id,
+      afterData: {
+        sessionId: document.sessionId,
+        fileName: document.fileName,
+        mimeType: document.mimeType,
+        storageKey: document.storageKey,
+        sizeBytes: stored.sizeBytes,
+        sha256: stored.sha256,
+      },
+      metadata: {
+        ...trainingAuditMetadata(actor),
+        operation: 'download_proof',
+      },
+    }),
+  });
+
+  return {
+    document: toTrainingProofDocumentSummary(document),
+    contentBase64: stored.contentBase64,
+    sizeBytes: stored.sizeBytes,
+    sha256: stored.sha256,
   };
 }
 
@@ -2898,6 +3108,11 @@ function toTrainingProofDocumentSummary(
     ...(document.uploadedByUser?.displayName ? { uploadedByName: document.uploadedByUser.displayName } : {}),
     uploadedAt: document.uploadedAt.toISOString(),
     ...(document.sha256 ? { sha256: document.sha256 } : {}),
+    reviewStatus: toTrainingProofReviewStatusKey(document.reviewStatus),
+    ...(document.reviewedByUserId ? { reviewedByUserId: document.reviewedByUserId } : {}),
+    ...(document.reviewedByUser?.displayName ? { reviewedByName: document.reviewedByUser.displayName } : {}),
+    ...(document.reviewedAt ? { reviewedAt: document.reviewedAt.toISOString() } : {}),
+    ...(document.reviewNotes ? { reviewNotes: document.reviewNotes } : {}),
   };
 }
 
@@ -3071,6 +3286,19 @@ function toTrainingProofDocumentTypeKey(input: TrainingProofDocumentType) {
   return input.toLowerCase() as TrainingProofDocumentTypeKey;
 }
 
+function toTrainingProofReviewStatus(input: ReviewTrainingSessionProofRequest['reviewStatus']) {
+  const value = input.trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(TrainingProofReviewStatus, value)) {
+    throw new Error(`Unsupported training proof review status: ${input}`);
+  }
+
+  return value as TrainingProofReviewStatus;
+}
+
+function toTrainingProofReviewStatusKey(input: TrainingProofReviewStatus) {
+  return input.toLowerCase() as TrainingProofDocumentSummary['reviewStatus'];
+}
+
 function toAccountTrainingProgramStatusKey(input: AccountTrainingProgramStatus) {
   return input.toLowerCase() as AccountTrainingProgramSummary['status'];
 }
@@ -3187,6 +3415,20 @@ function buildTrainingExecutionExceptions(items: TrainingSessionSummary[]): Trai
       });
     }
 
+    if (item.status === 'completed' && item.proofDocuments.some((document) => document.reviewStatus === 'rejected')) {
+      exceptions.push({
+        type: 'proof_rejected',
+        severity: 'medium',
+        sessionId: item.id,
+        accountId: item.accountId,
+        ...(item.accountName ? { accountName: item.accountName } : {}),
+        title: item.title,
+        detail: 'Training proof was rejected and needs corrected evidence before closure.',
+        ...(item.scheduledAt ? { scheduledAt: item.scheduledAt } : {}),
+        ...(item.trainingTypeCode ? { trainingTypeCode: item.trainingTypeCode } : {}),
+      });
+    }
+
     if (item.status === 'completed' && item.certificationOutcome === 'pending_decision') {
       exceptions.push({
         type: 'certification_decision_pending',
@@ -3272,6 +3514,7 @@ function buildTrainingComplianceAccountMetrics(
 
   return {
     hasActivePrograms: activePrograms.length > 0,
+    activeProgramCount: activePrograms.length,
     activeCertificationCount,
     expiringCertificationCount,
     expiredCertificationCount,
@@ -3282,7 +3525,200 @@ function buildTrainingComplianceAccountMetrics(
     deliveredTrainingHours: roundHours(
       qualifyingSessions.reduce((sum, entry) => sum + (entry.durationMinutes / 60), 0),
     ),
+    completedTrainingSessionCount: qualifyingSessions.length,
+    proofDocumentCount: account.trainingSessions.reduce((sum, entry) => sum + entry.proofDocuments.length, 0),
+    certificationProofMissingCount: unresolvedExecutionExceptions.filter((entry) => entry.type === 'proof_missing').length,
+    lastTrainingAt: getLatestCompletedTrainingAt(qualifyingSessions),
+    nextDueAt: getNextTrainingProgramDueAt(activePrograms),
   };
+}
+
+function buildTrainingComplianceAccountExportRow(
+  account: TrainingAccountRecord,
+  metrics: ReturnType<typeof buildTrainingComplianceAccountMetrics>,
+): TrainingComplianceAccountExportRow {
+  return {
+    accountId: account.id,
+    accountName: account.displayName,
+    ...(account.businessSegment?.code ? { businessSegmentCode: account.businessSegment.code } : {}),
+    ...(account.territoryId ? { territoryId: account.territoryId } : {}),
+    ...(account.territory?.name ? { territoryName: account.territory.name } : {}),
+    ...(account.territory?.region?.name ? { regionName: account.territory.region.name } : {}),
+    ...(account.assignedTmUserId ? { ownerTmUserId: account.assignedTmUserId } : {}),
+    ...(account.assignedTmUser?.displayName ? { ownerTmName: account.assignedTmUser.displayName } : {}),
+    ...(account.assignedRdUserId ? { ownerRdUserId: account.assignedRdUserId } : {}),
+    ...(account.assignedRdUser?.displayName ? { ownerRdName: account.assignedRdUser.displayName } : {}),
+    activeProgramCount: metrics.activeProgramCount,
+    overdueProgramCount: metrics.overdueProgramCount,
+    activeCertificationCount: metrics.activeCertificationCount,
+    expiringCertificationCount: metrics.expiringCertificationCount,
+    expiredCertificationCount: metrics.expiredCertificationCount,
+    revokedCertificationCount: metrics.revokedCertificationCount,
+    pendingCertificationDecisionCount: metrics.pendingCertificationDecisionCount,
+    unresolvedExecutionExceptionCount: metrics.unresolvedExecutionExceptionCount,
+    completedTrainingSessionCount: metrics.completedTrainingSessionCount,
+    deliveredTrainingHours: metrics.deliveredTrainingHours,
+    proofDocumentCount: metrics.proofDocumentCount,
+    certificationProofMissingCount: metrics.certificationProofMissingCount,
+    ...(metrics.lastTrainingAt ? { lastTrainingAt: metrics.lastTrainingAt.toISOString() } : {}),
+    ...(metrics.nextDueAt ? { nextDueAt: metrics.nextDueAt.toISOString() } : {}),
+    riskLevel: resolveTrainingComplianceAccountRiskLevel(metrics),
+  };
+}
+
+function resolveTrainingComplianceAccountRiskLevel(
+  metrics: ReturnType<typeof buildTrainingComplianceAccountMetrics>,
+): TrainingComplianceAccountExportRow['riskLevel'] {
+  if (
+    metrics.expiredCertificationCount > 0
+    || metrics.revokedCertificationCount > 0
+    || metrics.overdueProgramCount > 0
+    || metrics.certificationProofMissingCount > 0
+  ) {
+    return 'critical';
+  }
+
+  if (
+    metrics.expiringCertificationCount > 0
+    || metrics.pendingCertificationDecisionCount > 0
+    || metrics.unresolvedExecutionExceptionCount > 0
+  ) {
+    return 'attention';
+  }
+
+  return 'healthy';
+}
+
+function sortTrainingComplianceAccountExportRows(rows: TrainingComplianceAccountExportRow[]) {
+  const riskRank: Record<TrainingComplianceAccountExportRow['riskLevel'], number> = {
+    critical: 3,
+    attention: 2,
+    healthy: 1,
+  };
+
+  return rows.sort((left, right) => (
+    riskRank[right.riskLevel] - riskRank[left.riskLevel]
+    || right.unresolvedExecutionExceptionCount - left.unresolvedExecutionExceptionCount
+    || right.overdueProgramCount - left.overdueProgramCount
+    || left.accountName.localeCompare(right.accountName)
+  ));
+}
+
+function getLatestCompletedTrainingAt(sessions: TrainingSessionRecord[]) {
+  return sessions.reduce<Date | undefined>((latest, session) => {
+    const completedAt = session.completedAt ?? session.checkedOutAt ?? session.scheduledAt;
+    if (!completedAt) {
+      return latest;
+    }
+    if (!latest || completedAt.getTime() > latest.getTime()) {
+      return completedAt;
+    }
+    return latest;
+  }, undefined);
+}
+
+function getNextTrainingProgramDueAt(programs: TrainingProgramRecord[]) {
+  return programs.reduce<Date | undefined>((next, program) => {
+    if (!program.nextDueAt) {
+      return next;
+    }
+    if (!next || program.nextDueAt.getTime() < next.getTime()) {
+      return program.nextDueAt;
+    }
+    return next;
+  }, undefined);
+}
+
+function accumulateTrainingHoursRollups(input: {
+  account: TrainingAccountRecord;
+  hoursByAccount: Map<string, TrainingComplianceHoursRollup>;
+  hoursByTerritory: Map<string, TrainingComplianceHoursRollup>;
+  hoursByTrainer: Map<string, TrainingComplianceHoursRollup>;
+  hoursByTrainingType: Map<string, TrainingComplianceHoursRollup>;
+  hoursByState: Map<string, TrainingComplianceHoursRollup>;
+}) {
+  const qualifyingSessions = input.account.trainingSessions.filter((entry) => (
+    entry.status === TrainingSessionStatus.COMPLETED
+    && entry.activityKind === TrainingActivityKind.TRAINING
+    && entry.trainingType?.countsTowardHours
+  ));
+
+  for (const session of qualifyingSessions) {
+    const hours = session.durationMinutes / 60;
+    incrementTrainingHoursRollup(input.hoursByAccount, input.account.id, input.account.displayName, hours, {
+      accountId: input.account.id,
+      accountName: input.account.displayName,
+    });
+
+    const territoryKey = input.account.territoryId ?? 'unassigned';
+    incrementTrainingHoursRollup(
+      input.hoursByTerritory,
+      territoryKey,
+      input.account.territory?.name ?? 'Unassigned territory',
+      hours,
+      {
+        ...(input.account.territoryId ? { territoryId: input.account.territoryId } : {}),
+        ...(input.account.territory?.name ? { territoryName: input.account.territory.name } : {}),
+      },
+    );
+
+    const trainerKey = session.trainerUserId ?? 'unassigned';
+    incrementTrainingHoursRollup(
+      input.hoursByTrainer,
+      trainerKey,
+      session.trainerUser?.displayName ?? 'Unassigned trainer',
+      hours,
+      {
+        ...(session.trainerUserId ? { trainerUserId: session.trainerUserId } : {}),
+        ...(session.trainerUser?.displayName ? { trainerName: session.trainerUser.displayName } : {}),
+      },
+    );
+
+    const trainingTypeKey = session.trainingTypeId ?? 'unknown';
+    incrementTrainingHoursRollup(
+      input.hoursByTrainingType,
+      trainingTypeKey,
+      session.trainingType?.name ?? 'Unknown training type',
+      hours,
+      {
+        ...(session.trainingTypeId ? { trainingTypeId: session.trainingTypeId } : {}),
+        ...(session.trainingType?.code ? { trainingTypeCode: session.trainingType.code } : {}),
+        ...(session.trainingType?.name ? { trainingTypeName: session.trainingType.name } : {}),
+      },
+    );
+
+    const state = session.location?.state?.trim() || 'unknown';
+    incrementTrainingHoursRollup(input.hoursByState, state, state === 'unknown' ? 'Unknown state' : state, hours, {
+      ...(state !== 'unknown' ? { state } : {}),
+    });
+  }
+}
+
+function incrementTrainingHoursRollup(
+  map: Map<string, TrainingComplianceHoursRollup>,
+  key: string,
+  label: string,
+  hours: number,
+  extra: Partial<TrainingComplianceHoursRollup>,
+) {
+  const current = map.get(key) ?? {
+    key,
+    label,
+    completedSessionCount: 0,
+    deliveredTrainingHours: 0,
+    ...extra,
+  };
+  current.completedSessionCount += 1;
+  current.deliveredTrainingHours = roundHours(current.deliveredTrainingHours + hours);
+  map.set(key, current);
+}
+
+function sortTrainingHoursRollups(map: Map<string, TrainingComplianceHoursRollup>) {
+  return Array.from(map.values()).sort((left, right) => (
+    right.deliveredTrainingHours - left.deliveredTrainingHours
+    || right.completedSessionCount - left.completedSessionCount
+    || left.label.localeCompare(right.label)
+  ));
 }
 
 function accumulateTrainingComplianceOwnerRollup(

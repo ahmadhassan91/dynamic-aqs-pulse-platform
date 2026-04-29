@@ -4,6 +4,7 @@ export * from './admin.js';
 export * from './accounts.js';
 export * from './dealer-portal.js';
 export * from './cis.js';
+export * from './consignment.js';
 export * from './leads.js';
 export * from './lead-options.js';
 export * from './reference.js';

@@ -14,6 +14,7 @@
     "./auth": "./dist/auth.js",
     "./calendar": "./dist/calendar.js",
     "./accounts": "./dist/accounts.js",
+    "./consignment": "./dist/consignment.js",
     "./dealer-portal": "./dist/dealer-portal.js",
     "./cis": "./dist/cis.js",
     "./lead-options": "./dist/lead-options.js",

@@ -1,4 +1,5 @@
 import type { CisPaymentVaultProviderKey } from './cis.js';
+import type { ConsignmentAccountReadModel } from './consignment.js';
 import type { GroupAxisSelectionKey, GroupClassificationKey } from './leads.js';
 import type { TerritoryAssignmentMethodKey } from './territories.js';
 
@@ -45,6 +46,7 @@ export interface AccountSummary {
   lifecycleStatus: AccountLifecycleStatusKey;
   lifecycleStatusChangedAt?: string;
   lifecycleReasonNote?: string;
+  consignment?: ConsignmentAccountReadModel;
   lastOrderAt?: string;
   lastEngagementAt?: string;
   isActive: boolean;

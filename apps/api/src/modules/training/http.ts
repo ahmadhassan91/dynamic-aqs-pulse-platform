@@ -18,6 +18,7 @@ import type {
   ListTrainingOperationalQueueRequest,
   ListTrainingSessionsRequest,
   RevokeTrainingCertificationRequest,
+  ReviewTrainingSessionProofRequest,
   ResolveTrainingCertificationDecisionRequest,
   UploadTrainingSessionProofRequest,
   UpdateTrainingSessionScheduleRequest,
@@ -48,6 +49,7 @@ import {
   createTrainingSession,
   createTrainingTemplate,
   createTrainingType,
+  downloadTrainingSessionProof,
   getAccountTrainingHistory,
   getTerritoryTrainingPenetration,
   getTrainingCoachingWorkload,
@@ -60,6 +62,7 @@ import {
   listTrainingSessions,
   listTrainingTrainers,
   resolveTrainingCertificationDecision,
+  reviewTrainingSessionProof,
   revokeTrainingCertification,
   rescheduleTrainingSession,
   uploadTrainingSessionProof,
@@ -89,6 +92,8 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
     || /^\/api\/v1\/training\/sessions\/[^/]+\/reschedule$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/certification-decision$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/proof$/.test(pathname)
+    || /^\/api\/v1\/training\/proof-documents\/[^/]+\/download$/.test(pathname)
+    || /^\/api\/v1\/training\/proof-documents\/[^/]+\/review$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/complete$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/cancel$/.test(pathname)
     || /^\/api\/v1\/training\/sessions\/[^/]+\/follow-up-tasks$/.test(pathname)
@@ -494,6 +499,44 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
         const body = (await readJsonBody(req)) as UploadTrainingSessionProofRequest;
         const response = await uploadTrainingSessionProof(actor, config, sessionId, body);
         return jsonResponse(res, 201, response);
+      });
+    }
+
+    const proofReviewMatch = pathname.match(/^\/api\/v1\/training\/proof-documents\/([^/]+)\/review$/);
+    if (proofReviewMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const documentId = proofReviewMatch[1];
+      if (!documentId) {
+        return badRequestResponse(res, 'Training proof document id is required');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const body = (await readJsonBody(req)) as ReviewTrainingSessionProofRequest;
+        const response = await reviewTrainingSessionProof(actor, documentId, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
+    const proofDownloadMatch = pathname.match(/^\/api\/v1\/training\/proof-documents\/([^/]+)\/download$/);
+    if (proofDownloadMatch) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const documentId = proofDownloadMatch[1];
+      if (!documentId) {
+        return badRequestResponse(res, 'Training proof document id is required');
+      }
+      if (!config) {
+        return badRequestResponse(res, 'Training proof storage is not configured');
+      }
+
+      return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
+        const response = await downloadTrainingSessionProof(actor, config, documentId);
+        return jsonResponse(res, 200, response);
       });
     }
 

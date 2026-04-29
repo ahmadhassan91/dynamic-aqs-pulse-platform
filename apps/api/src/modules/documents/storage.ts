@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../../config.js';
 
@@ -22,6 +22,22 @@ export async function storeBase64Document(
   await writeFile(targetPath, buffer);
 
   return {
+    sizeBytes: buffer.byteLength,
+    sha256: createHash('sha256').update(buffer).digest('hex'),
+  };
+}
+
+export async function readStoredDocument(config: AppConfig, storageKey: string) {
+  const rootDir = path.resolve(config.storage.rootDir);
+  const targetPath = path.resolve(rootDir, storageKey);
+
+  if (!targetPath.startsWith(`${rootDir}${path.sep}`) && targetPath !== rootDir) {
+    throw new Error('storageKey resolved outside the configured document root');
+  }
+
+  const buffer = await readFile(targetPath);
+  return {
+    contentBase64: buffer.toString('base64'),
     sizeBytes: buffer.byteLength,
     sha256: createHash('sha256').update(buffer).digest('hex'),
   };

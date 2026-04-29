@@ -116,6 +116,8 @@ Coverage rules:
 | `OQ-CSG-SUPP-02` | What is the retention and legal standing of signed inventory adjustment forms currently stored in Dropbox? | Legal / Finance | Open |
 | `OQ-CSG-SUPP-03` | Can a customer partially PO consumed items from one audit, and what are the workflow consequences? | Finance + Samantha | Open; overlaps `OQ-CSG-05` |
 | `OQ-CSG-SUPP-04` | PURPLE is currently defined as P2. Should it be promoted to P1 based on operational evidence? | Ops + Product | Open |
+
+Build note: consignment work should proceed up to the Pulse-owned/manual-review boundary while these questions remain open. Acumatica-dependent execution is parked for warehouse creation, current inventory truth, transfers/receipts, PO creation, financial settlement, and signed ERP field mappings until sandbox access and certified endpoints are available.
 | `OQ-CSG-SUPP-05` | Should the UI use `warehouse` or `consignment site` terminology? | Product + Samantha | Open |
 | `OQ-CSG-SUPP-06` | Is there a minimum order quantity or inventory level that triggers eligibility to join consignment? | Sales Leadership + Samantha | Open |
 

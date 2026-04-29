@@ -242,6 +242,7 @@ enum LeadOperationalAlertType {
 enum LeadOperationalAlertDeliveryMode {
   PREVIEW
   DISABLED
+  MICROSOFT_GRAPH
 }
 
 enum LeadOperationalAlertDeliveryStatus {
@@ -300,6 +301,7 @@ enum LeadImportRunRowStatus {
 enum LeadImportDuplicateDecision {
   CREATE_NEW
   USE_EXISTING
+  ENRICH_EXISTING
   SKIP
 }
 
@@ -414,6 +416,12 @@ enum TrainingProofDocumentType {
   ATTENDANCE_RECORD
   PHOTO
   OTHER
+}
+
+enum TrainingProofReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
 }
 
 enum WebsiteLeadSubmissionOutcome {
@@ -591,6 +599,96 @@ enum CisPaymentTerms {
   CUSTOM
 }
 
+enum ConsignmentSiteStatus {
+  ONBOARDING_IN_PROGRESS
+  READY_FOR_WAREHOUSE
+  WAREHOUSE_PENDING
+  BASELINE_PENDING
+  ACTIVE
+  SUSPENDED
+  EXITING
+  EXITED
+}
+
+enum ConsignmentAcumaticaStatus {
+  NOT_REQUIRED
+  PARKED
+  PENDING
+  AVAILABLE
+  ERROR
+}
+
+enum ConsignmentFormType {
+  AGREEMENT
+  BLUE
+  ROSE
+  PURPLE
+  SAND
+  RETURN
+  DAMAGE
+  MASTER_REFERENCE
+}
+
+enum ConsignmentFormStatus {
+  DRAFT
+  SENT
+  RETURNED
+  SIGNED
+  APPROVED
+  REJECTED
+  CURRENT
+  ARCHIVED
+}
+
+enum ConsignmentAuditStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ConsignmentReconciliationStatus {
+  NOT_STARTED
+  OPEN
+  TRUE_UP_CONFIRMED
+  RESOLVED
+  ESCALATED
+}
+
+enum ConsignmentDiscrepancyStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  PO_REQUIRED
+  PO_RECEIVED
+  WRITTEN_OFF
+}
+
+enum ConsignmentPoFollowUpStatus {
+  NOT_REQUIRED
+  REQUIRED
+  ESCALATED
+  RECEIVED
+  WAIVED
+}
+
+enum ConsignmentWorkItemType {
+  WAREHOUSE_SETUP
+  BASELINE_REVIEW
+  VARIANCE_REVIEW
+  PO_FOLLOW_UP
+  EXIT_REVIEW
+  ACUMATICA_RESUME
+}
+
+enum ConsignmentWorkItemStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
 model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique
@@ -641,10 +739,17 @@ model User {
   trainingFollowUpTasksOwned  TrainingFollowUpTask[] @relation("TrainingFollowUpTaskOwner")
   trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
   trainingProofDocumentsUploaded TrainingProofDocument[] @relation("TrainingProofDocumentUploadedBy")
+  trainingProofDocumentsReviewed TrainingProofDocument[] @relation("TrainingProofDocumentReviewedBy")
   calendarConnections         CalendarConnection[]
   calendarAuthStates          CalendarConnectionAuthState[]
   passwordResetTokens         PasswordResetToken[]
   leadOperationalAlerts       LeadOperationalAlert[]        @relation("LeadOperationalAlertRecipientUser")
+  createdConsignmentSites     ConsignmentSite[]             @relation("ConsignmentSiteCreatedBy")
+  ownedConsignmentSitesTm     ConsignmentSite[]             @relation("ConsignmentSiteOwnerTm")
+  ownedConsignmentSitesRd     ConsignmentSite[]             @relation("ConsignmentSiteOwnerRd")
+  consignmentFormsCreated     ConsignmentForm[]             @relation("ConsignmentFormCreatedBy")
+  consignmentAuditsSubmitted  ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
+  consignmentWorkItemsAssigned ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
 
   @@index([roleCode])
   @@index([userType])
@@ -666,6 +771,7 @@ model ShippingCenter {
   territories      Territory[]
   assignedLeads    Lead[]    @relation("LeadShippingCenter")
   assignedAccounts Account[] @relation("AccountShippingCenter")
+  consignmentSites ConsignmentSite[]
 
   @@index([isActive])
   @@index([state])
@@ -693,6 +799,7 @@ model Region {
 
   directorUser     User?       @relation("RegionDirector", fields: [directorUserId], references: [id], onDelete: SetNull)
   territories      Territory[]
+  consignmentSites ConsignmentSite[]
 
   @@index([directorUserId])
   @@index([isActive])
@@ -717,6 +824,7 @@ model Territory {
   leads            Lead[]
   accounts         Account[]
   assignmentOverrides TerritoryAssignmentOverride[]
+  consignmentSites ConsignmentSite[]
 
   @@index([regionId])
   @@index([managerUserId])
@@ -1174,6 +1282,7 @@ model WebsiteLeadSite {
   siteId                 String                           @unique
   siteName               String
   url                    String
+  allowedOrigins         String[]                         @default([])
   brandTag               String
   formType               WebsiteLeadFormType
   isActive               Boolean                          @default(true)
@@ -1253,6 +1362,10 @@ model LeadRoutingPolicy {
   cisFollowUpProspectReminderDelayBusinessDays Int         @default(3)
   cisFollowUpOwnerAlertDelayBusinessDays   Int              @default(5)
   stagnantStageDays                        Int              @default(7)
+  operationalAlertQuietHoursEnabled        Boolean          @default(false)
+  operationalAlertQuietHoursStartLocal     String           @default("18:00")
+  operationalAlertQuietHoursEndLocal       String           @default("08:00")
+  operationalAlertQuietHoursTimeZone       String           @default("America/Los_Angeles")
   notes                                    String?
   createdAt                                DateTime         @default(now())
   updatedAt                                DateTime         @updatedAt
@@ -2066,6 +2179,7 @@ model Account {
   trainingFollowUpTasks      TrainingFollowUpTask[]
   trainingCertifications     TrainingCertificationRecord[]
   paymentVaultReferences     AccountPaymentVaultReference[]
+  consignmentSites           ConsignmentSite[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -2132,10 +2246,190 @@ model AccountLocation {
   contacts         Contact[]
   extension        AccountLocationExtension?
   trainingSessions TrainingSession[]
+  consignmentSites ConsignmentSite[]
 
   @@index([accountId])
   @@index([isPrimary])
   @@index([isActive])
+}
+
+model ConsignmentSite {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  accountId                String                     @db.Uuid
+  locationId               String?                    @db.Uuid
+  name                     String
+  status                   ConsignmentSiteStatus      @default(ONBOARDING_IN_PROGRESS)
+  acumaticaStatus          ConsignmentAcumaticaStatus @default(PARKED)
+  warehouseCode            String?
+  acumaticaWarehouseId     String?
+  acumaticaLastSyncedAt    DateTime?
+  acumaticaLastError       String?
+  activeSince              DateTime?
+  exitedAt                 DateTime?
+  baselineEstablishedAt    DateTime?
+  lastAuditCompletedAt     DateTime?
+  nextAuditDueAt           DateTime?
+  ownerTmUserId            String?                    @db.Uuid
+  ownerRdUserId            String?                    @db.Uuid
+  territoryId              String?                    @db.Uuid
+  regionId                 String?                    @db.Uuid
+  shippingCenterId         String?                    @db.Uuid
+  primaryContactName       String?
+  primaryContactEmail      String?
+  primaryContactPhone      String?
+  notes                    String?
+  createdByUserId          String?                    @db.Uuid
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  account                  Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location                 AccountLocation?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  ownerTmUser              User?                      @relation("ConsignmentSiteOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
+  ownerRdUser              User?                      @relation("ConsignmentSiteOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
+  territory                Territory?                 @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  region                   Region?                    @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  shippingCenter           ShippingCenter?            @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  createdBy                User?                      @relation("ConsignmentSiteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  forms                    ConsignmentForm[]
+  audits                   ConsignmentAudit[]
+  discrepancyCases         ConsignmentDiscrepancyCase[]
+  workItems                ConsignmentWorkItem[]
+
+  @@index([accountId])
+  @@index([locationId])
+  @@index([status])
+  @@index([acumaticaStatus])
+  @@index([ownerTmUserId])
+  @@index([ownerRdUserId])
+  @@index([territoryId])
+  @@index([regionId])
+  @@index([shippingCenterId])
+  @@index([nextAuditDueAt])
+  @@index([warehouseCode])
+  @@index([acumaticaWarehouseId])
+}
+
+model ConsignmentForm {
+  id              String                @id @default(uuid()) @db.Uuid
+  siteId          String                @db.Uuid
+  formType        ConsignmentFormType
+  status          ConsignmentFormStatus @default(DRAFT)
+  title           String?
+  documentUrl     String?
+  externalRef     String?
+  version         Int                   @default(1)
+  isCurrent       Boolean               @default(true)
+  receivedAt      DateTime?
+  signedAt        DateTime?
+  approvedAt      DateTime?
+  notes           String?
+  createdByUserId String?               @db.Uuid
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  site            ConsignmentSite       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("ConsignmentFormCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([formType, status])
+  @@index([siteId, formType, isCurrent])
+}
+
+model ConsignmentAudit {
+  id                    String                           @id @default(uuid()) @db.Uuid
+  siteId                String                           @db.Uuid
+  scheduledFor          DateTime
+  startedAt             DateTime?
+  completedAt           DateTime?
+  status                ConsignmentAuditStatus           @default(SCHEDULED)
+  reconciliationStatus  ConsignmentReconciliationStatus  @default(NOT_STARTED)
+  expectedSource        String                           @default("manual_or_imported")
+  sourceFreshnessLabel  String                           @default("acumatica_parked")
+  notes                 String?
+  submittedByUserId     String?                          @db.Uuid
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+
+  site                  ConsignmentSite                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  submittedBy           User?                            @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  lines                 ConsignmentAuditLine[]
+  discrepancyCases      ConsignmentDiscrepancyCase[]
+
+  @@index([siteId])
+  @@index([scheduledFor])
+  @@index([status])
+  @@index([reconciliationStatus])
+}
+
+model ConsignmentAuditLine {
+  id               String           @id @default(uuid()) @db.Uuid
+  auditId          String           @db.Uuid
+  sku              String?
+  barcode          String?
+  productName      String
+  expectedQuantity Int?
+  actualQuantity   Int?
+  varianceQuantity Int?
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  audit            ConsignmentAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+  @@index([sku])
+  @@index([barcode])
+}
+
+model ConsignmentDiscrepancyCase {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  siteId             String                       @db.Uuid
+  auditId            String?                      @db.Uuid
+  status             ConsignmentDiscrepancyStatus @default(OPEN)
+  poFollowUpStatus   ConsignmentPoFollowUpStatus  @default(NOT_REQUIRED)
+  reasonCode         String?
+  sku                String?
+  productName        String?
+  quantity           Int?
+  trueUpConfirmedAt  DateTime?
+  poDueAt            DateTime?
+  externalPoRef      String?
+  notes              String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  site               ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  audit              ConsignmentAudit?            @relation(fields: [auditId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([auditId])
+  @@index([status])
+  @@index([poFollowUpStatus])
+  @@index([poDueAt])
+}
+
+model ConsignmentWorkItem {
+  id               String                     @id @default(uuid()) @db.Uuid
+  siteId           String                     @db.Uuid
+  type             ConsignmentWorkItemType
+  status           ConsignmentWorkItemStatus  @default(OPEN)
+  priority         String                     @default("normal")
+  title            String
+  assignedToUserId String?                    @db.Uuid
+  dueAt            DateTime?
+  completedAt      DateTime?
+  notes            String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  site             ConsignmentSite            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  assignedTo       User?                      @relation("ConsignmentWorkItemAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([type])
+  @@index([status])
+  @@index([assignedToUserId])
+  @@index([dueAt])
 }
 
 model Contact {
@@ -2415,15 +2709,22 @@ model TrainingProofDocument {
   uploadedByUserId  String?                   @db.Uuid
   uploadedAt        DateTime                  @default(now())
   sha256            String?
+  reviewStatus      TrainingProofReviewStatus @default(PENDING_REVIEW)
+  reviewedByUserId  String?                   @db.Uuid
+  reviewedAt        DateTime?
+  reviewNotes       String?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
 
   session           TrainingSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   uploadedByUser    User?                     @relation("TrainingProofDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  reviewedByUser    User?                     @relation("TrainingProofDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
   @@index([documentType])
   @@index([uploadedByUserId])
+  @@index([reviewStatus])
+  @@index([reviewedByUserId])
   @@index([uploadedAt])
 }
 

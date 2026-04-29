@@ -34,12 +34,16 @@ let listTerritories;
 let listTerritoryAssignmentHistory;
 let listTerritoryAssignableUsers;
 let bulkReassignAccountTerritories;
+let bulkReassignLeadTerritories;
 let reassignAccountTerritory;
 let reassignLeadTerritory;
 let replaceTerritoryCoverage;
 let getTerritoryMapWorkspace;
 let updateTerritory;
 let updateTerritoryPolicy;
+let createTrainingSession;
+let checkInTrainingSession;
+let completeTrainingSession;
 const SERIAL = { concurrency: false };
 
 test.before(async () => {
@@ -47,7 +51,7 @@ test.before(async () => {
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ createPulseServer } = await import('../dist/server.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
-  ({ ensureTrainingSeeded } = await import('../dist/modules/training/service.js'));
+  ({ ensureTrainingSeeded, createTrainingSession, checkInTrainingSession, completeTrainingSession } = await import('../dist/modules/training/service.js'));
   ({
     ensureLeadRoutingPolicySeeded,
     ensureWebsiteLeadConfigSeeded,
@@ -92,6 +96,7 @@ test.before(async () => {
     listTerritoryAssignmentHistory,
     listTerritoryAssignableUsers,
     bulkReassignAccountTerritories,
+    bulkReassignLeadTerritories,
     reassignAccountTerritory,
     reassignLeadTerritory,
     replaceTerritoryCoverage,
@@ -598,12 +603,27 @@ test('territory map workspace returns live coverage entries, account pins, lead 
   assert.equal(shippingCenter.servicedTerritoryCount, 1);
   assert.ok(shippingCenter.activeLeadCount >= 1);
   assert.ok(shippingCenter.activeAccountCount >= 1);
+
+  const routePlan = workspace.routePlans.find((plan) => plan.territoryId === fixture.territory.id);
+  assert.ok(routePlan);
+  assert.equal(routePlan.providerDependency, 'none');
+  assert.equal(routePlan.isProviderOptimized, false);
+  assert.equal(routePlan.shippingCenterId, fixture.shippingCenter.id);
+  assert.equal(routePlan.accountStopCount, 1);
+  assert.equal(routePlan.leadStopCount, 1);
+  assert.equal(routePlan.stopCount, 2);
+  assert.deepEqual(
+    routePlan.stops.map((stop) => stop.sequence),
+    [1, 2],
+  );
+  assert.ok(routePlan.estimatedStraightLineMiles >= 0);
 });
 
 test('territory read visibility scopes region, territory, shipping center, and map workspace payloads for a TM', SERIAL, async () => {
   const { actor } = await createAdminSession();
-  await updateTerritoryPolicy(actor, {
-    preHandoffTmVisibility: true,
+  await prisma.territoryPolicy.update({
+    where: { id: 'default' },
+    data: { preHandoffTmVisibility: true },
   });
   const visible = await seedTerritoryFixture(actor, {
     suffix: 'tm_scope_visible',
@@ -734,6 +754,87 @@ test('territory read visibility scopes region, territory, shipping center, and m
   assert.ok(!workspace.accountPins.some((pin) => pin.recordId === peerAccount.id));
   assert.ok(!workspace.accountPins.some((pin) => pin.recordId === hiddenAccount.id));
   assert.deepEqual(workspace.shippingCenters.map((item) => item.id), [visible.shippingCenter.id]);
+  assert.ok(workspace.routePlans.length >= 1);
+  assert.ok(workspace.routePlans.every((plan) => plan.territoryId === visible.territory.id));
+  assert.ok(workspace.routePlans.every((plan) => plan.providerDependency === 'none'));
+  assert.ok(workspace.routePlans.every((plan) => plan.stops.every((stop) => stop.territoryId === visible.territory.id)));
+});
+
+test('lead-derived territory visibility for TMs obeys the pre-handoff policy gate', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const leadTm = await createUser('TERRITORY_MANAGER', 'tm-prehandoff-derived@pulse.local', 'TM Prehandoff Derived');
+  const territoryManager = await createUser('TERRITORY_MANAGER', 'tm-prehandoff-territory@pulse.local', 'TM Prehandoff Territory');
+  const director = await createUser('REGIONAL_DIRECTOR', 'rd-prehandoff-derived@pulse.local', 'RD Prehandoff Derived');
+  const shippingCenter = await createShippingCenter(actor, {
+    code: 'ship_prehandoff_derived',
+    name: 'Prehandoff Derived Shipping',
+    city: 'Phoenix',
+    state: 'AZ',
+  });
+  const region = await createRegion(actor, {
+    code: 'region_prehandoff_derived',
+    name: 'Prehandoff Derived Region',
+    directorUserId: director.id,
+  });
+  const territory = await createTerritory(actor, {
+    code: 'territory_prehandoff_derived',
+    name: 'Prehandoff Derived Territory',
+    regionId: region.id,
+    managerUserId: territoryManager.id,
+    shippingCenterId: shippingCenter.id,
+  });
+  await replaceTerritoryCoverage(actor, territory.id, {
+    coverage: [{ stateCode: 'AZ' }],
+  });
+
+  const lead = await createLead(actor, {
+    companyName: 'Prehandoff Derived Territory Lead',
+    serviceTechCount: 8,
+    state: 'AZ',
+  });
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      assignedTmUserId: leadTm.id,
+      assignedTmName: leadTm.displayName,
+    },
+  });
+
+  const tmActor = actorForUser(leadTm);
+  const [hiddenRegions, hiddenTerritories, hiddenShippingCenters, hiddenWorkspace] = await Promise.all([
+    listRegions(tmActor),
+    listTerritories(tmActor),
+    listShippingCenters(tmActor),
+    getTerritoryMapWorkspace(tmActor),
+  ]);
+
+  assert.deepEqual(hiddenRegions.items.map((item) => item.id), []);
+  assert.deepEqual(hiddenTerritories.items.map((item) => item.id), []);
+  assert.deepEqual(hiddenShippingCenters.items.map((item) => item.id), []);
+  assert.deepEqual(hiddenWorkspace.regions.map((item) => item.id), []);
+  assert.deepEqual(hiddenWorkspace.territories.map((item) => item.id), []);
+  assert.deepEqual(hiddenWorkspace.shippingCenters.map((item) => item.id), []);
+  assert.ok(!hiddenWorkspace.leadPins.some((pin) => pin.recordId === lead.id));
+
+  await prisma.territoryPolicy.update({
+    where: { id: 'default' },
+    data: { preHandoffTmVisibility: true },
+  });
+
+  const [visibleRegions, visibleTerritories, visibleShippingCenters, visibleWorkspace] = await Promise.all([
+    listRegions(tmActor),
+    listTerritories(tmActor),
+    listShippingCenters(tmActor),
+    getTerritoryMapWorkspace(tmActor),
+  ]);
+
+  assert.deepEqual(visibleRegions.items.map((item) => item.id), [region.id]);
+  assert.deepEqual(visibleTerritories.items.map((item) => item.id), [territory.id]);
+  assert.deepEqual(visibleShippingCenters.items.map((item) => item.id), [shippingCenter.id]);
+  assert.deepEqual(visibleWorkspace.regions.map((item) => item.id), [region.id]);
+  assert.deepEqual(visibleWorkspace.territories.map((item) => item.id), [territory.id]);
+  assert.deepEqual(visibleWorkspace.shippingCenters.map((item) => item.id), [shippingCenter.id]);
+  assert.ok(visibleWorkspace.leadPins.some((pin) => pin.recordId === lead.id));
 });
 
 test('territory read visibility scopes region, territory, shipping center, and map workspace payloads for an RD', SERIAL, async () => {
@@ -879,6 +980,13 @@ test('territory read visibility scopes region, territory, shipping center, and m
     workspace.shippingCenters.map((item) => item.id).sort(),
     [peerShippingCenter.id, visible.shippingCenter.id].sort(),
   );
+  assert.ok(workspace.routePlans.length >= 2);
+  assert.deepEqual(
+    workspace.routePlans.map((plan) => plan.territoryId).sort(),
+    [peerTerritory.id, visible.territory.id].sort(),
+  );
+  assert.ok(workspace.routePlans.every((plan) => plan.providerDependency === 'none'));
+  assert.ok(!workspace.routePlans.some((plan) => plan.territoryId === hidden.territory.id));
 });
 
 test('territory dashboard returns operational workload, queue, region, and owner rollups for broad roles', SERIAL, async () => {
@@ -1567,6 +1675,101 @@ test('territory assignment history denies out-of-scope entity reads for TMs whil
   );
 });
 
+test('territory reassignment writes deny out-of-scope records for TMs and keep bulk updates atomic', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  await updateTerritoryPolicy(actor, {
+    preHandoffTmVisibility: true,
+  });
+  const visible = await seedTerritoryFixture(actor, {
+    suffix: 'reassign_scope_visible',
+    stateCode: 'TX',
+  });
+  const hidden = await seedTerritoryFixture(actor, {
+    suffix: 'reassign_scope_hidden',
+    stateCode: 'FL',
+  });
+
+  const visibleLead = await createLead(actor, {
+    companyName: 'Reassign Scope Visible Lead',
+    serviceTechCount: 6,
+    state: 'TX',
+  });
+  const hiddenLead = await createLead(actor, {
+    companyName: 'Reassign Scope Hidden Lead',
+    serviceTechCount: 6,
+    state: 'FL',
+  });
+
+  const visibleAccount = await createAccount(actor, {
+    displayName: 'Reassign Scope Visible Account',
+    legalName: 'Reassign Scope Visible Account LLC',
+    accountType: 'Dealer',
+  });
+  const hiddenAccount = await createAccount(actor, {
+    displayName: 'Reassign Scope Hidden Account',
+    legalName: 'Reassign Scope Hidden Account LLC',
+    accountType: 'Dealer',
+  });
+  await createAccountLocation(actor, visibleAccount.id, {
+    name: 'Primary',
+    city: 'Austin',
+    state: 'TX',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+  await createAccountLocation(actor, hiddenAccount.id, {
+    name: 'Primary',
+    city: 'Fort Lauderdale',
+    state: 'FL',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const tmActor = actorForUser(visible.manager);
+  const visibleLeadAssignment = await reassignLeadTerritory(tmActor, visibleLead.id, {
+    territoryId: visible.territory.id,
+    reasonCode: 'tm_visible_override',
+  });
+  assert.ok(visibleLeadAssignment);
+
+  const visibleAccountAssignment = await reassignAccountTerritory(tmActor, visibleAccount.id, {
+    territoryId: visible.territory.id,
+    reasonCode: 'tm_visible_account_override',
+  });
+  assert.ok(visibleAccountAssignment);
+
+  await assert.rejects(
+    () =>
+      reassignLeadTerritory(tmActor, hiddenLead.id, {
+        territoryId: visible.territory.id,
+        reasonCode: 'tm_hidden_override',
+      }),
+    (error) => error?.name === 'AuthorizationError',
+  );
+  await assert.rejects(
+    () =>
+      reassignAccountTerritory(tmActor, hiddenAccount.id, {
+        territoryId: visible.territory.id,
+        reasonCode: 'tm_hidden_account_override',
+      }),
+    (error) => error?.name === 'AuthorizationError',
+  );
+
+  await assert.rejects(
+    () =>
+      bulkReassignAccountTerritories(tmActor, {
+        accountIds: [visibleAccount.id, hiddenAccount.id],
+        territoryId: visible.territory.id,
+        reasonCode: 'tm_mixed_bulk_override',
+      }),
+    (error) => error?.name === 'AuthorizationError',
+  );
+
+  const hiddenDetail = await getAccountDetail(actor, hiddenAccount.id);
+  assert.ok(hiddenDetail);
+  assert.equal(hiddenDetail.territoryId, hidden.territory.id);
+});
+
 test('named owner overrides reject inactive users and wrong roles', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const fixture = await seedTerritoryFixture(actor, {
@@ -1805,6 +2008,220 @@ test('bulk account transfer reassigns multiple accounts with individual history 
   assert.equal(bulkAuditEntries.length, 2);
 });
 
+test('bulk lead transfer reassigns multiple pipeline leads with individual history and audit-safe ownership updates', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_lead_tx',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_lead_fl',
+    stateCode: 'FL',
+  });
+
+  const first = await createLead(actor, {
+    companyName: 'Bulk Lead Alpha',
+    contactDisplayName: 'Alpha Contact',
+    email: 'bulk.lead.alpha@example.com',
+    phone: '555-100-4101',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+  const second = await createLead(actor, {
+    companyName: 'Bulk Lead Bravo',
+    contactDisplayName: 'Bravo Contact',
+    email: 'bulk.lead.bravo@example.com',
+    phone: '555-100-4102',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  const response = await bulkReassignLeadTerritories(actor, {
+    leadIds: [first.id, second.id],
+    territoryId: florida.territory.id,
+    assignedTmUserId: florida.manager.id,
+    assignedRdUserId: florida.director.id,
+    reasonCode: 'territory_realignment',
+    reasonNote: 'Prototype parity bulk lead transfer for reassigned TM state ownership.',
+  });
+
+  assert.equal(response.items.length, 2);
+  assert.deepEqual(
+    response.items.map((item) => item.leadId).sort(),
+    [first.id, second.id].sort(),
+  );
+  assert.ok(response.items.every((item) => item.territoryId === florida.territory.id));
+  assert.ok(response.items.every((item) => item.assignmentMethod === 'manual_override'));
+
+  const firstDetail = await getLeadDetail(actor, first.id);
+  const secondDetail = await getLeadDetail(actor, second.id);
+  assert.equal(firstDetail?.territoryId, florida.territory.id);
+  assert.equal(secondDetail?.territoryId, florida.territory.id);
+  assert.equal(firstDetail?.assignedTmUserId, florida.manager.id);
+  assert.equal(secondDetail?.assignedRdUserId, florida.director.id);
+
+  const firstHistory = await listTerritoryAssignmentHistory(actor, 'lead', first.id);
+  const secondHistory = await listTerritoryAssignmentHistory(actor, 'lead', second.id);
+  assert.equal(firstHistory.items.length, 2);
+  assert.equal(secondHistory.items.length, 2);
+  assert.equal(firstHistory.items[0].previousTerritoryCode, texas.territory.code);
+  assert.equal(secondHistory.items[0].nextTerritoryCode, florida.territory.code);
+
+  const bulkAuditEntries = await prisma.auditEntry.findMany({
+    where: {
+      entityType: 'TERRITORY_ASSIGNMENT_OVERRIDE',
+      entityId: {
+        in: [first.id, second.id],
+      },
+      metadata: {
+        path: ['operation'],
+        equals: 'territory.bulk_reassign_leads',
+      },
+    },
+  });
+  assert.equal(bulkAuditEntries.length, 2);
+});
+
+test('bulk lead transfer preserves existing lead activity authorship while recording transfer actor metadata', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const texas = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_lead_author_texas',
+    stateCode: 'TX',
+  });
+  const florida = await seedTerritoryFixture(actor, {
+    suffix: 'bulk_lead_author_florida',
+    stateCode: 'FL',
+  });
+  const originalAuthor = await createUser('SALES_BD_REP', 'lead-author@pulse.local', 'Lead Original Author');
+  const lead = await createLead(actor, {
+    companyName: 'Bulk Lead Authorship',
+    contactDisplayName: 'Casey Author',
+    email: 'casey.author@example.com',
+    phone: '555-0107',
+    state: 'TX',
+    countryCode: 'US',
+    routingTeam: 'dealer_sales',
+    serviceTechCount: 8,
+    notes: 'Original note must keep its author after transfer.',
+  });
+
+  const stageEvent = await prisma.leadStageEvent.create({
+    data: {
+      leadId: lead.id,
+      actorUserId: originalAuthor.id,
+      toStage: 'DISCOVERY_SCHEDULED',
+      note: 'Original author note before territory transfer.',
+      metadata: {
+        source: 'authorship_regression',
+      },
+    },
+  });
+
+  await bulkReassignLeadTerritories(actor, {
+    leadIds: [lead.id],
+    territoryId: florida.territory.id,
+    assignedTmUserId: florida.manager.id,
+    assignedRdUserId: florida.director.id,
+    reasonCode: 'bulk_tm_transfer',
+    reasonNote: 'Move to Florida TM without rewriting historical activity authorship.',
+  });
+
+  const preservedEvent = await prisma.leadStageEvent.findUniqueOrThrow({
+    where: { id: stageEvent.id },
+  });
+  assert.equal(preservedEvent.actorUserId, originalAuthor.id);
+  assert.equal(preservedEvent.note, 'Original author note before territory transfer.');
+
+  const history = await listTerritoryAssignmentHistory(actor, 'lead', lead.id);
+  assert.equal(history.items[0]?.changedByUserId, actor.userId);
+  assert.equal(history.items[0]?.previousTerritoryCode, texas.territory.code);
+  assert.equal(history.items[0]?.nextTerritoryCode, florida.territory.code);
+  assert.equal(history.items[0]?.metadata?.operation, 'territory.bulk_reassign_leads');
+  assert.equal(history.items[0]?.metadata?.bulkOperation, true);
+  assert.equal(history.items[0]?.metadata?.entityCount, 1);
+});
+
+test('territory account route context can start a checked-in site visit without formal training completion', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await seedTerritoryFixture(actor, {
+    suffix: 'field_visit',
+    stateCode: 'GA',
+  });
+  const account = await createAccount(actor, {
+    displayName: 'Territory Field Visit Account',
+    legalName: 'Territory Field Visit Account LLC',
+    accountType: 'Dealer',
+  });
+
+  await createAccountLocation(actor, account.id, {
+    name: 'Primary',
+    city: 'Atlanta',
+    state: 'GA',
+    countryCode: 'US',
+    isPrimary: true,
+  });
+
+  const detail = await getAccountDetail(actor, account.id);
+  assert.equal(detail?.territoryId, fixture.territory.id);
+  assert.equal(detail?.assignedTmUserId, fixture.manager.id);
+
+  const scheduledAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const visit = await createTrainingSession(actor, account.id, {
+    trainerUserId: fixture.manager.id,
+    activityKind: 'site_visit',
+    title: 'Territory route check-in',
+    scheduledAt,
+    durationMinutes: 45,
+    attendeeCount: 0,
+    notes: 'Started from territory route context.',
+  });
+
+  assert.equal(visit.activityKind, 'site_visit');
+  assert.equal(visit.certificationOutcome, 'not_applicable');
+
+  const checkedIn = await checkInTrainingSession(actor, visit.id, {
+    checkedInAt: scheduledAt,
+    notes: 'Arrived at account from route plan.',
+  });
+
+  assert.equal(checkedIn.executionState, 'checked_in');
+  assert.equal(checkedIn.activityKind, 'site_visit');
+  assert.equal(checkedIn.accountId, account.id);
+  assert.equal(checkedIn.trainerUserId, fixture.manager.id);
+  assert.equal(checkedIn.notes, 'Arrived at account from route plan.');
+
+  const checkedInWorkspace = await getTerritoryMapWorkspace(actor);
+  const checkedInRouteStop = checkedInWorkspace.routePlans
+    .flatMap((plan) => plan.stops)
+    .find((stop) => stop.recordType === 'account' && stop.recordId === account.id);
+  assert.ok(checkedInRouteStop);
+  assert.equal(checkedInRouteStop.visitExecutionState, 'checked_in');
+  assert.equal(checkedInRouteStop.activeVisitSessionId, visit.id);
+
+  const completed = await completeTrainingSession(actor, visit.id, {
+    completedAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+    durationMinutes: 45,
+    attendeeCount: 0,
+    checkoutNotes: 'Completed route visit with required checkout notes.',
+    completionSummary: 'Completed from territory route context.',
+  });
+
+  assert.equal(completed.executionState, 'completed');
+  assert.equal(completed.activityKind, 'site_visit');
+  assert.equal(completed.checkoutNotes, 'Completed route visit with required checkout notes.');
+  assert.equal(completed.certificationOutcome, 'not_applicable');
+
+  const completedWorkspace = await getTerritoryMapWorkspace(actor);
+  const completedRouteStop = completedWorkspace.routePlans
+    .flatMap((plan) => plan.stops)
+    .find((stop) => stop.recordType === 'account' && stop.recordId === account.id);
+  assert.ok(completedRouteStop);
+  assert.equal(completedRouteStop.visitExecutionState, 'completed');
+  assert.equal(completedRouteStop.lastVisitSessionId, visit.id);
+  assert.equal(completedRouteStop.lastVisitTrainerName, fixture.manager.displayName);
+  assert.ok(completedRouteStop.lastVisitCompletedAt);
+});
+
 test('territory admin updates refresh downstream account ownership and shipping alignment', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const fixture = await seedTerritoryFixture(actor, {
@@ -1865,7 +2282,7 @@ test('territory permissions allow RD admin actions, TM reassign actions, and den
   });
 
   const regionalDirectorActor = actorWithRole(adminActor, 'REGIONAL_DIRECTOR');
-  const territoryManagerActor = actorWithRole(adminActor, 'TERRITORY_MANAGER');
+  const territoryManagerActor = actorForUser(fixture.manager);
   const salesActor = actorWithRole(adminActor, 'SALES_BD_REP');
   const financeActor = actorWithRole(adminActor, 'FINANCE');
   const dealerActor = actorWithRole(adminActor, 'DEALER_PORTAL_USER');
@@ -1892,8 +2309,12 @@ test('territory permissions allow RD admin actions, TM reassign actions, and den
 
   const lead = await createLead(adminActor, {
     companyName: 'Permissions Territory Lead',
-    serviceTechCount: 3,
+    serviceTechCount: 8,
     state: 'NV',
+  });
+  await reassignLeadTerritory(adminActor, lead.id, {
+    territoryId: fixture.territory.id,
+    reasonCode: 'admin_seed_visible',
   });
 
   const tmAssignment = await reassignLeadTerritory(territoryManagerActor, lead.id, {

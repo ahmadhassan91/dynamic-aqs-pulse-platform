@@ -22,8 +22,12 @@ import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   addDays,
+  buildWebsiteLeadReadinessSummary,
   buildDefaultWebsiteLeadSiteFormConfig,
+  deriveWebsiteLeadSiteDefaultOrigins,
+  getWebsiteLeadSiteAllowedOrigins,
   normalizeEmailAddress,
+  normalizeWebsiteLeadAllowedOrigins,
   optionalTrimmed,
   requiredTrimmed,
   toWebsiteLeadFormTypeEnum,
@@ -129,6 +133,7 @@ export async function ensureWebsiteLeadConfigSeeded() {
         update: {
           siteName: site.siteName,
           url: site.url,
+          allowedOrigins: normalizeWebsiteLeadAllowedOrigins(site.allowedOrigins, site.url),
           brandTag: site.brandTag,
           formType: site.formType,
           ...toWebsiteLeadSiteFormConfigUpdateData(formConfig),
@@ -137,6 +142,7 @@ export async function ensureWebsiteLeadConfigSeeded() {
           siteId: site.siteId,
           siteName: site.siteName,
           url: site.url,
+          allowedOrigins: normalizeWebsiteLeadAllowedOrigins(site.allowedOrigins, site.url),
           brandTag: site.brandTag,
           formType: site.formType,
           isActive: site.isActive,
@@ -285,6 +291,7 @@ export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<L
         siteId: site.siteId,
         siteName: site.siteName,
         url: site.url,
+        allowedOrigins: getWebsiteLeadSiteAllowedOrigins(site),
         brandTag: site.brandTag,
         formType: toWebsiteLeadFormTypeKey(site.formType),
         isActive: site.isActive,
@@ -296,6 +303,10 @@ export async function listWebsiteLeadSites(actor: AuthenticatedActor): Promise<L
         convertedLeads: leadMetric.converted,
         conversionRate,
         ...(submission?.recentAt ? { recentSubmissionAt: submission.recentAt.toISOString() } : {}),
+        readiness: buildWebsiteLeadReadinessSummary(site, {
+          submissionsLast30Days: submission?.recent ?? 0,
+          ...(submission?.recentAt ? { recentSubmissionAt: submission.recentAt } : {}),
+        }),
         createdAt: site.createdAt.toISOString(),
         updatedAt: site.updatedAt.toISOString(),
       };
@@ -313,6 +324,7 @@ export async function createWebsiteLeadSite(
   const siteId = requiredTrimmed(input.siteId, 'siteId');
   const siteName = requiredTrimmed(input.siteName, 'siteName');
   const url = requiredTrimmed(input.url, 'url');
+  const allowedOrigins = normalizeWebsiteLeadAllowedOrigins(input.allowedOrigins, url);
   const brandTag = requiredTrimmed(input.brandTag, 'brandTag').toUpperCase();
   const formType = toWebsiteLeadFormTypeEnum(input.formType);
   const notes = optionalTrimmed(input.notes);
@@ -323,6 +335,7 @@ export async function createWebsiteLeadSite(
       siteId,
       siteName,
       url,
+      allowedOrigins,
       brandTag,
       formType,
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
@@ -340,6 +353,7 @@ export async function createWebsiteLeadSite(
       afterData: {
         siteId: site.siteId,
         siteName: site.siteName,
+        allowedOrigins,
         brandTag: site.brandTag,
         formType: input.formType,
         isActive: site.isActive,
@@ -376,9 +390,22 @@ export async function updateWebsiteLeadSite(
   const nextSiteName = input.siteName !== undefined
     ? requiredTrimmed(input.siteName, 'siteName')
     : existing.siteName;
+  const nextUrl = input.url !== undefined
+    ? requiredTrimmed(input.url, 'url')
+    : existing.url;
   const nextFormType = input.formType !== undefined
     ? input.formType
     : toWebsiteLeadFormTypeKey(existing.formType);
+  const existingDefaultOrigins = deriveWebsiteLeadSiteDefaultOrigins(existing.url);
+  const shouldRefreshAllowedOriginsFromUrl =
+    input.url !== undefined
+    && input.allowedOrigins === undefined
+    && JSON.stringify(getWebsiteLeadSiteAllowedOrigins(existing)) === JSON.stringify(existingDefaultOrigins);
+  const nextAllowedOrigins = input.allowedOrigins !== undefined
+    ? normalizeWebsiteLeadAllowedOrigins(input.allowedOrigins, nextUrl)
+    : shouldRefreshAllowedOriginsFromUrl
+      ? deriveWebsiteLeadSiteDefaultOrigins(nextUrl)
+      : getWebsiteLeadSiteAllowedOrigins(existing);
   const mergedFormConfig = normalizeWebsiteLeadSiteFormConfigInput(
     nextSiteName,
     nextFormType,
@@ -392,7 +419,10 @@ export async function updateWebsiteLeadSite(
     },
     data: {
       ...(input.siteName !== undefined ? { siteName: nextSiteName } : {}),
-      ...(input.url !== undefined ? { url: requiredTrimmed(input.url, 'url') } : {}),
+      ...(input.url !== undefined ? { url: nextUrl } : {}),
+      ...((input.allowedOrigins !== undefined || shouldRefreshAllowedOriginsFromUrl)
+        ? { allowedOrigins: nextAllowedOrigins }
+        : {}),
       ...(input.brandTag !== undefined ? { brandTag: requiredTrimmed(input.brandTag, 'brandTag').toUpperCase() } : {}),
       ...(input.formType !== undefined ? { formType: toWebsiteLeadFormTypeEnum(input.formType) } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
@@ -410,6 +440,7 @@ export async function updateWebsiteLeadSite(
       beforeData: {
         siteName: existing.siteName,
         url: existing.url,
+        allowedOrigins: getWebsiteLeadSiteAllowedOrigins(existing),
         brandTag: existing.brandTag,
         formType: toWebsiteLeadFormTypeKey(existing.formType),
         isActive: existing.isActive,
@@ -419,6 +450,7 @@ export async function updateWebsiteLeadSite(
       afterData: {
         siteName: updated.siteName,
         url: updated.url,
+        allowedOrigins: getWebsiteLeadSiteAllowedOrigins(updated),
         brandTag: updated.brandTag,
         formType: toWebsiteLeadFormTypeKey(updated.formType),
         isActive: updated.isActive,
@@ -592,8 +624,38 @@ export async function getPublicWebsiteLeadSite(siteId: string): Promise<PublicWe
     siteId: site.siteId,
     siteName: site.siteName,
     url: site.url,
+    allowedOrigins: getWebsiteLeadSiteAllowedOrigins(site),
     brandTag: site.brandTag,
     formType: toWebsiteLeadFormTypeKey(site.formType),
     formConfig: toWebsiteLeadSiteFormConfig(site),
   };
+}
+
+export async function getPublicWebsiteLeadSiteAllowedOrigins(siteId: string) {
+  const normalizedSiteId = requiredTrimmed(siteId, 'siteId');
+  const site = await prisma.websiteLeadSite.findUnique({
+    where: {
+      siteId: normalizedSiteId,
+    },
+  });
+
+  if (!site || !site.isActive) {
+    throw new Error('Website lead form is not available for this site');
+  }
+
+  return getWebsiteLeadSiteAllowedOrigins(site);
+}
+
+export async function listActivePublicWebsiteLeadOrigins() {
+  const sites = await prisma.websiteLeadSite.findMany({
+    where: {
+      isActive: true,
+    },
+    select: {
+      url: true,
+      allowedOrigins: true,
+    },
+  });
+
+  return [...new Set(sites.flatMap((site) => getWebsiteLeadSiteAllowedOrigins(site)))];
 }

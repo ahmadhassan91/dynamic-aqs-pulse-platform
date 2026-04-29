@@ -51,6 +51,15 @@ export function methodNotAllowedResponse(res: ServerResponse, method: string, al
   });
 }
 
+export function tooManyRequestsResponse(res: ServerResponse, detail: unknown, retryAfterSeconds: number, extras?: Record<string, unknown>) {
+  res.setHeader('retry-after', String(Math.max(1, Math.ceil(retryAfterSeconds))));
+  return jsonResponse(res, 429, {
+    error: 'TOO_MANY_REQUESTS',
+    detail,
+    ...(extras ?? {}),
+  });
+}
+
 export function serviceUnavailableResponse(res: ServerResponse, detail: unknown, extras?: Record<string, unknown>) {
   return jsonResponse(res, 503, {
     error: 'SERVICE_UNAVAILABLE',

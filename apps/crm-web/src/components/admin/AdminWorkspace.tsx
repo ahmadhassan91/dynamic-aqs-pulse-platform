@@ -39,6 +39,7 @@ import type {
   AdminCalendarIntegrationSettingsResponse,
   AdminPaymentIntegrationSettingsResponse,
   AdminMicrosoftEntraIntegrationSettingsResponse,
+  AdminLeadOperationalAlertDeliverySettingsResponse,
   AdminActivityEntry,
   AdminIntegrationStatusResponse,
   AdminOverviewResponse,
@@ -53,7 +54,9 @@ import type {
 } from '@pulse/contracts';
 import {
   createAdminUser as createAdminUserRequest,
+  deadLetterAdminLeadAlertDeliveries,
   fetchAdminCalendarIntegrationSettings,
+  fetchAdminLeadAlertDeliverySettings,
   fetchAdminPaymentIntegrationSettings,
   fetchAdminMicrosoftEntraIntegrationSettings,
   fetchAdminIntegrations,
@@ -63,6 +66,9 @@ import {
   fetchAdminUsers,
   importAdminUsers as importAdminUsersRequest,
   resetAdminUserPassword,
+  retryAdminLeadAlertDeliveries,
+  updateAdminLeadAlertQuietHours,
+  updateAdminLeadAlertRecipient,
   updateAdminCalendarIntegrationSettings as updateAdminCalendarIntegrationSettingsRequest,
   updateAdminPaymentIntegrationSettings as updateAdminPaymentIntegrationSettingsRequest,
   updateAdminMicrosoftEntraIntegrationSettings as updateAdminMicrosoftEntraIntegrationSettingsRequest,
@@ -76,6 +82,7 @@ import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
 import { AdminEntraIntegrationPanel } from './AdminEntraIntegrationPanel';
+import { AdminLeadAlertDeliveryPanel } from './AdminLeadAlertDeliveryPanel';
 import { AdminPaymentIntegrationPanel } from './AdminPaymentIntegrationPanel';
 import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
@@ -98,6 +105,7 @@ export function AdminWorkspace({
   const [calendarIntegrationSettings, setCalendarIntegrationSettings] = useState<AdminCalendarIntegrationSettingsResponse | null>(null);
   const [paymentIntegrationSettings, setPaymentIntegrationSettings] = useState<AdminPaymentIntegrationSettingsResponse | null>(null);
   const [entraIntegrationSettings, setEntraIntegrationSettings] = useState<AdminMicrosoftEntraIntegrationSettingsResponse | null>(null);
+  const [leadAlertDeliverySettings, setLeadAlertDeliverySettings] = useState<AdminLeadOperationalAlertDeliverySettingsResponse | null>(null);
   const [usersResponse, setUsersResponse] = useState<ListAdminUsersResponse | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(false);
@@ -274,11 +282,12 @@ export function AdminWorkspace({
 
     async function loadIntegrations() {
       try {
-        const [statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse] = await Promise.all([
+        const [statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse] = await Promise.all([
           fetchAdminIntegrations(apiBaseUrl, token),
           fetchAdminCalendarIntegrationSettings(apiBaseUrl, token),
           fetchAdminPaymentIntegrationSettings(apiBaseUrl, token),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, token),
+          fetchAdminLeadAlertDeliverySettings(apiBaseUrl, token),
         ]);
 
         if (cancelled) {
@@ -289,6 +298,7 @@ export function AdminWorkspace({
         setCalendarIntegrationSettings(calendarSettingsResponse);
         setPaymentIntegrationSettings(paymentSettingsResponse);
         setEntraIntegrationSettings(entraSettingsResponse);
+        setLeadAlertDeliverySettings(leadAlertSettingsResponse);
         setIntegrationsError(null);
       } catch (error) {
         if (!cancelled) {
@@ -399,11 +409,13 @@ export function AdminWorkspace({
           fetchAdminCalendarIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminPaymentIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
-        ]).then(([statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse]) => {
+          fetchAdminLeadAlertDeliverySettings(apiBaseUrl, auth.tokens.accessToken),
+        ]).then(([statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse]) => {
           setIntegrationStatuses(statusResponse);
           setCalendarIntegrationSettings(calendarSettingsResponse);
           setPaymentIntegrationSettings(paymentSettingsResponse);
           setEntraIntegrationSettings(entraSettingsResponse);
+          setLeadAlertDeliverySettings(leadAlertSettingsResponse);
           setIntegrationsError(null);
         }),
       );
@@ -646,13 +658,136 @@ export function AdminWorkspace({
     }
   }
 
+  async function refreshLeadAlertDeliveryIntegration() {
+    if (!auth) {
+      return;
+    }
+
+    const [statusResponse, leadAlertSettingsResponse] = await Promise.all([
+      fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken),
+      fetchAdminLeadAlertDeliverySettings(apiBaseUrl, auth.tokens.accessToken),
+    ]);
+    setIntegrationStatuses(statusResponse);
+    setLeadAlertDeliverySettings(leadAlertSettingsResponse);
+    setIntegrationsError(null);
+  }
+
+  async function handleLeadAlertRetry() {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const result = await retryAdminLeadAlertDeliveries(apiBaseUrl, auth.tokens.accessToken, {
+        limit: 50,
+      });
+      await refreshLeadAlertDeliveryIntegration();
+      notifications.show({
+        color: 'green',
+        message: `Requeued ${result.retriedAlertCount} lead alert delivery attempt(s).`,
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
+  async function handleLeadAlertDeadLetter(reason: string) {
+    if (!auth || !leadAlertDeliverySettings?.metrics.latestFailure) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const result = await deadLetterAdminLeadAlertDeliveries(apiBaseUrl, auth.tokens.accessToken, {
+        alertIds: [leadAlertDeliverySettings.metrics.latestFailure.alertId],
+        reason,
+      });
+      await refreshLeadAlertDeliveryIntegration();
+      notifications.show({
+        color: 'green',
+        message: `Marked ${result.deadLetteredAlertCount} lead alert delivery attempt(s) as skipped.`,
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
+  async function handleLeadAlertQuietHoursChange(input: {
+    enabled?: boolean;
+    startLocal?: string;
+    endLocal?: string;
+    timeZone?: string;
+  }) {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const response = await updateAdminLeadAlertQuietHours(apiBaseUrl, auth.tokens.accessToken, input);
+      setLeadAlertDeliverySettings(response);
+      const nextStatuses = await fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken);
+      setIntegrationStatuses(nextStatuses);
+      notifications.show({
+        color: 'green',
+        message: 'Lead alert quiet-hours policy updated.',
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
+  async function handleLeadAlertRecipientChange(
+    recipientId: string,
+    input: { name?: string; email?: string | null; roleTitle?: string | null; isActive?: boolean; sortOrder?: number },
+  ) {
+    if (!auth) {
+      return;
+    }
+
+    setIntegrationSaving(true);
+    try {
+      const response = await updateAdminLeadAlertRecipient(apiBaseUrl, auth.tokens.accessToken, recipientId, input);
+      setLeadAlertDeliverySettings(response);
+      const nextStatuses = await fetchAdminIntegrations(apiBaseUrl, auth.tokens.accessToken);
+      setIntegrationStatuses(nextStatuses);
+      notifications.show({
+        color: 'green',
+        message: 'Lead alert recipient updated.',
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIntegrationSaving(false);
+    }
+  }
+
   const currentTabLoading = (
     !isHydrated
     || (activeTab === 'overview' && tabAccess.overview && (overviewLoading || !overview))
     || (activeTab === 'users' && tabAccess.users && (usersLoading || !usersResponse))
     || (activeTab === 'roles' && tabAccess.roles && (rolesLoading || !rolesCatalog))
     || (activeTab === 'activity' && tabAccess.activity && activityLoading && activity.length === 0)
-    || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !paymentIntegrationSettings || !entraIntegrationSettings))
+    || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !paymentIntegrationSettings || !entraIntegrationSettings || !leadAlertDeliverySettings))
   );
 
   const currentTabError = (
@@ -1140,6 +1275,16 @@ export function AdminWorkspace({
                 canManage={canManageIntegrations}
                 isSaving={integrationSaving}
                 onSave={handlePaymentIntegrationSave}
+              />
+              <AdminLeadAlertDeliveryPanel
+                settings={leadAlertDeliverySettings}
+                statuses={integrationStatuses}
+                canManage={canManageIntegrations}
+                isSaving={integrationSaving}
+                onRetryFailed={handleLeadAlertRetry}
+                onDeadLetterLatestFailure={handleLeadAlertDeadLetter}
+                onQuietHoursChange={handleLeadAlertQuietHoursChange}
+                onRecipientChange={handleLeadAlertRecipientChange}
               />
             </Stack>
           </Tabs.Panel>

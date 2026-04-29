@@ -31,7 +31,7 @@ export interface CalendarWorkspaceRequest {
 
 export interface CalendarEventSummary {
   id: string;
-  sourceModule: 'leads' | 'training' | 'territories';
+  sourceModule: 'leads' | 'training' | 'territories' | 'consignment';
   sourceRecordId: string;
   sourcePath: string;
   eventType: CalendarEventTypeKey;

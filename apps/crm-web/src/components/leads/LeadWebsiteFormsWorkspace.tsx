@@ -58,6 +58,7 @@ import type {
   OwnershipGroupTypeKey,
   ResolveWebsiteLeadSubmissionRequest,
   WebsiteLeadSiteFormConfig,
+  WebsiteLeadConnectionHealthStatusKey,
   WebsiteLeadFormTypeKey,
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
@@ -153,6 +154,7 @@ type SiteDraft = {
   siteId: string;
   siteName: string;
   url: string;
+  allowedOrigins: string;
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
   notes: string;
@@ -200,6 +202,7 @@ const initialSiteDraft: SiteDraft = {
   siteId: '',
   siteName: '',
   url: '',
+  allowedOrigins: '',
   brandTag: '',
   formType: 'both',
   notes: '',
@@ -279,6 +282,7 @@ function toSiteDraft(site?: WebsiteLeadSiteSummary): SiteDraft {
     siteId: site.siteId,
     siteName: site.siteName,
     url: site.url,
+    allowedOrigins: formatWebsiteLeadOptionsText(site.allowedOrigins),
     brandTag: site.brandTag,
     formType: site.formType,
     notes: site.notes ?? '',
@@ -510,6 +514,19 @@ export function LeadWebsiteFormsWorkspace() {
   const duplicateCount = duplicateSummary?.duplicateCount ?? 0;
   const duplicateLinkedLeadCount = duplicateSummary?.uniqueLinkedLeadCount ?? 0;
   const publicWebBaseUrl = DEFAULT_WEB_BASE_URL;
+  const healthCounts = useMemo(() => sites.reduce(
+    (counts, site) => ({
+      healthy: counts.healthy + (site.readiness.status === 'healthy' ? 1 : 0),
+      warning: counts.warning + (site.readiness.status === 'warning' ? 1 : 0),
+      blocked: counts.blocked + (site.readiness.status === 'blocked' ? 1 : 0),
+    }),
+    { healthy: 0, warning: 0, blocked: 0 },
+  ), [sites]);
+  const aggregateHealth: WebsiteLeadConnectionHealthStatusKey = healthCounts.blocked > 0
+    ? 'blocked'
+    : healthCounts.warning > 0
+      ? 'warning'
+      : 'healthy';
 
   const activeRecipientCount = useMemo(
     () => recipients.filter((recipient) => recipient.isActive).length,
@@ -679,21 +696,9 @@ export function LeadWebsiteFormsWorkspace() {
       const updated = await updateWebsiteLeadSite(apiBaseUrl, accessToken, site.id, {
         isActive: !site.isActive,
       });
+      const refreshed = await fetchWebsiteLeadSites(apiBaseUrl, accessToken);
 
-      setSites((current) => current.map((entry) => (
-        entry.id === site.id
-          ? {
-              ...entry,
-              ...updated,
-              submissionsLast30Days: entry.submissionsLast30Days,
-              linkedLeadsTotal: entry.linkedLeadsTotal,
-              activePipelineLeads: entry.activePipelineLeads,
-              convertedLeads: entry.convertedLeads,
-              conversionRate: entry.conversionRate,
-              ...(entry.recentSubmissionAt ? { recentSubmissionAt: entry.recentSubmissionAt } : {}),
-            }
-          : entry
-      )));
+      setSites(refreshed.items);
       notifications.show({
         title: 'Website updated',
         message: `${site.siteName} is now ${updated.isActive ? 'active' : 'inactive'} for Pulse-native capture.`,
@@ -739,6 +744,7 @@ export function LeadWebsiteFormsWorkspace() {
         siteId: siteDraft.siteId,
         siteName: siteDraft.siteName,
         url: siteDraft.url,
+        allowedOrigins: parseWebsiteLeadOptionsText(siteDraft.allowedOrigins),
         brandTag: siteDraft.brandTag,
         formType: siteDraft.formType,
         ...(siteDraft.notes.trim() ? { notes: siteDraft.notes.trim() } : {}),
@@ -748,29 +754,9 @@ export function LeadWebsiteFormsWorkspace() {
       const saved = editingSiteId
         ? await updateWebsiteLeadSite(apiBaseUrl, accessToken, editingSiteId, payload)
         : await createWebsiteLeadSite(apiBaseUrl, accessToken, payload);
+      const refreshed = await fetchWebsiteLeadSites(apiBaseUrl, accessToken);
 
-      setSites((current) => {
-        if (editingSiteId) {
-          return current
-            .map((entry) => (
-              entry.id === editingSiteId
-                ? {
-                    ...entry,
-                    ...saved,
-                    submissionsLast30Days: entry.submissionsLast30Days,
-                    linkedLeadsTotal: entry.linkedLeadsTotal,
-                    activePipelineLeads: entry.activePipelineLeads,
-                    convertedLeads: entry.convertedLeads,
-                    conversionRate: entry.conversionRate,
-                    ...(entry.recentSubmissionAt ? { recentSubmissionAt: entry.recentSubmissionAt } : {}),
-                  }
-                : entry
-            ))
-            .sort((left, right) => left.siteName.localeCompare(right.siteName));
-        }
-
-        return [...current, saved].sort((left, right) => left.siteName.localeCompare(right.siteName));
-      });
+      setSites(refreshed.items);
       setSiteDraft(initialSiteDraft);
       setEditingSiteId(null);
       setSiteModalOpen(false);
@@ -996,6 +982,9 @@ export function LeadWebsiteFormsWorkspace() {
               <Badge color="blue" variant="light">HubSpot Replaced</Badge>
               <Badge color="cyan" variant="light">{activeSites} Active Sites</Badge>
               <Badge color="grape" variant="light">{activeRecipientCount} Active Alert Recipients</Badge>
+              <Badge color={formatConnectionHealthColor(aggregateHealth)} variant="light">
+                {formatConnectionHealthLabel(aggregateHealth)}: {healthCounts.healthy}/{sites.length} Ready
+              </Badge>
             </Group>
           </Stack>
           <Button leftSection={<IconPlus size={16} />} onClick={openCreateSiteModal}>
@@ -1062,6 +1051,7 @@ export function LeadWebsiteFormsWorkspace() {
                   <Table.Th>Brand</Table.Th>
                   <Table.Th>Form Type</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  <Table.Th>Health</Table.Th>
                   <Table.Th>Leads (Month)</Table.Th>
                   <Table.Th>Leads (Total)</Table.Th>
                   <Table.Th>Conv. Rate</Table.Th>
@@ -1090,6 +1080,21 @@ export function LeadWebsiteFormsWorkspace() {
                         size="sm"
                         color="green"
                       />
+                    </Table.Td>
+                    <Table.Td>
+                      <Stack gap={3}>
+                        <Badge color={formatConnectionHealthColor(site.readiness.status)} variant="light" size="sm">
+                          {formatConnectionHealthLabel(site.readiness.status)}
+                        </Badge>
+                        <Text size="xs" c="dimmed">
+                          {site.readiness.lastSubmissionAt
+                            ? `Last: ${formatDateTime(site.readiness.lastSubmissionAt)}`
+                            : 'No submissions yet'}
+                        </Text>
+                        <Text size="xs" c={site.readiness.embedReady ? 'teal' : 'orange'}>
+                          {site.readiness.embedReady ? 'Embed ready' : 'Embed needs review'} · {site.allowedOrigins.length} origin{site.allowedOrigins.length === 1 ? '' : 's'}
+                        </Text>
+                      </Stack>
                     </Table.Td>
                     <Table.Td fw={600}>{site.submissionsLast30Days}</Table.Td>
                     <Table.Td>{site.linkedLeadsTotal}</Table.Td>
@@ -1211,6 +1216,52 @@ export function LeadWebsiteFormsWorkspace() {
                 </Text>
               </Timeline.Item>
             </Timeline>
+
+            <Paper withBorder radius="md" p="md" mt="lg">
+              <Group justify="space-between" align="flex-start" mb="sm">
+                <Stack gap={2}>
+                  <Title order={5}>Cutover readiness</Title>
+                  <Text size="sm" c="dimmed">
+                    Derived from active site settings, trusted origins, embed identity, recent submission evidence, and alert recipients.
+                  </Text>
+                </Stack>
+                <Badge color={formatConnectionHealthColor(aggregateHealth)} variant="light">
+                  {formatConnectionHealthLabel(aggregateHealth)}
+                </Badge>
+              </Group>
+              <SimpleGrid cols={{ base: 1, md: 3 }}>
+                <ReadinessCheckCard
+                  label="Trusted origins"
+                  status={sites.every((site) => site.readiness.hasAllowedOrigins && site.readiness.allowedOriginMatchesSiteUrl) ? 'healthy' : 'blocked'}
+                  detail={`${sites.filter((site) => site.readiness.allowedOriginMatchesSiteUrl).length}/${sites.length} site URLs are trusted origins`}
+                />
+                <ReadinessCheckCard
+                  label="Embed readiness"
+                  status={sites.every((site) => site.readiness.embedReady) ? 'healthy' : 'warning'}
+                  detail={`${sites.filter((site) => site.readiness.embedReady).length}/${sites.length} sites are ready for hosted embed`}
+                />
+                <ReadinessCheckCard
+                  label="Recent evidence"
+                  status={sites.some((site) => site.readiness.hasRecentSubmission) ? 'healthy' : 'warning'}
+                  detail={`${sites.filter((site) => site.readiness.hasRecentSubmission).length} sites have submission evidence`}
+                />
+                <ReadinessCheckCard
+                  label="Alert recipients"
+                  status={activeRecipientCount > 0 ? 'healthy' : 'blocked'}
+                  detail={`${activeRecipientCount} active recipient${activeRecipientCount === 1 ? '' : 's'} configured`}
+                />
+                <ReadinessCheckCard
+                  label="Rate limiting"
+                  status="healthy"
+                  detail="Public capture is protected by server-scoped fixed-window limits."
+                />
+                <ReadinessCheckCard
+                  label="Duplicate review"
+                  status={duplicateCount > 0 ? 'warning' : 'healthy'}
+                  detail={`${duplicateCount} repeat submission${duplicateCount === 1 ? '' : 's'} need operational review`}
+                />
+              </SimpleGrid>
+            </Paper>
 
             {routingPolicy ? (
               <Alert mt="lg" color="blue" variant="light">
@@ -1588,6 +1639,11 @@ export function LeadWebsiteFormsWorkspace() {
               Copy this snippet into the branded contact page for <strong>{embedSite.siteName}</strong>. The form will render from
               Pulse CRM and post directly into the live lead-capture endpoint.
             </Alert>
+            {!embedSite.readiness.embedReady ? (
+              <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
+                This website is not cutover-ready yet: {embedSite.readiness.issues.join(' ')}
+              </Alert>
+            ) : null}
             <Code block style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
               {generateEmbedCode(embedSite, publicWebBaseUrl)}
             </Code>
@@ -1803,6 +1859,13 @@ export function LeadWebsiteFormsWorkspace() {
             onChange={(event) => setSiteDraft((current) => ({ ...current, url: event.currentTarget.value }))}
             placeholder="https://example.com/contact-us"
           />
+          <Textarea
+            label="Allowed origins"
+            description="One trusted origin per line. Example: https://example.com"
+            value={siteDraft.allowedOrigins}
+            onChange={(event) => setSiteDraft((current) => ({ ...current, allowedOrigins: event.currentTarget.value }))}
+            minRows={2}
+          />
           <Group grow>
             <TextInput
               label="Brand Tag"
@@ -1980,6 +2043,7 @@ function toPublicWebsiteLeadSite(site: WebsiteLeadSiteSummary) {
     siteId: site.siteId,
     siteName: site.siteName,
     url: site.url,
+    allowedOrigins: site.allowedOrigins,
     brandTag: site.brandTag,
     formType: site.formType,
     formConfig: site.formConfig,
@@ -2029,6 +2093,52 @@ function MetricCard({
       <Text size="xs" c="dimmed">{helper}</Text>
     </Card>
   );
+}
+
+function ReadinessCheckCard({
+  label,
+  status,
+  detail,
+}: {
+  label: string;
+  status: WebsiteLeadConnectionHealthStatusKey;
+  detail: string;
+}) {
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Group justify="space-between" align="flex-start">
+        <Stack gap={4}>
+          <Text size="sm" fw={600}>{label}</Text>
+          <Text size="xs" c="dimmed">{detail}</Text>
+        </Stack>
+        <Badge color={formatConnectionHealthColor(status)} variant="light">
+          {formatConnectionHealthLabel(status)}
+        </Badge>
+      </Group>
+    </Paper>
+  );
+}
+
+function formatConnectionHealthLabel(value: WebsiteLeadConnectionHealthStatusKey) {
+  switch (value) {
+    case 'healthy':
+      return 'Cutover Ready';
+    case 'warning':
+      return 'Needs Evidence';
+    case 'blocked':
+      return 'Blocked';
+  }
+}
+
+function formatConnectionHealthColor(value: WebsiteLeadConnectionHealthStatusKey) {
+  switch (value) {
+    case 'healthy':
+      return 'green';
+    case 'warning':
+      return 'orange';
+    case 'blocked':
+      return 'red';
+  }
 }
 
 function getFormTypeLabel(formType: WebsiteLeadFormTypeKey) {

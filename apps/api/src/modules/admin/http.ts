@@ -13,7 +13,14 @@ import type {
   WorkspaceActionKey,
   WorkspaceModuleKey,
 } from '@pulse/contracts';
+import type {
+  DeadLetterLeadOperationalAlertDeliveriesRequest,
+  RetryLeadOperationalAlertDeliveriesRequest,
+  UpdateLeadOperationalAlertQuietHoursRequest,
+  UpdateLeadOperationalAlertRecipientRequest,
+} from '@pulse/contracts/leads';
 import type { AppConfig } from '../../config.js';
+import type { QueueManager } from '../../queue/contracts.js';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -51,9 +58,17 @@ import {
   getPaymentIntegrationAdminSettings,
   updatePaymentIntegrationAdminSettings,
 } from '../cis/policy.js';
+import {
+  deadLetterLeadOperationalAlertDeliveries,
+  getLeadOperationalAlertDeliveryAdminSettings,
+  retryLeadOperationalAlertDeliveries,
+  updateLeadOperationalAlertQuietHours,
+  updateLeadOperationalAlertRecipient,
+} from '../leads/service.js';
 
 type AdminRouteDependencies = {
   config: AppConfig;
+  queue: QueueManager;
   getDatabaseHealth: () => Promise<{
     ok: boolean;
     checkedAt: string;
@@ -298,6 +313,69 @@ export async function handleAdminRoutes(
     }
 
     return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
+  }
+
+  if (pathname === '/api/v1/admin/integrations/lead-alerts') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_view' }, async () => {
+      const response = await getLeadOperationalAlertDeliveryAdminSettings(dependencies.config);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/admin/integrations/lead-alerts/retry') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+      const body = (await readJsonBody(req)) as RetryLeadOperationalAlertDeliveriesRequest;
+      const response = await retryLeadOperationalAlertDeliveries(actor, body, { queue: dependencies.queue });
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/admin/integrations/lead-alerts/dead-letter') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse(res, method, ['POST']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+      const body = (await readJsonBody(req)) as DeadLetterLeadOperationalAlertDeliveriesRequest;
+      const response = await deadLetterLeadOperationalAlertDeliveries(actor, dependencies.config, body);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/admin/integrations/lead-alerts/quiet-hours') {
+    if (method !== 'PATCH') {
+      return methodNotAllowedResponse(res, method, ['PATCH']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+      const body = (await readJsonBody(req)) as UpdateLeadOperationalAlertQuietHoursRequest;
+      await updateLeadOperationalAlertQuietHours(actor, body);
+      const response = await getLeadOperationalAlertDeliveryAdminSettings(dependencies.config);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  const leadAlertRecipientMatch = pathname.match(/^\/api\/v1\/admin\/integrations\/lead-alerts\/recipients\/([^/]+)$/);
+  if (leadAlertRecipientMatch?.[1]) {
+    const recipientId = decodeURIComponent(leadAlertRecipientMatch[1]);
+    if (method !== 'PATCH') {
+      return methodNotAllowedResponse(res, method, ['PATCH']);
+    }
+
+    return withAdminAuth(req, res, { module: 'admin', action: 'admin.integration_manage' }, async (actor) => {
+      const body = (await readJsonBody(req)) as UpdateLeadOperationalAlertRecipientRequest;
+      await updateLeadOperationalAlertRecipient(actor, recipientId, body);
+      const response = await getLeadOperationalAlertDeliveryAdminSettings(dependencies.config);
+      return jsonResponse(res, 200, response);
+    });
   }
 
   return false;

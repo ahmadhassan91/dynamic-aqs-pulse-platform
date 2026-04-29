@@ -38,6 +38,31 @@ That gives us:
 - clean upgradeability later
 - regression coverage for alert delivery behavior without inventing a live provider
 
+## Runtime And Provider Plan
+
+Current runtime posture:
+
+- `lead.operational-alert-scan` remains the source-of-truth scan job for creating operational alert records.
+- `lead.operational-alert-delivery` is the delivery job and is enqueued once per persisted alert using an alert-scoped idempotency key.
+- non-production defaults to `LEAD_OPERATIONAL_ALERT_DELIVERY_MODE=preview`
+- production defaults to `LEAD_OPERATIONAL_ALERT_DELIVERY_MODE=disabled` until provider credentials, sender policy, and response contracts are approved
+- `preview` records a `PREVIEWED` delivery attempt with provider key `pulse.lead-operational-alert.preview`
+- `disabled` records a `SKIPPED` delivery attempt with provider key `pulse.lead-operational-alert.disabled`
+- both modes persist recipient, subject, correlation metadata, and current alert delivery status so operations can audit what would have happened
+
+Provider activation plan:
+
+1. Keep the queue contract stable: the delivery worker should still receive only the persisted alert id plus correlation context.
+2. Add the approved outbound provider behind the delivery worker, not in the scan worker or lead mutation paths.
+3. Map provider responses into explicit delivery attempts:
+   - accepted/sent -> `SENT`
+   - configuration or recipient suppression -> `SKIPPED`
+   - retryable provider failure -> worker retry plus `FAILED` only after the retry policy is exhausted
+4. Store provider message ids, response classification, and failure reason in the delivery-attempt metadata without moving core alert truth into JSON.
+5. Keep production disabled until sender domain, recipient governance, quiet-hours/escalation policy, and support ownership are signed off.
+
+This means production readiness is not "turn on SMTP." It is a controlled provider cutover that preserves the current audit trail and queue isolation.
+
 ## Key Files
 
 - `apps/api/src/modules/leads/alerts.ts`
@@ -93,6 +118,7 @@ Still intentionally parked:
 
 - real outbound provider delivery for lead operational alerts
 - recipient email governance for the seeded SGT roster
+- sender domain, escalation routing, quiet-hours, retry/dead-letter operations, and support ownership for production notifications
 - UI surfacing of alert delivery history and delivery-state diagnostics
 - richer alert preference management by role/team
 

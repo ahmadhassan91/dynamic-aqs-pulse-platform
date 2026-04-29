@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
   Divider,
+  FileInput,
   Group,
   Modal,
   NumberInput,
@@ -48,6 +50,8 @@ import {
   type AffinityGroupReferenceSummary,
   type CreateLeadRequest,
   type GroupAxisSelectionKey,
+  type LeadImportDuplicateCandidate,
+  type PreviewLeadOcrCaptureResponse,
   type LeadRoutingPolicySummary,
   type LeadRoutingTeamKey,
   type LeadStageKey,
@@ -68,6 +72,8 @@ import {
   fetchLeadSources,
   fetchLeads,
   fetchOwnershipGroups,
+  previewLeadDuplicateCandidates,
+  previewLeadOcrCapture,
   transitionLeadStage,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -168,6 +174,13 @@ export function LeadWorkspace({
   const [createLeadForm, setCreateLeadForm] = useState<LeadCreateFormState>(EMPTY_LEAD_FORM);
   const [createLeadError, setCreateLeadError] = useState<string | null>(null);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<LeadImportDuplicateCandidate[]>([]);
+  const [pendingDuplicatePayload, setPendingDuplicatePayload] = useState<CreateLeadRequest | null>(null);
+  const [duplicateOverrideReason, setDuplicateOverrideReason] = useState('');
+  const [ocrCaptureFile, setOcrCaptureFile] = useState<File | null>(null);
+  const [ocrPreview, setOcrPreview] = useState<PreviewLeadOcrCaptureResponse | null>(null);
+  const [ocrDuplicateCandidates, setOcrDuplicateCandidates] = useState<LeadImportDuplicateCandidate[]>([]);
+  const [isPreviewingOcr, setIsPreviewingOcr] = useState(false);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dropStageKey, setDropStageKey] = useState<LeadStageKey | null>(null);
   const [transitioningLeadId, setTransitioningLeadId] = useState<string | null>(null);
@@ -318,7 +331,7 @@ export function LeadWorkspace({
     return [...summary.entries()].sort((a, b) => b[1] - a[1]);
   }, [leads]);
 
-  async function handleCreateLead() {
+  function buildManualLeadCreatePayload(): CreateLeadRequest | null {
     if (
       !auth
       || !createLeadForm.companyName.trim()
@@ -327,75 +340,210 @@ export function LeadWorkspace({
       || !createLeadForm.phone.trim()
     ) {
       setCreateLeadError('Company name, email, phone, and service tech count are required.');
+      return null;
+    }
+
+    if (!createLeadForm.affinityGroupSelection) {
+      setCreateLeadError('Choose an affinity group status before creating a manual lead.');
+      return null;
+    }
+
+    if (!createLeadForm.ownershipGroupSelection) {
+      setCreateLeadError('Choose an ownership group status before creating a manual lead.');
+      return null;
+    }
+
+    if (createLeadForm.affinityGroupSelection === 'group' && !createLeadForm.affinityGroupCode) {
+      setCreateLeadError('Choose an affinity group when the affinity selection is set to a governed group.');
+      return null;
+    }
+
+    if (createLeadForm.ownershipGroupSelection === 'group' && !createLeadForm.ownershipGroupCode) {
+      setCreateLeadError('Choose an ownership group when the ownership selection is set to a governed group.');
+      return null;
+    }
+
+    const regionOption = findAppLeadRegionOption(createLeadForm.state);
+    return {
+      companyName: createLeadForm.companyName.trim(),
+      serviceTechCount: createLeadForm.serviceTechCount,
+      leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
+      affinityGroupSelection: createLeadForm.affinityGroupSelection,
+      ownershipGroupSelection: createLeadForm.ownershipGroupSelection,
+      ...(createLeadForm.contactDisplayName.trim() ? { contactDisplayName: createLeadForm.contactDisplayName.trim() } : {}),
+      ...(createLeadForm.email.trim() ? { email: createLeadForm.email.trim() } : {}),
+      ...(createLeadForm.phone.trim() ? { phone: createLeadForm.phone.trim() } : {}),
+      ...(createLeadForm.state.trim() ? { state: createLeadForm.state.trim() } : {}),
+      ...(createLeadForm.affinityGroupSelection === 'group' && createLeadForm.affinityGroupCode
+        ? { affinityGroupCode: createLeadForm.affinityGroupCode }
+        : {}),
+      ...(createLeadForm.ownershipGroupSelection === 'group' && createLeadForm.ownershipGroupCode
+        ? { ownershipGroupCode: createLeadForm.ownershipGroupCode }
+        : {}),
+      ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
+      ...(createLeadForm.sourceCampaign ? { sourceCampaign: createLeadForm.sourceCampaign } : {}),
+      ...(createLeadForm.leadRating ? { leadRating: createLeadForm.leadRating } : {}),
+      ...(createLeadForm.installTechCount > 0 ? { installTechCount: createLeadForm.installTechCount } : {}),
+      ...(createLeadForm.notes.trim() ? { notes: createLeadForm.notes.trim() } : {}),
+    };
+  }
+
+  function resetCreateLeadModal() {
+    setCreateLeadForm({
+      ...EMPTY_LEAD_FORM,
+      leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
+    });
+    setCreateLeadError(null);
+    setDuplicateCandidates([]);
+    setPendingDuplicatePayload(null);
+    setDuplicateOverrideReason('');
+    setOcrCaptureFile(null);
+    setOcrPreview(null);
+    setOcrDuplicateCandidates([]);
+    closeCreateLead();
+  }
+
+  async function handlePreviewOcrCapture() {
+    if (!auth || !ocrCaptureFile) {
+      return;
+    }
+
+    setCreateLeadError(null);
+    setIsPreviewingOcr(true);
+    setOcrPreview(null);
+    setOcrDuplicateCandidates([]);
+
+    try {
+      const contentBase64 = await readFileAsBase64(ocrCaptureFile);
+      const preview = await previewLeadOcrCapture(apiBaseUrl, auth.tokens.accessToken, {
+        documentType: 'business_card',
+        fileName: ocrCaptureFile.name,
+        mimeType: ocrCaptureFile.type || 'application/octet-stream',
+        contentBase64,
+        ...(createLeadForm.serviceTechCount > 0 ? { serviceTechCountFallback: createLeadForm.serviceTechCount } : {}),
+      });
+
+      setOcrPreview(preview);
+      setOcrDuplicateCandidates(preview.duplicatePreview.candidates);
+      setCreateLeadForm((current) => ({
+        ...current,
+        companyName: readOcrStringField(preview.fields.companyName?.value) || current.companyName,
+        contactDisplayName: readOcrStringField(preview.fields.contactDisplayName?.value) || current.contactDisplayName,
+        email: readOcrStringField(preview.fields.email?.value) || current.email,
+        phone: readOcrStringField(preview.fields.phone?.value) || current.phone,
+        state: readOcrStringField(preview.fields.state?.value) || current.state,
+        serviceTechCount: preview.fields.serviceTechCount?.value || current.serviceTechCount,
+        leadSourceCode: current.leadSourceCode || 'manual_entry',
+        notes: [
+          current.notes.trim(),
+          preview.rawExtractionText ? `OCR capture text:\n${preview.rawExtractionText}` : '',
+        ].filter(Boolean).join('\n\n'),
+      }));
+    } catch (error) {
+      setCreateLeadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsPreviewingOcr(false);
+    }
+  }
+
+  async function finishCreateLead(payload: CreateLeadRequest) {
+    if (!auth) {
+      return;
+    }
+
+    const response = await createLead(apiBaseUrl, auth.tokens.accessToken, payload);
+
+    resetCreateLeadModal();
+    startTransition(() => {
+      setActiveTab('pipeline');
+      setViewMode('kanban');
+      router.push(`/leads/${response.id}`);
+    });
+    setRefreshNonce((value) => value + 1);
+  }
+
+  async function handleCreateLead() {
+    if (!auth) {
+      return;
+    }
+
+    setCreateLeadError(null);
+    const payload = buildManualLeadCreatePayload();
+    if (!payload) {
       return;
     }
 
     const accessToken = auth.tokens.accessToken;
     setIsCreatingLead(true);
+
+    try {
+      const preview = await previewLeadDuplicateCandidates(apiBaseUrl, accessToken, payload);
+      if (preview.hasPotentialDuplicate) {
+        setDuplicateCandidates(preview.candidates);
+        setPendingDuplicatePayload(payload);
+        setDuplicateOverrideReason('');
+        return;
+      }
+
+      await finishCreateLead(payload);
+    } catch (error) {
+      setCreateLeadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingLead(false);
+    }
+  }
+
+  async function handleConfirmDuplicateCreate() {
+    if (!pendingDuplicatePayload) {
+      return;
+    }
+
+    const reason = duplicateOverrideReason.trim();
+    if (!reason) {
+      setCreateLeadError('Enter a reason before creating a separate duplicate lead.');
+      return;
+    }
+
+    setIsCreatingLead(true);
     setCreateLeadError(null);
 
     try {
-      if (!createLeadForm.affinityGroupSelection) {
-        setCreateLeadError('Choose an affinity group status before creating a manual lead.');
-        setIsCreatingLead(false);
-        return;
-      }
-
-      if (!createLeadForm.ownershipGroupSelection) {
-        setCreateLeadError('Choose an ownership group status before creating a manual lead.');
-        setIsCreatingLead(false);
-        return;
-      }
-
-      if (createLeadForm.affinityGroupSelection === 'group' && !createLeadForm.affinityGroupCode) {
-        setCreateLeadError('Choose an affinity group when the affinity selection is set to a governed group.');
-        setIsCreatingLead(false);
-        return;
-      }
-
-      if (createLeadForm.ownershipGroupSelection === 'group' && !createLeadForm.ownershipGroupCode) {
-        setCreateLeadError('Choose an ownership group when the ownership selection is set to a governed group.');
-        setIsCreatingLead(false);
-        return;
-      }
-
-      const regionOption = findAppLeadRegionOption(createLeadForm.state);
-      const payload: CreateLeadRequest = {
-        companyName: createLeadForm.companyName.trim(),
-        serviceTechCount: createLeadForm.serviceTechCount,
-        leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
-        affinityGroupSelection: createLeadForm.affinityGroupSelection,
-        ownershipGroupSelection: createLeadForm.ownershipGroupSelection,
-        ...(createLeadForm.contactDisplayName.trim() ? { contactDisplayName: createLeadForm.contactDisplayName.trim() } : {}),
-        ...(createLeadForm.email.trim() ? { email: createLeadForm.email.trim() } : {}),
-        ...(createLeadForm.phone.trim() ? { phone: createLeadForm.phone.trim() } : {}),
-        ...(createLeadForm.state.trim() ? { state: createLeadForm.state.trim() } : {}),
-        ...(createLeadForm.affinityGroupSelection === 'group' && createLeadForm.affinityGroupCode
-          ? { affinityGroupCode: createLeadForm.affinityGroupCode }
-          : {}),
-        ...(createLeadForm.ownershipGroupSelection === 'group' && createLeadForm.ownershipGroupCode
-          ? { ownershipGroupCode: createLeadForm.ownershipGroupCode }
-          : {}),
-        ...(regionOption ? { countryCode: regionOption.countryCode } : {}),
-        ...(createLeadForm.sourceCampaign ? { sourceCampaign: createLeadForm.sourceCampaign } : {}),
-        ...(createLeadForm.leadRating ? { leadRating: createLeadForm.leadRating } : {}),
-        ...(createLeadForm.installTechCount > 0 ? { installTechCount: createLeadForm.installTechCount } : {}),
-        ...(createLeadForm.notes.trim() ? { notes: createLeadForm.notes.trim() } : {}),
-      };
-
-      const response = await createLead(apiBaseUrl, accessToken, payload);
-
-      setCreateLeadForm({
-        ...EMPTY_LEAD_FORM,
-        leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
+      await finishCreateLead({
+        ...pendingDuplicatePayload,
+        duplicateResolution: {
+          decision: 'create_new',
+          reason,
+        },
       });
-      closeCreateLead();
-      startTransition(() => {
-        setActiveTab('pipeline');
-        setViewMode('kanban');
-        router.push(`/leads/${response.id}`);
+    } catch (error) {
+      setCreateLeadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingLead(false);
+    }
+  }
+
+  async function handleEnrichDuplicateLead(targetEntityId: string) {
+    if (!pendingDuplicatePayload) {
+      return;
+    }
+
+    const reason = duplicateOverrideReason.trim();
+    if (!reason) {
+      setCreateLeadError('Enter a reason before enriching an existing lead.');
+      return;
+    }
+
+    setIsCreatingLead(true);
+    setCreateLeadError(null);
+    try {
+      await finishCreateLead({
+        ...pendingDuplicatePayload,
+        duplicateResolution: {
+          decision: 'enrich_existing',
+          targetEntityId,
+          reason,
+        },
       });
-      setRefreshNonce((value) => value + 1);
     } catch (error) {
       setCreateLeadError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -996,8 +1144,63 @@ export function LeadWorkspace({
         </Tabs>
       </Stack>
 
-      <Modal opened={createLeadOpened} onClose={closeCreateLead} title="New Intake" centered size="lg">
+      <Modal opened={createLeadOpened} onClose={resetCreateLeadModal} title="New Intake" centered size="xl">
         <Stack gap="md">
+          {duplicateCandidates.length > 0 ? (
+            <Alert color="orange" variant="light">
+              Pulse found potential duplicates. Review the matches below before deciding whether this should become a separate lead.
+            </Alert>
+          ) : null}
+          <Paper withBorder radius="md" p="md">
+            <Stack gap="sm">
+              <Group justify="space-between" align="flex-end">
+                <FileInput
+                  leftSection={<IconFileUpload size={16} />}
+                  label="Scan business card, badge, or handwritten note"
+                  placeholder="Upload PDF, photo, or scan"
+                  accept="application/pdf,image/png,image/jpeg,image/webp,image/tiff"
+                  value={ocrCaptureFile}
+                  onChange={setOcrCaptureFile}
+                  clearable
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  variant="light"
+                  leftSection={<IconFileUpload size={16} />}
+                  onClick={() => void handlePreviewOcrCapture()}
+                  loading={isPreviewingOcr}
+                  disabled={!ocrCaptureFile}
+                >
+                  Scan
+                </Button>
+              </Group>
+              {ocrPreview ? (
+                <Alert color={ocrPreview.lowConfidence ? 'yellow' : 'teal'} variant="light">
+                  OCR used {formatOcrMode(ocrPreview.extractionMode)} and filled the intake draft for review.
+                  {ocrPreview.reviewReasons.length > 0 ? ` ${ocrPreview.reviewReasons.join(' ')}` : ''}
+                </Alert>
+              ) : null}
+              {ocrDuplicateCandidates.length > 0 ? (
+                <Stack gap="xs">
+                  <Text size="sm" fw={700}>OCR duplicate candidates</Text>
+                  {ocrDuplicateCandidates.map((candidate) => (
+                    <Paper key={`ocr:${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text fw={600}>{candidate.title}</Text>
+                          {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
+                          {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
+                        </Stack>
+                        <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
+                          {candidate.entityType === 'account' ? 'Account' : 'Lead'}
+                        </Badge>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : null}
+            </Stack>
+          </Paper>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <TextInput
               label="Company name"
@@ -1140,13 +1343,79 @@ export function LeadWorkspace({
             minRows={4}
           />
           {createLeadError ? <Text c="red">{createLeadError}</Text> : null}
+          {duplicateCandidates.length > 0 ? (
+            <Paper withBorder radius="md" p="md">
+              <Stack gap="sm">
+                <Text fw={700}>Potential duplicate matches</Text>
+                {duplicateCandidates.map((candidate) => (
+                  <Paper key={`${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
+                    <Group justify="space-between" align="flex-start">
+                      <Stack gap={2}>
+                        <Text fw={600}>{candidate.title}</Text>
+                        {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
+                        {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
+                      </Stack>
+                      <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
+                        {candidate.entityType === 'account' ? 'Account' : 'Lead'}
+                      </Badge>
+                    </Group>
+                    {candidate.entityType === 'lead' ? (
+                      <Group justify="flex-end" mt="sm">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          onClick={() => void handleEnrichDuplicateLead(candidate.entityId)}
+                          loading={isCreatingLead}
+                          disabled={!duplicateOverrideReason.trim()}
+                        >
+                          Enrich Existing Lead
+                        </Button>
+                      </Group>
+                    ) : null}
+                  </Paper>
+                ))}
+                <Textarea
+                  label="Reason for separate lead"
+                  description="Required to create a separate lead or enrich an existing lead."
+                  value={duplicateOverrideReason}
+                  onChange={(event) => setDuplicateOverrideReason(event.currentTarget.value)}
+                  minRows={2}
+                />
+              </Stack>
+            </Paper>
+          ) : null}
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
               Manual intake lands in the same governed routing pipeline as web and import leads.
             </Text>
-            <Button onClick={() => void handleCreateLead()} loading={isCreatingLead}>
-              Create Lead
-            </Button>
+            {duplicateCandidates.length > 0 ? (
+              <Group gap="xs">
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    setDuplicateCandidates([]);
+                    setPendingDuplicatePayload(null);
+                    setDuplicateOverrideReason('');
+                    setCreateLeadError(null);
+                  }}
+                  disabled={isCreatingLead}
+                >
+                  Review Intake
+                </Button>
+                <Button
+                  onClick={() => void handleConfirmDuplicateCreate()}
+                  loading={isCreatingLead}
+                  color="orange"
+                  disabled={!duplicateOverrideReason.trim()}
+                >
+                  Create Lead Anyway
+                </Button>
+              </Group>
+            ) : (
+              <Button onClick={() => void handleCreateLead()} loading={isCreatingLead}>
+                Create Lead
+              </Button>
+            )}
           </Group>
         </Stack>
       </Modal>
@@ -1319,6 +1588,37 @@ function primaryLeadActionLabel(lead: LeadSummary) {
     default:
       return 'Open Lead';
   }
+}
+
+function formatOcrMode(value: PreviewLeadOcrCaptureResponse['extractionMode']) {
+  switch (value) {
+    case 'direct_text':
+      return 'direct PDF text extraction';
+    case 'tesseract_ocr':
+      return 'Tesseract OCR';
+    case 'manual_text':
+      return 'review text';
+  }
+}
+
+function readOcrStringField(value: string | number | undefined) {
+  return typeof value === 'string' ? value : '';
+}
+
+function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Unable to read OCR file'));
+        return;
+      }
+      resolve(result.includes(',') ? result.split(',')[1] ?? '' : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read OCR file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function downloadCsv(filename: string, rows: Record<string, string>[]) {

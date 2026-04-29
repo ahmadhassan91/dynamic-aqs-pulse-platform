@@ -18,6 +18,8 @@ import type {
   AccountTerritoryAssignmentSummary,
   BulkReassignAccountsTerritoryRequest,
   BulkReassignAccountsTerritoryResponse,
+  BulkReassignLeadsTerritoryRequest,
+  BulkReassignLeadsTerritoryResponse,
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
@@ -50,6 +52,8 @@ import type {
   TerritoryMapShippingCenterSummary,
   TerritoryMapWorkspaceResponse,
   TerritoryPolicySummary,
+  TerritoryRoutePlanStopSummary,
+  TerritoryRoutePlanSummary,
   TerritorySummary,
   UpdateRegionRequest,
   UpdateShippingCenterRequest,
@@ -62,6 +66,7 @@ import { buildAccountRecordScope, resolveLeadRecordScope } from '../auth/visibil
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   assertTerritoryAssignmentHistoryVisible,
+  assertTerritoryReassignmentVisible,
   buildRegionReadScope,
   buildShippingCenterReadScope,
   buildTerritoryReadScope,
@@ -130,6 +135,10 @@ type AccountWithTerritoryRefs = Prisma.AccountGetPayload<{
   include: typeof ACCOUNT_TERRITORY_INCLUDE;
 }>;
 
+type LeadWithTerritoryRefs = Prisma.LeadGetPayload<{
+  include: typeof LEAD_TERRITORY_INCLUDE;
+}>;
+
 type TerritoryDashboardLeadRecord = {
   id: string;
   territoryId: string | null;
@@ -156,6 +165,14 @@ type TerritoryDashboardAccountRecord = {
     status: TrainingSessionStatus;
     activityKind: TrainingActivityKind;
   }>;
+};
+
+type TerritoryRouteVisitState = {
+  accountId: string;
+  activeVisitSessionId?: string;
+  lastVisitSessionId?: string;
+  lastVisitCompletedAt?: string;
+  lastVisitTrainerName?: string;
 };
 
 const ASSIGNABLE_TERRITORY_ROLE_CODES = ['TERRITORY_MANAGER', 'REGIONAL_DIRECTOR'] as const;
@@ -365,8 +382,8 @@ export async function updateTerritoryPolicy(
 
 export async function listRegions(actor: AuthenticatedActor): Promise<ListRegionsResponse> {
   assertModuleAccess(actor.role, 'territories');
-  const regionScope = buildRegionReadScope(actor);
-  const territoryScope = buildTerritoryReadScope(actor);
+  const regionScope = await buildRegionReadScope(actor);
+  const territoryScope = await buildTerritoryReadScope(actor);
 
   const query = {
     orderBy: [{ name: 'asc' }],
@@ -546,7 +563,7 @@ export async function updateRegion(
 
 export async function listTerritories(actor: AuthenticatedActor): Promise<ListTerritoriesResponse> {
   assertModuleAccess(actor.role, 'territories');
-  const scopeWhere = buildTerritoryReadScope(actor);
+  const scopeWhere = await buildTerritoryReadScope(actor);
 
   const query = {
     orderBy: [{ name: 'asc' }],
@@ -565,8 +582,8 @@ export async function getTerritoryMapWorkspace(
   actor: AuthenticatedActor,
 ): Promise<TerritoryMapWorkspaceResponse> {
   assertModuleAccess(actor.role, 'territories');
-  const territoryScope = buildTerritoryReadScope(actor);
-  const regionScope = buildRegionReadScope(actor);
+  const territoryScope = await buildTerritoryReadScope(actor);
+  const regionScope = await buildRegionReadScope(actor);
   const shippingCenterScope = await buildShippingCenterReadScope(actor);
   const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
@@ -601,7 +618,7 @@ export async function getTerritoryMapWorkspace(
     ...(shippingCenterScope ? { where: shippingCenterScope } : {}),
   } satisfies Prisma.ShippingCenterFindManyArgs;
 
-  const [policy, regionItems, territoryItems, shippingCenterItems, leadItems, accountItems] = await Promise.all([
+  const [policy, regionItems, territoryItems, shippingCenterItems, leadItems, accountItems, visitSessions] = await Promise.all([
     requireTerritoryPolicy(),
     prisma.region.findMany(regionQuery),
     prisma.territory.findMany(territoryQuery),
@@ -670,11 +687,31 @@ export async function getTerritoryMapWorkspace(
         },
       },
     }),
+    prisma.trainingSession.findMany({
+      where: {
+        activityKind: TrainingActivityKind.SITE_VISIT,
+        status: {
+          in: [TrainingSessionStatus.SCHEDULED, TrainingSessionStatus.COMPLETED],
+        },
+        ...(accountScope ? { account: accountScope } : {}),
+      },
+      orderBy: [{ checkedInAt: 'desc' }, { completedAt: 'desc' }, { scheduledAt: 'desc' }],
+      take: 500,
+      include: {
+        trainerUser: {
+          select: {
+            displayName: true,
+          },
+        },
+      },
+    }),
   ]);
 
   const territories = territoryItems.map(toTerritorySummary);
   const regions = regionItems.map((item) => toRegionSummaryWithVisibleTerritoryCount(item, item.territories.length));
   const coverageEntries = territoryItems.flatMap((territory) => toTerritoryMapCoverageEntries(territory));
+  const accountPins = accountItems.map(toTerritoryMapAccountPin);
+  const leadPins = leadItems.map(toTerritoryMapLeadPin);
 
   const leadCountsByShippingCenter = new Map<string, number>();
   const accountCountsByShippingCenter = new Map<string, number>();
@@ -707,28 +744,35 @@ export async function getTerritoryMapWorkspace(
     }
   }
 
+  const shippingCenters = shippingCenterItems.map((item) =>
+    toTerritoryMapShippingCenterSummary(item, {
+      servicedTerritoryCount: territoryCountsByShippingCenter.get(item.id) ?? 0,
+      activeLeadCount: leadCountsByShippingCenter.get(item.id) ?? 0,
+      activeAccountCount: accountCountsByShippingCenter.get(item.id) ?? 0,
+    }),
+  );
+
   return {
     policy: toTerritoryPolicySummary(policy),
     regions,
     territories,
     coverageEntries,
-    shippingCenters: shippingCenterItems.map((item) =>
-      toTerritoryMapShippingCenterSummary(item, {
-        servicedTerritoryCount: territoryCountsByShippingCenter.get(item.id) ?? 0,
-        activeLeadCount: leadCountsByShippingCenter.get(item.id) ?? 0,
-        activeAccountCount: accountCountsByShippingCenter.get(item.id) ?? 0,
-      }),
-    ),
-    accountPins: accountItems.map(toTerritoryMapAccountPin),
-    leadPins: leadItems.map(toTerritoryMapLeadPin),
+    shippingCenters,
+    accountPins,
+    leadPins,
+    routePlans: buildProviderNeutralRoutePlans({
+      pins: [...accountPins, ...leadPins],
+      shippingCenters,
+      visitStates: buildTerritoryRouteVisitStates(visitSessions),
+    }),
     generatedAt: new Date().toISOString(),
   };
 }
 
 export async function getTerritoryDashboard(actor: AuthenticatedActor): Promise<TerritoryDashboardResponse> {
   assertModuleAccess(actor.role, 'territories');
-  const territoryScope = buildTerritoryReadScope(actor);
-  const regionScope = buildRegionReadScope(actor);
+  const territoryScope = await buildTerritoryReadScope(actor);
+  const regionScope = await buildRegionReadScope(actor);
   const shippingCenterScope = await buildShippingCenterReadScope(actor);
   const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
@@ -1234,6 +1278,7 @@ export async function listTerritoryAssignmentHistory(
       ...(item.changedByUser?.displayName ? { changedByUserName: item.changedByUser.displayName } : {}),
       ...(item.reasonCode ? { reasonCode: item.reasonCode } : {}),
       ...(item.reasonNote ? { reasonNote: item.reasonNote } : {}),
+      ...(isPlainRecord(item.metadata) ? { metadata: item.metadata } : {}),
       changedAt: item.changedAt.toISOString(),
     })),
   };
@@ -1290,6 +1335,7 @@ export async function reassignLeadTerritory(
   if (!lead) {
     return null;
   }
+  await assertTerritoryReassignmentVisible(actor, 'lead', leadId);
 
   const territory = await prisma.territory.findUnique({
     where: { id: input.territoryId },
@@ -1380,6 +1426,7 @@ export async function reassignAccountTerritory(
   if (!account) {
     return null;
   }
+  await assertTerritoryReassignmentVisible(actor, 'account', accountId);
 
   const territory = await prisma.territory.findUnique({
     where: { id: input.territoryId },
@@ -1455,6 +1502,135 @@ export async function reassignAccountTerritory(
   return toAccountTerritoryAssignmentSummary(updated);
 }
 
+export async function bulkReassignLeadTerritories(
+  actor: AuthenticatedActor,
+  input: BulkReassignLeadsTerritoryRequest,
+): Promise<BulkReassignLeadsTerritoryResponse> {
+  assertModuleAccess(actor.role, 'territories');
+  assertActionAccess(actor.role, 'territory.reassign');
+
+  const requestedLeadIds = Array.isArray(input.leadIds) ? input.leadIds : [];
+  const leadIds = Array.from(
+    new Set(
+      requestedLeadIds
+        .map((value: string) => value.trim())
+        .filter((value: string): value is string => value.length > 0),
+    ),
+  );
+  if (leadIds.length === 0) {
+    throw new Error('At least one lead is required');
+  }
+
+  const territory = await prisma.territory.findUnique({
+    where: { id: input.territoryId },
+    include: TERRITORY_INCLUDE,
+  });
+  if (!territory || !territory.isActive) {
+    throw new Error('Unknown or inactive territory');
+  }
+
+  const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
+  const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
+  const reasonCode = requireText(input.reasonCode, 'reasonCode');
+  const reasonNote = optionalText(input.reasonNote);
+
+  const leads = await prisma.lead.findMany({
+    where: {
+      id: { in: leadIds },
+    },
+    include: LEAD_TERRITORY_INCLUDE,
+  });
+  if (leads.length !== leadIds.length) {
+    const foundIds = new Set(leads.map((lead) => lead.id));
+    const missingId = leadIds.find((leadId) => !foundIds.has(leadId));
+    throw new Error(`Lead not found: ${missingId ?? 'unknown'}`);
+  }
+
+  for (const leadId of leadIds) {
+    await assertTerritoryReassignmentVisible(actor, 'lead', leadId);
+  }
+
+  const bulkOperationId = `territory-bulk-leads-${Date.now()}`;
+  const updated = await prisma.$transaction(async (tx) => {
+    const nextLeads: LeadWithTerritoryRefs[] = [];
+
+    for (const leadId of leadIds) {
+      await tx.territoryAssignmentOverride.upsert({
+        where: {
+          entityType_entityId: {
+            entityType: TerritoryAssignmentEntityType.LEAD,
+            entityId: leadId,
+          },
+        },
+        update: {
+          territoryId: territory.id,
+          ...(assignedTmUserId !== undefined ? { assignedTmUserId } : { assignedTmUserId: null }),
+          ...(assignedRdUserId !== undefined ? { assignedRdUserId } : { assignedRdUserId: null }),
+          reasonCode,
+          ...(reasonNote !== undefined ? { reasonNote } : { reasonNote: null }),
+          createdByUserId: actor.userId,
+        },
+        create: {
+          entityType: TerritoryAssignmentEntityType.LEAD,
+          entityId: leadId,
+          territoryId: territory.id,
+          ...(assignedTmUserId !== undefined ? { assignedTmUserId } : {}),
+          ...(assignedRdUserId !== undefined ? { assignedRdUserId } : {}),
+          reasonCode,
+          ...(reasonNote !== undefined ? { reasonNote } : {}),
+          createdByUserId: actor.userId,
+        },
+      });
+
+      const next = await syncLeadTerritoryAssignment(tx, {
+        leadId,
+        assignmentMethod: TerritoryAssignmentMethod.MANUAL_OVERRIDE,
+        changedByUserId: actor.userId,
+        reasonCode,
+        ...(reasonNote !== undefined ? { reasonNote } : {}),
+        metadata: {
+          operation: 'territory.bulk_reassign_leads',
+          bulkOperation: true,
+          bulkOperationId,
+          entityCount: leadIds.length,
+        },
+      });
+
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.UPDATE,
+          entityType: TERRITORY_OVERRIDE_ENTITY_TYPE,
+          entityId: leadId,
+          afterData: {
+            territoryId: territory.id,
+            territoryCode: territory.code,
+            leadId,
+            assignedTmUserId: assignedTmUserId ?? undefined,
+            assignedRdUserId: assignedRdUserId ?? undefined,
+            reasonCode,
+            reasonNote: reasonNote ?? undefined,
+          },
+          metadata: {
+            ...baseMetadata(actor, 'territory.bulk_reassign_leads'),
+            leadCount: leadIds.length,
+            bulkOperation: true,
+            bulkOperationId,
+          },
+        }),
+      });
+
+      nextLeads.push(next);
+    }
+
+    return nextLeads;
+  });
+
+  return {
+    items: updated.map((lead) => toLeadTerritoryAssignmentSummary(lead)),
+  };
+}
+
 export async function bulkReassignAccountTerritories(
   actor: AuthenticatedActor,
   input: BulkReassignAccountsTerritoryRequest,
@@ -1501,7 +1677,11 @@ export async function bulkReassignAccountTerritories(
     const missingId = accountIds.find((accountId) => !foundIds.has(accountId));
     throw new Error(`Account not found: ${missingId ?? 'unknown'}`);
   }
+  for (const accountId of accountIds) {
+    await assertTerritoryReassignmentVisible(actor, 'account', accountId);
+  }
 
+  const bulkOperationId = `territory-bulk-accounts-${Date.now()}`;
   const updated = await prisma.$transaction(async (tx) => {
     const nextAccounts: AccountWithTerritoryRefs[] = [];
 
@@ -1539,6 +1719,12 @@ export async function bulkReassignAccountTerritories(
         changedByUserId: actor.userId,
         reasonCode,
         ...(reasonNote !== undefined ? { reasonNote } : {}),
+        metadata: {
+          operation: 'territory.bulk_reassign_accounts',
+          bulkOperation: true,
+          bulkOperationId,
+          entityCount: accountIds.length,
+        },
       });
 
       await tx.auditEntry.create({
@@ -1560,6 +1746,7 @@ export async function bulkReassignAccountTerritories(
             ...baseMetadata(actor, 'territory.bulk_reassign_accounts'),
             accountCount: accountIds.length,
             bulkOperation: true,
+            bulkOperationId,
           },
         }),
       });
@@ -1742,6 +1929,7 @@ export async function syncLeadTerritoryAssignment(
     changedByUserId?: string;
     reasonCode?: string;
     reasonNote?: string;
+    metadata?: Prisma.InputJsonValue;
   },
 ) {
   const current = await tx.lead.findUniqueOrThrow({
@@ -1771,6 +1959,7 @@ export async function syncLeadTerritoryAssignment(
       ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
       ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
       ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     });
 
     await tx.auditEntry.create({
@@ -1785,6 +1974,7 @@ export async function syncLeadTerritoryAssignment(
           assignmentMethod: toTerritoryAssignmentMethodKey(assignmentMethod),
           ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
           ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+          ...(input.metadata ? { historyMetadata: input.metadata } : {}),
           ...(input.changedByUserId ? { trigger: 'manual' } : { trigger: 'system' }),
           operation: 'lead.territory_assignment.sync',
         },
@@ -1803,6 +1993,7 @@ export async function syncAccountTerritoryAssignment(
     changedByUserId?: string;
     reasonCode?: string;
     reasonNote?: string;
+    metadata?: Prisma.InputJsonValue;
   },
 ) {
   const current = await tx.account.findUniqueOrThrow({
@@ -1829,6 +2020,7 @@ export async function syncAccountTerritoryAssignment(
       ...(input.changedByUserId ? { changedByUserId: input.changedByUserId } : {}),
       ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
       ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     });
 
     await tx.auditEntry.create({
@@ -1843,6 +2035,7 @@ export async function syncAccountTerritoryAssignment(
           assignmentMethod: toTerritoryAssignmentMethodKey(assignmentMethod),
           ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
           ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
+          ...(input.metadata ? { historyMetadata: input.metadata } : {}),
           ...(input.changedByUserId ? { trigger: 'manual' } : { trigger: 'system' }),
           operation: 'account.territory_assignment.sync',
         },
@@ -2052,6 +2245,7 @@ async function writeLeadTerritoryHistory(
     assignmentMethod: TerritoryAssignmentMethod;
     reasonCode?: string;
     reasonNote?: string;
+    metadata?: Prisma.InputJsonValue;
   },
 ) {
   await tx.territoryAssignmentHistory.create({
@@ -2072,6 +2266,7 @@ async function writeLeadTerritoryHistory(
       ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
       ...(input.lead.territory?.code ? { previousTerritoryCode: input.lead.territory.code } : {}),
       ...(input.next.territory?.code ? { nextTerritoryCode: input.next.territory.code } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     },
   });
 }
@@ -2085,6 +2280,7 @@ async function writeAccountTerritoryHistory(
     assignmentMethod: TerritoryAssignmentMethod;
     reasonCode?: string;
     reasonNote?: string;
+    metadata?: Prisma.InputJsonValue;
   },
 ) {
   await tx.territoryAssignmentHistory.create({
@@ -2105,6 +2301,7 @@ async function writeAccountTerritoryHistory(
       ...(input.reasonNote ? { reasonNote: input.reasonNote } : {}),
       ...(input.account.territory?.code ? { previousTerritoryCode: input.account.territory.code } : {}),
       ...(input.next.territory?.code ? { nextTerritoryCode: input.next.territory.code } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     },
   });
 }
@@ -3200,6 +3397,227 @@ function toTerritoryMapAccountPin(
   };
 }
 
+function buildProviderNeutralRoutePlans(input: {
+  pins: TerritoryMapPinSummary[];
+  shippingCenters: TerritoryMapShippingCenterSummary[];
+  visitStates?: Map<string, TerritoryRouteVisitState>;
+}): TerritoryRoutePlanSummary[] {
+  const centerById = new Map(input.shippingCenters.map((center) => [center.id, center]));
+  const groups = new Map<string, TerritoryMapPinSummary[]>();
+
+  for (const pin of input.pins) {
+    const territoryKey = pin.territoryId ?? 'unassigned';
+    const shippingCenterKey = pin.shippingCenterId ?? 'unassigned';
+    const groupKey = `${territoryKey}:${shippingCenterKey}`;
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), pin]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([groupKey, pins]) => {
+      const firstPin = pins[0];
+      const shippingCenter = firstPin?.shippingCenterId ? centerById.get(firstPin.shippingCenterId) : undefined;
+      const orderedStops = orderRouteStops(pins, shippingCenter, input.visitStates);
+      const totalMiles = orderedStops.reduce((sum, stop) => sum + stop.distanceFromPreviousMiles, 0);
+
+      return {
+        id: `route:${groupKey}`,
+        ...(firstPin?.territoryId ? { territoryId: firstPin.territoryId } : {}),
+        ...(firstPin?.territoryCode ? { territoryCode: firstPin.territoryCode } : {}),
+        ...(firstPin?.territoryName ? { territoryName: firstPin.territoryName } : {}),
+        ...(firstPin?.regionId ? { regionId: firstPin.regionId } : {}),
+        ...(firstPin?.regionCode ? { regionCode: firstPin.regionCode } : {}),
+        ...(firstPin?.regionName ? { regionName: firstPin.regionName } : {}),
+        ...(firstPin?.shippingCenterId ? { shippingCenterId: firstPin.shippingCenterId } : {}),
+        ...(firstPin?.shippingCenterCode ? { shippingCenterCode: firstPin.shippingCenterCode } : {}),
+        ...(firstPin?.shippingCenterName ? { shippingCenterName: firstPin.shippingCenterName } : {}),
+        ...(shippingCenter ? { originLatitude: shippingCenter.latitude } : {}),
+        ...(shippingCenter ? { originLongitude: shippingCenter.longitude } : {}),
+        ...(shippingCenter ? { originGeoPrecision: shippingCenter.geoPrecision } : {}),
+        stopCount: orderedStops.length,
+        accountStopCount: pins.filter((pin) => pin.recordType === 'account').length,
+        leadStopCount: pins.filter((pin) => pin.recordType === 'lead').length,
+        estimatedStraightLineMiles: roundMiles(totalMiles),
+        isProviderOptimized: false,
+        providerDependency: 'none',
+        stops: orderedStops,
+      } satisfies TerritoryRoutePlanSummary;
+    })
+    .sort((left, right) => {
+      const leftName = left.territoryName ?? left.shippingCenterName ?? 'Unassigned';
+      const rightName = right.territoryName ?? right.shippingCenterName ?? 'Unassigned';
+      return leftName.localeCompare(rightName);
+    });
+}
+
+function orderRouteStops(
+  pins: TerritoryMapPinSummary[],
+  origin?: TerritoryMapShippingCenterSummary,
+  visitStates?: Map<string, TerritoryRouteVisitState>,
+): TerritoryRoutePlanStopSummary[] {
+  const remaining = [...pins].sort(compareRoutePins);
+  const stops: TerritoryRoutePlanStopSummary[] = [];
+  let current = origin
+    ? { latitude: origin.latitude, longitude: origin.longitude }
+    : getRouteCentroid(remaining);
+
+  while (remaining.length > 0) {
+    let nextIndex = 0;
+    let nextDistance = calculateMiles(current, remaining[0] ?? current);
+
+    for (let index = 1; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      if (!candidate) {
+        continue;
+      }
+      const distance = calculateMiles(current, candidate);
+      if (distance < nextDistance) {
+        nextIndex = index;
+        nextDistance = distance;
+      }
+    }
+
+    const [nextPin] = remaining.splice(nextIndex, 1);
+    if (!nextPin) {
+      continue;
+    }
+
+    stops.push(toRoutePlanStop(nextPin, stops.length + 1, roundMiles(nextDistance), visitStates));
+    current = nextPin;
+  }
+
+  return stops;
+}
+
+function compareRoutePins(left: TerritoryMapPinSummary, right: TerritoryMapPinSummary) {
+  const recordPriority = getRouteRecordPriority(left) - getRouteRecordPriority(right);
+  if (recordPriority !== 0) {
+    return recordPriority;
+  }
+
+  const leftTouched = left.lastTouchedAt ? Date.parse(left.lastTouchedAt) : 0;
+  const rightTouched = right.lastTouchedAt ? Date.parse(right.lastTouchedAt) : 0;
+  if (leftTouched !== rightTouched) {
+    return rightTouched - leftTouched;
+  }
+
+  return left.label.localeCompare(right.label);
+}
+
+function getRouteRecordPriority(pin: TerritoryMapPinSummary) {
+  if (pin.recordType === 'account') {
+    return 0;
+  }
+  if (pin.stage === 'cis_signed' || pin.stage === 'onboarding_completed') {
+    return 1;
+  }
+  return 2;
+}
+
+function toRoutePlanStop(
+  pin: TerritoryMapPinSummary,
+  sequence: number,
+  distanceFromPreviousMiles: number,
+  visitStates?: Map<string, TerritoryRouteVisitState>,
+): TerritoryRoutePlanStopSummary {
+  const visitState = pin.recordType === 'account' ? visitStates?.get(pin.recordId) : undefined;
+  return {
+    sequence,
+    pinId: pin.id,
+    recordType: pin.recordType,
+    recordId: pin.recordId,
+    label: pin.label,
+    status: pin.status,
+    latitude: pin.latitude,
+    longitude: pin.longitude,
+    geoPrecision: pin.geoPrecision,
+    distanceFromPreviousMiles,
+    ...(pin.city ? { city: pin.city } : {}),
+    ...(pin.state ? { state: pin.state } : {}),
+    ...(pin.territoryId ? { territoryId: pin.territoryId } : {}),
+    ...(pin.territoryCode ? { territoryCode: pin.territoryCode } : {}),
+    ...(pin.territoryName ? { territoryName: pin.territoryName } : {}),
+    ...(pin.assignedTmUserId ? { assignedTmUserId: pin.assignedTmUserId } : {}),
+    ...(pin.assignedTmName ? { assignedTmName: pin.assignedTmName } : {}),
+    ...(pin.assignedRdUserId ? { assignedRdUserId: pin.assignedRdUserId } : {}),
+    ...(pin.assignedRdName ? { assignedRdName: pin.assignedRdName } : {}),
+    ...(pin.lifecycleStatus ? { lifecycleStatus: pin.lifecycleStatus } : {}),
+    ...(pin.stage ? { stage: pin.stage } : {}),
+    ...(pin.accountType ? { accountType: pin.accountType } : {}),
+    ...(pin.lastTouchedAt ? { lastTouchedAt: pin.lastTouchedAt } : {}),
+    ...(pin.recordType === 'account'
+      ? { visitExecutionState: visitState?.activeVisitSessionId ? 'checked_in' : visitState?.lastVisitSessionId ? 'completed' : 'not_started' }
+      : {}),
+    ...(visitState?.activeVisitSessionId ? { activeVisitSessionId: visitState.activeVisitSessionId } : {}),
+    ...(visitState?.lastVisitSessionId ? { lastVisitSessionId: visitState.lastVisitSessionId } : {}),
+    ...(visitState?.lastVisitCompletedAt ? { lastVisitCompletedAt: visitState.lastVisitCompletedAt } : {}),
+    ...(visitState?.lastVisitTrainerName ? { lastVisitTrainerName: visitState.lastVisitTrainerName } : {}),
+  };
+}
+
+function buildTerritoryRouteVisitStates(
+  sessions: Array<{
+    id: string;
+    accountId: string;
+    checkedInAt: Date | null;
+    completedAt: Date | null;
+    trainerUser?: {
+      displayName: string;
+    } | null;
+  }>,
+) {
+  const states = new Map<string, TerritoryRouteVisitState>();
+
+  for (const session of sessions) {
+    const current = states.get(session.accountId) ?? { accountId: session.accountId };
+    if (session.checkedInAt && !session.completedAt && !current.activeVisitSessionId) {
+      current.activeVisitSessionId = session.id;
+    }
+    if (session.completedAt && !current.lastVisitSessionId) {
+      current.lastVisitSessionId = session.id;
+      current.lastVisitCompletedAt = session.completedAt.toISOString();
+      if (session.trainerUser?.displayName) {
+        current.lastVisitTrainerName = session.trainerUser.displayName;
+      }
+    }
+    states.set(session.accountId, current);
+  }
+
+  return states;
+}
+
+function getRouteCentroid(pins: TerritoryMapPinSummary[]) {
+  if (pins.length === 0) {
+    return { latitude: 39, longitude: -96 };
+  }
+
+  return {
+    latitude: pins.reduce((sum, pin) => sum + pin.latitude, 0) / pins.length,
+    longitude: pins.reduce((sum, pin) => sum + pin.longitude, 0) / pins.length,
+  };
+}
+
+function calculateMiles(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+) {
+  const earthRadiusMiles = 3958.8;
+  const fromLat = degreesToRadians(from.latitude);
+  const toLat = degreesToRadians(to.latitude);
+  const deltaLat = degreesToRadians(to.latitude - from.latitude);
+  const deltaLng = degreesToRadians(to.longitude - from.longitude);
+  const a = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLng / 2) ** 2;
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(value: number) {
+  return value * (Math.PI / 180);
+}
+
+function roundMiles(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
 const CITY_STATE_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
   'atlanta,ga': { latitude: 33.749, longitude: -84.388 },
   'chicago,il': { latitude: 41.8781, longitude: -87.6298 },
@@ -3473,6 +3891,10 @@ function requireText(value: string | null | undefined, field: string) {
 function optionalText(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function toTerritoryAssignmentMethodKey(value: TerritoryAssignmentMethod) {

@@ -1,0 +1,1 @@
+ALTER TYPE "LeadOperationalAlertDeliveryMode" ADD VALUE IF NOT EXISTS 'MICROSOFT_GRAPH';

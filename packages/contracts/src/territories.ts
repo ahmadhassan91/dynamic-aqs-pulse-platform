@@ -190,6 +190,7 @@ export interface TerritoryAssignmentHistoryEntry {
   changedByUserName?: string;
   reasonCode?: string;
   reasonNote?: string;
+  metadata?: Record<string, unknown>;
   changedAt: string;
 }
 
@@ -255,6 +256,19 @@ export interface BulkReassignAccountsTerritoryRequest {
 
 export interface BulkReassignAccountsTerritoryResponse {
   items: AccountTerritoryAssignmentSummary[];
+}
+
+export interface BulkReassignLeadsTerritoryRequest {
+  leadIds: string[];
+  territoryId: string;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
+  reasonCode: string;
+  reasonNote?: string;
+}
+
+export interface BulkReassignLeadsTerritoryResponse {
+  items: LeadTerritoryAssignmentSummary[];
 }
 
 export interface AccountTerritoryAssignmentSummary {
@@ -335,6 +349,60 @@ export interface TerritoryMapShippingCenterSummary extends ShippingCenterSummary
   activeAccountCount: number;
 }
 
+export interface TerritoryRoutePlanStopSummary {
+  sequence: number;
+  pinId: string;
+  recordType: TerritoryMapPinRecordTypeKey;
+  recordId: string;
+  label: string;
+  status: TerritoryMapPinSummary['status'];
+  latitude: number;
+  longitude: number;
+  geoPrecision: TerritoryMapGeoPrecisionKey;
+  distanceFromPreviousMiles: number;
+  city?: string;
+  state?: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  assignedTmUserId?: string;
+  assignedTmName?: string;
+  assignedRdUserId?: string;
+  assignedRdName?: string;
+  lifecycleStatus?: LeadLifecycleStatusKey;
+  stage?: LeadStageKey;
+  accountType?: string;
+  lastTouchedAt?: string;
+  visitExecutionState?: 'not_started' | 'checked_in' | 'completed';
+  activeVisitSessionId?: string;
+  lastVisitSessionId?: string;
+  lastVisitCompletedAt?: string;
+  lastVisitTrainerName?: string;
+}
+
+export interface TerritoryRoutePlanSummary {
+  id: string;
+  territoryId?: string;
+  territoryCode?: string;
+  territoryName?: string;
+  regionId?: string;
+  regionCode?: string;
+  regionName?: string;
+  shippingCenterId?: string;
+  shippingCenterCode?: string;
+  shippingCenterName?: string;
+  originLatitude?: number;
+  originLongitude?: number;
+  originGeoPrecision?: TerritoryMapGeoPrecisionKey;
+  stopCount: number;
+  accountStopCount: number;
+  leadStopCount: number;
+  estimatedStraightLineMiles: number;
+  isProviderOptimized: false;
+  providerDependency: 'none';
+  stops: TerritoryRoutePlanStopSummary[];
+}
+
 export interface TerritoryMapWorkspaceResponse {
   policy: TerritoryPolicySummary;
   regions: RegionSummary[];
@@ -343,6 +411,7 @@ export interface TerritoryMapWorkspaceResponse {
   shippingCenters: TerritoryMapShippingCenterSummary[];
   accountPins: TerritoryMapPinSummary[];
   leadPins: TerritoryMapPinSummary[];
+  routePlans: TerritoryRoutePlanSummary[];
   generatedAt: string;
 }
 

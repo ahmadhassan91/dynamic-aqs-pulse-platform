@@ -147,6 +147,52 @@ test('lead history feed shows newest events first and supports searching by life
   assert.match(seasonalSearch.items[0].summary, /Follow Up Later: Waiting for summer season budget approval\./i);
 });
 
+test('lead history feed explains manual duplicate overrides against existing accounts', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const existingAccount = await prisma.account.create({
+    data: {
+      displayName: 'History Account Comfort',
+      legalName: 'History Account Comfort LLC',
+    },
+  });
+  await prisma.contact.create({
+    data: {
+      accountId: existingAccount.id,
+      firstName: 'Harper',
+      lastName: 'History',
+      email: 'history-account@example.com',
+      phone: '555-619-4400',
+      isPrimary: true,
+    },
+  });
+
+  const lead = await createLead(actor, {
+    companyName: 'History Account Comfort',
+    contactDisplayName: 'Harper History',
+    email: 'history-account@example.com',
+    phone: '555-619-4400',
+    state: 'TX',
+    serviceTechCount: 4,
+    duplicateResolution: {
+      decision: 'create_new',
+      targetEntityId: existingAccount.id,
+      reason: 'Separate branch despite an existing customer-account match.',
+    },
+  });
+
+  const feed = await listLeadHistoryFeed(actor, {
+    search: 'existing customer-account match',
+    limit: 5,
+  });
+
+  assert.equal(feed.items.length, 1);
+  assert.equal(feed.items[0].leadId, lead.id);
+  assert.equal(feed.items[0].title, 'Lead Created From Duplicate Override');
+  assert.match(feed.items[0].summary, /Separate branch despite an existing customer-account match/i);
+  assert.match(feed.items[0].summary, /existing customer account History Account Comfort/i);
+});
+
 test('parked and closed leads remain accessible in detail with lifecycle-specific next actions', SERIAL, async () => {
   const actor = await createAdminActor();
   const parkedLead = await createLead(actor, {

@@ -1572,6 +1572,7 @@ export function TerritoryManagement({
                 shippingCenters={shippingCenters}
                 territories={territories}
                 activeAccounts={activeAccounts}
+                activeLeads={activePipelineLeads}
                 assignableUsers={assignableUsers}
                 canAdminTerritory={canAdminTerritory}
                 canReassignTerritory={canReassignTerritory}

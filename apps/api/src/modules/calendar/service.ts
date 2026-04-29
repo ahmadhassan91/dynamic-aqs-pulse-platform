@@ -1,4 +1,4 @@
-import { canAccessModule } from '@pulse/auth';
+import { canAccessModule, canPerformAction } from '@pulse/auth';
 import type {
   CalendarWorkspaceRequest,
   CalendarWorkspaceResponse,
@@ -64,7 +64,12 @@ function canActorViewCalendarEvent(
 ) {
   switch (item.sourceModule) {
     case 'leads':
+      if (item.eventType === 'consignment_audit') {
+        return canAccessModule(actor.role, 'consignment') && canPerformAction(actor.role, 'consignment.audit');
+      }
       return canAccessModule(actor.role, 'leads');
+    case 'consignment':
+      return canAccessModule(actor.role, 'consignment') && canPerformAction(actor.role, 'consignment.audit');
     case 'training':
       return canAccessModule(actor.role, 'training');
     case 'territories':

@@ -31,6 +31,8 @@ import type {
   ImportLeadFileResponse,
   LeadImportDuplicateCandidate,
   LeadImportDuplicateDecisionKey,
+  PreviewLeadDuplicateCandidatesRequest,
+  PreviewLeadDuplicateCandidatesResponse,
   ImportLeadRowInput,
   LeadImportFileError,
   LeadImportFilePreviewRequest,
@@ -48,6 +50,7 @@ import type {
   LeadConsignmentInterestStatusKey,
   LeadRoutingBasisKey,
   LeadRoutingPolicySummary,
+  LeadOperationalAlertRecipientSummary,
   LeadStageEventSummary,
   LeadStageKey,
   LeadWorkflowTaskSummary,
@@ -77,6 +80,8 @@ import type {
   SkipLeadDiscoveryRequest,
   TransitionLeadStageRequest,
   UpdateLeadLifecycleRequest,
+  UpdateLeadOperationalAlertQuietHoursRequest,
+  UpdateLeadOperationalAlertRecipientRequest,
   UpdateLeadRoutingPolicyRequest,
   UpdateLeadRequest,
   WebsiteFormLeadSummary,
@@ -114,16 +119,22 @@ import {
   syncLeadTerritoryAssignment,
 } from '../territories/service.js';
 export {
+  deadLetterLeadOperationalAlertDeliveries,
   ensureLeadOperationalAlertRecipientsSeeded,
+  getLeadOperationalAlertDeliveryAdminSettings,
+  listLeadOperationalAlertIntegrationStatuses,
   processLeadOperationalAlertDeliveryJob,
   processLeadOperationalAlertScanJob,
+  retryLeadOperationalAlertDeliveries,
 } from './alerts.js';
 export {
   createWebsiteLeadNotificationRecipient,
   createWebsiteLeadSite,
   ensureWebsiteLeadConfigSeeded,
   getPublicWebsiteLeadSite,
+  getPublicWebsiteLeadSiteAllowedOrigins,
   listWebsiteLeadNotificationRecipients,
+  listActivePublicWebsiteLeadOrigins,
   listWebsiteLeadSites,
   updateWebsiteLeadNotificationRecipient,
   updateWebsiteLeadSite,
@@ -680,6 +691,7 @@ export async function resolveWebsiteLeadSubmission(
     if (submission.reviewStatus !== WebsiteLeadSubmissionReviewStatus.PENDING_REVIEW) {
       if (
         (decision === 'confirm_existing' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING)
+        || (decision === 'enrich_existing' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING)
         || (decision === 'create_new_lead' && submission.reviewStatus === WebsiteLeadSubmissionReviewStatus.CREATED_NEW_LEAD)
         || (
           decision === 'relink_existing'
@@ -704,6 +716,45 @@ export async function resolveWebsiteLeadSubmission(
         }
         nextReviewStatus = WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING;
         break;
+      case 'enrich_existing': {
+        const selectedLeadId = targetLeadId ?? submission.linkedLeadId;
+        if (!selectedLeadId) {
+          throw new Error('Duplicate submission is missing its linked lead');
+        }
+        if (submission.linkedLeadId && targetLeadId && submission.linkedLeadId !== targetLeadId) {
+          throw new Error('Use relink existing before enriching a different lead from this submission.');
+        }
+
+        const normalized = normalizeLeadInput(
+          buildLeadInputFromWebsiteSubmission(submission),
+          {
+            defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+            defaultLeadSourceCode: DEFAULT_WEBSITE_LEAD_SOURCE_CODE,
+            leadCaptureMethod: LeadCaptureMethod.DIRECT_WEB_FORM,
+          },
+        );
+
+        await enrichExistingLeadFromDuplicate(
+          tx,
+          actor,
+          normalized,
+          {
+            decision: 'enrich_existing',
+            reason: reviewNote ?? 'Website repeat submission enriched an existing lead.',
+            targetEntityId: selectedLeadId,
+          },
+          [{
+            entityType: 'lead',
+            entityId: selectedLeadId,
+            title: submission.linkedLead?.companyName ?? submission.companyName ?? 'Linked lead',
+            ...(submission.linkedLead?.contactDisplayName ? { subtitle: submission.linkedLead.contactDisplayName } : {}),
+            detail: 'Website repeat-submission duplicate review',
+          }],
+        );
+        nextLinkedLeadId = selectedLeadId;
+        nextReviewStatus = WebsiteLeadSubmissionReviewStatus.CONFIRMED_EXISTING;
+        break;
+      }
       case 'relink_existing': {
         if (!targetLeadId) {
           throw new Error('targetLeadId is required when relinking a duplicate submission');
@@ -1599,6 +1650,7 @@ export async function completeLeadDiscovery(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const normalized = normalizeDiscoveryCompletionInput(input, false);
+  assertConsignmentLeadActionAccess(actor, normalized.consignmentInterestStatus);
 
   await prisma.$transaction(async (tx) => {
     const current = await tx.lead.findUnique({
@@ -1682,6 +1734,8 @@ export async function completeLeadDiscovery(
         },
       }),
     });
+
+    await auditConsignmentLeadCapture(tx, actor, current, normalized, 'complete_discovery');
   });
 
   if (config) {
@@ -1710,6 +1764,7 @@ export async function skipLeadDiscovery(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const normalized = normalizeDiscoveryCompletionInput(input, true);
+  assertConsignmentLeadActionAccess(actor, normalized.consignmentInterestStatus);
 
   await prisma.$transaction(async (tx) => {
     const current = await tx.lead.findUnique({
@@ -1781,6 +1836,8 @@ export async function skipLeadDiscovery(
           discoveryCallSkipped: true,
           discoveryFastTrackReason: normalized.fastTrackReason,
           discoverySummary: normalized.summary ?? normalized.fastTrackReason,
+          consignmentInterestStatus: normalized.consignmentInterestStatus,
+          consignmentEntryTiming: normalized.consignmentEntryTiming,
         },
         metadata: {
           actorRole: actor.role,
@@ -1791,6 +1848,8 @@ export async function skipLeadDiscovery(
         },
       }),
     });
+
+    await auditConsignmentLeadCapture(tx, actor, current, normalized, 'skip_discovery');
   });
 
   if (config) {
@@ -1818,18 +1877,83 @@ export async function createLead(actor: AuthenticatedActor, input: CreateLeadReq
     defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
     leadCaptureMethod: LeadCaptureMethod.MANUAL_ENTRY,
   });
+  const duplicateResolution = normalizeManualDuplicateResolution(input.duplicateResolution);
 
-  const lead = await prisma.$transaction((tx) =>
-    createLeadRecord(tx, normalized, {
+  const lead = await prisma.$transaction(async (tx) => {
+    const duplicateCandidates = await findLeadImportDuplicateCandidates(tx, normalized);
+    if (duplicateCandidates.length > 0 && !duplicateResolution) {
+      throw new Error('Potential duplicate found. Review existing lead/account matches before creating a new manual lead.');
+    }
+    const selectedDuplicateCandidate = findDuplicateCandidateById(duplicateCandidates, duplicateResolution?.targetEntityId);
+    if (duplicateResolution?.targetEntityId && !selectedDuplicateCandidate) {
+      throw new Error('duplicateResolution.targetEntityId must match one of the duplicate candidates');
+    }
+    if (duplicateResolution?.decision === 'enrich_existing') {
+      return enrichExistingLeadFromDuplicate(
+        tx,
+        actor,
+        normalized,
+        {
+          decision: duplicateResolution.decision,
+          reason: duplicateResolution.reason,
+          ...(duplicateResolution.targetEntityId ? { targetEntityId: duplicateResolution.targetEntityId } : {}),
+        },
+        duplicateCandidates,
+      );
+    }
+
+    return createLeadRecord(tx, normalized, {
       actorUserId: actor.userId,
       sessionId: actor.sessionId,
       actorRole: actor.role,
       actorType: actor.actorType,
       trigger: 'manual',
-    }),
-  );
+    }, duplicateResolution
+      ? {
+          sourceMetadata: {
+            manualDuplicateResolution: {
+              decision: duplicateResolution.decision,
+              reason: duplicateResolution.reason,
+              ...(duplicateResolution.targetEntityId ? { targetEntityId: duplicateResolution.targetEntityId } : {}),
+              candidateCount: duplicateCandidates.length,
+              candidates: duplicateCandidates,
+              ...(selectedDuplicateCandidate ? { selectedCandidate: selectedDuplicateCandidate } : {}),
+            },
+          },
+          auditMetadata: {
+            manualDuplicateResolution: {
+              decision: duplicateResolution.decision,
+              reason: duplicateResolution.reason,
+              ...(duplicateResolution.targetEntityId ? { targetEntityId: duplicateResolution.targetEntityId } : {}),
+              candidateCount: duplicateCandidates.length,
+              ...(selectedDuplicateCandidate ? { selectedCandidate: selectedDuplicateCandidate } : {}),
+            },
+          },
+        }
+      : undefined);
+  });
 
   return toLeadSummary(lead);
+}
+
+export async function previewLeadDuplicateCandidates(
+  actor: AuthenticatedActor,
+  input: PreviewLeadDuplicateCandidatesRequest,
+): Promise<PreviewLeadDuplicateCandidatesResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.view');
+
+  const normalized = normalizeLeadInput(input, {
+    defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,
+    defaultLeadSourceCode: DEFAULT_MANUAL_LEAD_SOURCE_CODE,
+    leadCaptureMethod: LeadCaptureMethod.MANUAL_ENTRY,
+  });
+  const candidates = await prisma.$transaction((tx) => findLeadImportDuplicateCandidates(tx, normalized));
+
+  return {
+    hasPotentialDuplicate: candidates.length > 0,
+    candidates,
+  };
 }
 
 export async function captureWebsiteLead(input: CaptureWebsiteLeadRequest): Promise<CaptureWebsiteLeadResponse> {
@@ -2348,6 +2472,19 @@ export async function commitLeadImportRun(
 
       const decision = row.duplicateDecision;
       if (row.status === LeadImportRunRowStatus.POTENTIAL_DUPLICATE && (decision === LeadImportDuplicateDecision.USE_EXISTING || decision === LeadImportDuplicateDecision.SKIP)) {
+        if (decision === LeadImportDuplicateDecision.USE_EXISTING) {
+          const duplicateCandidates = parseLeadImportDuplicateCandidates(row.duplicateCandidates);
+          const selectedCandidate = row.targetEntityId
+            ? findDuplicateCandidateById(duplicateCandidates, row.targetEntityId)
+            : duplicateCandidates.filter((candidate) => candidate.entityType !== 'import_row').length === 1
+              ? duplicateCandidates.find((candidate) => candidate.entityType !== 'import_row')
+              : undefined;
+          if (!selectedCandidate || selectedCandidate.entityType === 'import_row') {
+            throw new Error(`Row ${row.rowNumber} must choose which existing record should be used.`);
+          }
+          await auditImportUseExistingDuplicateResolution(tx, actor, refreshedRun, row, selectedCandidate);
+        }
+
         skippedCount += 1;
         await tx.leadImportRunRow.update({
           where: { id: row.id },
@@ -2369,6 +2506,34 @@ export async function commitLeadImportRun(
             leadCaptureMethod: LeadCaptureMethod.BULK_IMPORT,
           },
         );
+
+        if (row.status === LeadImportRunRowStatus.POTENTIAL_DUPLICATE && decision === LeadImportDuplicateDecision.ENRICH_EXISTING) {
+          const duplicateCandidates = parseLeadImportDuplicateCandidates(row.duplicateCandidates);
+          const target = resolveImportDuplicateTarget(row, duplicateCandidates, 'lead');
+          const lead = await enrichExistingLeadFromDuplicate(
+            tx,
+            actor,
+            normalized,
+            {
+              decision: 'enrich_existing',
+              reason: `Bulk import row ${row.rowNumber} enriched an existing lead.`,
+              targetEntityId: target.entityId,
+            },
+            duplicateCandidates,
+          );
+
+          skippedCount += 1;
+          await tx.leadImportRunRow.update({
+            where: { id: row.id },
+            data: {
+              status: LeadImportRunRowStatus.SKIPPED,
+              importedLeadId: lead.id,
+              importedAt: new Date(),
+              detail: buildSkippedImportRowDetail(row),
+            },
+          });
+          continue;
+        }
 
         const lead = await createLeadRecord(
           tx,
@@ -2550,6 +2715,8 @@ function toLeadImportDuplicateDecisionEnum(decision: LeadImportDuplicateDecision
       return LeadImportDuplicateDecision.CREATE_NEW;
     case 'use_existing':
       return LeadImportDuplicateDecision.USE_EXISTING;
+    case 'enrich_existing':
+      return LeadImportDuplicateDecision.ENRICH_EXISTING;
     case 'skip':
       return LeadImportDuplicateDecision.SKIP;
     default:
@@ -2565,6 +2732,8 @@ function toLeadImportDuplicateDecisionKey(
       return 'create_new';
     case LeadImportDuplicateDecision.USE_EXISTING:
       return 'use_existing';
+    case LeadImportDuplicateDecision.ENRICH_EXISTING:
+      return 'enrich_existing';
     case LeadImportDuplicateDecision.SKIP:
       return 'skip';
     default:
@@ -2664,7 +2833,88 @@ function buildSkippedImportRowDetail(row: Prisma.LeadImportRunRowGetPayload<{}>)
     return 'Row linked to an existing record during duplicate review.';
   }
 
+  if (decisionKey === 'enrich_existing') {
+    const target = row.targetEntityId
+      ? candidates.find((candidate) => candidate.entityId === row.targetEntityId)
+      : candidates.find((candidate) => candidate.entityType === 'lead');
+    if (target) {
+      return `Row enriched existing lead ${target.title}.`;
+    }
+
+    return 'Row enriched an existing lead during duplicate review.';
+  }
+
   return row.detail;
+}
+
+function findDuplicateCandidateById(
+  candidates: LeadImportDuplicateCandidate[],
+  targetEntityId: string | undefined,
+) {
+  if (!targetEntityId) {
+    return undefined;
+  }
+
+  return candidates.find((candidate) => candidate.entityId === targetEntityId);
+}
+
+function resolveImportDuplicateTarget(
+  row: Prisma.LeadImportRunRowGetPayload<{}>,
+  candidates: LeadImportDuplicateCandidate[],
+  entityType: 'lead' | 'account',
+) {
+  const allowedCandidates = candidates.filter((candidate) => candidate.entityType === entityType);
+  const selectedCandidate = row.targetEntityId
+    ? allowedCandidates.find((candidate) => candidate.entityId === row.targetEntityId)
+    : allowedCandidates.length === 1
+      ? allowedCandidates[0]
+      : undefined;
+
+  if (!selectedCandidate) {
+    throw new Error(`Row ${row.rowNumber} must choose which existing ${entityType} should be used.`);
+  }
+
+  return selectedCandidate;
+}
+
+async function auditImportUseExistingDuplicateResolution(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  run: LeadImportRunWithRows,
+  row: Prisma.LeadImportRunRowGetPayload<{}>,
+  selectedCandidate: LeadImportDuplicateCandidate,
+) {
+  await tx.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: selectedCandidate.entityType === 'account' ? 'ACCOUNT' : LEAD_ENTITY_TYPE,
+      entityId: selectedCandidate.entityId,
+      afterData: {
+        duplicateImportResolution: {
+          runId: run.id,
+          fileName: run.fileName,
+          rowNumber: row.rowNumber,
+          decision: 'use_existing',
+          selectedCandidate,
+        },
+      },
+      metadata: {
+        actorRole: actor.role,
+        actorType: actor.actorType,
+        sessionId: actor.sessionId,
+        workflowAction: 'duplicate_use_existing',
+        duplicateResolution: {
+          decision: 'use_existing',
+          runId: run.id,
+          fileName: run.fileName,
+          rowNumber: row.rowNumber,
+          targetEntityId: selectedCandidate.entityId,
+          selectedCandidate,
+        },
+      },
+    }),
+  });
 }
 
 function validateLeadImportRunDecisions(rows: Prisma.LeadImportRunRowGetPayload<{}>[]) {
@@ -2681,18 +2931,23 @@ function validateLeadImportRunDecisions(rows: Prisma.LeadImportRunRowGetPayload<
     const candidates = parseLeadImportDuplicateCandidates(row.duplicateCandidates);
     const persistedCandidates = candidates.filter((candidate) => candidate.entityType !== 'import_row');
 
-    if (decisionKey === 'use_existing') {
-      if (persistedCandidates.length === 0) {
-        throw new Error(`Row ${row.rowNumber} can only use an existing record when a lead or account match is available.`);
+    if (decisionKey === 'use_existing' || decisionKey === 'enrich_existing') {
+      const allowedCandidates = decisionKey === 'enrich_existing'
+        ? persistedCandidates.filter((candidate) => candidate.entityType === 'lead')
+        : persistedCandidates;
+      const actionLabel = decisionKey === 'enrich_existing' ? 'enrich an existing lead' : 'use an existing record';
+
+      if (allowedCandidates.length === 0) {
+        throw new Error(`Row ${row.rowNumber} can only ${actionLabel} when a ${decisionKey === 'enrich_existing' ? 'lead' : 'lead or account'} match is available.`);
       }
 
       if (row.targetEntityId) {
-        const selectedCandidate = persistedCandidates.find((candidate) => candidate.entityId === row.targetEntityId);
+        const selectedCandidate = allowedCandidates.find((candidate) => candidate.entityId === row.targetEntityId);
         if (!selectedCandidate) {
-          throw new Error(`Row ${row.rowNumber} has an invalid existing-record selection.`);
+          throw new Error(`Row ${row.rowNumber} has an invalid ${decisionKey === 'enrich_existing' ? 'lead' : 'existing-record'} selection.`);
         }
-      } else if (persistedCandidates.length > 1) {
-        throw new Error(`Row ${row.rowNumber} must choose which existing record should be used.`);
+      } else if (allowedCandidates.length > 1) {
+        throw new Error(`Row ${row.rowNumber} must choose which ${decisionKey === 'enrich_existing' ? 'lead' : 'existing record'} should be used.`);
       }
     }
   }
@@ -3001,6 +3256,18 @@ export async function updateLeadRoutingPolicy(
   if (input.stagnantStageDays !== undefined) {
     data.stagnantStageDays = normalizePositiveInteger(input.stagnantStageDays, 'stagnantStageDays');
   }
+  if (input.operationalAlertQuietHours !== undefined) {
+    const quietHours = normalizeLeadOperationalAlertQuietHours(input.operationalAlertQuietHours, {
+      enabled: current.operationalAlertQuietHoursEnabled,
+      startLocal: current.operationalAlertQuietHoursStartLocal,
+      endLocal: current.operationalAlertQuietHoursEndLocal,
+      timeZone: current.operationalAlertQuietHoursTimeZone,
+    });
+    data.operationalAlertQuietHoursEnabled = quietHours.enabled;
+    data.operationalAlertQuietHoursStartLocal = quietHours.startLocal;
+    data.operationalAlertQuietHoursEndLocal = quietHours.endLocal;
+    data.operationalAlertQuietHoursTimeZone = quietHours.timeZone;
+  }
   if (input.notes !== undefined) {
     data.notes = optionalTrimmed(input.notes) ?? null;
   }
@@ -3028,6 +3295,14 @@ export async function updateLeadRoutingPolicy(
     cisFollowUpOwnerAlertDelayBusinessDays:
       data.cisFollowUpOwnerAlertDelayBusinessDays ?? current.cisFollowUpOwnerAlertDelayBusinessDays,
     stagnantStageDays: data.stagnantStageDays ?? current.stagnantStageDays,
+    operationalAlertQuietHoursEnabled:
+      data.operationalAlertQuietHoursEnabled ?? current.operationalAlertQuietHoursEnabled,
+    operationalAlertQuietHoursStartLocal:
+      data.operationalAlertQuietHoursStartLocal ?? current.operationalAlertQuietHoursStartLocal,
+    operationalAlertQuietHoursEndLocal:
+      data.operationalAlertQuietHoursEndLocal ?? current.operationalAlertQuietHoursEndLocal,
+    operationalAlertQuietHoursTimeZone:
+      data.operationalAlertQuietHoursTimeZone ?? current.operationalAlertQuietHoursTimeZone,
   };
 
   if (nextPolicy.initialContactUrgentWindowHours > nextPolicy.initialContactSlaHours) {
@@ -3082,6 +3357,7 @@ export async function updateLeadRoutingPolicy(
           cisFollowUpProspectReminderDelayBusinessDays: current.cisFollowUpProspectReminderDelayBusinessDays,
           cisFollowUpOwnerAlertDelayBusinessDays: current.cisFollowUpOwnerAlertDelayBusinessDays,
           stagnantStageDays: current.stagnantStageDays,
+          operationalAlertQuietHours: toLeadOperationalAlertQuietHoursPolicy(current),
           notes: current.notes ?? undefined,
         },
         afterData: {
@@ -3097,6 +3373,7 @@ export async function updateLeadRoutingPolicy(
           cisFollowUpProspectReminderDelayBusinessDays: next.cisFollowUpProspectReminderDelayBusinessDays,
           cisFollowUpOwnerAlertDelayBusinessDays: next.cisFollowUpOwnerAlertDelayBusinessDays,
           stagnantStageDays: next.stagnantStageDays,
+          operationalAlertQuietHours: toLeadOperationalAlertQuietHoursPolicy(next),
           notes: next.notes ?? undefined,
         },
         metadata: {
@@ -3113,12 +3390,86 @@ export async function updateLeadRoutingPolicy(
   return toLeadRoutingPolicySummary(updated);
 }
 
+export async function updateLeadOperationalAlertQuietHours(
+  actor: AuthenticatedActor,
+  input: UpdateLeadOperationalAlertQuietHoursRequest,
+): Promise<LeadRoutingPolicySummary> {
+  assertActionAccess(actor.role, 'reference.manage');
+
+  return updateLeadRoutingPolicy(actor, {
+    operationalAlertQuietHours: input,
+  });
+}
+
+export async function updateLeadOperationalAlertRecipient(
+  actor: AuthenticatedActor,
+  recipientId: string,
+  input: UpdateLeadOperationalAlertRecipientRequest,
+): Promise<LeadOperationalAlertRecipientSummary> {
+  assertActionAccess(actor.role, 'admin.integration_manage');
+
+  const current = await prisma.leadOperationalAlertRecipient.findUnique({
+    where: { id: recipientId },
+  });
+  if (!current) {
+    throw new Error('Lead operational alert recipient not found');
+  }
+
+  const data: Prisma.LeadOperationalAlertRecipientUpdateInput = {};
+  if (input.name !== undefined) {
+    data.name = requiredTrimmed(input.name, 'name');
+  }
+  if (input.email !== undefined) {
+    data.email = optionalTrimmed(input.email ?? undefined) ?? null;
+  }
+  if (input.roleTitle !== undefined) {
+    data.roleTitle = optionalTrimmed(input.roleTitle ?? undefined) ?? null;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = Boolean(input.isActive);
+  }
+  if (input.sortOrder !== undefined) {
+    data.sortOrder = normalizePositiveInteger(input.sortOrder, 'sortOrder', true);
+  }
+  if (Object.keys(data).length === 0) {
+    throw new Error('At least one field must be provided');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.leadOperationalAlertRecipient.update({
+      where: { id: recipientId },
+      data,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'LEAD_OPERATIONAL_ALERT_RECIPIENT',
+        entityId: next.id,
+        beforeData: toLeadOperationalAlertRecipientAuditData(current),
+        afterData: toLeadOperationalAlertRecipientAuditData(next),
+        metadata: {
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          sessionId: actor.sessionId,
+        },
+      }),
+    });
+
+    return next;
+  });
+
+  return toLeadOperationalAlertRecipientSummary(updated);
+}
+
 async function createLeadRecord(
   tx: Prisma.TransactionClient,
   input: NormalizedLeadInput,
   context: LeadMutationContext,
   options?: {
     sourceMetadata?: Record<string, unknown>;
+    auditMetadata?: Record<string, unknown>;
   },
 ): Promise<LeadWithRefs> {
   const [dependencies, policy] = await Promise.all([
@@ -3234,6 +3585,7 @@ async function createLeadRecord(
         actorType: context.actorType,
         sessionId: context.sessionId,
         trigger: context.trigger,
+        ...(options?.auditMetadata ?? {}),
       },
     }),
   });
@@ -3469,6 +3821,185 @@ function buildLeadDuplicateSignals(input: LeadInputSource): Prisma.LeadWhereInpu
   return duplicateSignals;
 }
 
+async function enrichExistingLeadFromDuplicate(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  normalized: NormalizedLeadInput,
+  duplicateResolution: {
+    decision: 'enrich_existing';
+    reason: string;
+    targetEntityId?: string;
+  },
+  duplicateCandidates: LeadImportDuplicateCandidate[],
+): Promise<LeadWithRefs> {
+  const targetEntityId = duplicateResolution.targetEntityId;
+  if (!targetEntityId) {
+    throw new Error('duplicateResolution.targetEntityId is required when enriching an existing lead');
+  }
+  const selectedCandidate = duplicateCandidates.find((candidate) => candidate.entityId === targetEntityId);
+  if (!selectedCandidate) {
+    throw new Error('duplicateResolution.targetEntityId must match one of the duplicate candidates');
+  }
+  if (selectedCandidate.entityType !== 'lead') {
+    throw new Error('Only existing lead candidates can be enriched from duplicate intake');
+  }
+
+  const current = await tx.lead.findUnique({
+    where: { id: targetEntityId },
+    include: LEAD_SUMMARY_INCLUDE,
+  }) as LeadWithRefs | null;
+  if (!current) {
+    throw new Error(`Lead not found: ${targetEntityId}`);
+  }
+
+  const data: Prisma.LeadUpdateInput = {};
+  const beforeData: Record<string, unknown> = {};
+  const afterData: Record<string, unknown> = {};
+
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'contactFirstName', nextValue: normalized.contactFirstName });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'contactLastName', nextValue: normalized.contactLastName });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'email', nextValue: normalized.email });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'phone', nextValue: normalized.phone });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'state', nextValue: normalized.state });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'countryCode', nextValue: normalized.countryCode });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'sourceDetail', nextValue: normalized.sourceDetail });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'sourceSiteId', nextValue: normalized.sourceSiteId });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'sourceSiteName', nextValue: normalized.sourceSiteName });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'sourceBrandTag', nextValue: normalized.sourceBrandTag });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'sourceCampaign', nextValue: normalized.sourceCampaign });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'leadRating', nextValue: normalized.leadRating });
+  applyDuplicateEnrichmentTextPatch({ data, beforeData, afterData, current, field: 'privateLabelName', nextValue: normalized.privateLabelName });
+  applyDuplicateEnrichmentNumberPatch({ data, beforeData, afterData, current, field: 'installTechCount', nextValue: normalized.installTechCount });
+  applyDuplicateEnrichmentNumberPatch({ data, beforeData, afterData, current, field: 'truckCount', nextValue: normalized.truckCount });
+  applyDuplicateEnrichmentNumberPatch({ data, beforeData, afterData, current, field: 'salesPersonCount', nextValue: normalized.salesPersonCount });
+  applyDuplicateEnrichmentNumberPatch({ data, beforeData, afterData, current, field: 'potentialValueCents', nextValue: normalized.potentialValueCents });
+
+  const incomingNotes = optionalTrimmed(normalized.notes);
+  if (incomingNotes && !(current.notes ?? '').includes(incomingNotes)) {
+    const nextNotes = [current.notes, `Duplicate intake note: ${incomingNotes}`].filter(Boolean).join('\n\n');
+    data.notes = nextNotes;
+    beforeData.notes = current.notes ?? null;
+    afterData.notes = nextNotes;
+  }
+
+  const enrichedFields = Object.keys(afterData);
+  if (enrichedFields.length === 0) {
+    throw new Error('Existing lead already contains the non-destructive duplicate intake values');
+  }
+
+  const updated = await tx.lead.update({
+    where: { id: targetEntityId },
+    data,
+    include: LEAD_SUMMARY_INCLUDE,
+  }) as LeadWithRefs;
+
+  if (Object.prototype.hasOwnProperty.call(afterData, 'state')) {
+    await syncLeadTerritoryAssignment(tx, { leadId: targetEntityId });
+  }
+
+  await tx.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: LEAD_ENTITY_TYPE,
+      entityId: targetEntityId,
+      beforeData,
+      afterData,
+      metadata: {
+        actorRole: actor.role,
+        actorType: actor.actorType,
+        sessionId: actor.sessionId,
+        workflowAction: 'duplicate_enrich_existing',
+        duplicateResolution: {
+          decision: duplicateResolution.decision,
+          reason: duplicateResolution.reason,
+          targetEntityId,
+          candidateCount: duplicateCandidates.length,
+          selectedCandidate,
+          enrichedFields,
+        },
+      },
+    }),
+  });
+
+  return updated;
+}
+
+function applyDuplicateEnrichmentTextPatch(input: {
+  data: Prisma.LeadUpdateInput;
+  beforeData: Record<string, unknown>;
+  afterData: Record<string, unknown>;
+  current: LeadWithRefs;
+  field:
+    | 'contactFirstName'
+    | 'contactLastName'
+    | 'email'
+    | 'phone'
+    | 'state'
+    | 'countryCode'
+    | 'sourceDetail'
+    | 'sourceSiteId'
+    | 'sourceSiteName'
+    | 'sourceBrandTag'
+    | 'sourceCampaign'
+    | 'leadRating'
+    | 'privateLabelName';
+  nextValue: string | undefined;
+}) {
+  const nextValue = optionalTrimmed(input.nextValue);
+  if (!nextValue) {
+    return;
+  }
+  const currentValue = (input.current[input.field] ?? null) as string | null;
+  if (currentValue) {
+    return;
+  }
+  (input.data as Record<string, string>)[input.field] = nextValue;
+  input.beforeData[input.field] = null;
+  input.afterData[input.field] = nextValue;
+}
+
+function applyDuplicateEnrichmentNumberPatch(input: {
+  data: Prisma.LeadUpdateInput;
+  beforeData: Record<string, unknown>;
+  afterData: Record<string, unknown>;
+  current: LeadWithRefs;
+  field: 'installTechCount' | 'truckCount' | 'salesPersonCount' | 'potentialValueCents';
+  nextValue: number | undefined;
+}) {
+  if (input.nextValue === undefined) {
+    return;
+  }
+  const currentValue = (input.current[input.field] ?? null) as number | null;
+  if (currentValue !== null && currentValue !== undefined) {
+    return;
+  }
+  (input.data as Record<string, number>)[input.field] = input.nextValue;
+  input.beforeData[input.field] = null;
+  input.afterData[input.field] = input.nextValue;
+}
+
+function normalizeManualDuplicateResolution(value: CreateLeadRequest['duplicateResolution']) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value.decision !== 'create_new' && value.decision !== 'enrich_existing') {
+    throw new Error(`Unsupported manual duplicate-resolution decision: ${value.decision}`);
+  }
+
+  const reason = requiredTrimmed(value.reason, 'duplicateResolution.reason');
+  const targetEntityId = optionalTrimmed(value.targetEntityId);
+  if (value.decision === 'enrich_existing' && !targetEntityId) {
+    throw new Error('duplicateResolution.targetEntityId is required when enriching an existing lead');
+  }
+  return {
+    decision: value.decision,
+    reason,
+    ...(targetEntityId ? { targetEntityId } : {}),
+  };
+}
+
 function buildAccountDuplicateSignals(input: LeadInputSource): Prisma.AccountWhereInput[] {
   const email = optionalTrimmed(asString(input.email))?.toLowerCase();
   const phone = optionalTrimmed(asString(input.phone));
@@ -3685,6 +4216,65 @@ function normalizeDiscoveryCompletionInput(
     ...(fastTrackReason ? { fastTrackReason } : {}),
     ...(note ? { note } : {}),
   };
+}
+
+function assertConsignmentLeadActionAccess(
+  actor: AuthenticatedActor,
+  consignmentInterestStatus: LeadConsignmentInterestStatusKey | undefined,
+) {
+  if (consignmentInterestStatus === 'approved') {
+    assertActionAccess(actor.role, 'lead.consignment_approve');
+  }
+}
+
+async function auditConsignmentLeadCapture(
+  tx: Prisma.TransactionClient,
+  actor: AuthenticatedActor,
+  current: {
+    id: string;
+    consignmentInterestStatus: LeadConsignmentInterestStatus | null;
+    consignmentEntryTiming: LeadConsignmentEntryTiming | null;
+  },
+  normalized: {
+    consignmentInterestStatus?: LeadConsignmentInterestStatusKey;
+    consignmentEntryTiming?: LeadConsignmentEntryTimingKey;
+    note?: string;
+  },
+  workflowAction: 'complete_discovery' | 'skip_discovery',
+) {
+  if (!normalized.consignmentInterestStatus) {
+    return;
+  }
+
+  await tx.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'CONSIGNMENT_LEAD_INTAKE',
+      entityId: current.id,
+      sourceSystem: 'pulse-consignment',
+      beforeData: {
+        consignmentInterestStatus: current.consignmentInterestStatus
+          ? toLeadConsignmentInterestStatusKey(current.consignmentInterestStatus)
+          : null,
+        consignmentEntryTiming: current.consignmentEntryTiming
+          ? toLeadConsignmentEntryTimingKey(current.consignmentEntryTiming)
+          : null,
+      },
+      afterData: {
+        consignmentInterestStatus: normalized.consignmentInterestStatus,
+        consignmentEntryTiming: normalized.consignmentEntryTiming ?? null,
+      },
+      metadata: {
+        actorRole: actor.role,
+        actorType: actor.actorType,
+        sessionId: actor.sessionId,
+        note: normalized.note,
+        workflowAction,
+        acumaticaSyncStatus: 'parked',
+      },
+    }),
+  });
 }
 
 function normalizeEditableLeadText(
@@ -4073,6 +4663,7 @@ function buildLeadInputFromWebsiteSubmission(submission: WebsiteLeadSubmissionWi
     ...(getJsonRecordString(submission.payload, 'ownershipGroupCode') ? { ownershipGroupCode: getJsonRecordString(submission.payload, 'ownershipGroupCode') } : {}),
     ...(getJsonRecordString(submission.payload, 'ownershipGroupName') ? { ownershipGroupName: getJsonRecordString(submission.payload, 'ownershipGroupName') } : {}),
     ...(getJsonRecordString(submission.payload, 'campaign') ? { sourceCampaign: getJsonRecordString(submission.payload, 'campaign') } : {}),
+    ...(submission.message ? { notes: submission.message } : {}),
   };
 }
 
@@ -4167,11 +4758,12 @@ function summarizeLeadHistoryTitle(
   afterData: Prisma.JsonValue | null,
   metadata: Prisma.JsonValue | null,
 ) {
+  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
+  const manualDuplicateResolution = getJsonRecord(metadata, 'manualDuplicateResolution');
   if (action === AuditAction.CREATE) {
-    return 'Lead Created';
+    return manualDuplicateResolution ? 'Lead Created From Duplicate Override' : 'Lead Created';
   }
 
-  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
   const lifecycleStatus = getJsonRecordString(afterData, 'lifecycleStatus');
   const beforeStage = getJsonRecordString(beforeData, 'stage');
   const afterStage = getJsonRecordString(afterData, 'stage');
@@ -4185,6 +4777,10 @@ function summarizeLeadHistoryTitle(
       return 'Discovery Completed';
     case 'skip_discovery':
       return 'Discovery Fast-Tracked';
+    case 'duplicate_enrich_existing':
+      return 'Lead Enriched From Duplicate Intake';
+    case 'duplicate_use_existing':
+      return 'Duplicate Intake Linked to Existing Record';
     case 'reopen_lead':
       return 'Lead Reopened';
     case 'update_lead_lifecycle':
@@ -4203,11 +4799,23 @@ function summarizeLeadHistoryDetail(
   afterData: Prisma.JsonValue | null,
   metadata: Prisma.JsonValue | null,
 ) {
+  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
+  const manualDuplicateResolution = getJsonRecord(metadata, 'manualDuplicateResolution');
   if (action === AuditAction.CREATE) {
+    if (manualDuplicateResolution) {
+      const reason = getJsonRecordString(manualDuplicateResolution, 'reason');
+      const selectedCandidate = getJsonRecord(manualDuplicateResolution, 'selectedCandidate');
+      const entityType = getJsonRecordString(selectedCandidate, 'entityType');
+      const title = getJsonRecordString(selectedCandidate, 'title');
+      const targetSummary = title
+        ? ` Reviewed against existing ${entityType === 'account' ? 'customer account' : 'lead'} ${title}.`
+        : '';
+      return `${reason || 'Operator confirmed this duplicate candidate should create a separate lead.'}${targetSummary}`;
+    }
+
     return 'Lead entered Pulse CRM and started the governed workflow.';
   }
 
-  const workflowAction = getJsonRecordString(metadata, 'workflowAction');
   const note = getJsonRecordString(metadata, 'note')?.trim() ?? '';
   const reasonCode = getJsonRecordString(afterData, 'lifecycleReasonCode');
   const reasonNote = getJsonRecordString(afterData, 'lifecycleReasonNote');
@@ -4223,6 +4831,25 @@ function summarizeLeadHistoryDetail(
       return note || 'Discovery details were captured and the lead was advanced.';
     case 'skip_discovery':
       return note || 'Discovery was intentionally fast-tracked with a recorded reason.';
+    case 'duplicate_enrich_existing': {
+      const duplicateResolution = getJsonRecord(metadata, 'duplicateResolution');
+      const reason = getJsonRecordString(duplicateResolution, 'reason');
+      const fields = getJsonRecordStringArray(duplicateResolution, 'enrichedFields');
+      const fieldSummary = fields.length > 0 ? ` Fields added: ${fields.join(', ')}.` : '';
+      return `${reason || 'Duplicate intake values were applied without overwriting existing lead data.'}${fieldSummary}`;
+    }
+    case 'duplicate_use_existing': {
+      const duplicateResolution = getJsonRecord(metadata, 'duplicateResolution');
+      const rowNumber = getJsonRecordNumber(duplicateResolution, 'rowNumber');
+      const selectedCandidate = getJsonRecord(duplicateResolution, 'selectedCandidate');
+      const title = getJsonRecordString(selectedCandidate, 'title');
+      const entityType = getJsonRecordString(selectedCandidate, 'entityType');
+      const rowSummary = rowNumber ? `Import row ${rowNumber}` : 'Duplicate import row';
+      const targetSummary = title
+        ? ` was linked to existing ${entityType === 'account' ? 'customer account' : 'lead'} ${title}.`
+        : ' was linked to an existing record.';
+      return `${rowSummary}${targetSummary}`;
+    }
     case 'reopen_lead':
       return 'Lead was moved back into the active pipeline.';
     case 'update_lead_lifecycle':
@@ -4844,8 +5471,86 @@ function toLeadRoutingPolicySummary(policy: Prisma.LeadRoutingPolicyGetPayload<{
     cisFollowUpProspectReminderDelayBusinessDays: policy.cisFollowUpProspectReminderDelayBusinessDays,
     cisFollowUpOwnerAlertDelayBusinessDays: policy.cisFollowUpOwnerAlertDelayBusinessDays,
     stagnantStageDays: policy.stagnantStageDays,
+    operationalAlertQuietHours: toLeadOperationalAlertQuietHoursPolicy(policy),
     ...(policy.notes ? { notes: policy.notes } : {}),
     updatedAt: policy.updatedAt.toISOString(),
+  };
+}
+
+function toLeadOperationalAlertQuietHoursPolicy(policy: Pick<
+  Prisma.LeadRoutingPolicyGetPayload<{}>,
+  | 'operationalAlertQuietHoursEnabled'
+  | 'operationalAlertQuietHoursStartLocal'
+  | 'operationalAlertQuietHoursEndLocal'
+  | 'operationalAlertQuietHoursTimeZone'
+>) {
+  return {
+    enabled: policy.operationalAlertQuietHoursEnabled,
+    startLocal: policy.operationalAlertQuietHoursStartLocal,
+    endLocal: policy.operationalAlertQuietHoursEndLocal,
+    timeZone: policy.operationalAlertQuietHoursTimeZone,
+  };
+}
+
+function normalizeLeadOperationalAlertQuietHours(
+  input: UpdateLeadOperationalAlertQuietHoursRequest,
+  current: ReturnType<typeof toLeadOperationalAlertQuietHoursPolicy>,
+) {
+  return {
+    enabled: input.enabled ?? current.enabled,
+    startLocal: input.startLocal !== undefined
+      ? normalizeLeadOperationalAlertQuietTime(input.startLocal, 'startLocal')
+      : current.startLocal,
+    endLocal: input.endLocal !== undefined
+      ? normalizeLeadOperationalAlertQuietTime(input.endLocal, 'endLocal')
+      : current.endLocal,
+    timeZone: input.timeZone !== undefined
+      ? requiredTrimmed(input.timeZone, 'timeZone')
+      : current.timeZone,
+  };
+}
+
+function normalizeLeadOperationalAlertQuietTime(value: string, fieldName: string) {
+  const normalized = requiredTrimmed(value, fieldName);
+  if (!/^\d{2}:\d{2}$/.test(normalized)) {
+    throw new Error(`${fieldName} must use HH:mm format`);
+  }
+
+  const [hours = 0, minutes = 0] = normalized.split(':').map(Number);
+  if (hours > 23 || minutes > 59) {
+    throw new Error(`${fieldName} must be a valid local time`);
+  }
+
+  return normalized;
+}
+
+function toLeadOperationalAlertRecipientSummary(
+  recipient: Prisma.LeadOperationalAlertRecipientGetPayload<{}>,
+): LeadOperationalAlertRecipientSummary {
+  return {
+    id: recipient.id,
+    code: recipient.code,
+    routingTeam: toLeadRoutingTeamKey(recipient.routingTeam),
+    name: recipient.name,
+    ...(recipient.email ? { email: recipient.email } : {}),
+    ...(recipient.roleTitle ? { roleTitle: recipient.roleTitle } : {}),
+    isActive: recipient.isActive,
+    sortOrder: recipient.sortOrder,
+    updatedAt: recipient.updatedAt.toISOString(),
+  };
+}
+
+function toLeadOperationalAlertRecipientAuditData(
+  recipient: Prisma.LeadOperationalAlertRecipientGetPayload<{}>,
+) {
+  return {
+    code: recipient.code,
+    routingTeam: toLeadRoutingTeamKey(recipient.routingTeam),
+    name: recipient.name,
+    email: recipient.email ?? undefined,
+    roleTitle: recipient.roleTitle ?? undefined,
+    isActive: recipient.isActive,
+    sortOrder: recipient.sortOrder,
   };
 }
 
@@ -5413,6 +6118,29 @@ function getJsonRecordString(value: Prisma.JsonValue | null | undefined, key: st
   return typeof field === 'string' ? field : undefined;
 }
 
+function getJsonRecord(value: Prisma.JsonValue | null | undefined, key: string): Prisma.JsonValue | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, Prisma.JsonValue>;
+  return record[key];
+}
+
+function getJsonRecordStringArray(value: Prisma.JsonValue | null | undefined, key: string) {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const record = value as Record<string, Prisma.JsonValue>;
+  const field = record[key];
+  if (!Array.isArray(field)) {
+    return [];
+  }
+
+  return field.filter((item): item is string => typeof item === 'string');
+}
+
 function getJsonRecordNumber(value: Prisma.JsonValue | null | undefined, key: string) {
   if (!isRecord(value)) {
     return undefined;
@@ -5451,6 +6179,10 @@ function buildInMemoryLeadRoutingPolicy(): LeadRoutingPolicyRecord {
     cisFollowUpProspectReminderDelayBusinessDays: 3,
     cisFollowUpOwnerAlertDelayBusinessDays: 5,
     stagnantStageDays: 7,
+    operationalAlertQuietHoursEnabled: false,
+    operationalAlertQuietHoursStartLocal: '18:00',
+    operationalAlertQuietHoursEndLocal: '08:00',
+    operationalAlertQuietHoursTimeZone: 'America/Los_Angeles',
     notes: 'PRD-backed in-memory fallback policy.',
     createdAt: new Date(0),
     updatedAt: new Date(0),

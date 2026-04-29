@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   BulkReassignAccountsTerritoryRequest,
+  BulkReassignLeadsTerritoryRequest,
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
@@ -31,6 +32,7 @@ import {
   createShippingCenter,
   createTerritory,
   bulkReassignAccountTerritories,
+  bulkReassignLeadTerritories,
   getTerritoryDashboard,
   getTerritoryMapWorkspace,
   getTerritoryPolicy,
@@ -233,6 +235,18 @@ export async function handleTerritoryRoutes(req: IncomingMessage, res: ServerRes
   }
 
   if (pathname.startsWith('/api/v1/territories/assignments/leads/')) {
+    if (pathname === '/api/v1/territories/assignments/leads/bulk') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      return withTerritoryAuth(req, res, async (actor) => {
+        const body = (await readJsonBody(req)) as BulkReassignLeadsTerritoryRequest;
+        const response = await bulkReassignLeadTerritories(actor, body);
+        return jsonResponse(res, 200, response);
+      });
+    }
+
     if (method !== 'POST') {
       return methodNotAllowedResponse(res, method, ['POST']);
     }

@@ -17,6 +17,8 @@ let createLead;
 let listLeads;
 let getLeadDetail;
 let getLeadRoutingPolicy;
+let previewLeadDuplicateCandidates;
+let previewLeadOcrCapture;
 let listLeadWorkflowQueue;
 let scheduleLeadDiscovery;
 let completeLeadDiscovery;
@@ -39,6 +41,7 @@ test.before(async () => {
     listLeads,
     getLeadDetail,
     getLeadRoutingPolicy,
+    previewLeadDuplicateCandidates,
     listLeadWorkflowQueue,
     logLeadInitialContact,
     scheduleLeadDiscovery,
@@ -48,6 +51,7 @@ test.before(async () => {
     updateLeadLifecycle,
     updateLeadRoutingPolicy,
   } = await import('../dist/modules/leads/service.js'));
+  ({ previewLeadOcrCapture } = await import('../dist/modules/leads/ocr.js'));
 
   createLead = ((rawCreateLead) => (actor, input, ...rest) => {
     const hasExplicitClassification = input.affinityGroupSelection !== undefined
@@ -295,6 +299,151 @@ test('routing policy updates change queue stale thresholds and CIS follow-up tim
   assert.equal(cisItem.nextAction, 'Follow Up CIS');
   assert.equal(cisItem.urgency, 'medium');
   assert.match(cisItem.reason, /reminder window is open/i);
+});
+
+test('manual intake previews and blocks duplicate leads unless create-new is explicitly acknowledged', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const original = await createLead(actor, {
+    companyName: 'Duplicate Guard HVAC',
+    contactDisplayName: 'Jordan Repeat',
+    email: 'jordan.repeat@example.com',
+    phone: '555-818-1000',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  const duplicateInput = {
+    companyName: 'Duplicate Guard HVAC',
+    contactDisplayName: 'Jordan Repeat',
+    email: 'jordan.repeat@example.com',
+    phone: '555-818-1000',
+    state: 'TX',
+    serviceTechCount: 5,
+  };
+
+  const preview = await previewLeadDuplicateCandidates(actor, duplicateInput);
+  assert.equal(preview.hasPotentialDuplicate, true);
+  assert.equal(preview.candidates.length, 1);
+  assert.equal(preview.candidates[0].entityType, 'lead');
+  assert.equal(preview.candidates[0].entityId, original.id);
+
+  await assert.rejects(
+    () => createLead(actor, duplicateInput),
+    /Potential duplicate found/i,
+  );
+  assert.equal(await prisma.lead.count({ where: { email: 'jordan.repeat@example.com' } }), 1);
+
+  const acknowledged = await createLead(actor, {
+    ...duplicateInput,
+    email: 'jordan.repeat.manual-new@example.com',
+    duplicateResolution: {
+      decision: 'create_new',
+      reason: 'Confirmed a separate branch collected at a trade show.',
+    },
+  });
+  assert.notEqual(acknowledged.id, original.id);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'LEAD',
+      entityId: acknowledged.id,
+      action: 'CREATE',
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(audit, 'expected manual duplicate override audit entry');
+  assert.equal(audit.metadata.manualDuplicateResolution.decision, 'create_new');
+  assert.match(audit.metadata.manualDuplicateResolution.reason, /separate branch/i);
+});
+
+test('manual duplicate intake can enrich an existing lead without creating a new record', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const original = await createLead(actor, {
+    companyName: 'Duplicate Enrich HVAC',
+    contactDisplayName: 'Morgan Merge',
+    email: 'morgan.merge@example.com',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+
+  const enriched = await createLead(actor, {
+    companyName: 'Duplicate Enrich HVAC',
+    contactDisplayName: 'Morgan Merge',
+    email: 'morgan.merge@example.com',
+    phone: '555-882-4400',
+    state: 'TX',
+    serviceTechCount: 7,
+    sourceCampaign: 'Trade show badge scan',
+    notes: 'Captured from handwritten business card at Expo.',
+    duplicateResolution: {
+      decision: 'enrich_existing',
+      targetEntityId: original.id,
+      reason: 'Same contact; fill missing card fields only.',
+    },
+  });
+
+  assert.equal(enriched.id, original.id);
+  assert.equal(await prisma.lead.count({ where: { email: 'morgan.merge@example.com' } }), 1);
+
+  const detail = await getLeadDetail(actor, original.id);
+  assert.equal(detail.phone, '555-882-4400');
+  assert.equal(detail.sourceCampaign, 'Trade show badge scan');
+  assert.match(detail.notes ?? '', /Duplicate intake note/i);
+  assert.equal(detail.serviceTechCount, 3, 'enrichment must not overwrite routed service-tech truth');
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'LEAD',
+      entityId: original.id,
+      action: 'UPDATE',
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(audit, 'expected duplicate enrichment audit entry');
+  assert.equal(audit.metadata.workflowAction, 'duplicate_enrich_existing');
+  assert.equal(audit.metadata.duplicateResolution.decision, 'enrich_existing');
+  assert.equal(audit.metadata.duplicateResolution.targetEntityId, original.id);
+  assert.deepEqual(audit.afterData.phone, '555-882-4400');
+});
+
+test('lead OCR preview extracts handwritten-style contact text and surfaces duplicate candidates before create', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const existing = await createLead(actor, {
+    companyName: 'Show Floor IAQ',
+    contactDisplayName: 'Maya Rivera',
+    email: 'maya.rivera@example.com',
+    phone: '555-418-8123',
+    state: 'TX',
+    serviceTechCount: 4,
+  });
+
+  const preview = await previewLeadOcrCapture(actor, {
+    documentType: 'business_card',
+    rawExtractionText: [
+      'Show Floor IAQ',
+      'Maya Rivera',
+      'maya.rivera@example.com',
+      '555-418-8123',
+      'Austin, TX',
+      'Handwritten note: interested in IAQ training',
+    ].join('\n'),
+    serviceTechCountFallback: 1,
+  });
+
+  assert.equal(preview.extractionMode, 'manual_text');
+  assert.equal(preview.fields.companyName?.value, 'Show Floor IAQ');
+  assert.equal(preview.fields.contactDisplayName?.value, 'Maya Rivera');
+  assert.equal(preview.fields.email?.value, 'maya.rivera@example.com');
+  assert.equal(preview.fields.phone?.value, '555-418-8123');
+  assert.equal(preview.fields.state?.value, 'TX');
+  assert.equal(preview.fields.serviceTechCount?.source, 'operator_default');
+  assert.equal(preview.duplicatePreview.hasPotentialDuplicate, true);
+  assert.ok(preview.duplicatePreview.candidates.some((candidate) => candidate.entityId === existing.id));
+  assert.ok(preview.reviewReasons.some((reason) => /duplicate/i.test(reason)));
 });
 
 test('manual intake normalizes approved regions and preserves marketing metadata', SERIAL, async () => {

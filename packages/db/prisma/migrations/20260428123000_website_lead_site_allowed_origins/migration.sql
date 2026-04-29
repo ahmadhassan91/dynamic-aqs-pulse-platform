@@ -1,0 +1,2 @@
+ALTER TABLE "WebsiteLeadSite"
+ADD COLUMN "allowedOrigins" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

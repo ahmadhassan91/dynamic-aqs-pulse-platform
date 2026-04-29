@@ -32,6 +32,7 @@ import {
 } from '@tabler/icons-react';
 import type {
   AccountSummary,
+  LeadSummary,
   ListTerritoryAssignableUsersResponse,
   RegionSummary,
   ShippingCenterSummary,
@@ -39,6 +40,7 @@ import type {
 } from '@pulse/contracts';
 import {
   bulkReassignAccountsTerritory,
+  bulkReassignLeadsTerritory,
   createTerritoryRecord,
   createTerritoryRegion,
   createTerritoryShippingCenter,
@@ -75,6 +77,7 @@ export function TerritoryOperationsPanel({
   shippingCenters,
   territories,
   activeAccounts,
+  activeLeads,
   assignableUsers,
   canAdminTerritory,
   canReassignTerritory,
@@ -87,6 +90,7 @@ export function TerritoryOperationsPanel({
   shippingCenters: ShippingCenterSummary[];
   territories: TerritorySummary[];
   activeAccounts: AccountSummary[];
+  activeLeads: LeadSummary[];
   assignableUsers: ListTerritoryAssignableUsersResponse;
   canAdminTerritory: boolean;
   canReassignTerritory: boolean;
@@ -102,6 +106,15 @@ export function TerritoryOperationsPanel({
   const [bulkReasonCode, setBulkReasonCode] = useState('territory_realignment');
   const [bulkReasonNote, setBulkReasonNote] = useState('');
   const [isSavingBulkTransfer, setIsSavingBulkTransfer] = useState(false);
+  const [leadSearch, setLeadSearch] = useState('');
+  const [leadTerritoryFilter, setLeadTerritoryFilter] = useState<string | null>(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkLeadTargetTerritoryId, setBulkLeadTargetTerritoryId] = useState('');
+  const [bulkLeadAssignedTmUserId, setBulkLeadAssignedTmUserId] = useState('');
+  const [bulkLeadAssignedRdUserId, setBulkLeadAssignedRdUserId] = useState('');
+  const [bulkLeadReasonCode, setBulkLeadReasonCode] = useState('territory_realignment');
+  const [bulkLeadReasonNote, setBulkLeadReasonNote] = useState('');
+  const [isSavingBulkLeadTransfer, setIsSavingBulkLeadTransfer] = useState(false);
 
   const [newRegionCode, setNewRegionCode] = useState('');
   const [newRegionName, setNewRegionName] = useState('');
@@ -207,6 +220,32 @@ export function TerritoryOperationsPanel({
     [activeAccounts, selectedAccountIds],
   );
 
+  const filteredLeads = useMemo(() => {
+    return activeLeads.filter((lead) => {
+      const search = leadSearch.toLowerCase();
+      const matchesSearch = !search
+        || lead.companyName.toLowerCase().includes(search)
+        || lead.stage.toLowerCase().includes(search)
+        || lead.state?.toLowerCase().includes(search)
+        || lead.territoryName?.toLowerCase().includes(search);
+      const matchesTerritory = !leadTerritoryFilter
+        || (leadTerritoryFilter === 'unassigned'
+          ? !lead.territoryId
+          : lead.territoryId === leadTerritoryFilter);
+      return matchesSearch && matchesTerritory;
+    });
+  }, [activeLeads, leadSearch, leadTerritoryFilter]);
+
+  const selectedLeads = useMemo(
+    () => activeLeads.filter((lead) => selectedLeadIds.includes(lead.id)),
+    [activeLeads, selectedLeadIds],
+  );
+
+  const visibleSelectedLeadCount = useMemo(
+    () => filteredLeads.filter((lead) => selectedLeadIds.includes(lead.id)).length,
+    [filteredLeads, selectedLeadIds],
+  );
+
   const visibleSelectedCount = useMemo(
     () => filteredAccounts.filter((account) => selectedAccountIds.includes(account.id)).length,
     [filteredAccounts, selectedAccountIds],
@@ -250,6 +289,25 @@ export function TerritoryOperationsPanel({
     });
   }
 
+  function toggleLeadSelection(leadId: string, checked: boolean) {
+    setSelectedLeadIds((current) => {
+      if (checked) {
+        return current.includes(leadId) ? current : [...current, leadId];
+      }
+      return current.filter((value) => value !== leadId);
+    });
+  }
+
+  function toggleAllVisibleLeads(checked: boolean) {
+    setSelectedLeadIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...filteredLeads.map((lead) => lead.id)]));
+      }
+      const visibleIds = new Set(filteredLeads.map((lead) => lead.id));
+      return current.filter((leadId) => !visibleIds.has(leadId));
+    });
+  }
+
   async function handleBulkTransfer() {
     if (!bulkTargetTerritoryId || selectedAccountIds.length === 0) {
       return;
@@ -287,6 +345,46 @@ export function TerritoryOperationsPanel({
       });
     } finally {
       setIsSavingBulkTransfer(false);
+    }
+  }
+
+  async function handleBulkLeadTransfer() {
+    if (!bulkLeadTargetTerritoryId || selectedLeadIds.length === 0) {
+      return;
+    }
+
+    setIsSavingBulkLeadTransfer(true);
+    try {
+      const response = await bulkReassignLeadsTerritory(apiBaseUrl, accessToken, {
+        leadIds: selectedLeadIds,
+        territoryId: bulkLeadTargetTerritoryId,
+        assignedTmUserId: bulkLeadAssignedTmUserId || null,
+        assignedRdUserId: bulkLeadAssignedRdUserId || null,
+        reasonCode: bulkLeadReasonCode,
+        ...(bulkLeadReasonNote.trim() ? { reasonNote: bulkLeadReasonNote.trim() } : {}),
+      });
+
+      notifications.show({
+        title: 'Bulk lead transfer complete',
+        message: `${response.items.length} leads were reassigned to the selected territory.`,
+        color: 'green',
+      });
+
+      setSelectedLeadIds([]);
+      setBulkLeadTargetTerritoryId('');
+      setBulkLeadAssignedTmUserId('');
+      setBulkLeadAssignedRdUserId('');
+      setBulkLeadReasonCode('territory_realignment');
+      setBulkLeadReasonNote('');
+      onRefresh();
+    } catch (error) {
+      notifications.show({
+        title: 'Bulk lead transfer failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingBulkLeadTransfer(false);
     }
   }
 
@@ -467,6 +565,7 @@ export function TerritoryOperationsPanel({
       </Alert>
 
       {canReassignTerritory ? (
+        <Stack gap="lg">
         <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
           <Stack gap="lg">
             <Group gap="sm">
@@ -632,6 +731,158 @@ export function TerritoryOperationsPanel({
             </Group>
           </Stack>
         </Paper>
+
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+          <Stack gap="lg">
+            <Group gap="sm">
+              <Paper radius="xl" p="xs" bg="blue.0">
+                <IconArrowsShuffle size={18} />
+              </Paper>
+              <div>
+                <Title order={4}>Bulk lead transfer</Title>
+                <Text size="sm" c="dimmed">
+                  Move multiple active pipeline leads to a target territory or named TM/RD with one audited override.
+                </Text>
+              </div>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+              <TextInput
+                label="Search leads"
+                placeholder="Search by company, state, stage, or territory"
+                value={leadSearch}
+                onChange={(event) => setLeadSearch(event.currentTarget.value)}
+              />
+              <Select
+                label="Current territory"
+                placeholder="All territories"
+                data={[
+                  { value: 'unassigned', label: 'Unassigned' },
+                  ...territorySelectData,
+                ]}
+                value={leadTerritoryFilter}
+                onChange={setLeadTerritoryFilter}
+                clearable
+                searchable
+              />
+              <Select
+                label="Target territory"
+                placeholder="Select target territory"
+                data={territorySelectData}
+                value={bulkLeadTargetTerritoryId}
+                onChange={(value) => setBulkLeadTargetTerritoryId(value ?? '')}
+                searchable
+              />
+            </SimpleGrid>
+
+            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+              <Select
+                label="Named TM override"
+                placeholder="Use territory default TM"
+                data={territoryManagerSelectData}
+                value={bulkLeadAssignedTmUserId}
+                onChange={(value) => setBulkLeadAssignedTmUserId(value ?? '')}
+                searchable
+                clearable
+              />
+              <Select
+                label="Named RD override"
+                placeholder="Use region default RD"
+                data={regionalDirectorSelectData}
+                value={bulkLeadAssignedRdUserId}
+                onChange={(value) => setBulkLeadAssignedRdUserId(value ?? '')}
+                searchable
+                clearable
+              />
+              <Select
+                label="Reason"
+                data={BULK_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                value={bulkLeadReasonCode}
+                onChange={(value) => setBulkLeadReasonCode(value ?? 'territory_realignment')}
+              />
+            </SimpleGrid>
+
+            <Textarea
+              label="Transfer note"
+              placeholder="Add optional context for the lead reassignment audit trail."
+              minRows={2}
+              value={bulkLeadReasonNote}
+              onChange={(event) => setBulkLeadReasonNote(event.currentTarget.value)}
+            />
+
+            <Paper withBorder radius="lg" p="md">
+              <Group justify="space-between" mb="sm">
+                <Checkbox
+                  checked={filteredLeads.length > 0 && visibleSelectedLeadCount === filteredLeads.length}
+                  indeterminate={visibleSelectedLeadCount > 0 && visibleSelectedLeadCount < filteredLeads.length}
+                  onChange={(event) => toggleAllVisibleLeads(event.currentTarget.checked)}
+                  label={`Select visible leads (${filteredLeads.length})`}
+                />
+                <Badge color={selectedLeads.length > 0 ? 'blue' : 'gray'} variant="light">
+                  {selectedLeads.length} selected
+                </Badge>
+              </Group>
+
+              <Table.ScrollContainer minWidth={900}>
+                <Table highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th w={48}></Table.Th>
+                      <Table.Th>Lead</Table.Th>
+                      <Table.Th>Stage</Table.Th>
+                      <Table.Th>State</Table.Th>
+                      <Table.Th>Current Territory</Table.Th>
+                      <Table.Th>Owner</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {filteredLeads.length > 0 ? (
+                      filteredLeads.map((lead) => (
+                        <Table.Tr key={lead.id}>
+                          <Table.Td>
+                            <Checkbox
+                              checked={selectedLeadIds.includes(lead.id)}
+                              onChange={(event) => toggleLeadSelection(lead.id, event.currentTarget.checked)}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <Text fw={600}>{lead.companyName}</Text>
+                          </Table.Td>
+                          <Table.Td>{lead.stage.replace(/_/g, ' ')}</Table.Td>
+                          <Table.Td>{lead.state ?? 'N/A'}</Table.Td>
+                          <Table.Td>{lead.territoryName ?? lead.territoryCode ?? 'Unassigned'}</Table.Td>
+                          <Table.Td>{lead.assignedTmName ?? lead.assignedRdName ?? 'Unassigned'}</Table.Td>
+                        </Table.Tr>
+                      ))
+                    ) : (
+                      <Table.Tr>
+                        <Table.Td colSpan={6}>
+                          <Text size="sm" c="dimmed" ta="center" py="md">
+                            No active leads match the current filters.
+                          </Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    )}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            </Paper>
+
+            <Group justify="flex-end">
+              <Button
+                leftSection={<IconArrowsShuffle size={16} />}
+                loading={isSavingBulkLeadTransfer}
+                disabled={selectedLeadIds.length === 0 || !bulkLeadTargetTerritoryId}
+                onClick={() => {
+                  void handleBulkLeadTransfer();
+                }}
+              >
+                Transfer selected leads
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+        </Stack>
       ) : null}
 
       {canAdminTerritory ? (

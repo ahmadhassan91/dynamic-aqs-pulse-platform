@@ -8,6 +8,7 @@ import {
   IconBuildingStore,
   IconCalendar,
   IconChevronRight,
+  IconClipboardList,
   IconHome,
   IconMapPin,
   IconSchool,
@@ -137,6 +138,16 @@ export function Navigation() {
       icon: IconBuildingStore,
       links: [
         { label: 'All Accounts', link: '/customers' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'consignment')) {
+    navItems.push({
+      label: 'Consignment',
+      icon: IconClipboardList,
+      links: [
+        { label: 'Dashboard & Sites', link: '/consignment' },
       ],
     });
   }

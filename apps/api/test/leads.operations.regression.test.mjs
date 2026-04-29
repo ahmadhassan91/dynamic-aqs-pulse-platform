@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import { applyTestEnvironment, ensureTestDatabaseReady, resetDatabase } from './support/runtime.mjs';
 
@@ -20,6 +21,12 @@ let createLead;
 let listLeads;
 let getLeadDetail;
 let updateLead;
+let getLeadOperationalAlertDeliveryAdminSettings;
+let listLeadOperationalAlertIntegrationStatuses;
+let retryLeadOperationalAlertDeliveries;
+let deadLetterLeadOperationalAlertDeliveries;
+let updateLeadOperationalAlertQuietHours;
+let updateLeadOperationalAlertRecipient;
 let processLeadOperationalAlertScanJob;
 let processLeadOperationalAlertDeliveryJob;
 let createRegion;
@@ -45,6 +52,12 @@ test.before(async () => {
     listLeads,
     getLeadDetail,
     updateLead,
+    getLeadOperationalAlertDeliveryAdminSettings,
+    listLeadOperationalAlertIntegrationStatuses,
+    retryLeadOperationalAlertDeliveries,
+    deadLetterLeadOperationalAlertDeliveries,
+    updateLeadOperationalAlertQuietHours,
+    updateLeadOperationalAlertRecipient,
     processLeadOperationalAlertScanJob,
     processLeadOperationalAlertDeliveryJob,
   } = await import('../dist/modules/leads/service.js'));
@@ -174,6 +187,159 @@ function createLoggerStub() {
       info: (message, meta) => entries.info.push({ message, meta }),
       warn: (message, meta) => entries.warn.push({ message, meta }),
       error: (message, meta) => entries.error.push({ message, meta }),
+    },
+  };
+}
+
+function createQueueStub() {
+  const enqueued = [];
+  return {
+    enqueued,
+    queue: {
+      enqueue: async (definition, payload) => {
+        enqueued.push({ definition, payload });
+        return {
+          id: `queued-${enqueued.length}`,
+          type: typeof definition === 'string' ? definition : definition.name,
+          tier: typeof definition === 'string' ? 'STANDARD' : definition.tier,
+          correlationId: payload.correlationId,
+          enqueuedAt: new Date().toISOString(),
+        };
+      },
+    },
+  };
+}
+
+async function createPendingRoutingBroadcastAlert(actor, {
+  suffix = 'delivery',
+  recipientEmail,
+} = {}) {
+  const sgtLead = await createLead(actor, {
+    companyName: `SGT Delivery ${suffix} HVAC`,
+    contactDisplayName: `Morgan ${suffix}`,
+    email: `morgan.${suffix}@example.com`,
+    phone: '555-100-2900',
+    state: 'CA',
+    serviceTechCount: 3,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  });
+
+  await prisma.lead.update({
+    where: { id: sgtLead.id },
+    data: {
+      createdAt: new Date(Date.now() - (26 * 3600000)),
+      initialContactDueAt: new Date(Date.now() - (2 * 3600000)),
+    },
+  });
+
+  if (recipientEmail !== undefined) {
+    await prisma.leadOperationalAlertRecipient.updateMany({
+      where: { routingTeam: 'STRATEGIC_GROWTH', isActive: true },
+      data: { email: recipientEmail },
+    });
+  }
+
+  await processLeadOperationalAlertScanJob(createLeadAlertJob());
+
+  return prisma.leadOperationalAlert.findFirstOrThrow({
+    where: {
+      leadId: sgtLead.id,
+      alertType: 'ROUTING_BROADCAST',
+      ...(recipientEmail ? { recipientEmail } : {}),
+    },
+    orderBy: { recipientName: 'asc' },
+  });
+}
+
+async function startMicrosoftGraphMock({
+  tokenStatus = 200,
+  sendMailStatus = 202,
+} = {}) {
+  const requests = [];
+
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      requests.push({
+        method: req.method,
+        pathname: url.pathname,
+        headers: req.headers,
+        body,
+        json: parseJsonBody(body),
+      });
+
+      if (req.method === 'POST' && url.pathname.endsWith('/oauth2/v2.0/token')) {
+        res.writeHead(tokenStatus, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(
+          tokenStatus >= 200 && tokenStatus < 300
+            ? { access_token: 'graph-access-token', token_type: 'Bearer', expires_in: 3600 }
+            : { error: 'invalid_client', error_description: 'Token request failed in test' },
+        ));
+        return;
+      }
+
+      if (req.method === 'POST' && decodeURIComponent(url.pathname).endsWith('/sendMail')) {
+        res.writeHead(sendMailStatus, { 'content-type': 'application/json', 'request-id': 'graph-sendmail-request' });
+        res.end(sendMailStatus >= 200 && sendMailStatus < 300
+          ? ''
+          : JSON.stringify({ error: { code: 'ErrorSendMailFailed', message: 'Send mail failed in test' } }));
+        return;
+      }
+
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not_found' }));
+    });
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    requests,
+    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  };
+}
+
+function parseJsonBody(body) {
+  if (!body) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+function createMicrosoftGraphDeliveryConfig(graphServer, overrides = {}) {
+  return {
+    ...config,
+    leads: {
+      ...config.leads,
+      operationalAlertDeliveryMode: 'microsoft_graph',
+      operationalAlertMicrosoftGraph: {
+        tenantId: 'pulse-test-tenant',
+        clientId: 'pulse-test-client',
+        clientSecret: 'pulse-test-secret',
+        fromUser: 'alerts@pulse.local',
+        authBaseUrl: graphServer?.baseUrl ?? 'http://127.0.0.1:1',
+        graphBaseUrl: graphServer?.baseUrl ?? 'http://127.0.0.1:1',
+        ...overrides,
+      },
     },
   };
 }
@@ -710,4 +876,358 @@ test('lead operational alert delivery records disabled mode when alert transport
   assert.equal(attempts[0].status, 'SKIPPED');
   assert.equal(attempts[0].deliveryMode, 'DISABLED');
   assert.ok(entries.warn.some((entry) => entry.message === 'lead.operational_alert.delivery_skipped'));
+});
+
+test('lead operational alert delivery sends through Microsoft Graph and records the provider attempt', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'graph-success',
+    recipientEmail: 'strategic.growth@example.com',
+  });
+  const graph = await startMicrosoftGraphMock();
+
+  try {
+    const { logger, entries } = createLoggerStub();
+    const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    assert.equal(deliveryResult.status, 'sent');
+
+    const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+      where: { alertId: alert.id },
+      orderBy: { attemptNumber: 'asc' },
+    });
+
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].status, 'SENT');
+    assert.equal(attempts[0].deliveryMode, 'MICROSOFT_GRAPH');
+    assert.equal(attempts[0].recipientEmail, 'strategic.growth@example.com');
+    assert.match(attempts[0].providerKey, /microsoft_graph/i);
+
+    const refreshedAlert = await prisma.leadOperationalAlert.findUniqueOrThrow({
+      where: { id: alert.id },
+    });
+    assert.equal(refreshedAlert.deliveryStatus, 'SENT');
+    assert.ok(refreshedAlert.deliveredAt);
+
+    const tokenRequest = graph.requests.find((request) => request.pathname.endsWith('/oauth2/v2.0/token'));
+    assert.ok(tokenRequest);
+    assert.match(tokenRequest.body, /client_id=pulse-test-client/);
+    assert.match(tokenRequest.body, /client_secret=pulse-test-secret/);
+
+    const sendMailRequest = graph.requests.find((request) => decodeURIComponent(request.pathname).endsWith('/sendMail'));
+    assert.ok(sendMailRequest);
+    assert.match(decodeURIComponent(sendMailRequest.pathname), /\/users\/alerts@pulse\.local\/sendMail$/);
+    assert.equal(sendMailRequest.headers.authorization, 'Bearer graph-access-token');
+    assert.equal(sendMailRequest.json.message.toRecipients[0].emailAddress.address, 'strategic.growth@example.com');
+    assert.match(sendMailRequest.json.message.subject, /Pulse lead routing alert/);
+    assert.match(sendMailRequest.json.message.body.content, /SGT Delivery graph-success HVAC/);
+    assert.ok(entries.info.some((entry) => entry.message === 'lead.operational_alert.sent'));
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert delivery records Microsoft Graph provider failures for retry visibility', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'graph-failure',
+    recipientEmail: 'strategic.failure@example.com',
+  });
+  const graph = await startMicrosoftGraphMock({ sendMailStatus: 503 });
+
+  try {
+    const { logger, entries } = createLoggerStub();
+    const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    assert.equal(deliveryResult.status, 'failed');
+
+    const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+      where: { alertId: alert.id },
+    });
+
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].status, 'FAILED');
+    assert.equal(attempts[0].deliveryMode, 'MICROSOFT_GRAPH');
+    assert.match(attempts[0].providerKey, /microsoft_graph/i);
+    assert.match(attempts[0].errorMessage, /Send mail failed|503/i);
+
+    const refreshedAlert = await prisma.leadOperationalAlert.findUniqueOrThrow({
+      where: { id: alert.id },
+    });
+    assert.equal(refreshedAlert.deliveryStatus, 'FAILED');
+    assert.equal(refreshedAlert.deliveredAt, null);
+    assert.ok(entries.error.some((entry) => entry.message === 'lead.operational_alert.delivery_failed'));
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert delivery admin settings expose retry visibility and latest failure', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'admin-status-failure',
+    recipientEmail: 'strategic.admin-status@example.com',
+  });
+  const graph = await startMicrosoftGraphMock({ sendMailStatus: 503 });
+
+  try {
+    const { logger } = createLoggerStub();
+    await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    const settings = await getLeadOperationalAlertDeliveryAdminSettings(createMicrosoftGraphDeliveryConfig(graph));
+    assert.equal(settings.provider, 'lead_operational_alerts');
+    assert.equal(settings.mode, 'microsoft_graph');
+    assert.equal(settings.isConfigured, true);
+    assert.equal(settings.status, 'warning');
+    assert.equal(settings.metrics.failedAlertCount, 1);
+    assert.equal(settings.metrics.retryableFailedAlertCount, 1);
+    assert.equal(settings.metrics.failedAttemptCount, 1);
+    assert.equal(settings.metrics.latestFailure?.alertId, alert.id);
+    assert.equal(settings.metrics.latestFailure?.recipientEmail, 'strategic.admin-status@example.com');
+
+    const statuses = await listLeadOperationalAlertIntegrationStatuses(createMicrosoftGraphDeliveryConfig(graph));
+    assert.equal(statuses[0].key, 'lead-operational-alerts');
+    assert.equal(statuses[0].status, 'warning');
+    assert.match(statuses[0].detail, /failure/i);
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert delivery admin settings report Microsoft Graph configuration issues', SERIAL, async () => {
+  const settings = await getLeadOperationalAlertDeliveryAdminSettings(createMicrosoftGraphDeliveryConfig(null, {
+    tenantId: undefined,
+    clientId: undefined,
+    clientSecret: undefined,
+    fromUser: undefined,
+  }));
+
+  assert.equal(settings.mode, 'microsoft_graph');
+  assert.equal(settings.isConfigured, false);
+  assert.equal(settings.status, 'blocked');
+  assert.deepEqual(settings.configurationIssues, [
+    'NOTIFICATION_MICROSOFT_GRAPH_TENANT_ID',
+    'NOTIFICATION_MICROSOFT_GRAPH_CLIENT_ID',
+    'NOTIFICATION_MICROSOFT_GRAPH_CLIENT_SECRET',
+    'NOTIFICATION_MICROSOFT_GRAPH_FROM_USER',
+  ]);
+  assert.equal(settings.metrics.failedAlertCount, 0);
+});
+
+test('lead operational alert admin retry requeues failed deliveries with recipients', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'admin-retry',
+    recipientEmail: 'strategic.retry@example.com',
+  });
+  const graph = await startMicrosoftGraphMock({ sendMailStatus: 503 });
+
+  try {
+    const { logger } = createLoggerStub();
+    await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    const { queue, enqueued } = createQueueStub();
+    const result = await retryLeadOperationalAlertDeliveries(actor, {
+      alertIds: [alert.id],
+    }, { queue });
+
+    assert.equal(result.matchedAlertCount, 1);
+    assert.equal(result.retriedAlertCount, 1);
+    assert.equal(result.enqueuedDeliveryCount, 1);
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0].payload.data.alertId, alert.id);
+
+    const refreshedAlert = await prisma.leadOperationalAlert.findUniqueOrThrow({
+      where: { id: alert.id },
+    });
+    assert.equal(refreshedAlert.deliveryStatus, 'PENDING');
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert admin dead-letter marks failed deliveries as skipped with reason', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'admin-dead-letter',
+    recipientEmail: 'strategic.deadletter@example.com',
+  });
+  const graph = await startMicrosoftGraphMock({ sendMailStatus: 503 });
+
+  try {
+    const { logger } = createLoggerStub();
+    await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    const result = await deadLetterLeadOperationalAlertDeliveries(
+      actor,
+      createMicrosoftGraphDeliveryConfig(graph),
+      {
+        alertIds: [alert.id],
+        reason: 'Recipient mailbox is not active yet',
+      },
+    );
+
+    assert.equal(result.matchedAlertCount, 1);
+    assert.equal(result.deadLetteredAlertCount, 1);
+
+    const refreshedAlert = await prisma.leadOperationalAlert.findUniqueOrThrow({
+      where: { id: alert.id },
+      include: {
+        deliveryAttempts: {
+          orderBy: { attemptNumber: 'asc' },
+        },
+      },
+    });
+    assert.equal(refreshedAlert.deliveryStatus, 'SKIPPED');
+    assert.equal(refreshedAlert.deliveryAttempts.length, 2);
+    assert.equal(refreshedAlert.deliveryAttempts[1].status, 'SKIPPED');
+    assert.equal(refreshedAlert.deliveryAttempts[1].providerKey, 'pulse.lead-operational-alert.admin');
+    assert.match(JSON.stringify(refreshedAlert.deliveryAttempts[1].metadata), /Recipient mailbox is not active yet/);
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert scan respects quiet-hours policy', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'quiet-baseline',
+    recipientEmail: 'strategic.quiet.baseline@example.com',
+  });
+  await prisma.leadOperationalAlert.deleteMany();
+
+  await updateLeadOperationalAlertQuietHours(actor, {
+    enabled: true,
+    startLocal: '00:00',
+    endLocal: '00:00',
+    timeZone: 'UTC',
+  });
+
+  const { logger, entries } = createLoggerStub();
+  const result = await processLeadOperationalAlertScanJob(createLeadAlertJob(), { logger });
+  assert.equal(result.skippedReason, 'quiet_hours');
+  assert.equal(result.createdAlertCount, 0);
+  assert.ok(entries.info.some((entry) => entry.message === 'lead.operational_alert.scan_skipped'));
+
+  const alerts = await prisma.leadOperationalAlert.findMany();
+  assert.equal(alerts.length, 0);
+});
+
+test('lead operational alert recipient governance updates delivery roster and settings', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const recipient = await prisma.leadOperationalAlertRecipient.findFirstOrThrow({
+    where: { code: 'sgt_michelle_hogan' },
+  });
+
+  const updated = await updateLeadOperationalAlertRecipient(actor, recipient.id, {
+    email: 'michelle.alerts@example.com',
+    isActive: false,
+    sortOrder: 42,
+  });
+
+  assert.equal(updated.email, 'michelle.alerts@example.com');
+  assert.equal(updated.isActive, false);
+  assert.equal(updated.sortOrder, 42);
+
+  const settings = await getLeadOperationalAlertDeliveryAdminSettings(config);
+  const settingsRecipient = settings.recipients.find((item) => item.id === recipient.id);
+  assert.equal(settingsRecipient?.email, 'michelle.alerts@example.com');
+  assert.equal(settingsRecipient?.isActive, false);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'LEAD_OPERATIONAL_ALERT_RECIPIENT',
+      entityId: recipient.id,
+    },
+  });
+  assert.ok(audit, 'expected recipient governance audit entry');
+});
+
+test('lead operational alert delivery records Microsoft Graph missing configuration without calling the provider', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'graph-missing-config',
+    recipientEmail: 'strategic.config@example.com',
+  });
+  const graph = await startMicrosoftGraphMock();
+
+  try {
+    const { logger, entries } = createLoggerStub();
+    const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph, {
+        clientSecret: undefined,
+      }),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    assert.equal(deliveryResult.status, 'failed');
+    assert.equal(graph.requests.length, 0);
+
+    const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+      where: { alertId: alert.id },
+    });
+
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].status, 'FAILED');
+    assert.equal(attempts[0].deliveryMode, 'MICROSOFT_GRAPH');
+    assert.match(attempts[0].errorMessage, /config|client secret/i);
+    assert.ok(entries.error.some((entry) => entry.message === 'lead.operational_alert.delivery_failed'));
+  } finally {
+    await graph.close();
+  }
+});
+
+test('lead operational alert delivery records Microsoft Graph missing recipient without calling the provider', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const alert = await createPendingRoutingBroadcastAlert(actor, {
+    suffix: 'graph-missing-recipient',
+    recipientEmail: null,
+  });
+  const graph = await startMicrosoftGraphMock();
+
+  try {
+    const { logger, entries } = createLoggerStub();
+    const deliveryResult = await processLeadOperationalAlertDeliveryJob(
+      createMicrosoftGraphDeliveryConfig(graph),
+      logger,
+      createLeadAlertDeliveryJob(alert.id),
+    );
+
+    assert.equal(deliveryResult.status, 'failed');
+    assert.equal(graph.requests.length, 0);
+
+    const attempts = await prisma.leadOperationalAlertDeliveryAttempt.findMany({
+      where: { alertId: alert.id },
+    });
+
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].status, 'FAILED');
+    assert.equal(attempts[0].deliveryMode, 'MICROSOFT_GRAPH');
+    assert.equal(attempts[0].recipientEmail, null);
+    assert.match(attempts[0].errorMessage, /recipient/i);
+    assert.ok(entries.error.some((entry) => entry.message === 'lead.operational_alert.delivery_failed'));
+  } finally {
+    await graph.close();
+  }
 });

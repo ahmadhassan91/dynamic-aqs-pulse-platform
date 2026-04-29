@@ -1,0 +1,104 @@
+# Consignment Requirements Map
+
+Date: 2026-04-30
+
+This map copies the latest consignment scope into the Pulse development repo and separates what can be built now from what is intentionally parked behind Acumatica or other external decisions.
+
+Source PRD:
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/client-scope-confirmation-2026-04-20/05_CONSIGNMENT_PRD.md`
+- Original planning source: `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/docs/roadmap/prds/CONSIGNMENT_MANAGEMENT_PRD.md`
+
+Primary evidence:
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/25 Feb 2026 Session 5.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Fri 27th  Feb Session 6.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/17th March  session 10-To-Be consognment and App.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/session-13th-20thApril-2026.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/asispricingdocuments/Consignment Overview.docx.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/asispricingdocuments/DAQS Consignment Program Onboarding Doc V1 (1).docx.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/asispricingdocuments/Consign Docs and forms overview-V1.docx.md`
+- `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Consignment/Warehouse_Visit_Tracking_Master.xlsx - Main (1).csv`
+
+## Boundary Rule
+
+Pulse can build workflow, visibility, documents, audit capture, reconciliation control, mailbox work items, and reporting scaffolds now.
+
+Pulse must not fake Acumatica-owned truth. Warehouse creation, transfer/receipt truth, inventory on hand, posted POs/sales orders, invoices, credit memos, and financial settlement remain parked until Acumatica sandbox access, certified endpoints, sample records, and signed field mappings are available.
+
+## Current Coverage Map
+
+| Requirement Area | Status | Build Now In Pulse | Parked Dependency / Reason | Re-entry Trigger |
+| --- | --- | --- | --- | --- |
+| Consignment enrollment from lead/account | `Implemented / Partial` | Durable account/location-linked consignment sites and account read model counts are implemented; lead-to-account promotion remains a later workflow connection | None | Extend lead conversion handoff after the account activation slice is stable |
+| Pre-warehouse onboarding pipeline | `Implemented / Partial` | Onboarding, ready-for-warehouse, baseline-pending, active, and exited states are implemented with activation gating; abandoned-onboarding reporting remains partial | None | Add reporting/export view over parked and abandoned states |
+| Samantha/Ops alert boundary | `Build Now` | Only queue Samantha/Ops warehouse setup work after `ready_for_warehouse` | Real outbound delivery provider can remain parked; create alert/work-item records now | Notification provider approval |
+| Agreement and document register | `Implemented / Partial` | Agreement and BLUE status/version/current-reference behavior are implemented and regression-covered; remaining form families use the same register shell pending workflow-specific UI | E-sign vendor flow parked | E-sign provider and legal policy decision |
+| Account/customer consignment indicator | `Implemented / Partial` | Account consignment read model exposes participation plus active/onboarding/exited counts for customer drilldown | UI placement is live/partial depending account workspace surface | Account UI polish and cross-link validation |
+| Consignment site master | `Implemented` | Site record, account/location link, TM/RD ownership, contact/status fields, warehouse code placeholder, scoped reads, and audit entry creation are implemented | Live Acumatica warehouse validation parked | Acumatica warehouse endpoint and field mapping |
+| BLUE baseline workflow | `Implemented / Partial` | BLUE signed/approved evidence establishes baseline and next-audit date; expected line import remains manual/parked | Acumatica transfer/receipt inventory truth parked | Transfer/receipt endpoint certification |
+| ROSE 90-day audit scheduler | `Implemented / Partial` | 90-day cadence helpers, audit completion reset, route/service regressions, and durable `ConsignmentAudit` calendar source are implemented; provider sync/status depth remains later | Outlook/provider sync already handled separately by calendar boundary | Deepen calendar provider status/audit visibility after shared-calendar pilot hardening |
+| On-site ROSE audit capture | `Implemented / Partial` | Audit shell, expected/manual lines, actual count, variance, completion, and reconciliation status are implemented | Authoritative SKU/barcode inventory list from Acumatica parked | SKU/barcode/product mapping signoff |
+| Audit vs reconciliation split | `Implemented` | Separate audit status and reconciliation status are implemented; audit can complete while reconciliation remains open | None | Reconciliation workflow depth slice |
+| True-up and discrepancy cases | `Implemented / Partial` | Manual expected-vs-actual variance creates discrepancy cases and work items; reason taxonomy/owner workflow remains partial | In-transit/open PO matching from Acumatica parked | Acumatica order/transfer/sales fixtures |
+| 5-business-day PO clock | `Implemented / Partial` | Business-day helper and variance-created PO follow-up work item are implemented; escalation policy remains partial | PO auto-create/link in Acumatica parked | PO/sales-order endpoint certification |
+| Shared mailbox work queue | `Partial` | Pulse work items now represent manual follow-up and parked warehouse/PO boundaries | Mailbox API ingestion/provider automation parked | Mailbox provider decision/access |
+| PURPLE adjustment workflow | `Build Now To Manual Boundary` | Structured adjustment request, current/add/remove/new total, document link, baseline change proposal | Posted inventory adjustment in Acumatica parked | Inventory adjustment endpoint certification |
+| SAND exit workflow | `Build Now To Manual Boundary` | Notice, final reconciliation state, return/retained quantities, settlement evidence placeholders, closure status | Invoices, credit memos, posted settlement parked | Finance/Acumatica settlement endpoint access |
+| Reporting and Samantha workbook replacement | `Build Now To Available Data` | Site, audit, reconciliation, PO clock, work-item, and manually/imported baseline reports with export | Live sales/inventory/revenue truth parked | Acumatica sales/inventory read models |
+| Mobile offline audit and barcode scan | `Build Later In Pulse` | Can design around stored audit lines and manual fallback | Barcode standard/product identity and mobile offline policy need approval | Barcode decision and mobile slice start |
+| Dealer/customer consignment visibility | `Decision` | Keep internal-only in Phase 1 | Not all dealers should see consignment; portal visibility needs explicit approval | Dealer portal consignment policy decision |
+
+## Build-Now Slice Order
+
+| Slice | Name | Status | Acceptance Criteria |
+| --- | --- | --- | --- |
+| CSG-1 | Site master and account flag | `Implemented` | Account profile/read model can show consignment participation; site list works without Acumatica access |
+| CSG-2 | Onboarding and agreement register | `Implemented / Partial` | A customer can move to `ready_for_warehouse` without pretending a warehouse exists; full abandoned-onboarding reporting remains later |
+| CSG-3 | Ops work queue and parked warehouse boundary | `Implemented / Partial` | Warehouse setup remains visible as parked/blocked; automation provider delivery remains parked |
+| CSG-4 | ROSE scheduler and calendar source | `Implemented / Partial` | Completing an audit schedules the next ROSE due date; calendar now prefers durable `ConsignmentAudit` records with lead-backed hints only as fallback |
+| CSG-5 | Audit/reconciliation foundation | `Implemented` | Audit can be complete while reconciliation is open |
+| CSG-6 | PO follow-up clock | `Implemented / Partial` | Unresolved variance creates a manual PO follow-up clock/work item; escalation/mailbox automation remains parked |
+| CSG-7 | PURPLE and SAND shells | Adjustment and exit workflows with document/status/evidence placeholders | Baseline-changing and exit events are tracked without ERP posting |
+| CSG-8 | Reporting scaffold | Samantha workbook replacement over Pulse-owned data, drilldowns, export-ready views | TM/Ops/RD/Exec can see site, audit, due, discrepancy, and PO status |
+
+## Explicitly Parked Acumatica Items
+
+| Parked Item | Why Parked | What To Build Now Instead | Resume From |
+| --- | --- | --- | --- |
+| Acumatica warehouse creation | Warehouse setup has financial/setup fields and restricted Acumatica permissions; endpoint behavior is not certified | `warehouse_pending` state, Acumatica warehouse ID placeholder, admin exception notes | Add warehouse sync adapter and validation once sandbox samples arrive |
+| TR transfer order and receipt truth | Initial deployment and receipt are ERP-owned non-revenue inventory movements | Manual/imported transfer reference fields and readiness placeholders | Add transfer/receipt read model sync and contract tests |
+| Inventory balance and SKU/barcode truth | Acumatica is inventory/product source of truth; barcode standard not signed off | Manual/imported baseline lines with stale-data/source notes | Add inventory snapshot sync after SKU mapping |
+| Sales order / PO / invoice / credit memo posting | Financial truth and posted docs belong in Acumatica | PO follow-up state and external reference placeholders | Link or create ERP records only after endpoint certification |
+| Live sales/inventory value reporting | Samantha reports use Acumatica exports; live numbers require certified reads | Report Pulse-owned statuses and imported/manual snapshots with freshness labels | Replace imported/manual values with read models |
+
+## Resume Checklist When Acumatica Access Arrives
+
+1. Confirm sandbox credentials, auth method, IP allow-list, rate limits, and tenant/company scope.
+2. Obtain sample records for warehouse, location, TR transfer order, transfer receipt, inventory balance, sales order/PO, invoice, and credit memo.
+3. Complete field mapping for customer ID, location ID, warehouse ID, SKU/product identity, transfer/receipt references, PO/order references, and credit memo references.
+4. Record fixtures and build adapter contract tests before connecting production workflows.
+5. Add sync status fields, last-synced timestamps, stale-data warnings, retry/dead-letter behavior, and manual recovery ownership.
+6. Move parked rows in this map from `Parked` to active slices only after endpoint behavior is proven.
+
+## Primary Regression Targets
+
+- `pnpm --filter @pulse/contracts build`
+- `pnpm --filter @pulse/api build`
+- `pnpm --filter @pulse/crm-web typecheck`
+- `pnpm --filter @pulse/api test:consignment`
+- cross-checks when touched: account visibility tests, calendar event tests, RBAC denial tests
+
+## Regression Status
+
+The consignment regression suite now uses `apps/api/test/consignment.regression.test.mjs` as the DB-backed API/service entry point and `apps/api/test/consignment.service.regression.test.mjs` for deterministic cadence helpers. It follows the existing API harness and is shaped around the current contract/service paths:
+
+- `packages/contracts/src/consignment.ts`
+- `apps/api/src/modules/consignment/service.ts`
+- `apps/api/src/modules/consignment/http.ts`
+- `apps/api/src/modules/calendar/events.ts` for the consignment ROSE calendar event source
+
+The suite covers site master creation, account read-model participation and counts, current document behavior, activation gating, onboarding state transitions, route/API create-read-filter-gate behavior, RBAC denial, TM/RD scoped reads and mutation denial, ROSE 90-day audit scheduling reset, operational queue audit-status filtering, PO follow-up creation, and the parked Acumatica warehouse boundary.
+
+Current verification state:
+
+- `pnpm --filter @pulse/api test:consignment` passes after building contracts/config/db/API, running the deterministic service helper suite, and running the 12 DB-backed consignment regressions.
+- Durable consignment calendar event coverage now reads durable `ConsignmentAudit` records first and keeps lead-backed hints only as fallback for pre-site conversion visibility.

@@ -922,6 +922,27 @@ test('training compliance reporting summarizes certification and cadence risk by
   assert.ok(certificationType);
   assert.ok(onboardingType);
 
+  const westLocation = await prisma.accountLocation.create({
+    data: {
+      accountId: westFixture.account.id,
+      name: 'West training room',
+      city: 'Austin',
+      state: 'TX',
+      countryCode: 'US',
+      isPrimary: true,
+    },
+  });
+  const eastLocation = await prisma.accountLocation.create({
+    data: {
+      accountId: eastFixture.account.id,
+      name: 'East training room',
+      city: 'Orlando',
+      state: 'FL',
+      countryCode: 'US',
+      isPrimary: true,
+    },
+  });
+
   await prisma.accountTrainingProgram.createMany({
     data: [
       {
@@ -984,6 +1005,7 @@ test('training compliance reporting summarizes certification and cadence risk by
     data: [
       {
         accountId: westFixture.account.id,
+        locationId: westLocation.id,
         trainingTypeId: certificationType.id,
         trainerUserId: westFixture.tm.id,
         activityKind: 'TRAINING',
@@ -996,7 +1018,22 @@ test('training compliance reporting summarizes certification and cadence risk by
         certificationOutcome: 'PENDING_DECISION',
       },
       {
+        accountId: westFixture.account.id,
+        locationId: westLocation.id,
+        trainingTypeId: certificationType.id,
+        trainerUserId: westFixture.tm.id,
+        activityKind: 'TRAINING',
+        status: 'COMPLETED',
+        title: 'West awarded without proof',
+        scheduledAt: new Date('2026-04-12T09:00:00.000Z'),
+        completedAt: new Date('2026-04-12T10:00:00.000Z'),
+        durationMinutes: 60,
+        attendeeCount: 2,
+        certificationOutcome: 'AWARDED',
+      },
+      {
         accountId: eastFixture.account.id,
+        locationId: eastLocation.id,
         trainingTypeId: onboardingType.id,
         trainerUserId: eastFixture.tm.id,
         activityKind: 'TRAINING',
@@ -1021,8 +1058,34 @@ test('training compliance reporting summarizes certification and cadence risk by
   assert.equal(report.summary.expiredCertificationCount, 1);
   assert.equal(report.summary.revokedCertificationCount, 1);
   assert.equal(report.summary.overdueProgramCount, 1);
+  assert.equal(report.summary.unresolvedExecutionExceptionCount, 2);
   assert.equal(report.summary.pendingCertificationDecisionCount, 1);
-  assert.equal(report.summary.deliveredTrainingHours, 3.5);
+  assert.equal(report.summary.deliveredTrainingHours, 4.5);
+  assert.equal(report.trainingHoursByAccount.length, 2);
+  assert.equal(report.trainingHoursByAccount.find((entry) => entry.accountId === westFixture.account.id)?.deliveredTrainingHours, 2.5);
+  assert.equal(report.trainingHoursByAccount.find((entry) => entry.accountId === eastFixture.account.id)?.deliveredTrainingHours, 2);
+  assert.equal(report.trainingHoursByTrainer.find((entry) => entry.trainerUserId === westFixture.tm.id)?.completedSessionCount, 2);
+  assert.equal(report.trainingHoursByTrainingType.find((entry) => entry.trainingTypeCode === 'product_installations')?.deliveredTrainingHours, 2.5);
+  assert.equal(report.trainingHoursByTrainingType.find((entry) => entry.trainingTypeCode === 'onboarding')?.deliveredTrainingHours, 2);
+  assert.equal(report.trainingHoursByState.find((entry) => entry.state === 'TX')?.deliveredTrainingHours, 2.5);
+  assert.equal(report.trainingHoursByState.find((entry) => entry.state === 'FL')?.deliveredTrainingHours, 2);
+  assert.equal(report.accountExportRows.length, 2);
+
+  const westExportRow = report.accountExportRows.find((entry) => entry.accountId === westFixture.account.id);
+  assert.ok(westExportRow);
+  assert.equal(westExportRow.riskLevel, 'critical');
+  assert.equal(westExportRow.ownerTmUserId, westFixture.tm.id);
+  assert.equal(westExportRow.ownerRdUserId, westFixture.rd.id);
+  assert.equal(westExportRow.activeProgramCount, 1);
+  assert.equal(westExportRow.overdueProgramCount, 1);
+  assert.equal(westExportRow.pendingCertificationDecisionCount, 1);
+  assert.equal(westExportRow.unresolvedExecutionExceptionCount, 2);
+  assert.equal(westExportRow.completedTrainingSessionCount, 2);
+  assert.equal(westExportRow.deliveredTrainingHours, 2.5);
+  assert.equal(westExportRow.certificationProofMissingCount, 1);
+  assert.equal(westExportRow.proofDocumentCount, 0);
+  assert.equal(westExportRow.lastTrainingAt, '2026-04-12T10:00:00.000Z');
+  assert.equal(westExportRow.nextDueAt, '2026-04-01T00:00:00.000Z');
 
   assert.equal(report.territoryManagers.length, 2);
   assert.equal(report.regionalDirectors.length, 2);
@@ -1039,6 +1102,8 @@ test('training compliance reporting summarizes certification and cadence risk by
   assert.equal(tmScopedReport.summary.accountsInScope, 1);
   assert.equal(tmScopedReport.summary.overdueProgramCount, 1);
   assert.equal(tmScopedReport.summary.pendingCertificationDecisionCount, 1);
+  assert.deepEqual(tmScopedReport.trainingHoursByAccount.map((entry) => entry.accountId), [westFixture.account.id]);
+  assert.deepEqual(tmScopedReport.accountExportRows.map((entry) => entry.accountId), [westFixture.account.id]);
 
   const rdFilteredReport = await listTrainingComplianceReport(actorWithRole(actor, 'TRAINING_OPS'), {
     certificationWindowDays: 30,

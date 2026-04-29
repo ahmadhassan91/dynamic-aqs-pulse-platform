@@ -8,6 +8,7 @@ import { handleAccountRoutes } from './modules/accounts/http.js';
 import { handleAuthRoutes } from './modules/auth/http.js';
 import { handleCalendarRoutes } from './modules/calendar/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
+import { handleConsignmentRoutes } from './modules/consignment/http.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
 import {
@@ -34,6 +35,7 @@ import type { QueueJobEnvelope, QueueManager } from './queue/contracts.js';
 import { createWorkerRuntime } from './worker/worker-runtime.js';
 import { jsonResponse, notFoundResponse } from './utils/http.js';
 import { createAppLogger, type AppLogger } from './utils/logger.js';
+import { createFixedWindowRateLimiter, type FixedWindowRateLimiter } from './utils/rate-limit.js';
 
 export type PulseServerRuntime = {
   logger: AppLogger;
@@ -47,6 +49,8 @@ type RequestContext = {
   queue: QueueManager;
   workers: ReturnType<typeof createWorkerRuntime>;
   createAcumatica: () => AcumaticaClient;
+  websiteLeadCaptureLimiter: FixedWindowRateLimiter;
+  websiteLeadCapturePreflightLimiter: FixedWindowRateLimiter;
 };
 
 type DependencyHealth = {
@@ -59,6 +63,14 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   const logger = createAppLogger(config.logging.level);
   const queue = createPgBossQueueManager(config, logger);
   const workers = createWorkerRuntime(queue, logger);
+  const websiteLeadCaptureLimiter = createFixedWindowRateLimiter({
+    windowSeconds: config.leads.websiteLeadCaptureRateLimitWindowSeconds,
+    max: config.leads.websiteLeadCaptureRateLimitMax,
+  });
+  const websiteLeadCapturePreflightLimiter = createFixedWindowRateLimiter({
+    windowSeconds: config.leads.websiteLeadCaptureRateLimitWindowSeconds,
+    max: config.leads.websiteLeadCapturePreflightRateLimitMax,
+  });
   const createAcumatica = () =>
     createAcumaticaClient({
       baseUrl: config.acumatica.baseUrl,
@@ -105,6 +117,8 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       queue,
       workers,
       createAcumatica,
+      websiteLeadCaptureLimiter,
+      websiteLeadCapturePreflightLimiter,
     });
   });
 
@@ -155,6 +169,17 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
 async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: RequestContext) {
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+
+  if (method === 'OPTIONS' && isPublicLeadOptionsPath(url.pathname)) {
+    const publicLeadOptionsHandled = await handleLeadRoutes(req, res, url, {
+      config: ctx.config,
+      websiteLeadCaptureLimiter: ctx.websiteLeadCaptureLimiter,
+      websiteLeadCapturePreflightLimiter: ctx.websiteLeadCapturePreflightLimiter,
+    });
+    if (publicLeadOptionsHandled !== false) {
+      return;
+    }
+  }
 
   if (applyCorsHeaders(req, res, ctx.config)) {
     return;
@@ -239,6 +264,7 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const adminRouteHandled = await handleAdminRoutes(req, res, url, {
     config: ctx.config,
+    queue: ctx.queue,
     getDatabaseHealth,
     getQueueStatus: () => ctx.queue.status(),
     getWorkersStatus: () => ctx.workers.status(),
@@ -261,6 +287,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
+  const consignmentRouteHandled = await handleConsignmentRoutes(req, res, url);
+  if (consignmentRouteHandled !== false) {
+    return;
+  }
+
   const calendarRouteHandled = await handleCalendarRoutes(req, res, url, ctx.config);
   if (calendarRouteHandled !== false) {
     return;
@@ -271,7 +302,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     return;
   }
 
-  const leadRouteHandled = await handleLeadRoutes(req, res, url, ctx.config);
+  const leadRouteHandled = await handleLeadRoutes(req, res, url, {
+    config: ctx.config,
+    websiteLeadCaptureLimiter: ctx.websiteLeadCaptureLimiter,
+    websiteLeadCapturePreflightLimiter: ctx.websiteLeadCapturePreflightLimiter,
+  });
   if (leadRouteHandled !== false) {
     return;
   }
@@ -300,6 +335,13 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
     path: url.pathname,
     method,
   });
+}
+
+function isPublicLeadOptionsPath(pathname: string) {
+  return pathname === '/api/leads/capture'
+    || pathname === '/api/v1/leads/capture'
+    || pathname === '/api/v1/public/leads/capture'
+    || /^\/api\/v1\/public\/website-sites\/[^/]+$/.test(pathname);
 }
 
 async function getDatabaseHealth(): Promise<DependencyHealth> {

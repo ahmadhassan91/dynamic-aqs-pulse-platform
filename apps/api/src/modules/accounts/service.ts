@@ -63,6 +63,7 @@ const ACCOUNT_SUMMARY_INCLUDE = {
     select: {
       contacts: true,
       locations: true,
+      consignmentSites: true,
     },
   },
 } satisfies Prisma.AccountInclude;
@@ -1538,6 +1539,7 @@ function toAccountSummary(account: {
   _count: {
     contacts: number;
     locations: number;
+    consignmentSites?: number;
   };
 }): AccountSummary {
   const summary: AccountSummary = {
@@ -1552,6 +1554,16 @@ function toAccountSummary(account: {
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
   };
+  if (account._count.consignmentSites !== undefined) {
+    summary.consignment = {
+      accountId: account.id,
+      participatesInConsignment: account._count.consignmentSites > 0,
+      activeSiteCount: 0,
+      onboardingSiteCount: account._count.consignmentSites,
+      exitedSiteCount: 0,
+      sites: [],
+    };
+  }
 
   if (account.accountNumber) {
     summary.accountNumber = account.accountNumber;

@@ -12,15 +12,19 @@ import {
   Grid,
   Group,
   Loader,
+  Modal,
   Paper,
   ScrollArea,
   SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Text,
+  Textarea,
   ThemeIcon,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowRight,
@@ -35,10 +39,20 @@ import {
 import type {
   TerritoryMapCoverageEntrySummary,
   TerritoryMapPinSummary,
+  TerritoryRoutePlanStopSummary,
   TerritoryMapShippingCenterSummary,
   TerritoryMapWorkspaceResponse,
+  TrainingSessionSummary,
+  TrainingTrainerSummary,
 } from '@pulse/contracts';
-import { fetchTerritoryMapWorkspace } from '@/lib/pulse-api';
+import {
+  checkInTrainingSessionRecord,
+  completeTrainingSessionRecord,
+  createTrainingSessionRecord,
+  fetchTerritoryMapWorkspace,
+  fetchTrainingSessions,
+  fetchTrainingTrainers,
+} from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
 
@@ -112,6 +126,30 @@ function formatLastTouched(value?: string) {
   return date.toLocaleDateString();
 }
 
+function formatVisitExecutionLabel(value?: TerritoryRoutePlanStopSummary['visitExecutionState']) {
+  switch (value) {
+    case 'checked_in':
+      return 'Checked in';
+    case 'completed':
+      return 'Completed';
+    case 'not_started':
+    default:
+      return 'Not started';
+  }
+}
+
+function getVisitExecutionColor(value?: TerritoryRoutePlanStopSummary['visitExecutionState']) {
+  switch (value) {
+    case 'checked_in':
+      return 'orange';
+    case 'completed':
+      return 'teal';
+    case 'not_started':
+    default:
+      return 'gray';
+  }
+}
+
 export function TerritoryCoverageMapPage() {
   const router = useRouter();
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
@@ -120,6 +158,15 @@ export function TerritoryCoverageMapPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [visitAccount, setVisitAccount] = useState<TerritoryMapPinSummary | null>(null);
+  const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
+  const [trainerUserId, setTrainerUserId] = useState('');
+  const [visitNotes, setVisitNotes] = useState('');
+  const [activeVisit, setActiveVisit] = useState<TrainingSessionSummary | null>(null);
+  const [checkoutNotes, setCheckoutNotes] = useState('');
+  const [isLoadingTrainers, setIsLoadingTrainers] = useState(false);
+  const [isStartingVisit, setIsStartingVisit] = useState(false);
+  const [isCompletingVisit, setIsCompletingVisit] = useState(false);
 
   useEffect(() => {
     if (!auth) {
@@ -157,10 +204,75 @@ export function TerritoryCoverageMapPage() {
     };
   }, [apiBaseUrl, auth, refreshNonce]);
 
+  useEffect(() => {
+    if (!auth || !visitAccount) {
+      return;
+    }
+
+    const accessToken = auth.tokens.accessToken;
+    const currentUserId = auth.identity.userId;
+    const accountId = visitAccount.recordId;
+    const assignedTmUserId = visitAccount.assignedTmUserId;
+    let cancelled = false;
+
+    async function loadVisitContext() {
+      setIsLoadingTrainers(true);
+      try {
+        const [trainerResponse, sessionResponse] = await Promise.all([
+          fetchTrainingTrainers(apiBaseUrl, accessToken),
+          fetchTrainingSessions(apiBaseUrl, accessToken, {
+            accountId,
+            includeVisits: true,
+            status: 'checked_in',
+            limit: 20,
+          }),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const activeTrainers = trainerResponse.items.filter((entry) => entry.isActive);
+        setTrainers(activeTrainers);
+        setActiveVisit(sessionResponse.items.find((entry) => entry.activityKind === 'site_visit') ?? null);
+        setTrainerUserId((current) => {
+          if (current && activeTrainers.some((entry) => entry.userId === current)) {
+            return current;
+          }
+          if (activeTrainers.some((entry) => entry.userId === currentUserId)) {
+            return currentUserId;
+          }
+          if (assignedTmUserId && activeTrainers.some((entry) => entry.userId === assignedTmUserId)) {
+            return assignedTmUserId;
+          }
+          return activeTrainers[0]?.userId ?? '';
+        });
+      } catch (error) {
+        if (!cancelled) {
+          notifications.show({
+            color: 'red',
+            title: 'Unable to load visit context',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingTrainers(false);
+        }
+      }
+    }
+
+    void loadVisitContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, visitAccount]);
+
   const accountPins = workspace?.accountPins ?? EMPTY_PINS;
   const leadPins = workspace?.leadPins ?? EMPTY_PINS;
   const shippingCenters = workspace?.shippingCenters ?? EMPTY_SHIPPING_CENTERS;
   const coverageEntries = workspace?.coverageEntries ?? EMPTY_COVERAGE_ENTRIES;
+  const routePlans = workspace?.routePlans ?? [];
 
   const territorySummaries = useMemo<TerritoryCardSummary[]>(() => {
     const byTerritory = new Map<string, TerritoryCardSummary>();
@@ -303,6 +415,36 @@ export function TerritoryCoverageMapPage() {
     return items.slice(0, 14);
   }, [accountPins, leadPins]);
 
+  const routeExecutionRows = useMemo(
+    () =>
+      routePlans
+        .flatMap((plan) =>
+          plan.stops.map((stop) => ({
+            ...stop,
+            routePlanId: plan.id,
+            routeLabel: plan.territoryName ?? plan.shippingCenterName ?? 'Unassigned route',
+          })),
+        )
+        .filter((stop) => stop.recordType === 'account')
+        .sort((left, right) => {
+          const statePriority = (value?: TerritoryRoutePlanStopSummary['visitExecutionState']) => {
+            if (value === 'checked_in') {
+              return 0;
+            }
+            if (value === 'not_started') {
+              return 1;
+            }
+            return 2;
+          };
+
+          return statePriority(left.visitExecutionState) - statePriority(right.visitExecutionState)
+            || left.routeLabel.localeCompare(right.routeLabel)
+            || left.sequence - right.sequence;
+        })
+        .slice(0, 10),
+    [routePlans],
+  );
+
   const modeConfig = useMemo(
     () => ({
       coverage: {
@@ -342,11 +484,12 @@ export function TerritoryCoverageMapPage() {
         badges: [
           `${accountPins.length + leadPins.length} mapped records`,
           `${operatingQueue.length} operating signals`,
+          `${routeExecutionRows.filter((stop) => stop.visitExecutionState === 'checked_in').length} open visits`,
           `${shippingCenters.filter((center) => center.activeLeadCount > 0 || center.activeAccountCount > 0).length} active hubs`,
         ],
       },
     }),
-    [accountPins, coverageEntries, leadPins, operatingQueue.length, shippingCenters, territorySummaries],
+    [accountPins, coverageEntries, leadPins, operatingQueue.length, routeExecutionRows, shippingCenters, territorySummaries],
   );
 
   const activeModeConfig = modeConfig[mapMode];
@@ -367,6 +510,119 @@ export function TerritoryCoverageMapPage() {
     }
 
     router.push(`/leads/${pin.recordId}`);
+  };
+
+  const openVisitModal = (account: TerritoryMapPinSummary) => {
+    setVisitAccount(account);
+    setVisitNotes(`Started from territory map for ${account.territoryName ?? 'unassigned territory'}.`);
+    setCheckoutNotes('');
+    setActiveVisit(null);
+  };
+
+  const openVisitModalFromRouteStop = (stop: TerritoryRoutePlanStopSummary) => {
+    openVisitModal({
+      id: stop.pinId,
+      recordType: 'account',
+      recordId: stop.recordId,
+      label: stop.label,
+      status: stop.status,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+      geoPrecision: stop.geoPrecision,
+      ...(stop.city ? { city: stop.city } : {}),
+      ...(stop.state ? { state: stop.state } : {}),
+      ...(stop.territoryId ? { territoryId: stop.territoryId } : {}),
+      ...(stop.territoryCode ? { territoryCode: stop.territoryCode } : {}),
+      ...(stop.territoryName ? { territoryName: stop.territoryName } : {}),
+      ...(stop.assignedTmUserId ? { assignedTmUserId: stop.assignedTmUserId } : {}),
+      ...(stop.assignedTmName ? { assignedTmName: stop.assignedTmName } : {}),
+      ...(stop.assignedRdUserId ? { assignedRdUserId: stop.assignedRdUserId } : {}),
+      ...(stop.assignedRdName ? { assignedRdName: stop.assignedRdName } : {}),
+      ...(stop.accountType ? { accountType: stop.accountType } : {}),
+      ...(stop.lastTouchedAt ? { lastTouchedAt: stop.lastTouchedAt } : {}),
+    });
+  };
+
+  const handleStartVisit = async () => {
+    if (!auth || !visitAccount || !trainerUserId) {
+      return;
+    }
+
+    setIsStartingVisit(true);
+    try {
+      const startedAt = new Date();
+      const session = await createTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, visitAccount.recordId, {
+        trainerUserId,
+        activityKind: 'site_visit',
+        title: `Territory visit - ${visitAccount.label}`,
+        scheduledAt: startedAt.toISOString(),
+        durationMinutes: 45,
+        attendeeCount: 0,
+        notes: visitNotes.trim(),
+      });
+
+      await checkInTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, session.id, {
+        checkedInAt: startedAt.toISOString(),
+        notes: visitNotes.trim(),
+      });
+
+      notifications.show({
+        color: 'green',
+        title: 'Visit started',
+        message: `${visitAccount.label} now has an active site visit check-in.`,
+      });
+      setVisitAccount(null);
+      setVisitNotes('');
+      setCheckoutNotes('');
+      setTrainerUserId('');
+      setActiveVisit(null);
+      setRefreshNonce((current) => current + 1);
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Unable to start visit',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsStartingVisit(false);
+    }
+  };
+
+  const handleCompleteVisit = async () => {
+    if (!auth || !visitAccount || !activeVisit || !checkoutNotes.trim()) {
+      return;
+    }
+
+    setIsCompletingVisit(true);
+    try {
+      await completeTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, activeVisit.id, {
+        completedAt: new Date().toISOString(),
+        durationMinutes: activeVisit.durationMinutes || 45,
+        attendeeCount: activeVisit.attendeeCount,
+        checkoutNotes: checkoutNotes.trim(),
+        completionSummary: `Completed from territory map for ${visitAccount.territoryName ?? 'unassigned territory'}.`,
+      });
+
+      notifications.show({
+        color: 'green',
+        title: 'Visit completed',
+        message: `${visitAccount.label} site visit was checked out with notes.`,
+      });
+      setVisitAccount(null);
+      setVisitNotes('');
+      setCheckoutNotes('');
+      setTrainerUserId('');
+      setActiveVisit(null);
+      setRefreshNonce((current) => current + 1);
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Unable to complete visit',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsCompletingVisit(false);
+    }
   };
 
   return (
@@ -793,6 +1049,14 @@ export function TerritoryCoverageMapPage() {
                                 <Text size="xs" c="dimmed">
                                   Last touched {formatLastTouched(account.lastTouchedAt)} · TM {account.assignedTmName ?? 'Unassigned'}
                                 </Text>
+                                <Group gap="xs">
+                                  <Button size="xs" variant="light" onClick={() => openVisitModal(account)}>
+                                    Start Visit
+                                  </Button>
+                                  <Button component={Link} href={`/customers/${account.recordId}`} size="xs" variant="subtle" color="gray">
+                                    Open Account
+                                  </Button>
+                                </Group>
                               </Stack>
                             </Paper>
                           ))}
@@ -841,6 +1105,68 @@ export function TerritoryCoverageMapPage() {
 
                       {mapMode === 'all' ? (
                         <Stack gap="sm">
+                          <Paper withBorder radius="lg" p="md">
+                            <Stack gap="sm">
+                              <Group justify="space-between" align="center">
+                                <Group gap="xs">
+                                  <ThemeIcon color="teal" variant="light" size="sm">
+                                    <IconRouteSquare size={14} />
+                                  </ThemeIcon>
+                                  <Text size="sm" fw={700}>
+                                    Route execution
+                                  </Text>
+                                </Group>
+                                <Badge color="teal" variant="light">
+                                  {routeExecutionRows.length} stops
+                                </Badge>
+                              </Group>
+                              {routeExecutionRows.length > 0 ? (
+                                <Stack gap="xs">
+                                  {routeExecutionRows.map((stop) => (
+                                    <Paper key={`${stop.routePlanId}:${stop.recordId}`} withBorder radius="md" p="sm">
+                                      <Stack gap={6}>
+                                        <Group justify="space-between" align="flex-start">
+                                          <Stack gap={0}>
+                                            <Text fw={700} size="sm">
+                                              #{stop.sequence} {stop.label}
+                                            </Text>
+                                            <Text size="xs" c="dimmed">
+                                              {stop.routeLabel} · {stop.assignedTmName ?? 'Unassigned TM'}
+                                            </Text>
+                                          </Stack>
+                                          <Badge color={getVisitExecutionColor(stop.visitExecutionState)} variant="light">
+                                            {formatVisitExecutionLabel(stop.visitExecutionState)}
+                                          </Badge>
+                                        </Group>
+                                        <Text size="xs" c="dimmed">
+                                          {[stop.city, stop.state].filter(Boolean).join(', ') || 'Location unavailable'} · {stop.distanceFromPreviousMiles} mi from previous
+                                        </Text>
+                                        {stop.lastVisitCompletedAt ? (
+                                          <Text size="xs" c="dimmed">
+                                            Last completed {formatLastTouched(stop.lastVisitCompletedAt)}
+                                            {stop.lastVisitTrainerName ? ` by ${stop.lastVisitTrainerName}` : ''}
+                                          </Text>
+                                        ) : null}
+                                        <Group gap="xs">
+                                          <Button size="xs" variant="light" onClick={() => openVisitModalFromRouteStop(stop)}>
+                                            {stop.visitExecutionState === 'checked_in' ? 'Complete Visit' : 'Start Visit'}
+                                          </Button>
+                                          <Button component={Link} href={`/customers/${stop.recordId}`} size="xs" variant="subtle" color="gray">
+                                            Open Account
+                                          </Button>
+                                        </Group>
+                                      </Stack>
+                                    </Paper>
+                                  ))}
+                                </Stack>
+                              ) : (
+                                <Text size="sm" c="dimmed">
+                                  No account route stops are visible for the current territory scope.
+                                </Text>
+                              )}
+                            </Stack>
+                          </Paper>
+
                           {operatingQueue.map((item) => (
                             <Paper key={item.id} withBorder radius="lg" p="md">
                               <Stack gap="xs">
@@ -873,6 +1199,80 @@ export function TerritoryCoverageMapPage() {
           </Grid>
         </>
       ) : null}
+
+      <Modal
+        opened={Boolean(visitAccount)}
+        onClose={() => setVisitAccount(null)}
+        centered
+        title={visitAccount ? `Start Visit - ${visitAccount.label}` : 'Start Visit'}
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            {activeVisit
+              ? 'Complete the active site visit using the required checkout notes from the training execution workflow.'
+              : 'Create a real site-visit session and check in immediately using the training execution workflow.'}
+          </Text>
+          {activeVisit ? (
+            <Alert color="blue" variant="light" title="Checked-in visit found">
+              {activeVisit.title} is currently checked in for {activeVisit.trainerName ?? 'the selected field owner'}.
+            </Alert>
+          ) : null}
+          {!activeVisit ? (
+            <>
+              <Select
+                label="Trainer / field owner"
+                placeholder="Select field owner"
+                data={trainers.map((entry) => ({
+                  value: entry.userId,
+                  label: `${entry.displayName}${entry.title ? ` · ${entry.title}` : ''}`,
+                }))}
+                value={trainerUserId}
+                onChange={(value) => setTrainerUserId(value ?? '')}
+                searchable
+                disabled={isLoadingTrainers || isStartingVisit}
+              />
+              <Textarea
+                label="Visit notes"
+                minRows={3}
+                value={visitNotes}
+                onChange={(event) => setVisitNotes(event.currentTarget.value)}
+                disabled={isStartingVisit}
+              />
+            </>
+          ) : (
+            <Textarea
+              label="Checkout notes"
+              minRows={3}
+              value={checkoutNotes}
+              onChange={(event) => setCheckoutNotes(event.currentTarget.value)}
+              disabled={isCompletingVisit}
+              required
+            />
+          )}
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setVisitAccount(null)} disabled={isStartingVisit || isCompletingVisit}>
+              Cancel
+            </Button>
+            {activeVisit ? (
+              <Button
+                onClick={() => void handleCompleteVisit()}
+                loading={isCompletingVisit}
+                disabled={!checkoutNotes.trim()}
+              >
+                Complete Visit
+              </Button>
+            ) : (
+              <Button
+                onClick={() => void handleStartVisit()}
+                loading={isStartingVisit}
+                disabled={!trainerUserId || isLoadingTrainers}
+              >
+                Start Visit
+              </Button>
+            )}
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

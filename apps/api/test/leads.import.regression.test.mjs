@@ -257,6 +257,110 @@ test('lead import honors use-existing and create-new duplicate decisions', SERIA
   assert.ok(imported.skippedRows.some((row) => row.rowNumber === 2));
 });
 
+test('lead import use-existing account decisions skip creation and audit the account resolution', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const duplicateAccount = await prisma.account.create({
+    data: {
+      displayName: 'Account Closure Comfort',
+      legalName: 'Account Closure Comfort LLC',
+    },
+  });
+  await prisma.contact.create({
+    data: {
+      accountId: duplicateAccount.id,
+      firstName: 'Alex',
+      lastName: 'Account',
+      email: 'account-closure@example.com',
+      phone: '555-414-7777',
+      isPrimary: true,
+    },
+  });
+
+  const csv = [
+    'Company,Email,Phone,State,Service Tech Count',
+    'Account Closure Comfort,account-closure@example.com,555-414-7777,FL,2',
+  ].join('\n');
+
+  const importActor = { ...actor };
+  delete importActor.userId;
+
+  const imported = await importLeadFile(importActor, {
+    fileName: 'lead-import-account-duplicate.csv',
+    fileContentBase64: toBase64(csv),
+    mappings: buildMappings(),
+    rowDecisions: [
+      {
+        rowNumber: 2,
+        duplicateDecision: 'use_existing',
+        targetEntityId: duplicateAccount.id,
+      },
+    ],
+  });
+
+  assert.equal(imported.errorCount, 0);
+  assert.equal(imported.createdCount, 0);
+  assert.equal(imported.skippedCount, 1);
+  assert.equal(await prisma.lead.count({ where: { email: 'account-closure@example.com' } }), 0);
+  assert.match(imported.skippedRows[0]?.detail ?? '', /existing customer account Account Closure Comfort/i);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'ACCOUNT',
+      entityId: duplicateAccount.id,
+      action: 'UPDATE',
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(audit, 'expected account duplicate-resolution audit entry');
+  assert.equal(audit.metadata.workflowAction, 'duplicate_use_existing');
+  assert.equal(audit.metadata.duplicateResolution.targetEntityId, duplicateAccount.id);
+  assert.equal(audit.metadata.duplicateResolution.selectedCandidate.entityType, 'account');
+  assert.equal(audit.afterData.duplicateImportResolution.rowNumber, 2);
+});
+
+test('lead import can enrich an existing lead from a duplicate row without creating a second lead', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const duplicateLead = await createLead(actor, {
+    companyName: 'Import Enrich Partners',
+    contactDisplayName: 'Riley Import',
+    email: 'riley.import@example.com',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+
+  const csv = [
+    'Company,Email,Phone,State,Service Tech Count',
+    'Import Enrich Partners,riley.import@example.com,555-222-3333,TX,8',
+  ].join('\n');
+
+  const imported = await importLeadFile(actor, {
+    fileName: 'lead-import-enrich.csv',
+    fileContentBase64: toBase64(csv),
+    mappings: buildMappings(),
+    rowDecisions: [
+      {
+        rowNumber: 2,
+        duplicateDecision: 'enrich_existing',
+        targetEntityId: duplicateLead.id,
+      },
+    ],
+  });
+
+  assert.equal(imported.errorCount, 0);
+  assert.equal(imported.createdCount, 0);
+  assert.equal(imported.skippedCount, 1);
+  assert.equal(imported.skippedRows[0]?.decision, 'enrich_existing');
+  assert.match(imported.skippedRows[0]?.detail ?? '', /enriched existing lead/i);
+
+  const enrichedLead = await prisma.lead.findUniqueOrThrow({ where: { id: duplicateLead.id } });
+  assert.equal(enrichedLead.phone, '555-222-3333');
+  assert.equal(enrichedLead.serviceTechCount, 3);
+});
+
 test('lead import review flags within-file duplicates and allows skip decisions through persisted runs', SERIAL, async () => {
   const actor = await createAdminActor();
 

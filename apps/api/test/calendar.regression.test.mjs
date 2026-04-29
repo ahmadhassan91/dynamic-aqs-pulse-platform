@@ -349,6 +349,91 @@ test('calendar workspace only returns event families the actor can access', SERI
   assert.deepEqual(trainingOpsWorkspace.items.map((item) => item.eventType), ['virtual_training']);
 });
 
+test('calendar workspace emits durable consignment audit events only for consignment-authorized roles', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture('consignment-durable');
+
+  const site = await prisma.consignmentSite.create({
+    data: {
+      accountId: fixture.account.id,
+      name: 'Calendar Durable Consignment Site',
+      status: 'ACTIVE',
+      acumaticaStatus: 'PARKED',
+      warehouseCode: 'CAL-DURABLE',
+      baselineEstablishedAt: new Date('2026-05-01T14:00:00.000Z'),
+      nextAuditDueAt: new Date('2026-08-01T14:00:00.000Z'),
+      ownerTmUserId: fixture.tm.id,
+      ownerRdUserId: fixture.rd.id,
+      primaryContactName: 'Durable Contact',
+      primaryContactEmail: 'durable-consignment@example.test',
+      notes: 'Durable site notes should flow into the calendar only through consignment records.',
+    },
+  });
+
+  const audit = await prisma.consignmentAudit.create({
+    data: {
+      siteId: site.id,
+      scheduledFor: new Date('2026-08-01T14:00:00.000Z'),
+      notes: 'Durable ROSE audit scheduled from the consignment audit table.',
+    },
+  });
+
+  const adminWorkspace = await getCalendarWorkspace(actor, {
+    startDate: '2026-07-30T00:00:00.000Z',
+    endDate: '2026-08-01T23:59:59.999Z',
+  }, config);
+
+  assert.equal(adminWorkspace.summary.consignmentAuditCount, 1);
+  assert.equal(adminWorkspace.items[0]?.eventType, 'consignment_audit');
+  assert.equal(adminWorkspace.items[0]?.sourceModule, 'consignment');
+  assert.equal(adminWorkspace.items[0]?.sourceRecordId, audit.id);
+  assert.equal(adminWorkspace.items[0]?.sourcePath, `/consignment/sites/${site.id}`);
+  assert.equal(adminWorkspace.items[0]?.accountId, fixture.account.id);
+  assert.equal(adminWorkspace.items[0]?.accountName, fixture.account.displayName);
+  assert.equal(adminWorkspace.items[0]?.contactName, 'Durable Contact');
+  assert.match(adminWorkspace.items[0]?.notes ?? '', /Durable ROSE audit/);
+
+  const trainingOpsAuth = await createInternalRoleSession('TRAINING_OPS', 'calendar-consignment-training-ops@pulse.local');
+  const trainingOpsWorkspace = await getCalendarWorkspace(trainingOpsAuth.actor, {
+    startDate: '2026-07-30T00:00:00.000Z',
+    endDate: '2026-08-01T23:59:59.999Z',
+  }, config);
+
+  assert.equal(trainingOpsWorkspace.summary.consignmentAuditCount, 0);
+  assert.deepEqual(trainingOpsWorkspace.items.map((item) => item.eventType), []);
+});
+
+test('calendar workspace keeps lead-backed consignment audit hints only when no durable site exists', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const lead = await createLead(actor, {
+    companyName: 'Consignment Hint HVAC',
+    serviceTechCount: 6,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      stage: 'ONBOARDING_COMPLETED',
+      onboardingCompletedAt: new Date('2026-05-01T14:00:00.000Z'),
+      consignmentInterestStatus: 'APPROVED',
+      consignmentEntryTiming: 'AT_ONBOARDING',
+      assignedTmName: 'Assigned TM',
+    },
+  });
+
+  const workspace = await getCalendarWorkspace(actor, {
+    startDate: '2026-07-30T00:00:00.000Z',
+    endDate: '2026-08-01T23:59:59.999Z',
+  }, config);
+
+  assert.equal(workspace.summary.consignmentAuditCount, 1);
+  assert.equal(workspace.items[0]?.eventType, 'consignment_audit');
+  assert.equal(workspace.items[0]?.sourceModule, 'leads');
+  assert.match(workspace.items[0]?.notes ?? '', /Lead-backed consignment audit hint/);
+});
+
 test('calendar workspace applies simple territory-owned scope for territory managers', SERIAL, async () => {
   const admin = await createAdminSession();
   await prisma.territoryPolicy.update({

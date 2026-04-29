@@ -111,6 +111,34 @@ export const WEBSITE_LEAD_SUBMISSION_REVIEW_STATUSES = [
 
 export type WebsiteLeadSubmissionReviewStatusKey = (typeof WEBSITE_LEAD_SUBMISSION_REVIEW_STATUSES)[number];
 
+export const WEBSITE_LEAD_CONNECTION_HEALTH_STATUSES = [
+  'healthy',
+  'warning',
+  'blocked',
+] as const;
+
+export type WebsiteLeadConnectionHealthStatusKey = (typeof WEBSITE_LEAD_CONNECTION_HEALTH_STATUSES)[number];
+
+export interface WebsiteLeadReadinessCheckSummary {
+  key: string;
+  label: string;
+  status: WebsiteLeadConnectionHealthStatusKey;
+  detail?: string;
+}
+
+export interface WebsiteLeadReadinessSummary {
+  status: WebsiteLeadConnectionHealthStatusKey;
+  isActive: boolean;
+  hasAllowedOrigins: boolean;
+  allowedOriginMatchesSiteUrl: boolean;
+  hasRecentSubmission: boolean;
+  lastSubmissionAt?: string;
+  submissionsLast30Days: number;
+  embedReady: boolean;
+  issues: string[];
+  checks: WebsiteLeadReadinessCheckSummary[];
+}
+
 export const LEAD_CONSIGNMENT_INTEREST_STATUSES = [
   'not_discussed',
   'interested',
@@ -150,6 +178,139 @@ export const LEAD_WORKFLOW_URGENCY_LEVELS = [
 ] as const;
 
 export type LeadWorkflowUrgencyKey = (typeof LEAD_WORKFLOW_URGENCY_LEVELS)[number];
+
+export const LEAD_OPERATIONAL_ALERT_DELIVERY_MODES = [
+  'preview',
+  'disabled',
+  'microsoft_graph',
+] as const;
+
+export type LeadOperationalAlertDeliveryModeKey = (typeof LEAD_OPERATIONAL_ALERT_DELIVERY_MODES)[number];
+
+export const LEAD_OPERATIONAL_ALERT_DELIVERY_PROVIDERS = [
+  'preview',
+  'disabled',
+  'microsoft_graph',
+] as const;
+
+export type LeadOperationalAlertDeliveryProviderKey =
+  (typeof LEAD_OPERATIONAL_ALERT_DELIVERY_PROVIDERS)[number];
+
+export interface LeadOperationalAlertMicrosoftGraphConfig {
+  provider: 'microsoft_graph';
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  fromUser?: string;
+  authBaseUrl: string;
+  graphBaseUrl: string;
+}
+
+export interface LeadOperationalAlertDeliveryConfig {
+  mode: LeadOperationalAlertDeliveryModeKey;
+  provider: LeadOperationalAlertDeliveryProviderKey;
+  microsoftGraph?: LeadOperationalAlertMicrosoftGraphConfig;
+}
+
+export interface LeadOperationalAlertDeliveryFailureSummary {
+  alertId: string;
+  attemptedAt: string;
+  recipientName: string;
+  recipientEmail?: string;
+  subject: string;
+  errorMessage?: string;
+}
+
+export interface LeadOperationalAlertDeliveryMetrics {
+  pendingAlertCount: number;
+  failedAlertCount: number;
+  retryableFailedAlertCount: number;
+  sentAttemptCount: number;
+  previewedAttemptCount: number;
+  skippedAttemptCount: number;
+  failedAttemptCount: number;
+  latestFailure?: LeadOperationalAlertDeliveryFailureSummary;
+}
+
+export interface AdminLeadOperationalAlertDeliverySettingsResponse {
+  provider: 'lead_operational_alerts';
+  mode: LeadOperationalAlertDeliveryModeKey;
+  deliveryProvider: LeadOperationalAlertDeliveryProviderKey;
+  isConfigured: boolean;
+  status: 'ready' | 'warning' | 'blocked';
+  statusDetail: string;
+  configurationIssues: string[];
+  metrics: LeadOperationalAlertDeliveryMetrics;
+  quietHours: LeadOperationalAlertQuietHoursPolicy;
+  recipients: LeadOperationalAlertRecipientSummary[];
+  microsoftGraph?: {
+    fromUser?: string;
+    authBaseUrl: string;
+    graphBaseUrl: string;
+    tenantConfigured: boolean;
+    clientConfigured: boolean;
+    clientSecretConfigured: boolean;
+  };
+}
+
+export interface LeadOperationalAlertQuietHoursPolicy {
+  enabled: boolean;
+  startLocal: string;
+  endLocal: string;
+  timeZone: string;
+}
+
+export interface LeadOperationalAlertRecipientSummary {
+  id: string;
+  code: string;
+  routingTeam: LeadRoutingTeamKey;
+  name: string;
+  email?: string;
+  roleTitle?: string;
+  isActive: boolean;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export interface UpdateLeadOperationalAlertRecipientRequest {
+  name?: string;
+  email?: string | null;
+  roleTitle?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateLeadOperationalAlertQuietHoursRequest {
+  enabled?: boolean;
+  startLocal?: string;
+  endLocal?: string;
+  timeZone?: string;
+}
+
+export interface RetryLeadOperationalAlertDeliveriesRequest {
+  alertIds?: string[];
+  limit?: number;
+}
+
+export interface RetryLeadOperationalAlertDeliveriesResponse {
+  matchedAlertCount: number;
+  retriedAlertCount: number;
+  skippedAlertCount: number;
+  enqueuedDeliveryCount: number;
+  processedAt: string;
+}
+
+export interface DeadLetterLeadOperationalAlertDeliveriesRequest {
+  alertIds: string[];
+  reason: string;
+}
+
+export interface DeadLetterLeadOperationalAlertDeliveriesResponse {
+  matchedAlertCount: number;
+  deadLetteredAlertCount: number;
+  skippedAlertCount: number;
+  processedAt: string;
+}
 
 export const LEAD_READINESS_STATUSES = [
   'not_started',
@@ -266,6 +427,7 @@ export type LeadImportRunStatusKey = (typeof LEAD_IMPORT_RUN_STATUSES)[number];
 export const LEAD_IMPORT_DUPLICATE_DECISIONS = [
   'create_new',
   'use_existing',
+  'enrich_existing',
   'skip',
 ] as const;
 
@@ -541,6 +703,7 @@ export interface ListWebsiteLeadSubmissionsResponse {
 
 export const WEBSITE_LEAD_SUBMISSION_RESOLUTION_DECISIONS = [
   'confirm_existing',
+  'enrich_existing',
   'relink_existing',
   'create_new_lead',
 ] as const;
@@ -576,6 +739,7 @@ export interface WebsiteLeadSiteSummary {
   siteId: string;
   siteName: string;
   url: string;
+  allowedOrigins: string[];
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
   isActive: boolean;
@@ -587,6 +751,7 @@ export interface WebsiteLeadSiteSummary {
   convertedLeads: number;
   conversionRate: number;
   recentSubmissionAt?: string;
+  readiness: WebsiteLeadReadinessSummary;
   createdAt: string;
   updatedAt: string;
 }
@@ -595,6 +760,7 @@ export interface CreateWebsiteLeadSiteRequest {
   siteId: string;
   siteName: string;
   url: string;
+  allowedOrigins?: string[];
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
   isActive?: boolean;
@@ -605,6 +771,7 @@ export interface CreateWebsiteLeadSiteRequest {
 export interface UpdateWebsiteLeadSiteRequest {
   siteName?: string;
   url?: string;
+  allowedOrigins?: string[];
   brandTag?: string;
   formType?: WebsiteLeadFormTypeKey;
   isActive?: boolean;
@@ -652,6 +819,7 @@ export interface PublicWebsiteLeadSite {
   siteId: string;
   siteName: string;
   url: string;
+  allowedOrigins: string[];
   brandTag: string;
   formType: WebsiteLeadFormTypeKey;
   formConfig: WebsiteLeadSiteFormConfig;
@@ -776,6 +944,7 @@ export interface LeadRoutingPolicySummary {
   cisFollowUpProspectReminderDelayBusinessDays: number;
   cisFollowUpOwnerAlertDelayBusinessDays: number;
   stagnantStageDays: number;
+  operationalAlertQuietHours: LeadOperationalAlertQuietHoursPolicy;
   notes?: string;
   updatedAt: string;
 }
@@ -793,6 +962,7 @@ export interface UpdateLeadRoutingPolicyRequest {
   cisFollowUpProspectReminderDelayBusinessDays?: number;
   cisFollowUpOwnerAlertDelayBusinessDays?: number;
   stagnantStageDays?: number;
+  operationalAlertQuietHours?: UpdateLeadOperationalAlertQuietHoursRequest;
   notes?: string;
 }
 
@@ -836,6 +1006,74 @@ export interface CreateLeadRequest {
   leadOwnerName?: string;
   assignedTmName?: string;
   notes?: string;
+  duplicateResolution?: {
+    decision: 'create_new' | 'enrich_existing';
+    reason: string;
+    targetEntityId?: string;
+  };
+}
+
+export interface PreviewLeadDuplicateCandidatesRequest extends CreateLeadRequest {}
+
+export interface PreviewLeadDuplicateCandidatesResponse {
+  hasPotentialDuplicate: boolean;
+  candidates: LeadImportDuplicateCandidate[];
+}
+
+export const LEAD_OCR_CAPTURE_DOCUMENT_TYPES = [
+  'business_card',
+  'show_badge',
+  'handwritten_note',
+  'other',
+] as const;
+
+export type LeadOcrCaptureDocumentTypeKey = (typeof LEAD_OCR_CAPTURE_DOCUMENT_TYPES)[number];
+
+export const LEAD_OCR_EXTRACTION_MODES = [
+  'direct_text',
+  'tesseract_ocr',
+  'manual_text',
+] as const;
+
+export type LeadOcrExtractionModeKey = (typeof LEAD_OCR_EXTRACTION_MODES)[number];
+
+export interface LeadOcrCapturedField<T = string | number> {
+  value: T;
+  confidence: number;
+  source: 'ocr' | 'operator_default';
+}
+
+export interface LeadOcrCapturedLeadFields {
+  companyName?: LeadOcrCapturedField;
+  contactDisplayName?: LeadOcrCapturedField;
+  email?: LeadOcrCapturedField;
+  phone?: LeadOcrCapturedField;
+  state?: LeadOcrCapturedField;
+  website?: LeadOcrCapturedField;
+  serviceTechCount?: LeadOcrCapturedField<number>;
+}
+
+export interface PreviewLeadOcrCaptureRequest {
+  documentType?: LeadOcrCaptureDocumentTypeKey;
+  fileName?: string;
+  mimeType?: string;
+  contentBase64?: string;
+  rawExtractionText?: string;
+  parserVersion?: string;
+  serviceTechCountFallback?: number;
+}
+
+export interface PreviewLeadOcrCaptureResponse {
+  parserVersion: string;
+  documentType: LeadOcrCaptureDocumentTypeKey;
+  extractionMode: LeadOcrExtractionModeKey;
+  rawExtractionText: string;
+  averageCharsPerPage?: number;
+  pagesProcessed?: number;
+  lowConfidence: boolean;
+  reviewReasons: string[];
+  fields: LeadOcrCapturedLeadFields;
+  duplicatePreview: PreviewLeadDuplicateCandidatesResponse;
 }
 
 export interface CaptureWebsiteLeadRequest {

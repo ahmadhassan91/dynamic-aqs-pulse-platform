@@ -12,6 +12,7 @@ import { CustomerContacts } from './CustomerContacts';
 import { CustomerLocations } from './CustomerLocations';
 import { CustomerOverview } from './CustomerOverview';
 import { CustomerPaymentMethods } from './CustomerPaymentMethods';
+import { CustomerConsignmentIndicator } from '@/components/consignment/CustomerConsignmentIndicator';
 import { CustomerTrainingHistory } from '@/components/training/CustomerTrainingHistory';
 import { canAccessModule, canPerformAction } from '@/lib/access';
 
@@ -24,6 +25,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const canViewTraining = auth ? canAccessModule(auth.identity.role, 'training') : false;
+  const canViewConsignment = auth ? canAccessModule(auth.identity.role, 'consignment') : false;
   const canEditCustomer = auth ? canPerformAction(auth.identity.role, 'customer.edit') : false;
   const canViewFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_view') : false;
   const canManageFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_manage') : false;
@@ -152,42 +154,45 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
       ) : null}
 
       {account ? (
-        <Tabs defaultValue={defaultTab}>
-          <Tabs.List>
-            <Tabs.Tab value="overview">Profile</Tabs.Tab>
-            <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
-            <Tabs.Tab value="locations">Locations</Tabs.Tab>
-            {canViewFinancials ? <Tabs.Tab value="payment-methods">Payment Methods</Tabs.Tab> : null}
-            {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
-            <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
-          </Tabs.List>
-          <Tabs.Panel value="overview" pt="md">
-            <CustomerOverview account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
-          </Tabs.Panel>
-          <Tabs.Panel value="contacts" pt="md">
-            <CustomerContacts account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
-          </Tabs.Panel>
-          <Tabs.Panel value="locations" pt="md">
-            <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
-          </Tabs.Panel>
-          {canViewFinancials ? (
-            <Tabs.Panel value="payment-methods" pt="md">
-              <CustomerPaymentMethods accountId={account.id} canManage={canManageFinancials} />
+        <Stack gap="md">
+          {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
+          <Tabs defaultValue={defaultTab}>
+            <Tabs.List>
+              <Tabs.Tab value="overview">Profile</Tabs.Tab>
+              <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
+              <Tabs.Tab value="locations">Locations</Tabs.Tab>
+              {canViewFinancials ? <Tabs.Tab value="payment-methods">Payment Methods</Tabs.Tab> : null}
+              {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
+              <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="overview" pt="md">
+              <CustomerOverview account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
             </Tabs.Panel>
-          ) : null}
-          {canViewTraining ? (
-            <Tabs.Panel value="training" pt="md">
-              <CustomerTrainingHistory
-                accountId={account.id}
-                accountName={account.displayName}
-                catalog={trainingCatalog}
-              />
+            <Tabs.Panel value="contacts" pt="md">
+              <CustomerContacts account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
             </Tabs.Panel>
-          ) : null}
-          <Tabs.Panel value="portal" pt="md">
-            <CustomerDealerPortalAccess account={account} onProvisioned={() => void reloadAccount()} />
-          </Tabs.Panel>
-        </Tabs>
+            <Tabs.Panel value="locations" pt="md">
+              <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
+            </Tabs.Panel>
+            {canViewFinancials ? (
+              <Tabs.Panel value="payment-methods" pt="md">
+                <CustomerPaymentMethods accountId={account.id} canManage={canManageFinancials} />
+              </Tabs.Panel>
+            ) : null}
+            {canViewTraining ? (
+              <Tabs.Panel value="training" pt="md">
+                <CustomerTrainingHistory
+                  accountId={account.id}
+                  accountName={account.displayName}
+                  catalog={trainingCatalog}
+                />
+              </Tabs.Panel>
+            ) : null}
+            <Tabs.Panel value="portal" pt="md">
+              <CustomerDealerPortalAccess account={account} onProvisioned={() => void reloadAccount()} />
+            </Tabs.Panel>
+          </Tabs>
+        </Stack>
       ) : null}
     </Stack>
   );

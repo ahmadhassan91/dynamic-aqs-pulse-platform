@@ -16,6 +16,10 @@ let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
 let uploadTrainingSessionProof;
+let reviewTrainingSessionProof;
+let downloadTrainingSessionProof;
+let completeTrainingSession;
+let listTrainingOperationalQueue;
 
 const SERIAL = { concurrency: false };
 let uniqueFixtureCounter = 0;
@@ -24,7 +28,14 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
-  ({ ensureTrainingSeeded, uploadTrainingSessionProof } = await import('../dist/modules/training/service.js'));
+  ({
+    ensureTrainingSeeded,
+    completeTrainingSession,
+    downloadTrainingSessionProof,
+    listTrainingOperationalQueue,
+    reviewTrainingSessionProof,
+    uploadTrainingSessionProof,
+  } = await import('../dist/modules/training/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
   config = loadAppConfig(process.env);
@@ -137,4 +148,101 @@ test('training proof upload stores bytes, persists metadata, and updates proof c
   const storedFilePath = path.join(process.env.APP_STORAGE_ROOT_DIR, stored[0].storageKey);
   assert.equal(existsSync(storedFilePath), true);
   assert.equal(readFileSync(storedFilePath, 'utf8'), fileContents);
+
+  const downloaded = await downloadTrainingSessionProof(actor, config, response.document.id);
+  assert.equal(downloaded.document.id, response.document.id);
+  assert.equal(downloaded.document.fileName, 'iaq-certificate.pdf');
+  assert.equal(downloaded.sizeBytes, Buffer.byteLength(fileContents, 'utf8'));
+  assert.equal(Buffer.from(downloaded.contentBase64, 'base64').toString('utf8'), fileContents);
+  assert.equal(downloaded.sha256, stored[0]?.sha256);
+
+  const downloadAudit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'TRAINING_PROOF_DOCUMENT',
+      entityId: response.document.id,
+      metadata: {
+        path: ['operation'],
+        equals: 'download_proof',
+      },
+    },
+  });
+  assert.ok(downloadAudit);
+});
+
+test('training proof review records approval governance and audit evidence', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createProofFixture();
+
+  const uploaded = await uploadTrainingSessionProof(actor, config, fixture.session.id, {
+    documentType: 'attendance_record',
+    fileName: 'attendance.csv',
+    mimeType: 'text/csv',
+    contentBase64: Buffer.from('name,status\nTaylor,attended', 'utf8').toString('base64'),
+  });
+
+  assert.equal(uploaded.document.reviewStatus, 'pending_review');
+
+  const reviewed = await reviewTrainingSessionProof(actor, uploaded.document.id, {
+    reviewStatus: 'approved',
+    reviewNotes: 'Attendance roster matches trainer checkout notes.',
+  });
+
+  assert.equal(reviewed.document.reviewStatus, 'approved');
+  assert.equal(reviewed.document.reviewedByUserId, actor.userId);
+  assert.equal(reviewed.document.reviewNotes, 'Attendance roster matches trainer checkout notes.');
+  assert.ok(reviewed.document.reviewedAt);
+  assert.equal(reviewed.session.proofDocuments[0]?.reviewStatus, 'approved');
+
+  const stored = await prisma.trainingProofDocument.findUniqueOrThrow({
+    where: { id: uploaded.document.id },
+  });
+  assert.equal(stored.reviewStatus, 'APPROVED');
+  assert.equal(stored.reviewedByUserId, actor.userId);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'TRAINING_PROOF_DOCUMENT',
+      entityId: uploaded.document.id,
+      metadata: {
+        path: ['operation'],
+        equals: 'review_proof',
+      },
+    },
+  });
+  assert.ok(audit);
+});
+
+test('rejected training proof appears in the operational exception queue', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createProofFixture();
+
+  const uploaded = await uploadTrainingSessionProof(actor, config, fixture.session.id, {
+    documentType: 'certificate',
+    fileName: 'unclear-certificate.pdf',
+    mimeType: 'application/pdf',
+    contentBase64: Buffer.from('unclear proof', 'utf8').toString('base64'),
+  });
+
+  await reviewTrainingSessionProof(actor, uploaded.document.id, {
+    reviewStatus: 'rejected',
+    reviewNotes: 'Certificate image is unreadable.',
+  });
+
+  await completeTrainingSession(actor, fixture.session.id, {
+    completedAt: new Date(fixture.session.scheduledAt.getTime() + 90 * 60 * 1000).toISOString(),
+    durationMinutes: 90,
+    attendeeCount: 2,
+    checkoutNotes: 'Completed, but proof needs a clearer upload.',
+    certificationOutcome: 'awarded',
+    certificationTitle: 'IAQ Certification Curriculum',
+  }, config);
+
+  const queue = await listTrainingOperationalQueue(actor, {});
+  const rejectedProof = queue.unresolvedExecutionExceptions.find((entry) => (
+    entry.sessionId === fixture.session.id && entry.type === 'proof_rejected'
+  ));
+
+  assert.ok(rejectedProof);
+  assert.equal(rejectedProof.severity, 'medium');
+  assert.equal(rejectedProof.detail, 'Training proof was rejected and needs corrected evidence before closure.');
 });

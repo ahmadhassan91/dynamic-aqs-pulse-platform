@@ -6,6 +6,13 @@ import type {
   AdminCalendarIntegrationSettingsResponse,
   AdminPaymentIntegrationSettingsResponse,
   AdminMicrosoftEntraIntegrationSettingsResponse,
+  AdminLeadOperationalAlertDeliverySettingsResponse,
+  DeadLetterLeadOperationalAlertDeliveriesRequest,
+  DeadLetterLeadOperationalAlertDeliveriesResponse,
+  RetryLeadOperationalAlertDeliveriesRequest,
+  RetryLeadOperationalAlertDeliveriesResponse,
+  UpdateLeadOperationalAlertQuietHoursRequest,
+  UpdateLeadOperationalAlertRecipientRequest,
   CreateAdminUserRequest,
   CreateAdminUserResponse,
   ImportAdminUsersRequest,
@@ -79,6 +86,10 @@ import type {
   CreateWebsiteLeadSiteRequest,
   CreateLeadContactRequest,
   LeadDetail,
+  PreviewLeadDuplicateCandidatesRequest,
+  PreviewLeadDuplicateCandidatesResponse,
+  PreviewLeadOcrCaptureRequest,
+  PreviewLeadOcrCaptureResponse,
   LeadContactSummary,
   LeadConversionPreparationRecord,
   LeadConversionValidationResponse,
@@ -134,6 +145,8 @@ import type {
   ResetPasswordResponse,
   BulkReassignAccountsTerritoryRequest,
   BulkReassignAccountsTerritoryResponse,
+  BulkReassignLeadsTerritoryRequest,
+  BulkReassignLeadsTerritoryResponse,
   CreateRegionRequest,
   CreateShippingCenterRequest,
   CreateTerritoryRequest,
@@ -196,6 +209,9 @@ import type {
   TrainingTrainerSummary,
   UploadTrainingSessionProofRequest,
   UploadTrainingSessionProofResponse,
+  DownloadTrainingSessionProofResponse,
+  ReviewTrainingSessionProofRequest,
+  ReviewTrainingSessionProofResponse,
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   ListTrainingTrainersResponse,
@@ -205,7 +221,55 @@ import type {
   WebsiteLeadNotificationRecipientSummary,
   WebsiteLeadSiteSummary,
   WebsiteLeadSubmissionSummary,
+  ConsignmentAuditSummary,
+  ConsignmentFormSummary,
+  ConsignmentSiteDetail,
+  ConsignmentSiteStatusKey,
+  ConsignmentSiteSummary,
+  CreateConsignmentAuditRequest,
+  CreateConsignmentFormRequest,
+  CreateConsignmentSiteRequest,
+  ListConsignmentSitesRequest,
+  ListConsignmentSitesResponse,
+  UpdateConsignmentAuditRequest,
+  UpdateConsignmentDocumentRequest,
+  UpdateConsignmentSiteRequest,
 } from '@pulse/contracts';
+
+export type {
+  AccountSummary,
+  ConsignmentAuditSummary,
+  ConsignmentFormSummary,
+  ConsignmentSiteDetail,
+  ConsignmentSiteSummary,
+} from '@pulse/contracts';
+
+export type ConsignmentDashboardResponse = {
+  metrics: {
+    totalSites: number;
+    activeSites: number;
+    onboardingSites: number;
+    readyForWarehouseSites: number;
+    auditsDueSoon: number;
+    overdueAudits: number;
+    openReconciliations: number;
+    openPoFollowUps: number;
+    openMailboxWorkItems: number;
+  };
+  onboardingPipeline: Array<{ stage: string; count: number }>;
+  auditDueBuckets: Array<{ bucket: string; count: number }>;
+  workQueue: Array<{
+    id: string;
+    siteId: string;
+    siteName?: string;
+    accountDisplayName: string;
+    subject: string;
+    status: string;
+    ownerName?: string;
+    dueAt?: string;
+    lastContactAt?: string;
+  }>;
+};
 
 type AuthBundle = {
   identity: AuthIdentity;
@@ -483,6 +547,66 @@ export async function fetchAdminPaymentIntegrationSettings(apiBaseUrl: string, a
     method: 'GET',
     accessToken,
   });
+}
+
+export async function fetchAdminLeadAlertDeliverySettings(apiBaseUrl: string, accessToken: string) {
+  return requestJson<AdminLeadOperationalAlertDeliverySettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/lead-alerts', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function retryAdminLeadAlertDeliveries(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: RetryLeadOperationalAlertDeliveriesRequest,
+) {
+  return requestJson<RetryLeadOperationalAlertDeliveriesResponse>(apiBaseUrl, '/api/v1/admin/integrations/lead-alerts/retry', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function deadLetterAdminLeadAlertDeliveries(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: DeadLetterLeadOperationalAlertDeliveriesRequest,
+) {
+  return requestJson<DeadLetterLeadOperationalAlertDeliveriesResponse>(apiBaseUrl, '/api/v1/admin/integrations/lead-alerts/dead-letter', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAdminLeadAlertQuietHours(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateLeadOperationalAlertQuietHoursRequest,
+) {
+  return requestJson<AdminLeadOperationalAlertDeliverySettingsResponse>(apiBaseUrl, '/api/v1/admin/integrations/lead-alerts/quiet-hours', {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateAdminLeadAlertRecipient(
+  apiBaseUrl: string,
+  accessToken: string,
+  recipientId: string,
+  input: UpdateLeadOperationalAlertRecipientRequest,
+) {
+  return requestJson<AdminLeadOperationalAlertDeliverySettingsResponse>(
+    apiBaseUrl,
+    `/api/v1/admin/integrations/lead-alerts/recipients/${encodeURIComponent(recipientId)}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input,
+    },
+  );
 }
 
 export async function updateAdminCalendarIntegrationSettings(
@@ -858,6 +982,22 @@ export async function bulkReassignAccountsTerritory(
   );
 }
 
+export async function bulkReassignLeadsTerritory(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: BulkReassignLeadsTerritoryRequest,
+) {
+  return requestJson<BulkReassignLeadsTerritoryResponse>(
+    apiBaseUrl,
+    '/api/v1/territories/assignments/leads/bulk',
+    {
+      method: 'POST',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
 export async function fetchLeadRoutingPolicy(apiBaseUrl: string, accessToken: string) {
   return requestJson<LeadRoutingPolicySummary>(apiBaseUrl, '/api/v1/leads/routing-policy', {
     method: 'GET',
@@ -1054,6 +1194,228 @@ export async function updateAccountLocationRecord(
     method: 'PATCH',
     accessToken,
     body: input,
+  });
+}
+
+export type ConsignmentSiteStatus = ConsignmentSiteStatusKey;
+
+export async function fetchConsignmentDashboard(apiBaseUrl: string, accessToken: string) {
+  const [sitesResponse, queueResponse] = await Promise.all([
+    fetchConsignmentSites(apiBaseUrl, accessToken, { includeExited: false, limit: 200 }),
+    requestJson<{ items: ConsignmentSiteSummary[]; total: number; generatedAt: string }>(apiBaseUrl, '/api/v1/consignment/ops?limit=50', {
+      method: 'GET',
+      accessToken,
+    }),
+  ]);
+
+  const now = Date.now();
+  const soonThreshold = now + 14 * 24 * 60 * 60 * 1000;
+  const pipelineCounts = new Map<string, number>();
+  const dueBuckets = new Map<string, number>([
+    ['overdue', 0],
+    ['due_soon', 0],
+    ['scheduled_later', 0],
+    ['unscheduled', 0],
+  ]);
+
+  for (const site of sitesResponse.items) {
+    pipelineCounts.set(site.status, (pipelineCounts.get(site.status) ?? 0) + 1);
+    if (!site.nextAuditDueAt) {
+      dueBuckets.set('unscheduled', (dueBuckets.get('unscheduled') ?? 0) + 1);
+      continue;
+    }
+
+    const dueAt = new Date(site.nextAuditDueAt).getTime();
+    if (dueAt < now) {
+      dueBuckets.set('overdue', (dueBuckets.get('overdue') ?? 0) + 1);
+    } else if (dueAt <= soonThreshold) {
+      dueBuckets.set('due_soon', (dueBuckets.get('due_soon') ?? 0) + 1);
+    } else {
+      dueBuckets.set('scheduled_later', (dueBuckets.get('scheduled_later') ?? 0) + 1);
+    }
+  }
+
+  return {
+    metrics: {
+      totalSites: sitesResponse.total,
+      activeSites: sitesResponse.items.filter((site) => site.status === 'active').length,
+      onboardingSites: sitesResponse.items.filter((site) => !['active', 'exited'].includes(site.status)).length,
+      readyForWarehouseSites: sitesResponse.items.filter((site) => site.status === 'ready_for_warehouse').length,
+      auditsDueSoon: dueBuckets.get('due_soon') ?? 0,
+      overdueAudits: dueBuckets.get('overdue') ?? 0,
+      openReconciliations: sitesResponse.items.reduce((total, site) => total + (site.openDiscrepancyCount ?? 0), 0),
+      openPoFollowUps: queueResponse.items.reduce((total, site) => total + (site.openWorkItemCount ?? 0), 0),
+      openMailboxWorkItems: queueResponse.items.reduce((total, site) => total + (site.openWorkItemCount ?? 0), 0),
+    },
+    onboardingPipeline: Array.from(pipelineCounts.entries()).map(([stage, count]) => ({ stage, count })),
+    auditDueBuckets: Array.from(dueBuckets.entries()).map(([bucket, count]) => ({ bucket, count })),
+    workQueue: queueResponse.items
+      .filter((site) => (site.openWorkItemCount ?? 0) > 0 || (site.openDiscrepancyCount ?? 0) > 0 || site.status === 'ready_for_warehouse')
+      .map((site) => {
+        const item: ConsignmentDashboardResponse['workQueue'][number] = {
+          id: site.id,
+          siteId: site.id,
+          siteName: site.name,
+          accountDisplayName: site.accountName,
+          subject: (site.openDiscrepancyCount ?? 0) > 0
+            ? 'Manual variance / PO follow-up'
+            : site.status === 'ready_for_warehouse'
+              ? 'Acumatica warehouse handoff parked'
+              : 'Consignment workflow follow-up',
+          status: site.status,
+        };
+        const ownerName = site.ownerTmName ?? site.ownerRdName;
+        if (ownerName) {
+          item.ownerName = ownerName;
+        }
+        if (site.nextAuditDueAt) {
+          item.dueAt = site.nextAuditDueAt;
+        }
+        return item;
+      }),
+  } satisfies ConsignmentDashboardResponse;
+}
+
+export async function createConsignmentSiteRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateConsignmentSiteRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, '/api/v1/consignment/sites', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateConsignmentSiteRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  siteId: string,
+  input: UpdateConsignmentSiteRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function upsertConsignmentFormRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  siteId: string,
+  input: CreateConsignmentFormRequest,
+) {
+  return requestJson<ConsignmentFormSummary>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}/documents`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateConsignmentFormRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  documentId: string,
+  input: UpdateConsignmentDocumentRequest,
+) {
+  return requestJson<ConsignmentFormSummary>(apiBaseUrl, `/api/v1/consignment/documents/${documentId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function scheduleConsignmentAuditRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  siteId: string,
+  input: CreateConsignmentAuditRequest,
+) {
+  return requestJson<ConsignmentAuditSummary>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}/audits`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateConsignmentAuditRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  auditId: string,
+  input: UpdateConsignmentAuditRequest,
+) {
+  return requestJson<ConsignmentAuditSummary>(apiBaseUrl, `/api/v1/consignment/audits/${auditId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchConsignmentSites(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListConsignmentSitesRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+
+  if (query.search) {
+    searchParams.set('search', query.search);
+  }
+  if (query.status) {
+    searchParams.set('status', query.status);
+  }
+  if (query.readinessState) {
+    searchParams.set('readinessState', query.readinessState);
+  }
+  if (query.assignedTmUserId) {
+    searchParams.set('assignedTmUserId', query.assignedTmUserId);
+  }
+  if (query.assignedRdUserId) {
+    searchParams.set('assignedRdUserId', query.assignedRdUserId);
+  }
+  if (query.includeExited !== undefined) {
+    searchParams.set('includeExited', String(query.includeExited));
+  }
+  if (query.includeClosed !== undefined) {
+    searchParams.set('includeClosed', String(query.includeClosed));
+  }
+  if (query.dueWithinDays !== undefined) {
+    searchParams.set('dueWithinDays', String(query.dueWithinDays));
+  }
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit));
+  }
+
+  const pathname = searchParams.size > 0
+    ? `/api/v1/consignment/sites?${searchParams.toString()}`
+    : '/api/v1/consignment/sites';
+
+  return requestJson<ListConsignmentSitesResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchConsignmentSiteDetail(apiBaseUrl: string, accessToken: string, siteId: string) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchAccountConsignmentReadModel(apiBaseUrl: string, accessToken: string, accountId: string) {
+  return requestJson<{
+    accountId: string;
+    participatesInConsignment: boolean;
+    activeSiteCount: number;
+    onboardingSiteCount: number;
+    exitedSiteCount: number;
+    sites: ConsignmentSiteSummary[];
+  }>(apiBaseUrl, `/api/v1/consignment/accounts/${accountId}`, {
+    method: 'GET',
+    accessToken,
   });
 }
 
@@ -1297,6 +1659,30 @@ export async function uploadTrainingSessionProofRecord(
   input: UploadTrainingSessionProofRequest,
 ) {
   return requestJson<UploadTrainingSessionProofResponse>(apiBaseUrl, `/api/v1/training/sessions/${sessionId}/proof`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function downloadTrainingSessionProofRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  documentId: string,
+) {
+  return requestJson<DownloadTrainingSessionProofResponse>(apiBaseUrl, `/api/v1/training/proof-documents/${documentId}/download`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function reviewTrainingSessionProofRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  documentId: string,
+  input: ReviewTrainingSessionProofRequest,
+) {
+  return requestJson<ReviewTrainingSessionProofResponse>(apiBaseUrl, `/api/v1/training/proof-documents/${documentId}/review`, {
     method: 'POST',
     accessToken,
     body: input,
@@ -1624,6 +2010,30 @@ export async function fetchLeadDetail(apiBaseUrl: string, accessToken: string, l
 
 export async function createLead(apiBaseUrl: string, accessToken: string, input: CreateLeadRequest) {
   return requestJson<LeadSummary>(apiBaseUrl, '/api/v1/leads', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function previewLeadDuplicateCandidates(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: PreviewLeadDuplicateCandidatesRequest,
+) {
+  return requestJson<PreviewLeadDuplicateCandidatesResponse>(apiBaseUrl, '/api/v1/leads/duplicates/preview', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function previewLeadOcrCapture(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: PreviewLeadOcrCaptureRequest,
+) {
+  return requestJson<PreviewLeadOcrCaptureResponse>(apiBaseUrl, '/api/v1/leads/ocr/preview', {
     method: 'POST',
     accessToken,
     body: input,

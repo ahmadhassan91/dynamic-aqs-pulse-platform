@@ -77,6 +77,9 @@ export const WORKSPACE_ACTIONS = [
   'territory.reassign',
   'training.catalog_manage',
   'training.schedule',
+  'consignment.view',
+  'consignment.audit',
+  'consignment.document_manage',
   'consignment.manage',
   'consignment.sync',
   'reports.builder',
@@ -319,14 +322,14 @@ export const ROLE_DEFAULT_MODULE_ACCESS: Record<AuthRole, readonly WorkspaceModu
 };
 
 export const ROLE_DEFAULT_ACTION_ACCESS: Record<AuthRole, readonly WorkspaceActionKey[]> = {
-  EXECUTIVE: WORKSPACE_ACTIONS,
-  SUPER_ADMIN: WORKSPACE_ACTIONS,
+  EXECUTIVE: WORKSPACE_ACTIONS.filter((action) => action !== 'consignment.sync'),
+  SUPER_ADMIN: WORKSPACE_ACTIONS.filter((action) => action !== 'consignment.sync'),
   SALES_BD_REP: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'reports.builder'],
   SALES_BD_LEADERSHIP: ['reference.view', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.finance_queue_view', 'reports.builder'],
   FINANCE: ['reference.view', 'lead.view', 'customer.view', 'customer.financials_view', 'customer.financials_manage', 'contact.view', 'location.view', 'lead.finance_queue_view', 'lead.finance_decide', 'reports.builder'],
-  ADMIN_CSR_OPS: ['reference.view', 'reference.manage', 'admin.user_view', 'admin.user_manage', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view', 'admin.integration_manage', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.portal_setup', 'lead.consignment_approve', 'consignment.manage', 'consignment.sync', 'reports.builder'],
-  TERRITORY_MANAGER: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.consignment_approve', 'territory.reassign', 'training.schedule', 'reports.builder'],
-  REGIONAL_DIRECTOR: ['reference.view', 'lead.view', 'customer.view', 'contact.view', 'location.view', 'territory.admin', 'territory.reassign', 'training.schedule', 'reports.builder'],
+  ADMIN_CSR_OPS: ['reference.view', 'reference.manage', 'admin.user_view', 'admin.user_manage', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view', 'admin.integration_manage', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.portal_setup', 'lead.consignment_approve', 'consignment.view', 'consignment.audit', 'consignment.document_manage', 'consignment.manage', 'reports.builder'],
+  TERRITORY_MANAGER: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.consignment_approve', 'territory.reassign', 'training.schedule', 'consignment.view', 'consignment.audit', 'reports.builder'],
+  REGIONAL_DIRECTOR: ['reference.view', 'lead.view', 'customer.view', 'contact.view', 'location.view', 'territory.admin', 'territory.reassign', 'training.schedule', 'consignment.view', 'consignment.audit', 'reports.builder'],
   TRAINING_OPS: ['reference.view', 'training.catalog_manage', 'training.schedule', 'reports.builder'],
   DEALER_PORTAL_USER: [],
 };

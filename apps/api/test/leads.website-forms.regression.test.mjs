@@ -7,6 +7,8 @@ ensureTestDatabaseReady();
 
 let prisma;
 let config;
+let loadAppConfig;
+let createPulseServer;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
 let ensureWebsiteLeadConfigSeeded;
@@ -31,6 +33,8 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
 
   const configModule = await import('../dist/config.js');
+  ({ loadAppConfig } = configModule);
+  ({ createPulseServer } = await import('../dist/server.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
   ({
     ensureLeadRoutingPolicySeeded,
@@ -123,6 +127,223 @@ test('seeded website sites expose active public form configuration', SERIAL, asy
   assert.equal(solaceAir.formConfig.referralSourceOptions.length, 5);
 
   await assert.rejects(() => getPublicWebsiteLeadSite('eco-air'), /not available/i);
+});
+
+test('public website capture CORS only echoes approved app origins', SERIAL, async () => {
+  process.env.APP_WEB_BASE_URL = 'https://pulse.dynamicaqs.example';
+  const runtime = await createPulseServer(loadAppConfig(process.env));
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+    const allowedOrigin = 'https://pulse.dynamicaqs.example';
+    const blockedOrigin = 'https://malicious.example';
+    const body = JSON.stringify({
+      siteId: 'solace-air',
+      leadType: 'homeowner',
+      fullName: 'Cors Guard',
+      email: 'cors.guard@example.com',
+      phone: '555-707-0000',
+      state: 'TX',
+    });
+
+    const allowed = await fetch(`http://127.0.0.1:${port}/api/v1/public/leads/capture`, {
+      method: 'POST',
+      headers: {
+        origin: allowedOrigin,
+        'content-type': 'application/json',
+      },
+      body,
+    });
+    assert.equal(allowed.status, 201);
+    assert.equal(allowed.headers.get('access-control-allow-origin'), allowedOrigin);
+    assert.equal(allowed.headers.get('vary'), 'Origin');
+
+    const blocked = await fetch(`http://127.0.0.1:${port}/api/v1/public/leads/capture`, {
+      method: 'POST',
+      headers: {
+        origin: blockedOrigin,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        siteId: 'solace-air',
+        leadType: 'homeowner',
+        fullName: 'Blocked Cors',
+        email: 'blocked.cors@example.com',
+        phone: '555-707-9999',
+        state: 'TX',
+      }),
+    });
+    assert.equal(blocked.status, 403);
+    assert.equal(blocked.headers.get('access-control-allow-origin'), null);
+  } finally {
+    await runtime.close();
+    process.env.APP_WEB_BASE_URL = 'http://localhost:3000';
+  }
+});
+
+test('public website capture only accepts origins assigned to the target site', SERIAL, async () => {
+  const runtime = await createPulseServer(loadAppConfig(process.env));
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+    const allowedOrigin = 'https://solaceair.com';
+    const wrongSiteOrigin = 'https://dynamicaqs.com';
+
+    const allowedConfig = await fetch(`http://127.0.0.1:${port}/api/v1/public/website-sites/solace-air`, {
+      headers: {
+        origin: allowedOrigin,
+      },
+    });
+    assert.equal(allowedConfig.status, 200);
+    assert.equal(allowedConfig.headers.get('access-control-allow-origin'), allowedOrigin);
+
+    const blockedConfig = await fetch(`http://127.0.0.1:${port}/api/v1/public/website-sites/solace-air`, {
+      headers: {
+        origin: wrongSiteOrigin,
+      },
+    });
+    assert.equal(blockedConfig.status, 403);
+    assert.equal(blockedConfig.headers.get('access-control-allow-origin'), null);
+
+    const blockedCapture = await fetch(`http://127.0.0.1:${port}/api/v1/public/leads/capture`, {
+      method: 'POST',
+      headers: {
+        origin: wrongSiteOrigin,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        siteId: 'solace-air',
+        leadType: 'homeowner',
+        fullName: 'Wrong Site Origin',
+        email: 'wrong.site.origin@example.com',
+        phone: '555-808-2222',
+        state: 'TX',
+      }),
+    });
+    assert.equal(blockedCapture.status, 403);
+    assert.equal(blockedCapture.headers.get('access-control-allow-origin'), null);
+
+    const allowedCapture = await fetch(`http://127.0.0.1:${port}/api/v1/public/leads/capture`, {
+      method: 'POST',
+      headers: {
+        origin: allowedOrigin,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        siteId: 'solace-air',
+        leadType: 'homeowner',
+        fullName: 'Correct Site Origin',
+        email: 'correct.site.origin@example.com',
+        phone: '555-808-1111',
+        state: 'TX',
+      }),
+    });
+    assert.equal(allowedCapture.status, 201);
+    assert.equal(allowedCapture.headers.get('access-control-allow-origin'), allowedOrigin);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('public website capture rate limits repeated submissions without consuming preflight quota', SERIAL, async () => {
+  process.env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_WINDOW_SECONDS = '60';
+  process.env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_MAX = '2';
+  process.env.WEBSITE_LEAD_CAPTURE_PREFLIGHT_RATE_LIMIT_MAX = '10';
+  const runtime = await createPulseServer(loadAppConfig(process.env));
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = runtime.server.address().port;
+    const url = `http://127.0.0.1:${port}/api/v1/public/leads/capture`;
+    const allowedOrigin = 'https://solaceair.com';
+    const email = 'rate.limit.case@example.com';
+
+    const preflight = await fetch(url, {
+      method: 'OPTIONS',
+      headers: {
+        origin: allowedOrigin,
+        'access-control-request-method': 'POST',
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), allowedOrigin);
+
+    async function submit(index, forwardedFor = '203.0.113.10') {
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          origin: allowedOrigin,
+          'content-type': 'application/json',
+          'x-forwarded-for': forwardedFor,
+        },
+        body: JSON.stringify({
+          siteId: 'solace-air',
+          leadType: 'homeowner',
+          fullName: `Rate Limit Case ${index}`,
+          email,
+          phone: `555-303-000${index}`,
+          state: 'TX',
+        }),
+      });
+    }
+
+    const first = await submit(1);
+    const second = await submit(2);
+    const third = await submit(3);
+
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+    assert.equal(third.status, 429);
+    assert.equal(third.headers.get('access-control-allow-origin'), allowedOrigin);
+    assert.ok(Number(third.headers.get('retry-after')) > 0);
+    assert.equal((await third.json()).error, 'TOO_MANY_REQUESTS');
+
+    const alternateIp = await submit(4, '203.0.113.11');
+    assert.equal(alternateIp.status, 201);
+
+    assert.equal(await prisma.websiteLeadSubmission.count({ where: { email } }), 3);
+    assert.equal(await prisma.lead.count({ where: { email } }), 1);
+  } finally {
+    await runtime.close();
+    delete process.env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_WINDOW_SECONDS;
+    delete process.env.WEBSITE_LEAD_CAPTURE_RATE_LIMIT_MAX;
+    delete process.env.WEBSITE_LEAD_CAPTURE_PREFLIGHT_RATE_LIMIT_MAX;
+  }
+});
+
+test('website site listing exposes cutover readiness derived from trusted origins and submissions', SERIAL, async () => {
+  const actor = await createAdminActor();
+  let siteList = await listWebsiteLeadSites(actor);
+  const initialSolaceAir = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(initialSolaceAir, 'expected seeded solace-air site');
+  assert.equal(initialSolaceAir.readiness.status, 'warning');
+  assert.equal(initialSolaceAir.readiness.embedReady, true);
+  assert.equal(initialSolaceAir.readiness.hasRecentSubmission, false);
+  assert.equal(initialSolaceAir.readiness.allowedOriginMatchesSiteUrl, true);
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'homeowner',
+    fullName: 'Readiness Evidence',
+    email: 'readiness.evidence@example.com',
+    phone: '555-404-1111',
+    state: 'TX',
+  });
+
+  siteList = await listWebsiteLeadSites(actor);
+  const refreshedSolaceAir = siteList.items.find((site) => site.siteId === 'solace-air');
+  assert.ok(refreshedSolaceAir, 'expected refreshed solace-air site');
+  assert.equal(refreshedSolaceAir.readiness.status, 'healthy');
+  assert.equal(refreshedSolaceAir.readiness.hasRecentSubmission, true);
+  assert.equal(refreshedSolaceAir.readiness.submissionsLast30Days, 1);
+  assert.ok(refreshedSolaceAir.readiness.lastSubmissionAt);
+
+  const ecoAir = siteList.items.find((site) => site.siteId === 'eco-air');
+  assert.ok(ecoAir, 'expected seeded inactive eco-air site');
+  assert.equal(ecoAir.readiness.status, 'blocked');
+  assert.equal(ecoAir.readiness.embedReady, false);
 });
 
 test('website site config updates flow through admin APIs into the public hosted form', SERIAL, async () => {
@@ -336,6 +557,7 @@ test('duplicate website submissions attach to the existing lead instead of creat
   assert.equal(secondLead.outcome, 'attached_to_existing_lead');
   assert.equal(secondLead.reviewStatus, 'pending_review');
   assert.ok(secondLead.submissionId);
+  assert.notEqual(secondLead.submissionId, firstLead.submissionId);
 
   const lead = await prisma.lead.findUniqueOrThrow({
     where: { id: firstLead.id },
@@ -354,11 +576,15 @@ test('duplicate website submissions attach to the existing lead instead of creat
   });
 
   assert.equal(submissions.length, 2);
+  assert.equal(submissions[0].id, firstLead.submissionId);
+  assert.equal(submissions[1].id, secondLead.submissionId);
+  assert.equal(submissions[1].linkedLeadId, firstLead.id);
   assert.equal(submissions[0].outcome, 'CREATED_NEW_LEAD');
   assert.equal(submissions[0].reviewStatus, 'NOT_REQUIRED');
   assert.equal(submissions[1].outcome, 'ATTACHED_TO_EXISTING_LEAD');
   assert.equal(submissions[1].reviewStatus, 'PENDING_REVIEW');
   assert.equal(submissions[1].serviceTechCount, 5);
+  assert.equal(await prisma.lead.count({ where: { email: 'casey@freshairpros.com' } }), 1);
 });
 
 test('repeat-submission review lists duplicate website submissions newest first', SERIAL, async () => {
@@ -477,6 +703,51 @@ test('duplicate review can confirm an existing lead and safely handle repeated c
   assert.equal(after.summary.pendingReviewCount, 0);
   assert.equal(after.summary.resolvedCount, 1);
   assert.equal(after.items[0].reviewStatus, 'confirmed_existing');
+});
+
+test('duplicate review can enrich an existing lead from a repeat website submission', SERIAL, async () => {
+  const actor = await createAdminActor();
+  await configureSolaceAirContractorForm(actor);
+
+  const lead = await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Jordan Repeat',
+    companyName: 'Repeat Comfort',
+    state: 'TX',
+    serviceTechCount: 3,
+  });
+
+  await captureWebsiteLead({
+    siteId: 'solace-air',
+    leadType: 'contractor',
+    fullName: 'Jordan Repeat',
+    companyName: 'Repeat Comfort',
+    phone: '555-902-7070',
+    state: 'TX',
+    serviceTechCount: 5,
+    inquiryTopic: 'Training and onboarding',
+    message: 'Please add this phone to the existing inquiry.',
+  });
+
+  const before = await listWebsiteLeadSubmissions(actor, {
+    search: 'Repeat Comfort',
+    outcome: 'attached_to_existing_lead',
+  });
+  assert.equal(before.items.length, 1);
+
+  const resolved = await resolveWebsiteLeadSubmission(actor, before.items[0].id, {
+    decision: 'enrich_existing',
+    reviewNote: 'Use the new phone without creating another lead.',
+  });
+  assert.equal(resolved.linkedLeadId, lead.id);
+  assert.equal(resolved.reviewStatus, 'confirmed_existing');
+
+  const enrichedLead = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
+  assert.equal(enrichedLead.phone, '555-902-7070');
+  assert.equal(enrichedLead.serviceTechCount, 3);
+  assert.match(enrichedLead.notes ?? '', /Duplicate intake note:/);
+  assert.match(enrichedLead.notes ?? '', /Please add this phone/i);
 });
 
 test('duplicate review can create a fresh lead from an immutable website submission snapshot', SERIAL, async () => {

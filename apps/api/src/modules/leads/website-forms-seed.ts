@@ -4,6 +4,7 @@ export type WebsiteLeadSiteSeed = {
   siteId: string;
   siteName: string;
   url: string;
+  allowedOrigins?: string[];
   brandTag: string;
   formType: WebsiteLeadFormType;
   isActive: boolean;

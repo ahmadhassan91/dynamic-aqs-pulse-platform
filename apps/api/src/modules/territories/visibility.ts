@@ -1,5 +1,5 @@
 import { AuthorizationError } from '@pulse/auth';
-import { Prisma, prisma } from '@pulse/db';
+import { LeadStage, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type { AuthenticatedActor } from '../auth/types.js';
 import {
   buildAccountRecordScope,
@@ -7,15 +7,50 @@ import {
   resolveLeadRecordScope,
 } from '../auth/visibility.js';
 
-function buildTerritoryManagerScope(userId: string): Prisma.TerritoryWhereInput {
+async function resolvePreHandoffTmVisibility(actor: AuthenticatedActor) {
+  if (actor.role !== 'TERRITORY_MANAGER') {
+    return false;
+  }
+
+  return (await prisma.territoryPolicy.findUnique({
+    where: { id: 'default' },
+    select: { preHandoffTmVisibility: true },
+  }))?.preHandoffTmVisibility ?? false;
+}
+
+function buildTerritoryManagerLeadScope(
+  userId: string,
+  options?: {
+    preHandoffTmVisibility?: boolean;
+  },
+): Prisma.LeadWhereInput {
+  const ownerScope = { assignedTmUserId: userId } satisfies Prisma.LeadWhereInput;
+  const visibilityGate = options?.preHandoffTmVisibility
+    ? undefined
+    : {
+        OR: [
+          { stage: LeadStage.CUSTOMER_ACTIVE },
+          { territoryAssignmentMethod: TerritoryAssignmentMethod.MANUAL_OVERRIDE },
+        ],
+      } satisfies Prisma.LeadWhereInput;
+
+  return visibilityGate
+    ? { AND: [ownerScope, visibilityGate] }
+    : ownerScope;
+}
+
+function buildTerritoryManagerScope(
+  userId: string,
+  options?: {
+    preHandoffTmVisibility?: boolean;
+  },
+): Prisma.TerritoryWhereInput {
   return {
     OR: [
       { managerUserId: userId },
       {
         leads: {
-          some: {
-            assignedTmUserId: userId,
-          },
+          some: buildTerritoryManagerLeadScope(userId, options),
         },
       },
       {
@@ -57,13 +92,15 @@ function buildRegionalDirectorScope(userId: string): Prisma.TerritoryWhereInput 
   };
 }
 
-export function buildTerritoryReadScope(actor: AuthenticatedActor): Prisma.TerritoryWhereInput | undefined {
+export async function buildTerritoryReadScope(actor: AuthenticatedActor): Promise<Prisma.TerritoryWhereInput | undefined> {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;
   }
 
   if (actor.role === 'TERRITORY_MANAGER') {
-    return buildTerritoryManagerScope(actor.userId);
+    return buildTerritoryManagerScope(actor.userId, {
+      preHandoffTmVisibility: await resolvePreHandoffTmVisibility(actor),
+    });
   }
 
   if (actor.role === 'REGIONAL_DIRECTOR') {
@@ -75,7 +112,7 @@ export function buildTerritoryReadScope(actor: AuthenticatedActor): Prisma.Terri
   };
 }
 
-export function buildRegionReadScope(actor: AuthenticatedActor): Prisma.RegionWhereInput | undefined {
+export async function buildRegionReadScope(actor: AuthenticatedActor): Promise<Prisma.RegionWhereInput | undefined> {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;
   }
@@ -83,7 +120,9 @@ export function buildRegionReadScope(actor: AuthenticatedActor): Prisma.RegionWh
   if (actor.role === 'TERRITORY_MANAGER') {
     return {
       territories: {
-        some: buildTerritoryManagerScope(actor.userId),
+        some: buildTerritoryManagerScope(actor.userId, {
+          preHandoffTmVisibility: await resolvePreHandoffTmVisibility(actor),
+        }),
       },
     };
   }
@@ -115,7 +154,7 @@ export async function buildShippingCenterReadScope(
     return undefined;
   }
 
-  const territoryScope = buildTerritoryReadScope(actor);
+  const territoryScope = await buildTerritoryReadScope(actor);
   const leadScope = await resolveLeadRecordScope(actor);
   const accountScope = buildAccountRecordScope(actor);
   const orClauses: Prisma.ShippingCenterWhereInput[] = [];
@@ -219,5 +258,20 @@ export async function assertTerritoryAssignmentHistoryVisible(
 
   if (!visibleLocation) {
     throw new AuthorizationError('Requested location territory history is outside your visible scope');
+  }
+}
+
+export async function assertTerritoryReassignmentVisible(
+  actor: AuthenticatedActor,
+  entityType: 'lead' | 'account',
+  entityId: string,
+) {
+  try {
+    await assertTerritoryAssignmentHistoryVisible(actor, entityType, entityId);
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      throw new AuthorizationError(`Requested ${entityType} territory reassignment is outside your visible scope`);
+    }
+    throw error;
   }
 }

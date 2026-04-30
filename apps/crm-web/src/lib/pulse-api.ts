@@ -223,6 +223,7 @@ import type {
   WebsiteLeadSubmissionSummary,
   ConsignmentAuditSummary,
   ConsignmentFormSummary,
+  ConsignmentReadinessItemSummary,
   ConsignmentSiteDetail,
   ConsignmentSiteStatusKey,
   ConsignmentSiteSummary,
@@ -240,6 +241,7 @@ export type {
   AccountSummary,
   ConsignmentAuditSummary,
   ConsignmentFormSummary,
+  ConsignmentReadinessItemSummary,
   ConsignmentSiteDetail,
   ConsignmentSiteSummary,
 } from '@pulse/contracts';
@@ -1400,6 +1402,13 @@ export async function fetchConsignmentSites(
 
 export async function fetchConsignmentSiteDetail(apiBaseUrl: string, accessToken: string, siteId: string) {
   return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchConsignmentReadinessItems(apiBaseUrl: string, accessToken: string, siteId: string) {
+  return requestJson<{ items: ConsignmentReadinessItemSummary[] }>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}/readiness`, {
     method: 'GET',
     accessToken,
   });

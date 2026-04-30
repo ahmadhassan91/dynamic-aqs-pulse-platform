@@ -18,19 +18,32 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { fetchConsignmentSiteDetail, type ConsignmentSiteDetail as ConsignmentSiteDetailRecord } from '@/lib/pulse-api';
+import { notifications } from '@mantine/notifications';
+import {
+  fetchConsignmentReadinessItems,
+  fetchConsignmentSiteDetail,
+  scheduleConsignmentAuditRecord,
+  updateConsignmentAuditRecord,
+  updateConsignmentSiteRecord,
+  upsertConsignmentFormRecord,
+  type ConsignmentReadinessItemSummary,
+  type ConsignmentSiteDetail as ConsignmentSiteDetailRecord,
+} from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { consignmentStatusColor, formatConsignmentDate, formatConsignmentStatus } from './ConsignmentWorkspace';
 
 export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [site, setSite] = useState<ConsignmentSiteDetailRecord | null>(null);
+  const [readinessItems, setReadinessItems] = useState<ConsignmentReadinessItemSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [savingAction, setSavingAction] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) {
       setSite(null);
+      setReadinessItems([]);
       setErrorMessage(null);
       return;
     }
@@ -40,9 +53,13 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
       setIsLoading(true);
       setErrorMessage(null);
       try {
-        const response = await fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, siteId);
+        const [response, readiness] = await Promise.all([
+          fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, siteId),
+          fetchConsignmentReadinessItems(apiBaseUrl, auth.tokens.accessToken, siteId),
+        ]);
         if (!cancelled) {
           setSite(response);
+          setReadinessItems(readiness.items);
         }
       } catch (error) {
         if (!cancelled) {
@@ -59,6 +76,112 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
       cancelled = true;
     };
   }, [apiBaseUrl, auth, siteId]);
+
+  const reloadSite = async () => {
+    if (!auth) {
+      return;
+    }
+
+    const [nextSite, readiness] = await Promise.all([
+      fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, siteId),
+      fetchConsignmentReadinessItems(apiBaseUrl, auth.tokens.accessToken, siteId),
+    ]);
+    setSite(nextSite);
+    setReadinessItems(readiness.items);
+  };
+
+  const runWorkflowAction = async (actionKey: string, action: () => Promise<void>, successMessage: string) => {
+    setSavingAction(actionKey);
+    setErrorMessage(null);
+    try {
+      await action();
+      await reloadSite();
+      notifications.show({ color: 'green', title: 'Consignment updated', message: successMessage });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setErrorMessage(message);
+      notifications.show({ color: 'red', title: 'Consignment action failed', message });
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const addSignedAgreement = () => runWorkflowAction(
+    'agreement',
+    async () => {
+      if (!auth) return;
+      await upsertConsignmentFormRecord(apiBaseUrl, auth.tokens.accessToken, siteId, {
+        formType: 'agreement',
+        status: 'signed',
+        title: 'Program Agreement',
+        signedAt: new Date().toISOString(),
+      });
+    },
+    'Agreement evidence was saved.',
+  );
+
+  const addBlueBaseline = () => runWorkflowAction(
+    'blue',
+    async () => {
+      if (!auth) return;
+      await upsertConsignmentFormRecord(apiBaseUrl, auth.tokens.accessToken, siteId, {
+        formType: 'blue',
+        status: 'signed',
+        title: 'BLUE Baseline',
+        signedAt: new Date().toISOString(),
+      });
+    },
+    'BLUE baseline was saved and the ROSE cadence was recalculated.',
+  );
+
+  const activateSite = () => runWorkflowAction(
+    'activate',
+    async () => {
+      if (!auth) return;
+      await updateConsignmentSiteRecord(apiBaseUrl, auth.tokens.accessToken, siteId, {
+        status: 'active',
+        warehouseCode: site?.warehouseCode ?? `MANUAL-${siteId.slice(0, 8).toUpperCase()}`,
+      });
+    },
+    'The site is active with a manual warehouse reference.',
+  );
+
+  const scheduleRose = () => runWorkflowAction(
+    'schedule-rose',
+    async () => {
+      if (!auth) return;
+      await scheduleConsignmentAuditRecord(apiBaseUrl, auth.tokens.accessToken, siteId, {
+        scheduledFor: addDays(new Date(), 7).toISOString(),
+        notes: 'Scheduled from Pulse consignment workspace.',
+      });
+    },
+    'ROSE audit was scheduled.',
+  );
+
+  const completeRose = () => runWorkflowAction(
+    'complete-rose',
+    async () => {
+      if (!auth || !site) return;
+      const audit = site.audits.find((item) => item.status === 'scheduled' || item.status === 'in_progress');
+      if (!audit) {
+        throw new Error('Schedule a ROSE audit before completing one.');
+      }
+      await updateConsignmentAuditRecord(apiBaseUrl, auth.tokens.accessToken, audit.id, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        notes: 'Completed from Pulse consignment workspace with manual variance capture.',
+        lines: [
+          {
+            sku: 'MANUAL-VARIANCE',
+            productName: 'Manual consignment variance',
+            expectedQuantity: 1,
+            actualQuantity: 0,
+          },
+        ],
+      });
+    },
+    'ROSE audit was completed and variance follow-up was opened.',
+  );
 
   if (!isHydrated) {
     return <Loader color="blue" />;
@@ -159,6 +282,44 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
 
           <SimpleGrid cols={{ base: 1, lg: 2 }}>
             <Card withBorder radius="md" p="lg">
+              <Title order={4} mb="md">Activation Readiness</Title>
+              <Stack gap="xs">
+                {readinessItems.map((item) => (
+                  <ReadinessRow key={item.code} item={item} />
+                ))}
+                {readinessItems.length === 0 ? (
+                  <Text size="sm" c="dimmed">Readiness checks are not available for this site.</Text>
+                ) : null}
+              </Stack>
+            </Card>
+
+            <Card withBorder radius="md" p="lg">
+              <Title order={4} mb="md">Workflow Actions</Title>
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <Button variant="light" onClick={addSignedAgreement} loading={savingAction === 'agreement'}>
+                  Add Agreement
+                </Button>
+                <Button variant="light" onClick={addBlueBaseline} loading={savingAction === 'blue'}>
+                  Add BLUE
+                </Button>
+                <Button variant="light" onClick={activateSite} loading={savingAction === 'activate'}>
+                  Mark Active
+                </Button>
+                <Button variant="light" onClick={scheduleRose} loading={savingAction === 'schedule-rose'}>
+                  Schedule ROSE
+                </Button>
+                <Button variant="light" onClick={completeRose} loading={savingAction === 'complete-rose'}>
+                  Complete ROSE
+                </Button>
+              </SimpleGrid>
+              <Text size="xs" c="dimmed" mt="sm">
+                Acumatica warehouse and PO creation remain parked; these actions persist Pulse workflow evidence only.
+              </Text>
+            </Card>
+          </SimpleGrid>
+
+          <SimpleGrid cols={{ base: 1, lg: 2 }}>
+            <Card withBorder radius="md" p="lg">
               <Title order={4} mb="md">Documents</Title>
               {site.forms.length ? (
                 <Table striped>
@@ -236,4 +397,22 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
       <Text size="sm" ta="right">{value}</Text>
     </Group>
   );
+}
+
+function ReadinessRow({ item }: { item: ConsignmentReadinessItemSummary }) {
+  const color = item.status === 'complete' ? 'green' : item.status === 'blocked' ? 'red' : 'yellow';
+
+  return (
+    <Group justify="space-between" align="flex-start" gap="md">
+      <Stack gap={2}>
+        <Text size="sm" fw={600}>{item.label}</Text>
+        {item.detail ? <Text size="xs" c="dimmed">{item.detail}</Text> : null}
+      </Stack>
+      <Badge color={color} variant="light">{formatConsignmentStatus(item.status)}</Badge>
+    </Group>
+  );
+}
+
+function addDays(value: Date, days: number) {
+  return new Date(value.getTime() + days * 24 * 60 * 60 * 1000);
 }

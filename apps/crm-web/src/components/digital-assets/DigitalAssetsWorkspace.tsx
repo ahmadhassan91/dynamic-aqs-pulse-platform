@@ -65,6 +65,10 @@ type CreateAssetFormState = {
   brandScope: string;
   regionScope: string;
   legacyUrl: string;
+  externalUrl: string;
+  fileBase64: string;
+  fileName: string;
+  mimeType: string;
 };
 
 type VersionFormState = {
@@ -123,6 +127,10 @@ const defaultAssetForm: CreateAssetFormState = {
   brandScope: '',
   regionScope: '',
   legacyUrl: '',
+  externalUrl: '',
+  fileBase64: '',
+  fileName: '',
+  mimeType: '',
 };
 
 const defaultVersionForm: VersionFormState = {
@@ -291,8 +299,20 @@ export function DigitalAssetsWorkspace() {
         sourceSystem: 'manual',
         ...(emptyToUndefined(assetForm.stableSlug) ? { stableSlug: emptyToUndefined(assetForm.stableSlug) } : {}),
       });
-      setSelectedAsset(response);
-      setAssetEditForm(toAssetEditForm(response));
+
+      const hasInitialFile = assetForm.externalUrl.trim() || assetForm.fileBase64.trim();
+      const assetWithVersion = hasInitialFile && assetForm.fileName.trim()
+        ? await createDigitalAssetVersionRecord(apiBaseUrl, auth.tokens.accessToken, response.id, {
+          externalUrl: assetForm.externalUrl,
+          fileBase64: emptyToNull(assetForm.fileBase64),
+          fileName: assetForm.fileName,
+          mimeType: emptyToNull(assetForm.mimeType),
+          makeCurrent: true,
+        })
+        : response;
+
+      setSelectedAsset(assetWithVersion);
+      setAssetEditForm(toAssetEditForm(assetWithVersion));
       setAssetForm(defaultAssetForm);
       await reloadAssets();
     } catch (createError) {
@@ -506,7 +526,7 @@ export function DigitalAssetsWorkspace() {
     <Stack gap="lg">
       <Stack gap={4}>
         <Title order={2}>Digital Assets</Title>
-        <Text c="dimmed">Bounded Widen replacement for product and dealer assets, stable URLs, curated metadata, and S3/CloudFront-ready delivery.</Text>
+        <Text c="dimmed">Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library.</Text>
       </Stack>
 
       {error ? (
@@ -517,9 +537,9 @@ export function DigitalAssetsWorkspace() {
 
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as AssetTab) ?? 'library')}>
         <Tabs.List>
-          <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Asset Library</Tabs.Tab>
-          <Tabs.Tab value="collections">Collections</Tabs.Tab>
-          <Tabs.Tab value="migration" leftSection={<IconCloudUpload size={16} />}>Migration Manifest</Tabs.Tab>
+          <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Library</Tabs.Tab>
+          <Tabs.Tab value="collections">Asset Sets</Tabs.Tab>
+          <Tabs.Tab value="migration" leftSection={<IconCloudUpload size={16} />}>Widen Import</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="library" pt="md">
@@ -530,67 +550,108 @@ export function DigitalAssetsWorkspace() {
                   <Stack gap="sm">
                     <Group justify="space-between" align="flex-start">
                       <Stack gap={2}>
-                        <Title order={4}>Create metadata asset</Title>
-                        <Text c="dimmed" size="sm">Create the library record first, then attach an external URL version when the file location is known.</Text>
+                        <Title order={4}>Add Asset</Title>
+                        <Text c="dimmed" size="sm">Add a file or paste a link, then choose who can use it.</Text>
                       </Stack>
-                      <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim()}>
-                        Create
+                      <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean((assetForm.externalUrl.trim() || assetForm.fileBase64.trim()) && !assetForm.fileName.trim())}>
+                        Add Asset
                       </Button>
                     </Group>
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                       <TextInput
-                        label="Title"
+                        label="Asset name"
                         value={assetForm.title}
                         onChange={(event) => setAssetForm((current) => ({ ...current, title: event.currentTarget.value }))}
                         required
                       />
-                      <TextInput
-                        label="Stable slug"
-                        value={assetForm.stableSlug}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, stableSlug: event.currentTarget.value }))}
-                        placeholder="Auto-generated when blank"
-                      />
                       <Select
-                        label="Kind"
+                        label="Type"
                         value={assetForm.kind}
                         data={kindOptions}
                         onChange={(value) => setAssetForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey) ?? 'image' }))}
                         allowDeselect={false}
                       />
                       <Select
-                        label="Visibility"
+                        label="Who can access"
                         value={assetForm.visibility}
                         data={visibilityOptions}
                         onChange={(value) => setAssetForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey) ?? 'internal_only' }))}
                         allowDeselect={false}
                       />
+                      <FileInput
+                        label="Upload file"
+                        clearable
+                        onChange={(file) => {
+                          if (!file) {
+                            setAssetForm((current) => ({ ...current, fileBase64: '' }));
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setAssetForm((current) => ({
+                            ...current,
+                            fileBase64: String(reader.result ?? ''),
+                            fileName: current.fileName || file.name,
+                            mimeType: current.mimeType || file.type,
+                          }));
+                          reader.readAsDataURL(file);
+                        }}
+                      />
                       <TextInput
-                        label="Audience"
+                        label="Paste file link"
+                        value={assetForm.externalUrl}
+                        onChange={(event) => setAssetForm((current) => ({ ...current, externalUrl: event.currentTarget.value }))}
+                        placeholder="https://..."
+                      />
+                      <TextInput
+                        label="File name"
+                        value={assetForm.fileName}
+                        onChange={(event) => setAssetForm((current) => ({ ...current, fileName: event.currentTarget.value }))}
+                        placeholder="Auto-filled after upload"
+                      />
+                      <TextInput
+                        label="Use for"
                         value={assetForm.audience}
                         onChange={(event) => setAssetForm((current) => ({ ...current, audience: event.currentTarget.value }))}
                       />
-                      <TextInput
-                        label="Brand scope"
-                        value={assetForm.brandScope}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, brandScope: event.currentTarget.value }))}
-                      />
-                      <TextInput
-                        label="Region scope"
-                        value={assetForm.regionScope}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
-                      />
-                      <TextInput
-                        label="Legacy URL"
-                        value={assetForm.legacyUrl}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, legacyUrl: event.currentTarget.value }))}
-                      />
                     </SimpleGrid>
                     <Textarea
-                      label="Description"
+                      label="Notes"
                       value={assetForm.description}
                       onChange={(event) => setAssetForm((current) => ({ ...current, description: event.currentTarget.value }))}
                       minRows={2}
                     />
+                    <details>
+                      <summary>Advanced details</summary>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+                        <TextInput
+                          label="Custom URL slug"
+                          value={assetForm.stableSlug}
+                          onChange={(event) => setAssetForm((current) => ({ ...current, stableSlug: event.currentTarget.value }))}
+                          placeholder="Auto-generated when blank"
+                        />
+                        <TextInput
+                          label="MIME type"
+                          value={assetForm.mimeType}
+                          onChange={(event) => setAssetForm((current) => ({ ...current, mimeType: event.currentTarget.value }))}
+                          placeholder="Auto-filled after upload"
+                        />
+                        <TextInput
+                          label="Brand"
+                          value={assetForm.brandScope}
+                          onChange={(event) => setAssetForm((current) => ({ ...current, brandScope: event.currentTarget.value }))}
+                        />
+                        <TextInput
+                          label="Region"
+                          value={assetForm.regionScope}
+                          onChange={(event) => setAssetForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
+                        />
+                        <TextInput
+                          label="Original Widen URL"
+                          value={assetForm.legacyUrl}
+                          onChange={(event) => setAssetForm((current) => ({ ...current, legacyUrl: event.currentTarget.value }))}
+                        />
+                      </SimpleGrid>
+                    </details>
                   </Stack>
                 </form>
               </Paper>
@@ -616,7 +677,7 @@ export function DigitalAssetsWorkspace() {
                         <Table.Tr key={asset.id}>
                           <Table.Td>
                             <Text fw={600}>{asset.title}</Text>
-                            <Text size="xs" c="dimmed">/{asset.stableSlug}</Text>
+                            <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? `/${asset.stableSlug}`}</Text>
                           </Table.Td>
                           <Table.Td>{asset.kind}</Table.Td>
                           <Table.Td><Badge variant="light">{asset.visibility}</Badge></Table.Td>
@@ -682,7 +743,7 @@ export function DigitalAssetsWorkspace() {
                 ) : (
                   <Stack gap="xs">
                     <Title order={4}>Asset detail</Title>
-                    <Text c="dimmed" size="sm">Select an asset to review metadata and add an external URL version.</Text>
+                    <Text c="dimmed" size="sm">Select an asset to review files, product usage, and share links.</Text>
                   </Stack>
                 )}
               </Paper>
@@ -695,17 +756,17 @@ export function DigitalAssetsWorkspace() {
             <Paper withBorder p="md">
               <Stack gap="sm">
                 <Group justify="space-between">
-                  <Title order={4}>{selectedCollectionId ? 'Edit Collection' : 'Create Collection'}</Title>
+                  <Title order={4}>{selectedCollectionId ? 'Edit Asset Set' : 'Create Asset Set'}</Title>
                   <Button onClick={handleSaveCollection} loading={isSavingCollection} disabled={!collectionForm.code.trim() || !collectionForm.name.trim()}>
                     {selectedCollectionId ? 'Save' : 'Create'}
                   </Button>
                 </Group>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <TextInput label="Code" value={collectionForm.code} onChange={(event) => setCollectionForm((current) => ({ ...current, code: event.currentTarget.value }))} />
-                  <TextInput label="Name" value={collectionForm.name} onChange={(event) => setCollectionForm((current) => ({ ...current, name: event.currentTarget.value }))} />
-                  <Select label="Visibility" data={visibilityOptions} value={collectionForm.visibility} onChange={(value) => setCollectionForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))} allowDeselect={false} />
-                  <TextInput label="Brand scope" value={collectionForm.brandScope} onChange={(event) => setCollectionForm((current) => ({ ...current, brandScope: event.currentTarget.value }))} />
-                  <TextInput label="Region scope" value={collectionForm.regionScope} onChange={(event) => setCollectionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+                  <TextInput label="Set code" value={collectionForm.code} onChange={(event) => setCollectionForm((current) => ({ ...current, code: event.currentTarget.value }))} />
+                  <TextInput label="Set name" value={collectionForm.name} onChange={(event) => setCollectionForm((current) => ({ ...current, name: event.currentTarget.value }))} />
+                  <Select label="Who can access" data={visibilityOptions} value={collectionForm.visibility} onChange={(value) => setCollectionForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))} allowDeselect={false} />
+                  <TextInput label="Brand" value={collectionForm.brandScope} onChange={(event) => setCollectionForm((current) => ({ ...current, brandScope: event.currentTarget.value }))} />
+                  <TextInput label="Region" value={collectionForm.regionScope} onChange={(event) => setCollectionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
                   <TextInput label="Dealer group type" value={collectionForm.dealerGroupType} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
                   <TextInput label="Dealer group ID" value={collectionForm.dealerGroupId} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
                   <Checkbox mt="xl" label="Active" checked={collectionForm.isActive} onChange={(event) => setCollectionForm((current) => ({ ...current, isActive: event.currentTarget.checked }))} />
@@ -742,7 +803,7 @@ export function DigitalAssetsWorkspace() {
                     </Table.Tr>
                   ))}
                   {!collections.items.length ? (
-                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No collections configured yet.</Text></Table.Td></Table.Tr>
+                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No asset sets configured yet.</Text></Table.Td></Table.Tr>
                   ) : null}
                 </Table.Tbody>
               </Table>
@@ -751,11 +812,11 @@ export function DigitalAssetsWorkspace() {
 
           <Paper withBorder p="md" mt="md">
             <Stack gap="sm">
-              <Title order={4}>Selected Asset Membership</Title>
+              <Title order={4}>Add Selected Asset To Set</Title>
               <Text size="sm" c="dimmed">{selectedAsset ? selectedAsset.title : 'Select an asset in the library tab before adding it to a collection.'}</Text>
               <Group align="flex-end">
                 <Select
-                  label="Collection"
+                  label="Asset set"
                   data={collections.items.map((collection) => ({ value: collection.id, label: collection.name }))}
                   value={selectedCollectionId}
                   onChange={setSelectedCollectionId}
@@ -780,8 +841,8 @@ export function DigitalAssetsWorkspace() {
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <Stack gap={4}>
-                    <Title order={4}>Widen migration reconciliation</Title>
-                    <Text c="dimmed">Preview the curated Widen manifest before any asset writes. Legacy URL redirects are intentionally parked and should not be cut over from this panel.</Text>
+                    <Title order={4}>Widen Import Review</Title>
+                    <Text c="dimmed">Preview Widen files before they are added to the Pulse asset library.</Text>
                   </Stack>
                   <Group>
                     <Button leftSection={<IconHistory size={16} />} variant="subtle" onClick={handleLoadImportRuns} loading={isLoadingRuns}>
@@ -793,8 +854,8 @@ export function DigitalAssetsWorkspace() {
                   </Group>
                 </Group>
 
-                <Alert color="gray" title="Redirect cutover parked">
-                  This preview checks Widen IDs, stable slugs, legacy URLs, and issue counts only. Actual 301 redirects and public legacy URL forwarding remain parked until the delivery cutover plan is approved.
+                <Alert color="gray" title="Import only, no redirect cutover yet">
+                  This checks Widen IDs, asset names, original URLs, and issue counts. Public Widen redirect cutover stays parked until the migration plan is approved.
                 </Alert>
 
                 {migrationError ? (

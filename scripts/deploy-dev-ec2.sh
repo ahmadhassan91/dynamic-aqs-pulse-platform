@@ -21,10 +21,10 @@ corepack enable
 corepack prepare pnpm@10.7.0 --activate
 
 pnpm install --frozen-lockfile
-pnpm --filter @pulse/auth build
-pnpm --filter @pulse/acumatica build
 pnpm --filter @pulse/contracts build
 pnpm --filter @pulse/config build
+pnpm --filter @pulse/auth build
+pnpm --filter @pulse/acumatica build
 pnpm --filter @pulse/db generate
 pnpm --filter @pulse/db build
 pnpm --filter @pulse/api build

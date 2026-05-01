@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
-import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
   PRODUCT_ASSET_ROLES,
   type DigitalAssetSummary,
@@ -19,6 +19,7 @@ import {
   createProductCatalogInclusion,
   fetchDigitalAssetLibrary,
   fetchProductManagementProductDetail,
+  unlinkDigitalAssetFromProduct,
   updateProductCatalogInclusion,
   updateProductManagementPresentation,
   validateProductManagementPresentation,
@@ -77,6 +78,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [editingInclusionId, setEditingInclusionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAssigningAsset, setIsAssigningAsset] = useState(false);
+  const [unlinkingAssignmentId, setUnlinkingAssignmentId] = useState<string | null>(null);
   const [isSavingPresentation, setIsSavingPresentation] = useState(false);
   const [isSavingInclusion, setIsSavingInclusion] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -153,6 +155,20 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       setAssetError(assignError instanceof Error ? assignError.message : String(assignError));
     } finally {
       setIsAssigningAsset(false);
+    }
+  };
+
+  const handleUnlinkAsset = async (assignmentId: string) => {
+    if (!auth) return;
+    setUnlinkingAssignmentId(assignmentId);
+    setAssetError(null);
+    try {
+      await unlinkDigitalAssetFromProduct(apiBaseUrl, auth.tokens.accessToken, assignmentId);
+      await reloadProduct();
+    } catch (unlinkError) {
+      setAssetError(unlinkError instanceof Error ? unlinkError.message : String(unlinkError));
+    } finally {
+      setUnlinkingAssignmentId(null);
     }
   };
 
@@ -326,37 +342,39 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             <Title order={4}>Product Files</Title>
             <Text c="dimmed" size="sm">Attach approved images, spec sheets, brochures, and install guides to the dealer-facing product presentation.</Text>
           </Stack>
-          <Group align="flex-end">
-            <Select
-              w={280}
-              label="Asset"
-              searchable
-              clearable
-              placeholder="Select asset"
-              value={selectedAssetId}
-              onChange={setSelectedAssetId}
-              data={availableAssets.map((asset) => ({
-                value: asset.id,
-                label: `${asset.title} / ${asset.kind} / ${asset.sourceSystem}`,
-              }))}
-            />
-            <Select
-              w={190}
-              label="Role"
-              value={selectedAssetRole}
-              onChange={(value) => setSelectedAssetRole((value as ProductAssetRoleKey | null) ?? 'primary_image')}
-              data={assetRoleOptions}
-              allowDeselect={false}
-            />
-            <Button
-              leftSection={<IconLink size={16} />}
-              onClick={handleAssignAsset}
-              disabled={!selectedAssetId || !primaryPresentation}
-              loading={isAssigningAsset}
-            >
-              Attach
-            </Button>
-          </Group>
+          {canManageProducts ? (
+            <Group align="flex-end">
+              <Select
+                w={280}
+                label="Asset"
+                searchable
+                clearable
+                placeholder="Select asset"
+                value={selectedAssetId}
+                onChange={setSelectedAssetId}
+                data={availableAssets.map((asset) => ({
+                  value: asset.id,
+                  label: `${asset.title} / ${asset.kind} / ${asset.status} / ${asset.reviewStatus}`,
+                }))}
+              />
+              <Select
+                w={190}
+                label="Role"
+                value={selectedAssetRole}
+                onChange={(value) => setSelectedAssetRole((value as ProductAssetRoleKey | null) ?? 'primary_image')}
+                data={assetRoleOptions}
+                allowDeselect={false}
+              />
+              <Button
+                leftSection={<IconLink size={16} />}
+                onClick={handleAssignAsset}
+                disabled={!selectedAssetId || !primaryPresentation}
+                loading={isAssigningAsset}
+              >
+                Attach
+              </Button>
+            </Group>
+          ) : null}
         </Group>
 
         {assetError ? (
@@ -374,6 +392,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               <Table.Th>Scope</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Required</Table.Th>
+              {canManageProducts ? <Table.Th /> : null}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -388,10 +407,24 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 <Table.Td>{[assignment.brandScope, assignment.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
                 <Table.Td><Badge variant="light">{assignment.status} / {assignment.reviewStatus}</Badge></Table.Td>
                 <Table.Td>{assignment.isRequired ? 'Yes' : 'No'}</Table.Td>
+                {canManageProducts ? (
+                  <Table.Td>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      color="red"
+                      leftSection={<IconUnlink size={14} />}
+                      onClick={() => handleUnlinkAsset(assignment.id)}
+                      loading={unlinkingAssignmentId === assignment.id}
+                    >
+                      Unlink
+                    </Button>
+                  </Table.Td>
+                ) : null}
               </Table.Tr>
             ))}
             {!product.assetAssignments.length ? (
-              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No files linked to this product yet.</Text></Table.Td></Table.Tr>
+              <Table.Tr><Table.Td colSpan={canManageProducts ? 7 : 6}><Text ta="center" c="dimmed" py="md">No files linked to this product yet.</Text></Table.Td></Table.Tr>
             ) : null}
           </Table.Tbody>
         </Table>

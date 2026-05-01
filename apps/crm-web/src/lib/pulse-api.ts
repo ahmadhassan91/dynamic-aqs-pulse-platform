@@ -642,6 +642,17 @@ export async function assignDigitalAssetToProduct(
   });
 }
 
+export async function unlinkDigitalAssetFromProduct(
+  apiBaseUrl: string,
+  accessToken: string,
+  assignmentId: string,
+) {
+  return requestJson<ProductAssetAssignmentSummary>(apiBaseUrl, `/api/v1/digital-assets/product-assignments/${encodeURIComponent(assignmentId)}`, {
+    method: 'DELETE',
+    accessToken,
+  });
+}
+
 export async function previewWidenImport(
   apiBaseUrl: string,
   accessToken: string,

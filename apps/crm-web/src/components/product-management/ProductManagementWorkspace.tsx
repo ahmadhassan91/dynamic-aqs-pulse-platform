@@ -25,7 +25,7 @@ import {
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
-type ProductTab = 'categories' | 'families' | 'products' | 'readiness' | 'publish';
+type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'readiness' | 'publish';
 type CategoryFormState = {
   code: string;
   name: string;
@@ -90,8 +90,8 @@ export function ProductManagementWorkspace() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     if (tab === 'groups') {
-      setActiveTab('categories');
-    } else if (tab && ['categories', 'families', 'products', 'readiness', 'publish'].includes(tab)) {
+      setActiveTab('visibility');
+    } else if (tab && ['categories', 'families', 'products', 'visibility', 'readiness', 'publish'].includes(tab)) {
       setActiveTab(tab as ProductTab);
     }
   }, []);
@@ -193,6 +193,31 @@ export function ProductManagementWorkspace() {
       assetCount: product.assetAssignments.length,
     };
   }), [productDetails, readinessRows]);
+  const visibilityRows = useMemo(() => productDetails.flatMap((product) => {
+    const presentation = product.presentations[0];
+    if (!product.inclusions.length) {
+      return [{
+        id: `${product.id}-missing`,
+        product,
+        presentation,
+        audience: 'No visibility rule',
+        region: presentation?.regionScope ?? 'All regions',
+        brand: presentation?.brandLabel ?? 'Default brand',
+        isVisible: false,
+        publishStatus: presentation?.publishStatus ?? 'draft',
+      }];
+    }
+    return product.inclusions.map((inclusion) => ({
+      id: inclusion.id,
+      product,
+      presentation,
+      audience: formatCatalogAudience(inclusion.dealerGroupType, inclusion.dealerGroupId),
+      region: inclusion.regionScope ?? presentation?.regionScope ?? 'All regions',
+      brand: inclusion.brandLabel ?? presentation?.brandLabel ?? 'Default brand',
+      isVisible: inclusion.isVisible,
+      publishStatus: inclusion.publishStatus,
+    }));
+  }), [productDetails]);
 
   const reloadCatalog = async () => {
     if (!auth) return;
@@ -328,7 +353,7 @@ export function ProductManagementWorkspace() {
       <Group justify="space-between" align="flex-start">
         <Stack gap={4}>
           <Title order={2}>Product Management</Title>
-          <Text c="dimmed">Govern categories, product presentations, dealer visibility, asset readiness, and approved catalog publish.</Text>
+          <Text c="dimmed">Prepare products for the Dealer Portal: organize the catalog, decide who can see each product, attach assets, and publish only when ready.</Text>
         </Stack>
       </Group>
 
@@ -350,11 +375,15 @@ export function ProductManagementWorkspace() {
           <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
           <Tabs.Tab value="families">Families</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
+          <Tabs.Tab value="visibility">Who Sees It</Tabs.Tab>
           <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="categories" pt="md">
+          <Alert color="blue" mb="md" title="Catalog setup, not dealer groups">
+            Categories organize the dealer catalog. Families group related SKUs. Dealer-specific visibility is handled in the Who Sees It tab.
+          </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
             <Paper withBorder p="md">
               <Stack gap="sm">
@@ -468,6 +497,9 @@ export function ProductManagementWorkspace() {
         </Tabs.Panel>
 
         <Tabs.Panel value="families" pt="md">
+          <Alert color="blue" mb="md" title="Product family">
+            Families group sibling or variant-like SKUs. They do not decide which dealer can see a product.
+          </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
             <Paper withBorder p="md">
               <Stack gap="sm">
@@ -545,6 +577,67 @@ export function ProductManagementWorkspace() {
               )}
             </Paper>
           </SimpleGrid>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="visibility" pt="md">
+          <Stack gap="md">
+            <Alert color="blue" title="Dealer group means catalog context">
+              Product Management defines which products and files are visible for a dealer context. Pricing stays separate and comes from account / price-class setup.
+            </Alert>
+            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              <Metric label="Products With Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
+              <Metric label="Missing Rules" value={visibilityRows.filter((row) => !row.isVisible).length} />
+              <Metric label="Portal Visible Products" value={metrics.dealerVisible} />
+            </SimpleGrid>
+            <Paper withBorder>
+              {isLoading ? (
+                <Group justify="center" p="xl"><Loader /></Group>
+              ) : (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Product</Table.Th>
+                      <Table.Th>Who sees it</Table.Th>
+                      <Table.Th>Region / Brand</Table.Th>
+                      <Table.Th>Portal status</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {visibilityRows.map((row) => (
+                      <Table.Tr key={row.id}>
+                        <Table.Td>
+                          <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                          <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                        </Table.Td>
+                        <Table.Td>{row.audience}</Table.Td>
+                        <Table.Td>
+                          <Stack gap={2}>
+                            <Text size="sm">{row.region}</Text>
+                            <Text size="xs" c="dimmed">{row.brand}</Text>
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
+                            {row.isVisible ? 'Visible' : 'Needs rule'}
+                          </Badge>
+                          <Text size="xs" c="dimmed" mt={4}>{formatLabel(row.publishStatus)}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
+                            Manage
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {!visibilityRows.length ? (
+                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No products loaded yet.</Text></Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              )}
+            </Paper>
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="products" pt="md">
@@ -752,4 +845,23 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function formatLabel(value: string) {
   return value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function formatCatalogAudience(dealerGroupType: string, dealerGroupId?: string) {
+  const suffix = dealerGroupId ? `: ${dealerGroupId}` : '';
+  switch (dealerGroupType) {
+    case 'all_dealers':
+      return 'All eligible dealers';
+    case 'affinity_group':
+      return `Affinity group${suffix}`;
+    case 'ownership_group':
+      return `Ownership group${suffix}`;
+    case 'brand':
+    case 'private_label':
+      return `Brand / private label${suffix}`;
+    case 'region':
+      return `Region${suffix}`;
+    default:
+      return `${formatLabel(dealerGroupType)}${suffix}`;
+  }
 }

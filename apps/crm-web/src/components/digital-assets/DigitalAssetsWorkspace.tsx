@@ -605,7 +605,8 @@ export function DigitalAssetsWorkspace() {
                         <Table.Th>Type</Table.Th>
                         <Table.Th>Visibility</Table.Th>
                         <Table.Th>Brand / Region</Table.Th>
-                        <Table.Th>Source</Table.Th>
+                        <Table.Th>Usage</Table.Th>
+                        <Table.Th>Shares</Table.Th>
                         <Table.Th />
                       </Table.Tr>
                     </Table.Thead>
@@ -619,7 +620,8 @@ export function DigitalAssetsWorkspace() {
                           <Table.Td>{asset.kind}</Table.Td>
                           <Table.Td><Badge variant="light">{asset.visibility}</Badge></Table.Td>
                           <Table.Td>{[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
-                          <Table.Td>{asset.sourceSystem}</Table.Td>
+                          <Table.Td>{asset.productUsageCount ?? 0}</Table.Td>
+                          <Table.Td>{asset.activeShareLinkCount ?? 0} active / {asset.totalShareLinkAccessCount ?? 0} views</Table.Td>
                           <Table.Td>
                             <Button size="xs" variant="subtle" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
                               Details
@@ -901,6 +903,8 @@ function AssetDetailPanel({
         <CountLine label="Visibility" value={asset.visibility} />
         <CountLine label="Audience" value={asset.audience} />
         <CountLine label="Scope" value={[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'} />
+        <CountLine label="Product usage" value={String(asset.productUsageCount ?? 0)} />
+        <CountLine label="Active shares" value={`${asset.activeShareLinkCount ?? 0} links / ${asset.totalShareLinkAccessCount ?? 0} views`} />
       </SimpleGrid>
 
       {asset.description ? <Text size="sm">{asset.description}</Text> : null}
@@ -1009,6 +1013,38 @@ function AssetDetailPanel({
           </Stack>
         </Paper>
       ) : null}
+
+      <Paper withBorder p="md">
+        <Stack gap="sm">
+          <Title order={5}>Product Usage</Title>
+          <Table striped>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Product</Table.Th>
+                <Table.Th>Role</Table.Th>
+                <Table.Th>Scope</Table.Th>
+                <Table.Th>Required</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {(asset.productUsages ?? []).map((usage) => (
+                <Table.Tr key={usage.id}>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>{usage.presentationName}</Text>
+                    <Text size="xs" c="dimmed">{usage.productSku} / {usage.productName}</Text>
+                  </Table.Td>
+                  <Table.Td>{formatLabel(usage.role)}</Table.Td>
+                  <Table.Td>{[usage.brandLabel, usage.regionScope, usage.dealerGroupId].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
+                  <Table.Td>{usage.isRequired ? 'Yes' : 'No'}</Table.Td>
+                </Table.Tr>
+              ))}
+              {!(asset.productUsages ?? []).length ? (
+                <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="md">This asset is not linked to any product presentation yet.</Text></Table.Td></Table.Tr>
+              ) : null}
+            </Table.Tbody>
+          </Table>
+        </Stack>
+      </Paper>
 
       {canEdit ? (
         <Paper withBorder p="md">

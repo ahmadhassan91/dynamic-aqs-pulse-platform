@@ -395,3 +395,65 @@ test('asset share links can be created, resolved, counted, and revoked', SERIAL,
   });
   assert.equal(audits.length, 2);
 });
+
+test('asset detail and library expose product and share usage summaries', SERIAL, async () => {
+  const actor = await createActor('ADMIN_CSR_OPS', 'asset-usage-summary');
+  const created = await service.createDigitalAsset(actor, {
+    title: 'Usage tracked brochure',
+    kind: 'document',
+    visibility: 'dealer_portal',
+    audience: 'dealer',
+    initialVersion: {
+      externalUrl: 'https://cdn.example.test/assets/usage-tracked-brochure.pdf',
+      fileName: 'usage-tracked-brochure.pdf',
+      mimeType: 'application/pdf',
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'USAGE-TRACKED',
+      productName: 'Usage Tracked Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'PULSE',
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Usage Tracked Product',
+      shortDescription: 'Product with usage-tracked collateral.',
+      businessSegment: 'RESIDENTIAL',
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: presentation.id,
+      assetId: created.id,
+      assetVersionId: created.currentVersionId,
+      role: 'BROCHURE',
+      brandLabel: 'Dynamic',
+      regionScope: 'US',
+    },
+  });
+  const share = await service.createDigitalAssetShareLink(actor, created.id, {
+    recipientType: 'customer',
+    recipientEmail: 'customer@example.test',
+    expiresInDays: 10,
+  });
+  const token = share.shareUrl.split('/').pop();
+  await service.resolveDigitalAssetShareLink(token);
+
+  const detail = await service.getDigitalAssetDetail(actor, created.id);
+  assert.equal(detail.productUsageCount, 1);
+  assert.equal(detail.activeShareLinkCount, 1);
+  assert.equal(detail.totalShareLinkAccessCount, 1);
+  assert.equal(detail.productUsages.length, 1);
+  assert.equal(detail.productUsages[0].productSku, 'USAGE-TRACKED');
+  assert.equal(detail.productUsages[0].role, 'brochure');
+
+  const listed = await service.listDigitalAssets(actor, { search: 'Usage tracked', limit: 10 });
+  assert.equal(listed.items[0].productUsageCount, 1);
+  assert.equal(listed.items[0].activeShareLinkCount, 1);
+  assert.equal(listed.items[0].totalShareLinkAccessCount, 1);
+});

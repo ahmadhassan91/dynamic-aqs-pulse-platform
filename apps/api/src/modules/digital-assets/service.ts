@@ -23,6 +23,7 @@ import type {
   DigitalAssetCollectionItemSummary,
   DigitalAssetCollectionSummary,
   DigitalAssetDetail,
+  DigitalAssetProductUsageSummary,
   DigitalAssetShareLinkSummary,
   DigitalAssetSummary,
   DigitalAssetVersionSummary,
@@ -68,7 +69,8 @@ export async function listDigitalAssets(actor: AuthenticatedActor, input: ListDi
       take: clampLimit(input.limit),
       include: {
         versions: { where: { isCurrent: true }, orderBy: [{ versionNumber: 'desc' }], take: 1 },
-        _count: { select: { versions: true } },
+        shareLinks: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+        _count: { select: { versions: true, productAssignments: true, shareLinks: true } },
       },
     }),
     prisma.digitalAsset.count({ where }),
@@ -84,6 +86,16 @@ export async function getDigitalAssetDetail(actor: AuthenticatedActor, assetId: 
     include: {
       versions: { orderBy: [{ versionNumber: 'desc' }] },
       shareLinks: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+      productAssignments: {
+        include: {
+          presentation: {
+            include: {
+              baseProduct: true,
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      },
       legacyMetadataFields: { orderBy: [{ fieldKey: 'asc' }, { fieldValue: 'asc' }] },
       migrationIssues: { orderBy: [{ createdAt: 'desc' }], take: 50 },
       _count: { select: { versions: true } },
@@ -92,6 +104,7 @@ export async function getDigitalAssetDetail(actor: AuthenticatedActor, assetId: 
   return asset ? {
     ...mapAsset(asset),
     versions: asset.versions.map(mapVersion),
+    productUsages: asset.productAssignments.map(mapProductUsage),
     shareLinks: asset.shareLinks.map(mapShareLink),
     legacyMetadataFields: asset.legacyMetadataFields.map(mapLegacyMetadata),
     migrationIssues: asset.migrationIssues.map(mapMigrationIssue),
@@ -1329,6 +1342,18 @@ function mapAsset(asset: any): DigitalAssetSummary {
     createdAt: asset.createdAt.toISOString(),
     updatedAt: asset.updatedAt.toISOString(),
   };
+  const shareLinks = Array.isArray(asset.shareLinks) ? asset.shareLinks : [];
+  const activeShareLinks = shareLinks.filter((shareLink: any) => !shareLink.revokedAt && (!shareLink.expiresAt || shareLink.expiresAt.getTime() >= Date.now()));
+  const lastSharedAt = shareLinks[0]?.createdAt;
+  const lastAccessedAt = shareLinks
+    .map((shareLink: any) => shareLink.lastAccessedAt)
+    .filter(Boolean)
+    .sort((first: Date, second: Date) => second.getTime() - first.getTime())[0];
+  summary.productUsageCount = asset._count?.productAssignments ?? (Array.isArray(asset.productAssignments) ? asset.productAssignments.length : 0);
+  summary.activeShareLinkCount = activeShareLinks.length;
+  summary.totalShareLinkAccessCount = shareLinks.reduce((total: number, shareLink: any) => total + (shareLink.accessCount ?? 0), 0);
+  if (lastSharedAt) summary.lastSharedAt = lastSharedAt.toISOString();
+  if (lastAccessedAt) summary.lastAccessedAt = lastAccessedAt.toISOString();
   const currentVersion = Array.isArray(asset.versions)
     ? asset.versions.find((version: any) => version.id === asset.currentVersionId) ?? asset.versions.find((version: any) => version.isCurrent)
     : undefined;
@@ -1451,6 +1476,28 @@ function mapShareLink(shareLink: any): DigitalAssetShareLinkSummary {
   if (shareLink.note) summary.note = shareLink.note;
   if (shareLink.createdByUserId) summary.createdByUserId = shareLink.createdByUserId;
   return summary;
+}
+
+function mapProductUsage(assignment: any): DigitalAssetProductUsageSummary {
+  return {
+    id: assignment.id,
+    presentationId: assignment.presentationId,
+    productId: assignment.presentation.baseProductId,
+    productSku: assignment.presentation.baseProduct.sku,
+    productName: assignment.presentation.baseProduct.productName,
+    presentationName: assignment.presentation.displayName,
+    assetId: assignment.assetId,
+    assetVersionId: assignment.assetVersionId ?? undefined,
+    role: lower(assignment.role),
+    dealerGroupType: assignment.dealerGroupType ?? undefined,
+    dealerGroupId: assignment.dealerGroupId ?? undefined,
+    brandLabel: assignment.brandLabel ?? undefined,
+    regionScope: assignment.regionScope ?? undefined,
+    sortOrder: assignment.sortOrder,
+    isRequired: assignment.isRequired,
+    createdAt: assignment.createdAt.toISOString(),
+    updatedAt: assignment.updatedAt.toISOString(),
+  };
 }
 
 function mapAssignment(assignment: any): ProductAssetAssignmentSummary {

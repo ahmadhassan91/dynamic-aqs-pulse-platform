@@ -76,6 +76,11 @@ export interface DigitalAssetSummary {
   currentVersionId?: string;
   currentVersion?: DigitalAssetVersionSummary;
   versionCount: number;
+  productUsageCount?: number;
+  activeShareLinkCount?: number;
+  totalShareLinkAccessCount?: number;
+  lastSharedAt?: string;
+  lastAccessedAt?: string;
   approvedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -83,9 +88,30 @@ export interface DigitalAssetSummary {
 
 export interface DigitalAssetDetail extends DigitalAssetSummary {
   versions: DigitalAssetVersionSummary[];
+  productUsages?: DigitalAssetProductUsageSummary[];
   shareLinks?: DigitalAssetShareLinkSummary[];
   legacyMetadataFields?: DigitalAssetLegacyMetadataSummary[];
   migrationIssues?: DigitalAssetMigrationIssueSummary[];
+}
+
+export interface DigitalAssetProductUsageSummary {
+  id: string;
+  presentationId: string;
+  productId: string;
+  productSku: string;
+  productName: string;
+  presentationName: string;
+  assetId: string;
+  assetVersionId?: string;
+  role: ProductAssetRoleKey;
+  dealerGroupType?: string;
+  dealerGroupId?: string;
+  brandLabel?: string;
+  regionScope?: string;
+  sortOrder: number;
+  isRequired: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DigitalAssetShareLinkSummary {

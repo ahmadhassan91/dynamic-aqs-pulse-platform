@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import {
   AuditAction,
@@ -41,6 +42,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const DEFAULT_MANIFEST_LIMIT = 1_000;
 const MAX_MANIFEST_LIMIT = 10_000;
+const MAX_SOURCE_DOWNLOAD_INGEST_BYTES = 100 * 1024 * 1024;
 
 export async function listDigitalAssets(actor: AuthenticatedActor, input: ListDigitalAssetsRequest = {}): Promise<ListDigitalAssetsResponse> {
   assertModuleAccess(actor.role, 'digital_assets');
@@ -232,11 +234,35 @@ async function prepareDigitalAssetVersionInput(
   versionNumber: number,
   input: CreateDigitalAssetVersionRequest,
 ): Promise<CreateDigitalAssetVersionRequest> {
+  const config = loadAppConfig();
+  if (input.ingestSourceDownload && !input.fileBase64?.trim()) {
+    if (!input.sourceDownloadUrl?.trim()) throw new Error('sourceDownloadUrl is required when ingestSourceDownload is true');
+    const downloaded = await downloadSourceAsset(input.sourceDownloadUrl);
+    const mimeType = input.mimeType ?? downloaded.mimeType;
+    const fileBase64 = downloaded.buffer.toString('base64');
+    const stored = await storeDigitalAssetObject(config, {
+      assetId,
+      versionNumber,
+      fileName: input.fileName,
+      mimeType,
+      fileBase64,
+    });
+
+    return {
+      ...input,
+      storageKey: stored.storageKey,
+      externalUrl: null,
+      mimeType: mimeType ?? null,
+      sizeBytes: stored.sizeBytes,
+      sha256: stored.sha256,
+      fileBase64: null,
+    };
+  }
+
   if (!input.fileBase64?.trim()) {
     return input;
   }
 
-  const config = loadAppConfig();
   const stored = await storeDigitalAssetObject(config, {
     assetId,
     versionNumber,
@@ -252,6 +278,60 @@ async function prepareDigitalAssetVersionInput(
     sha256: stored.sha256,
     fileBase64: null,
   };
+}
+
+async function downloadSourceAsset(sourceDownloadUrl: string) {
+  const sourceUrl = new URL(sourceDownloadUrl.trim());
+  if (sourceUrl.protocol !== 'https:') {
+    throw new Error('sourceDownloadUrl ingestion requires an https URL');
+  }
+  assertSafeSourceDownloadHost(sourceUrl.hostname);
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 60_000);
+  try {
+    const response = await fetch(sourceUrl, { signal: abortController.signal });
+    if (!response.ok) {
+      throw new Error(`sourceDownloadUrl returned HTTP ${response.status}`);
+    }
+    const contentLength = Number(response.headers.get('content-length') ?? 0);
+    if (contentLength > MAX_SOURCE_DOWNLOAD_INGEST_BYTES) {
+      throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.byteLength) {
+      throw new Error('sourceDownloadUrl payload is empty');
+    }
+    if (buffer.byteLength > MAX_SOURCE_DOWNLOAD_INGEST_BYTES) {
+      throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
+    }
+    return {
+      buffer,
+      mimeType: response.headers.get('content-type')?.split(';')[0] ?? undefined,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function assertSafeSourceDownloadHost(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  if (normalized === 'localhost' || normalized.endsWith('.localhost') || normalized.endsWith('.local')) {
+    throw new Error('sourceDownloadUrl ingestion cannot target local hosts');
+  }
+  if (!isIP(normalized)) return;
+  if (
+    normalized.startsWith('10.')
+    || normalized.startsWith('127.')
+    || normalized.startsWith('169.254.')
+    || normalized.startsWith('192.168.')
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
+    || normalized === '::1'
+    || normalized.toLowerCase().startsWith('fc')
+    || normalized.toLowerCase().startsWith('fd')
+  ) {
+    throw new Error('sourceDownloadUrl ingestion cannot target private network addresses');
+  }
 }
 
 export async function assignProductAsset(actor: AuthenticatedActor, input: CreateProductAssetAssignmentRequest): Promise<ProductAssetAssignmentSummary> {

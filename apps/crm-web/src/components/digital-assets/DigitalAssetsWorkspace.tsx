@@ -62,6 +62,7 @@ type VersionFormState = {
   mimeType: string;
   sourceVersionId: string;
   sourceDownloadUrl: string;
+  ingestSourceDownload: boolean;
   makeCurrent: boolean;
 };
 
@@ -84,6 +85,7 @@ const defaultVersionForm: VersionFormState = {
   mimeType: '',
   sourceVersionId: '',
   sourceDownloadUrl: '',
+  ingestSourceDownload: false,
   makeCurrent: true,
 };
 
@@ -188,7 +190,8 @@ export function DigitalAssetsWorkspace() {
 
   const handleAddVersion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!auth || !selectedAsset || !versionForm.fileName.trim() || (!versionForm.externalUrl.trim() && !versionForm.fileBase64.trim())) return;
+    const hasVersionPayload = versionForm.externalUrl.trim() || versionForm.fileBase64.trim() || (versionForm.ingestSourceDownload && versionForm.sourceDownloadUrl.trim());
+    if (!auth || !selectedAsset || !versionForm.fileName.trim() || !hasVersionPayload) return;
     setIsAddingVersion(true);
     setDetailError(null);
     try {
@@ -199,6 +202,7 @@ export function DigitalAssetsWorkspace() {
         mimeType: emptyToNull(versionForm.mimeType),
         sourceVersionId: emptyToNull(versionForm.sourceVersionId),
         sourceDownloadUrl: emptyToNull(versionForm.sourceDownloadUrl),
+        ingestSourceDownload: versionForm.ingestSourceDownload,
         makeCurrent: versionForm.makeCurrent,
       });
       setSelectedAsset(response);
@@ -521,7 +525,7 @@ function AssetDetailPanel({
         <Stack gap="sm">
           <Group justify="space-between">
             <Title order={5}>Add external URL version</Title>
-            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim())}>
+            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim() && !(form.ingestSourceDownload && form.sourceDownloadUrl.trim()))}>
               Add Version
             </Button>
           </Group>
@@ -548,7 +552,6 @@ function AssetDetailPanel({
               label="External URL"
               value={form.externalUrl}
               onChange={(event) => onFormChange({ ...form, externalUrl: event.currentTarget.value })}
-              required
             />
             <TextInput
               label="File name"
@@ -571,6 +574,12 @@ function AssetDetailPanel({
               label="Source download URL"
               value={form.sourceDownloadUrl}
               onChange={(event) => onFormChange({ ...form, sourceDownloadUrl: event.currentTarget.value })}
+            />
+            <Checkbox
+              mt="xl"
+              label="Copy source URL into managed storage"
+              checked={form.ingestSourceDownload}
+              onChange={(event) => onFormChange({ ...form, ingestSourceDownload: event.currentTarget.checked })}
             />
             <Checkbox
               mt="xl"

@@ -215,6 +215,7 @@ export interface CreateDigitalAssetVersionRequest {
   sha256?: string | null;
   sourceVersionId?: string | null;
   sourceDownloadUrl?: string | null;
+  ingestSourceDownload?: boolean;
   legacyRenditionName?: string | null;
   legacyMetadata?: Record<string, unknown> | null;
   rawSourcePayload?: Record<string, unknown> | null;

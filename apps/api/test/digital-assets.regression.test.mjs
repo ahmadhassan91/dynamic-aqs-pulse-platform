@@ -139,3 +139,40 @@ test('asset version upload persists file payload through configured storage adap
   const stored = await readFile(path.join(process.env.APP_STORAGE_ROOT_DIR, updated.currentVersion.storageKey), 'utf8');
   assert.equal(stored, 'Pulse asset payload');
 });
+
+test('asset version can ingest a Widen source download URL into managed storage', SERIAL, async () => {
+  const actor = await createActor('ADMIN_CSR_OPS', 'asset-source-ingest');
+  const created = await service.createDigitalAsset(actor, {
+    title: 'Widen managed copy',
+    kind: 'document',
+    sourceSystem: 'widen',
+    legacyUrl: 'https://assets.example.test/share/widen-managed-copy',
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), 'https://assets.example.test/download/widen-managed-copy.pdf');
+    return new Response(Buffer.from('Legacy Widen bytes'), {
+      status: 200,
+      headers: {
+        'content-type': 'application/pdf',
+        'content-length': String(Buffer.byteLength('Legacy Widen bytes')),
+      },
+    });
+  };
+
+  try {
+    const updated = await service.createDigitalAssetVersion(actor, created.id, {
+      fileName: 'widen-managed-copy.pdf',
+      sourceDownloadUrl: 'https://assets.example.test/download/widen-managed-copy.pdf',
+      ingestSourceDownload: true,
+    });
+
+    assert.equal(updated.currentVersion.sourceDownloadUrl, 'https://assets.example.test/download/widen-managed-copy.pdf');
+    assert.equal(updated.currentVersion.mimeType, 'application/pdf');
+    assert.match(updated.currentVersion.storageKey, new RegExp(`digital-assets/${created.id}/v1/widen-managed-copy.pdf`));
+    const stored = await readFile(path.join(process.env.APP_STORAGE_ROOT_DIR, updated.currentVersion.storageKey), 'utf8');
+    assert.equal(stored, 'Legacy Widen bytes');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

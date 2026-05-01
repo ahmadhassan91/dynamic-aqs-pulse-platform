@@ -259,16 +259,19 @@ import type {
 import type {
   CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
+  CreateDigitalAssetShareLinkRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
   DigitalAssetCollectionItemSummary,
   DigitalAssetCollectionSummary,
   DigitalAssetDetail,
+  DigitalAssetShareLinkSummary,
   DigitalAssetSummary,
   ListDigitalAssetCollectionsResponse,
   ListDigitalAssetsRequest,
   ListDigitalAssetsResponse,
   ProductAssetAssignmentSummary,
+  RevokeDigitalAssetShareLinkResponse,
   UpdateDigitalAssetCollectionRequest,
   UpdateDigitalAssetRequest,
   UpsertDigitalAssetCollectionItemRequest,
@@ -627,6 +630,30 @@ export async function createDigitalAssetVersionRecord(
     method: 'POST',
     accessToken,
     body: input,
+  });
+}
+
+export async function createDigitalAssetShareLinkRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  assetId: string,
+  input: CreateDigitalAssetShareLinkRequest,
+) {
+  return requestJson<DigitalAssetShareLinkSummary>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}/share-links`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function revokeDigitalAssetShareLinkRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  shareLinkId: string,
+) {
+  return requestJson<RevokeDigitalAssetShareLinkResponse>(apiBaseUrl, `/api/v1/digital-assets/share-links/${encodeURIComponent(shareLinkId)}`, {
+    method: 'DELETE',
+    accessToken,
   });
 }
 

@@ -347,3 +347,51 @@ test('Widen manifest import can copy source downloads into managed storage and t
     globalThis.fetch = originalFetch;
   }
 });
+
+test('asset share links can be created, resolved, counted, and revoked', SERIAL, async () => {
+  const actor = await createActor('ADMIN_CSR_OPS', 'asset-share-link');
+  const created = await service.createDigitalAsset(actor, {
+    title: 'Shareable brochure',
+    kind: 'document',
+    visibility: 'dealer_portal',
+    audience: 'dealer',
+    initialVersion: {
+      externalUrl: 'https://cdn.example.test/assets/shareable-brochure.pdf',
+      fileName: 'shareable-brochure.pdf',
+      mimeType: 'application/pdf',
+    },
+  });
+
+  const share = await service.createDigitalAssetShareLink(actor, created.id, {
+    recipientType: 'prospect',
+    recipientName: 'Jane Prospect',
+    recipientEmail: 'jane@example.test',
+    contextType: 'lead',
+    contextId: 'lead-123',
+    expiresInDays: 7,
+    note: 'Proposal follow-up',
+  });
+
+  assert.equal(share.assetId, created.id);
+  assert.equal(share.recipientEmail, 'jane@example.test');
+  assert.match(share.shareUrl, /\/api\/v1\/digital-assets\/shares\//);
+  const token = share.shareUrl.split('/').pop();
+  const resolved = await service.resolveDigitalAssetShareLink(token);
+  assert.equal(resolved.targetUrl, 'https://cdn.example.test/assets/shareable-brochure.pdf');
+
+  const stored = await prisma.digitalAssetShareLink.findUnique({ where: { id: share.id } });
+  assert.equal(stored.accessCount, 1);
+  assert.ok(stored.lastAccessedAt);
+
+  const revoked = await service.revokeDigitalAssetShareLink(actor, share.id);
+  assert.equal(revoked.revoked, true);
+  await assert.rejects(
+    () => service.resolveDigitalAssetShareLink(token),
+    /revoked/i,
+  );
+
+  const audits = await prisma.auditEntry.findMany({
+    where: { entityType: 'DIGITAL_ASSET_SHARE_LINK', entityId: share.id },
+  });
+  assert.equal(audits.length, 2);
+});

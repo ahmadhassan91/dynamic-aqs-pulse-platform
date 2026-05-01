@@ -1332,6 +1332,7 @@ model DigitalAsset {
   versions             DigitalAssetVersion[]
   productAssignments   ProductAssetAssignment[]
   collectionItems      DigitalAssetCollectionItem[]
+  shareLinks           DigitalAssetShareLink[]
   migrationAliases     DigitalAssetMigrationAlias[]
   legacyMetadataFields DigitalAssetLegacyMetadata[]
   migrationIssues      DigitalAssetMigrationIssue[]
@@ -1373,6 +1374,7 @@ model DigitalAssetVersion {
 
   asset              DigitalAsset             @relation(fields: [assetId], references: [id], onDelete: Cascade)
   productAssignments ProductAssetAssignment[]
+  shareLinks         DigitalAssetShareLink[]
 
   @@unique([assetId, versionNumber])
   @@index([assetId])
@@ -1446,6 +1448,39 @@ model DigitalAssetCollectionItem {
   @@unique([collectionId, assetId])
   @@index([assetId])
   @@index([sortOrder])
+}
+
+model DigitalAssetShareLink {
+  id              String    @id @default(uuid()) @db.Uuid
+  assetId         String    @db.Uuid
+  assetVersionId  String?   @db.Uuid
+  tokenHash       String    @unique
+  shareUrl        String
+  recipientType   String    @default("prospect")
+  recipientName   String?
+  recipientEmail  String?
+  contextType     String?
+  contextId       String?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  accessCount     Int       @default(0)
+  lastAccessedAt  DateTime?
+  note            String?
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  asset        DigitalAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetVersion DigitalAssetVersion? @relation(fields: [assetVersionId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([assetVersionId])
+  @@index([recipientType])
+  @@index([recipientEmail])
+  @@index([contextType, contextId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([createdByUserId])
 }
 
 model DigitalAssetMigrationAlias {

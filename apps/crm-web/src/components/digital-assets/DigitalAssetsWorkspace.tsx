@@ -9,6 +9,7 @@ import {
   FileInput,
   Group,
   Loader,
+  NumberInput,
   Paper,
   Select,
   SimpleGrid,
@@ -20,7 +21,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { IconAlertTriangle, IconCloudUpload, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCloudUpload, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch, IconShare } from '@tabler/icons-react';
 import {
   DIGITAL_ASSET_KINDS,
   DIGITAL_ASSET_REVIEW_STATUSES,
@@ -34,6 +35,7 @@ import {
 } from '@pulse/contracts/digital-assets';
 import {
   addDigitalAssetToCollection,
+  createDigitalAssetShareLinkRecord,
   createDigitalAssetCollectionRecord,
   createDigitalAssetRecord,
   createDigitalAssetVersionRecord,
@@ -43,6 +45,7 @@ import {
   fetchWidenImportRuns,
   previewWidenImport,
   removeDigitalAssetFromCollection,
+  revokeDigitalAssetShareLinkRecord,
   updateDigitalAssetCollectionRecord,
   updateDigitalAssetRecord,
   type DigitalAssetCollectionSummary,
@@ -104,6 +107,16 @@ type CollectionFormState = {
   isActive: boolean;
 };
 
+type ShareFormState = {
+  recipientType: string;
+  recipientName: string;
+  recipientEmail: string;
+  contextType: string;
+  contextId: string;
+  expiresInDays: number;
+  note: string;
+};
+
 const defaultAssetForm: CreateAssetFormState = {
   title: '',
   stableSlug: '',
@@ -152,6 +165,16 @@ const defaultCollectionForm: CollectionFormState = {
   isActive: true,
 };
 
+const defaultShareForm: ShareFormState = {
+  recipientType: 'prospect',
+  recipientName: '',
+  recipientEmail: '',
+  contextType: '',
+  contextId: '',
+  expiresInDays: 30,
+  note: '',
+};
+
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
@@ -164,6 +187,7 @@ export function DigitalAssetsWorkspace() {
   const [collectionForm, setCollectionForm] = useState<CollectionFormState>(defaultCollectionForm);
   const [versionForm, setVersionForm] = useState<VersionFormState>(defaultVersionForm);
   const [assetEditForm, setAssetEditForm] = useState<AssetEditFormState>(defaultAssetEditForm);
+  const [shareForm, setShareForm] = useState<ShareFormState>(defaultShareForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
@@ -171,6 +195,8 @@ export function DigitalAssetsWorkspace() {
   const [isUpdatingCollectionItem, setIsUpdatingCollectionItem] = useState(false);
   const [isAddingVersion, setIsAddingVersion] = useState(false);
   const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
+  const [isCreatingShareLink, setIsCreatingShareLink] = useState(false);
+  const [revokingShareLinkId, setRevokingShareLinkId] = useState<string | null>(null);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [isLoadingRuns, setIsLoadingRuns] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +210,7 @@ export function DigitalAssetsWorkspace() {
   const visibilityOptions = useMemo(() => DIGITAL_ASSET_VISIBILITIES.map((visibility) => ({ value: visibility, label: formatLabel(visibility) })), []);
   const reviewStatusOptions = useMemo(() => DIGITAL_ASSET_REVIEW_STATUSES.map((status) => ({ value: status, label: formatLabel(status) })), []);
   const canEditAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.edit') : false;
+  const canShareAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.share') : false;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -237,6 +264,7 @@ export function DigitalAssetsWorkspace() {
       const response = await fetchDigitalAssetDetail(apiBaseUrl, auth.tokens.accessToken, assetId);
       setSelectedAsset(response);
       setAssetEditForm(toAssetEditForm(response));
+      setShareForm(defaultShareForm);
     } catch (loadError) {
       setDetailError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -323,6 +351,44 @@ export function DigitalAssetsWorkspace() {
       setDetailError(updateError instanceof Error ? updateError.message : String(updateError));
     } finally {
       setIsUpdatingAsset(false);
+    }
+  };
+
+  const handleCreateShareLink = async () => {
+    if (!auth || !selectedAsset) return;
+    setIsCreatingShareLink(true);
+    setDetailError(null);
+    try {
+      const response = await createDigitalAssetShareLinkRecord(apiBaseUrl, auth.tokens.accessToken, selectedAsset.id, {
+        recipientType: shareForm.recipientType,
+        recipientName: emptyToNull(shareForm.recipientName),
+        recipientEmail: emptyToNull(shareForm.recipientEmail),
+        contextType: emptyToNull(shareForm.contextType),
+        contextId: emptyToNull(shareForm.contextId),
+        expiresInDays: shareForm.expiresInDays,
+        note: emptyToNull(shareForm.note),
+      });
+      await copyToClipboard(response.shareUrl);
+      setShareForm(defaultShareForm);
+      await loadAssetDetail(selectedAsset.id);
+    } catch (shareError) {
+      setDetailError(shareError instanceof Error ? shareError.message : String(shareError));
+    } finally {
+      setIsCreatingShareLink(false);
+    }
+  };
+
+  const handleRevokeShareLink = async (shareLinkId: string) => {
+    if (!auth || !selectedAsset) return;
+    setRevokingShareLinkId(shareLinkId);
+    setDetailError(null);
+    try {
+      await revokeDigitalAssetShareLinkRecord(apiBaseUrl, auth.tokens.accessToken, shareLinkId);
+      await loadAssetDetail(selectedAsset.id);
+    } catch (revokeError) {
+      setDetailError(revokeError instanceof Error ? revokeError.message : String(revokeError));
+    } finally {
+      setRevokingShareLinkId(null);
     }
   };
 
@@ -593,14 +659,21 @@ export function DigitalAssetsWorkspace() {
                     editForm={assetEditForm}
                     form={versionForm}
                     canEdit={canEditAssets}
+                    canShare={canShareAssets}
                     isAddingVersion={isAddingVersion}
                     isUpdatingAsset={isUpdatingAsset}
+                    isCreatingShareLink={isCreatingShareLink}
+                    revokingShareLinkId={revokingShareLinkId}
+                    shareForm={shareForm}
                     statusOptions={statusOptions}
                     visibilityOptions={visibilityOptions}
                     reviewStatusOptions={reviewStatusOptions}
                     onEditFormChange={setAssetEditForm}
                     onFormChange={setVersionForm}
+                    onShareFormChange={setShareForm}
                     onUpdateAsset={handleUpdateAsset}
+                    onCreateShareLink={handleCreateShareLink}
+                    onRevokeShareLink={handleRevokeShareLink}
                     onSubmit={handleAddVersion}
                   />
                 ) : (
@@ -774,30 +847,45 @@ function AssetDetailPanel({
   editForm,
   form,
   canEdit,
+  canShare,
   isAddingVersion,
   isUpdatingAsset,
+  isCreatingShareLink,
+  revokingShareLinkId,
+  shareForm,
   statusOptions,
   visibilityOptions,
   reviewStatusOptions,
   onEditFormChange,
   onFormChange,
+  onShareFormChange,
   onUpdateAsset,
+  onCreateShareLink,
+  onRevokeShareLink,
   onSubmit,
 }: {
   asset: DigitalAssetDetail;
   editForm: AssetEditFormState;
   form: VersionFormState;
+  shareForm: ShareFormState;
   canEdit: boolean;
+  canShare: boolean;
   isAddingVersion: boolean;
   isUpdatingAsset: boolean;
+  isCreatingShareLink: boolean;
+  revokingShareLinkId: string | null;
   statusOptions: Array<{ value: string; label: string }>;
   visibilityOptions: Array<{ value: string; label: string }>;
   reviewStatusOptions: Array<{ value: string; label: string }>;
   onEditFormChange: (form: AssetEditFormState) => void;
   onFormChange: (form: VersionFormState) => void;
+  onShareFormChange: (form: ShareFormState) => void;
   onUpdateAsset: () => void;
+  onCreateShareLink: () => void;
+  onRevokeShareLink: (shareLinkId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const currentUrl = asset.currentVersion?.publicUrl ?? asset.currentVersion?.externalUrl;
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-start">
@@ -816,10 +904,110 @@ function AssetDetailPanel({
       </SimpleGrid>
 
       {asset.description ? <Text size="sm">{asset.description}</Text> : null}
+      {currentUrl ? (
+        <Group gap="xs">
+          <Button
+            component="a"
+            href={currentUrl}
+            target="_blank"
+            rel="noreferrer"
+            size="xs"
+            variant="light"
+            leftSection={<IconLink size={14} />}
+          >
+            Open Current Link
+          </Button>
+          <Button size="xs" variant="subtle" onClick={() => copyToClipboard(currentUrl)}>
+            Copy Current Link
+          </Button>
+        </Group>
+      ) : null}
       {asset.legacyUrl ? (
         <Text component="a" href={asset.legacyUrl} target="_blank" rel="noreferrer" size="sm" c="blue">
           {asset.legacyUrl}
         </Text>
+      ) : null}
+
+      {canShare ? (
+        <Paper withBorder p="md">
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Title order={5}>Share With Prospect Or Customer</Title>
+              <Button
+                leftSection={<IconShare size={16} />}
+                onClick={onCreateShareLink}
+                loading={isCreatingShareLink}
+                disabled={!asset.currentVersion}
+              >
+                Create Link
+              </Button>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <Select
+                label="Recipient type"
+                data={[
+                  { value: 'prospect', label: 'Prospect' },
+                  { value: 'customer', label: 'Customer' },
+                  { value: 'dealer', label: 'Dealer' },
+                  { value: 'internal', label: 'Internal' },
+                ]}
+                value={shareForm.recipientType}
+                onChange={(value) => onShareFormChange({ ...shareForm, recipientType: value ?? 'prospect' })}
+                allowDeselect={false}
+              />
+              <NumberInput
+                label="Expires in days"
+                min={1}
+                max={365}
+                value={shareForm.expiresInDays}
+                onChange={(value) => onShareFormChange({ ...shareForm, expiresInDays: typeof value === 'number' ? value : 30 })}
+              />
+              <TextInput label="Recipient name" value={shareForm.recipientName} onChange={(event) => onShareFormChange({ ...shareForm, recipientName: event.currentTarget.value })} />
+              <TextInput label="Recipient email" value={shareForm.recipientEmail} onChange={(event) => onShareFormChange({ ...shareForm, recipientEmail: event.currentTarget.value })} />
+              <TextInput label="Context type" value={shareForm.contextType} onChange={(event) => onShareFormChange({ ...shareForm, contextType: event.currentTarget.value })} />
+              <TextInput label="Context ID" value={shareForm.contextId} onChange={(event) => onShareFormChange({ ...shareForm, contextId: event.currentTarget.value })} />
+            </SimpleGrid>
+            <Textarea label="Note" minRows={2} value={shareForm.note} onChange={(event) => onShareFormChange({ ...shareForm, note: event.currentTarget.value })} />
+
+            <Table striped>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Recipient</Table.Th>
+                  <Table.Th>Expires</Table.Th>
+                  <Table.Th>Access</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {(asset.shareLinks ?? []).map((shareLink) => (
+                  <Table.Tr key={shareLink.id}>
+                    <Table.Td>
+                      <Text size="sm" fw={600}>{shareLink.recipientName || shareLink.recipientEmail || formatLabel(shareLink.recipientType)}</Text>
+                      <Text size="xs" c="dimmed">{shareLink.shareUrl}</Text>
+                    </Table.Td>
+                    <Table.Td>{shareLink.expiresAt ? formatDate(shareLink.expiresAt) : 'No expiry'}</Table.Td>
+                    <Table.Td>{shareLink.accessCount}</Table.Td>
+                    <Table.Td><Badge color={shareLink.revokedAt ? 'gray' : 'green'} variant="light">{shareLink.revokedAt ? 'Revoked' : 'Active'}</Badge></Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" justify="flex-end">
+                        <Button size="xs" variant="subtle" onClick={() => copyToClipboard(shareLink.shareUrl)}>Copy</Button>
+                        {!shareLink.revokedAt ? (
+                          <Button size="xs" color="red" variant="subtle" loading={revokingShareLinkId === shareLink.id} onClick={() => onRevokeShareLink(shareLink.id)}>
+                            Revoke
+                          </Button>
+                        ) : null}
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+                {!(asset.shareLinks ?? []).length ? (
+                  <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="md">No share links created yet.</Text></Table.Td></Table.Tr>
+                ) : null}
+              </Table.Tbody>
+            </Table>
+          </Stack>
+        </Paper>
       ) : null}
 
       {canEdit ? (
@@ -1162,4 +1350,14 @@ function formatLabel(value: string) {
 function formatDate(value: string) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+async function copyToClipboard(value: string) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(value);
+    }
+  } catch {
+    // Clipboard access can be unavailable in some browser contexts; the link remains visible in the UI.
+  }
 }

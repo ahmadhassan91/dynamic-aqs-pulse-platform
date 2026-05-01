@@ -83,8 +83,48 @@ export interface DigitalAssetSummary {
 
 export interface DigitalAssetDetail extends DigitalAssetSummary {
   versions: DigitalAssetVersionSummary[];
+  shareLinks?: DigitalAssetShareLinkSummary[];
   legacyMetadataFields?: DigitalAssetLegacyMetadataSummary[];
   migrationIssues?: DigitalAssetMigrationIssueSummary[];
+}
+
+export interface DigitalAssetShareLinkSummary {
+  id: string;
+  assetId: string;
+  assetVersionId?: string;
+  shareUrl: string;
+  targetUrl?: string;
+  recipientType: string;
+  recipientName?: string;
+  recipientEmail?: string;
+  contextType?: string;
+  contextId?: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  accessCount: number;
+  lastAccessedAt?: string;
+  note?: string;
+  createdByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDigitalAssetShareLinkRequest {
+  assetVersionId?: string | null;
+  recipientType?: string | null;
+  recipientName?: string | null;
+  recipientEmail?: string | null;
+  contextType?: string | null;
+  contextId?: string | null;
+  expiresAt?: string | null;
+  expiresInDays?: number | null;
+  note?: string | null;
+}
+
+export interface RevokeDigitalAssetShareLinkResponse {
+  id: string;
+  revoked: boolean;
+  revokedAt: string;
 }
 
 export interface DigitalAssetMigrationBatchSummary {

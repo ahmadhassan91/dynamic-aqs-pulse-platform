@@ -17,11 +17,13 @@ import type {
   CommitWidenManifestImportResponse,
   CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
+  CreateDigitalAssetShareLinkRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
   DigitalAssetCollectionItemSummary,
   DigitalAssetCollectionSummary,
   DigitalAssetDetail,
+  DigitalAssetShareLinkSummary,
   DigitalAssetSummary,
   DigitalAssetVersionSummary,
   ListDigitalAssetCollectionsResponse,
@@ -29,6 +31,7 @@ import type {
   ListDigitalAssetsResponse,
   ListWidenManifestImportRunsResponse,
   ProductAssetAssignmentSummary,
+  RevokeDigitalAssetShareLinkResponse,
   UpdateDigitalAssetCollectionRequest,
   UpdateDigitalAssetRequest,
   UpsertDigitalAssetCollectionItemRequest,
@@ -51,6 +54,8 @@ const MAX_MANIFEST_LIMIT = 10_000;
 const DEFAULT_WIDEN_SOURCE_DOWNLOAD_LIMIT = 25;
 const MAX_WIDEN_SOURCE_DOWNLOAD_LIMIT = 200;
 const MAX_SOURCE_DOWNLOAD_INGEST_BYTES = 100 * 1024 * 1024;
+const DEFAULT_SHARE_EXPIRY_DAYS = 30;
+const MAX_SHARE_EXPIRY_DAYS = 365;
 
 export async function listDigitalAssets(actor: AuthenticatedActor, input: ListDigitalAssetsRequest = {}): Promise<ListDigitalAssetsResponse> {
   assertModuleAccess(actor.role, 'digital_assets');
@@ -78,6 +83,7 @@ export async function getDigitalAssetDetail(actor: AuthenticatedActor, assetId: 
     where: { id: assetId },
     include: {
       versions: { orderBy: [{ versionNumber: 'desc' }] },
+      shareLinks: { orderBy: [{ createdAt: 'desc' }], take: 25 },
       legacyMetadataFields: { orderBy: [{ fieldKey: 'asc' }, { fieldValue: 'asc' }] },
       migrationIssues: { orderBy: [{ createdAt: 'desc' }], take: 50 },
       _count: { select: { versions: true } },
@@ -86,6 +92,7 @@ export async function getDigitalAssetDetail(actor: AuthenticatedActor, assetId: 
   return asset ? {
     ...mapAsset(asset),
     versions: asset.versions.map(mapVersion),
+    shareLinks: asset.shareLinks.map(mapShareLink),
     legacyMetadataFields: asset.legacyMetadataFields.map(mapLegacyMetadata),
     migrationIssues: asset.migrationIssues.map(mapMigrationIssue),
   } : null;
@@ -334,6 +341,119 @@ export async function createDigitalAssetVersion(actor: AuthenticatedActor, asset
   const detail = await getDigitalAssetDetail(actor, assetId);
   if (!detail) throw new Error('Digital asset not found after version create');
   return detail;
+}
+
+export async function createDigitalAssetShareLink(
+  actor: AuthenticatedActor,
+  assetId: string,
+  input: CreateDigitalAssetShareLinkRequest = {},
+): Promise<DigitalAssetShareLinkSummary> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.share');
+  const asset = await prisma.digitalAsset.findUnique({
+    where: { id: assetId },
+    include: { versions: { orderBy: [{ versionNumber: 'desc' }] } },
+  });
+  if (!asset) throw new Error('Digital asset not found');
+  if (asset.status === DigitalAssetStatus.ARCHIVED || asset.status === DigitalAssetStatus.EXPIRED) {
+    throw new Error('Archived or expired assets cannot be shared');
+  }
+  if (asset.visibility === DigitalAssetVisibility.INTERNAL_ONLY) {
+    throw new Error('Only dealer portal or public assets can be shared externally');
+  }
+  if (asset.reviewStatus !== DigitalAssetReviewStatus.APPROVED && asset.reviewStatus !== DigitalAssetReviewStatus.NOT_REQUIRED) {
+    throw new Error('Asset must be approved before it can be shared externally');
+  }
+
+  const version = resolveShareVersion(asset.versions, input.assetVersionId);
+  const targetUrl = mapVersion(version).publicUrl;
+  if (!targetUrl) throw new Error('Asset version does not have a shareable URL');
+  const token = createShareToken();
+  const tokenHash = hashShareToken(token);
+  const shareUrl = buildAssetShareUrl(token);
+  const expiresAt = resolveShareExpiry(input);
+  const shareLink = await prisma.digitalAssetShareLink.create({
+    data: {
+      assetId: asset.id,
+      assetVersionId: version.id,
+      tokenHash,
+      shareUrl,
+      recipientType: cleanNullable(input.recipientType) ?? 'prospect',
+      recipientName: cleanNullable(input.recipientName),
+      recipientEmail: cleanNullable(input.recipientEmail),
+      contextType: cleanNullable(input.contextType),
+      contextId: cleanNullable(input.contextId),
+      expiresAt,
+      note: cleanNullable(input.note),
+      createdByUserId: actor.userId,
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'DIGITAL_ASSET_SHARE_LINK',
+      entityId: shareLink.id,
+      afterData: shareLink,
+      metadata: { assetId: asset.id, assetVersionId: version.id, targetUrl },
+    }),
+  });
+  return mapShareLink({ ...shareLink, assetVersion: version });
+}
+
+export async function revokeDigitalAssetShareLink(
+  actor: AuthenticatedActor,
+  shareLinkId: string,
+): Promise<RevokeDigitalAssetShareLinkResponse> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.share');
+  const before = await prisma.digitalAssetShareLink.findUnique({ where: { id: shareLinkId } });
+  if (!before) throw new Error('Digital asset share link not found');
+  const revokedAt = before.revokedAt ?? new Date();
+  const updated = await prisma.digitalAssetShareLink.update({
+    where: { id: shareLinkId },
+    data: { revokedAt },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'DIGITAL_ASSET_SHARE_LINK',
+      entityId: shareLinkId,
+      beforeData: before,
+      afterData: updated,
+    }),
+  });
+  return { id: shareLinkId, revoked: true, revokedAt: revokedAt.toISOString() };
+}
+
+export async function resolveDigitalAssetShareLink(token: string) {
+  const tokenHash = hashShareToken(token);
+  const shareLink = await prisma.digitalAssetShareLink.findUnique({
+    where: { tokenHash },
+    include: {
+      asset: true,
+      assetVersion: true,
+    },
+  });
+  if (!shareLink) throw new Error('Digital asset share link not found');
+  if (shareLink.revokedAt) throw new Error('Digital asset share link has been revoked');
+  if (shareLink.expiresAt && shareLink.expiresAt.getTime() < Date.now()) {
+    throw new Error('Digital asset share link has expired');
+  }
+  const version = shareLink.assetVersion
+    ?? await prisma.digitalAssetVersion.findFirst({ where: { assetId: shareLink.assetId, isCurrent: true } });
+  if (!version) throw new Error('Shared asset version is no longer available');
+  const targetUrl = mapVersion(version).publicUrl;
+  if (!targetUrl) throw new Error('Shared asset version does not have a public URL');
+  await prisma.digitalAssetShareLink.update({
+    where: { id: shareLink.id },
+    data: {
+      accessCount: { increment: 1 },
+      lastAccessedAt: new Date(),
+    },
+  });
+  return { targetUrl };
 }
 
 async function createDigitalAssetVersionRow(
@@ -1306,6 +1426,33 @@ function mapMigrationIssue(issue: any) {
   };
 }
 
+function mapShareLink(shareLink: any): DigitalAssetShareLinkSummary {
+  const summary: DigitalAssetShareLinkSummary = {
+    id: shareLink.id,
+    assetId: shareLink.assetId,
+    shareUrl: shareLink.shareUrl,
+    recipientType: shareLink.recipientType,
+    accessCount: shareLink.accessCount,
+    createdAt: shareLink.createdAt.toISOString(),
+    updatedAt: shareLink.updatedAt.toISOString(),
+  };
+  if (shareLink.assetVersionId) summary.assetVersionId = shareLink.assetVersionId;
+  if (shareLink.assetVersion) {
+    const targetUrl = mapVersion(shareLink.assetVersion).publicUrl;
+    if (targetUrl) summary.targetUrl = targetUrl;
+  }
+  if (shareLink.recipientName) summary.recipientName = shareLink.recipientName;
+  if (shareLink.recipientEmail) summary.recipientEmail = shareLink.recipientEmail;
+  if (shareLink.contextType) summary.contextType = shareLink.contextType;
+  if (shareLink.contextId) summary.contextId = shareLink.contextId;
+  if (shareLink.expiresAt) summary.expiresAt = shareLink.expiresAt.toISOString();
+  if (shareLink.revokedAt) summary.revokedAt = shareLink.revokedAt.toISOString();
+  if (shareLink.lastAccessedAt) summary.lastAccessedAt = shareLink.lastAccessedAt.toISOString();
+  if (shareLink.note) summary.note = shareLink.note;
+  if (shareLink.createdByUserId) summary.createdByUserId = shareLink.createdByUserId;
+  return summary;
+}
+
 function mapAssignment(assignment: any): ProductAssetAssignmentSummary {
   return {
     id: assignment.id,
@@ -1473,6 +1620,37 @@ function clampManifestLimit(limit?: number) {
 
 function clampWidenSourceDownloadLimit(limit?: number) {
   return Math.min(Math.max(limit ?? DEFAULT_WIDEN_SOURCE_DOWNLOAD_LIMIT, 1), MAX_WIDEN_SOURCE_DOWNLOAD_LIMIT);
+}
+
+function resolveShareVersion(versions: any[], assetVersionId: string | null | undefined) {
+  const cleanedVersionId = cleanNullable(assetVersionId);
+  const version = cleanedVersionId
+    ? versions.find((item) => item.id === cleanedVersionId)
+    : versions.find((item) => item.isCurrent) ?? versions[0];
+  if (!version) throw new Error('Asset must have a version before it can be shared');
+  if (cleanedVersionId && !version) throw new Error('Digital asset version not found');
+  return version;
+}
+
+function resolveShareExpiry(input: CreateDigitalAssetShareLinkRequest) {
+  if (input.expiresAt !== undefined) return parseDateOrNull(input.expiresAt);
+  const days = Math.min(Math.max(input.expiresInDays ?? DEFAULT_SHARE_EXPIRY_DAYS, 1), MAX_SHARE_EXPIRY_DAYS);
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
+function createShareToken() {
+  return `${randomUUID()}${randomUUID()}`.replace(/-/g, '');
+}
+
+function hashShareToken(token: string) {
+  const cleaned = token.trim();
+  if (!cleaned) throw new Error('Share token is required');
+  return createHash('sha256').update(cleaned).digest('hex');
+}
+
+function buildAssetShareUrl(token: string) {
+  const config = loadAppConfig();
+  return `${config.web.publicBaseUrl.replace(/\/+$/, '')}/api/v1/digital-assets/shares/${token}`;
 }
 
 function cleanNullable(value: string | null | undefined) {

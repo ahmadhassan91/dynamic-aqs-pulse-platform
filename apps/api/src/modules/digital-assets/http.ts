@@ -3,6 +3,7 @@ import type { URL } from 'node:url';
 import type {
   CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
+  CreateDigitalAssetShareLinkRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
   UpdateDigitalAssetCollectionRequest,
@@ -26,6 +27,7 @@ import { isAuthenticationError, isAuthorizationError, requireAuthenticatedActor 
 import {
   createDigitalAssetCollection,
   createDigitalAsset,
+  createDigitalAssetShareLink,
   createDigitalAssetVersion,
   assignProductAsset,
   commitWidenManifestImport,
@@ -35,6 +37,8 @@ import {
   listDigitalAssets,
   previewWidenManifestImport,
   removeDigitalAssetCollectionItem,
+  resolveDigitalAssetShareLink,
+  revokeDigitalAssetShareLink,
   unlinkProductAsset,
   updateDigitalAsset,
   updateDigitalAssetCollection,
@@ -71,6 +75,18 @@ export async function handleDigitalAssetRoutes(req: IncomingMessage, res: Server
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
     }
 
+    const publicShareMatch = matchPath(pathname, '/api/v1/digital-assets/shares/:token');
+    if (publicShareMatch) {
+      const token = publicShareMatch.token;
+      if (!token) return badRequestResponse(res, 'Digital asset share token is required');
+      if (method !== 'GET') return methodNotAllowedResponse(res, method, ['GET']);
+      const response = await resolveDigitalAssetShareLink(token);
+      res.statusCode = 302;
+      res.setHeader('Location', response.targetUrl);
+      res.end();
+      return true;
+    }
+
     const assetMatch = matchPath(pathname, '/api/v1/digital-assets/assets/:assetId');
     if (assetMatch) {
       const assetId = assetMatch.assetId;
@@ -85,6 +101,24 @@ export async function handleDigitalAssetRoutes(req: IncomingMessage, res: Server
         return jsonResponse(res, 200, await updateDigitalAsset(actor, assetId, (await readJsonBody(req)) as UpdateDigitalAssetRequest));
       }
       return methodNotAllowedResponse(res, method, ['GET', 'PATCH']);
+    }
+
+    const assetShareMatch = matchPath(pathname, '/api/v1/digital-assets/assets/:assetId/share-links');
+    if (assetShareMatch) {
+      const assetId = assetShareMatch.assetId;
+      if (!assetId) return badRequestResponse(res, 'Digital asset id is required');
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.share' });
+      return jsonResponse(res, 201, await createDigitalAssetShareLink(actor, assetId, (await readJsonBody(req)) as CreateDigitalAssetShareLinkRequest));
+    }
+
+    const shareLinkMatch = matchPath(pathname, '/api/v1/digital-assets/share-links/:shareLinkId');
+    if (shareLinkMatch) {
+      const shareLinkId = shareLinkMatch.shareLinkId;
+      if (!shareLinkId) return badRequestResponse(res, 'Digital asset share link id is required');
+      if (method !== 'DELETE') return methodNotAllowedResponse(res, method, ['DELETE']);
+      const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.share' });
+      return jsonResponse(res, 200, await revokeDigitalAssetShareLink(actor, shareLinkId));
     }
 
     const versionMatch = matchPath(pathname, '/api/v1/digital-assets/assets/:assetId/versions');

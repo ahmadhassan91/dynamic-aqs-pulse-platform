@@ -117,6 +117,58 @@ test('asset version creation requires upload permission', SERIAL, async () => {
   );
 });
 
+test('asset metadata and review governance can be updated with audit trail', SERIAL, async () => {
+  const actor = await createActor('ADMIN_CSR_OPS', 'asset-governance');
+  const reader = await createActor('SALES_BD_REP', 'asset-governance-denied');
+  const created = await service.createDigitalAsset(actor, {
+    title: 'Pending asset',
+    kind: 'image',
+    visibility: 'internal_only',
+    audience: 'internal',
+  });
+
+  await assert.rejects(
+    () => service.updateDigitalAsset(reader, created.id, { title: 'Denied update' }),
+    /cannot perform action digital_asset\.edit/i,
+  );
+
+  const updated = await service.updateDigitalAsset(actor, created.id, {
+    title: 'Approved dealer asset',
+    description: 'Approved for dealer portal.',
+    status: 'active',
+    visibility: 'dealer_portal',
+    reviewStatus: 'approved',
+    audience: 'dealer',
+    brandScope: 'Dynamic',
+    regionScope: 'US',
+    dealerGroupType: 'all_dealers',
+    dealerGroupId: 'dealer-group-1',
+  });
+
+  assert.equal(updated.title, 'Approved dealer asset');
+  assert.equal(updated.status, 'active');
+  assert.equal(updated.visibility, 'dealer_portal');
+  assert.equal(updated.reviewStatus, 'approved');
+  assert.ok(updated.approvedAt);
+  assert.equal(updated.dealerGroupId, 'dealer-group-1');
+  const listed = await service.listDigitalAssets(actor, {
+    status: 'active',
+    visibility: 'dealer_portal',
+    brandScope: 'Dynamic',
+    regionScope: 'US',
+    dealerGroupId: 'dealer-group-1',
+  });
+  assert.equal(listed.total, 1);
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'DIGITAL_ASSET',
+      entityId: created.id,
+      action: 'UPDATE',
+    },
+  });
+  assert.ok(audit);
+});
+
 test('asset version upload persists file payload through configured storage adapter', SERIAL, async () => {
   const actor = await createActor('ADMIN_CSR_OPS', 'asset-storage');
   const created = await service.createDigitalAsset(actor, {

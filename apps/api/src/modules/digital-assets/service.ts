@@ -144,6 +144,12 @@ export async function updateDigitalAsset(actor: AuthenticatedActor, assetId: str
   assertActionAccess(actor.role, 'digital_asset.edit');
   const before = await prisma.digitalAsset.findUnique({ where: { id: assetId } });
   if (!before) throw new Error('Digital asset not found');
+  const nextReviewStatus = input.reviewStatus !== undefined ? toReviewStatus(input.reviewStatus) : undefined;
+  const reviewData = nextReviewStatus === DigitalAssetReviewStatus.APPROVED
+    ? { approvedByUserId: actor.userId, approvedAt: before.approvedAt ?? new Date() }
+    : nextReviewStatus !== undefined
+      ? { approvedByUserId: null, approvedAt: null }
+      : {};
   const updated = await prisma.digitalAsset.update({
     where: { id: assetId },
     data: {
@@ -151,12 +157,13 @@ export async function updateDigitalAsset(actor: AuthenticatedActor, assetId: str
       ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
       ...(input.status !== undefined ? { status: toAssetStatus(input.status) } : {}),
       ...(input.visibility !== undefined ? { visibility: toAssetVisibility(input.visibility) } : {}),
-      ...(input.reviewStatus !== undefined ? { reviewStatus: toReviewStatus(input.reviewStatus) } : {}),
+      ...(nextReviewStatus !== undefined ? { reviewStatus: nextReviewStatus } : {}),
       ...(input.audience !== undefined ? { audience: input.audience.trim() || before.audience } : {}),
       ...(input.brandScope !== undefined ? { brandScope: cleanNullable(input.brandScope) } : {}),
       ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
       ...(input.dealerGroupType !== undefined ? { dealerGroupType: cleanNullable(input.dealerGroupType) } : {}),
       ...(input.dealerGroupId !== undefined ? { dealerGroupId: cleanNullable(input.dealerGroupId) } : {}),
+      ...reviewData,
     },
   });
   await prisma.auditEntry.create({ data: buildAuditEntryData({ actorUserId: actor.userId, action: AuditAction.UPDATE, entityType: 'DIGITAL_ASSET', entityId: assetId, beforeData: before, afterData: updated }) });

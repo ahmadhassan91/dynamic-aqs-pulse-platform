@@ -7,16 +7,19 @@ ensureTestDatabaseReady();
 
 const SERIAL = { concurrency: false };
 let prisma;
+let createCatalogInclusion;
 let createProductCategory;
 let getProductDetail;
 let runProductPublishValidation;
+let updateCatalogInclusion;
 let updateProductCategory;
+let updateProductPresentation;
 let unlinkProductAsset;
 let actor;
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ createProductCategory, getProductDetail, runProductPublishValidation, updateProductCategory } = await import('../dist/modules/product-management/service.js'));
+  ({ createCatalogInclusion, createProductCategory, getProductDetail, runProductPublishValidation, updateCatalogInclusion, updateProductCategory, updateProductPresentation } = await import('../dist/modules/product-management/service.js'));
   ({ unlinkProductAsset } = await import('../dist/modules/digital-assets/service.js'));
   await prisma.$connect();
 });
@@ -107,6 +110,74 @@ test('product categories can be updated with audit trail', SERIAL, async () => {
     },
   });
   assert.ok(audit);
+});
+
+test('product presentation can be updated with audit trail', SERIAL, async () => {
+  const fixture = await seedProductFixture();
+
+  const updated = await updateProductPresentation(actor, fixture.presentation.id, {
+    displayName: 'Dealer Ready IAQ System',
+    shortDescription: 'Updated dealer short copy.',
+    longDescription: 'Updated long-form dealer portal content.',
+    specSummary: 'Updated specs.',
+    regionScope: 'US',
+    brandLabel: 'Dynamic',
+    publishStatus: 'ready_for_review',
+  });
+
+  assert.equal(updated.displayName, 'Dealer Ready IAQ System');
+  assert.equal(updated.publishStatus, 'ready_for_review');
+  const detail = await getProductDetail(actor, fixture.product.id);
+  assert.equal(detail.presentations[0].shortDescription, 'Updated dealer short copy.');
+  assert.equal(detail.presentations[0].brandLabel, 'Dynamic');
+  const audit = await prisma.auditEntry.findFirst({
+    where: { entityType: 'PRODUCT_PRESENTATION', entityId: fixture.presentation.id, action: 'UPDATE' },
+  });
+  assert.ok(audit);
+  assert.equal(audit.metadata.sourceOfTruth, 'pulse_presentation_fields_only');
+});
+
+test('catalog inclusions can be created and updated with audit trail', SERIAL, async () => {
+  const fixture = await seedProductFixture();
+  await prisma.catalogInclusion.deleteMany({ where: { presentationId: fixture.presentation.id } });
+
+  let validation = await runProductPublishValidation(actor, fixture.presentation.id);
+  assert.equal(Object.fromEntries(validation.checks.map((check) => [check.checkCode, check.status])).visibility, 'blocked');
+
+  const created = await createCatalogInclusion(actor, {
+    presentationId: fixture.presentation.id,
+    regionScope: 'US',
+    brandLabel: 'Dynamic',
+    notes: 'Initial scoped rule',
+  });
+  assert.equal(created.dealerGroupType, 'all_dealers');
+  assert.equal(created.isVisible, true);
+  assert.equal(created.publishStatus, 'draft');
+
+  const updated = await updateCatalogInclusion(actor, created.id, {
+    dealerGroupType: 'ownership_group',
+    dealerGroupId: 'grp-001',
+    regionScope: 'CA',
+    brandLabel: 'Private Label',
+    isVisible: false,
+    publishStatus: 'blocked',
+    notes: null,
+  });
+  assert.equal(updated.dealerGroupType, 'ownership_group');
+  assert.equal(updated.dealerGroupId, 'grp-001');
+  assert.equal(updated.isVisible, false);
+  assert.equal(updated.publishStatus, 'blocked');
+  assert.equal(updated.notes, undefined);
+
+  validation = await runProductPublishValidation(actor, fixture.presentation.id);
+  assert.equal(Object.fromEntries(validation.checks.map((check) => [check.checkCode, check.status])).visibility, 'blocked');
+  await updateCatalogInclusion(actor, created.id, { isVisible: true, publishStatus: 'ready_for_review' });
+  validation = await runProductPublishValidation(actor, fixture.presentation.id);
+  assert.equal(Object.fromEntries(validation.checks.map((check) => [check.checkCode, check.status])).visibility, 'pass');
+
+  const audits = await prisma.auditEntry.findMany({ where: { entityType: 'CATALOG_INCLUSION', entityId: created.id } });
+  assert.equal(audits.filter((entry) => entry.action === 'CREATE').length, 1);
+  assert.equal(audits.filter((entry) => entry.action === 'UPDATE').length, 2);
 });
 
 test('publish validation blocks missing primary image and warns on expected missing document roles', SERIAL, async () => {

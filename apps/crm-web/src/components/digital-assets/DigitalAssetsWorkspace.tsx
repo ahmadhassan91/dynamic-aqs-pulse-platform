@@ -23,9 +23,13 @@ import {
 import { IconAlertTriangle, IconCloudUpload, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch } from '@tabler/icons-react';
 import {
   DIGITAL_ASSET_KINDS,
+  DIGITAL_ASSET_REVIEW_STATUSES,
+  DIGITAL_ASSET_STATUSES,
   DIGITAL_ASSET_VISIBILITIES,
   type DigitalAssetDetail,
   type DigitalAssetKindKey,
+  type DigitalAssetReviewStatusKey,
+  type DigitalAssetStatusKey,
   type DigitalAssetVisibilityKey,
 } from '@pulse/contracts/digital-assets';
 import {
@@ -35,10 +39,12 @@ import {
   fetchDigitalAssetLibrary,
   fetchWidenImportRuns,
   previewWidenImport,
+  updateDigitalAssetRecord,
   type ListDigitalAssetsResponse,
   type ListWidenImportRunsResponse,
   type WidenImportPreviewResponse,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type AssetTab = 'library' | 'migration';
@@ -66,6 +72,19 @@ type VersionFormState = {
   makeCurrent: boolean;
 };
 
+type AssetEditFormState = {
+  title: string;
+  description: string;
+  status: DigitalAssetStatusKey;
+  visibility: DigitalAssetVisibilityKey;
+  reviewStatus: DigitalAssetReviewStatusKey;
+  audience: string;
+  brandScope: string;
+  regionScope: string;
+  dealerGroupType: string;
+  dealerGroupId: string;
+};
+
 const defaultAssetForm: CreateAssetFormState = {
   title: '',
   stableSlug: '',
@@ -89,6 +108,19 @@ const defaultVersionForm: VersionFormState = {
   makeCurrent: true,
 };
 
+const defaultAssetEditForm: AssetEditFormState = {
+  title: '',
+  description: '',
+  status: 'draft',
+  visibility: 'internal_only',
+  reviewStatus: 'pending_review',
+  audience: 'internal',
+  brandScope: '',
+  regionScope: '',
+  dealerGroupType: '',
+  dealerGroupId: '',
+};
+
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
@@ -97,10 +129,12 @@ export function DigitalAssetsWorkspace() {
   const [selectedAsset, setSelectedAsset] = useState<DigitalAssetDetail | null>(null);
   const [assetForm, setAssetForm] = useState<CreateAssetFormState>(defaultAssetForm);
   const [versionForm, setVersionForm] = useState<VersionFormState>(defaultVersionForm);
+  const [assetEditForm, setAssetEditForm] = useState<AssetEditFormState>(defaultAssetEditForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
   const [isAddingVersion, setIsAddingVersion] = useState(false);
+  const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [isLoadingRuns, setIsLoadingRuns] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +144,10 @@ export function DigitalAssetsWorkspace() {
   const [importRuns, setImportRuns] = useState<ListWidenImportRunsResponse>({ items: [] });
 
   const kindOptions = useMemo(() => DIGITAL_ASSET_KINDS.map((kind) => ({ value: kind, label: formatLabel(kind) })), []);
+  const statusOptions = useMemo(() => DIGITAL_ASSET_STATUSES.map((status) => ({ value: status, label: formatLabel(status) })), []);
   const visibilityOptions = useMemo(() => DIGITAL_ASSET_VISIBILITIES.map((visibility) => ({ value: visibility, label: formatLabel(visibility) })), []);
+  const reviewStatusOptions = useMemo(() => DIGITAL_ASSET_REVIEW_STATUSES.map((status) => ({ value: status, label: formatLabel(status) })), []);
+  const canEditAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.edit') : false;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -153,6 +190,7 @@ export function DigitalAssetsWorkspace() {
     try {
       const response = await fetchDigitalAssetDetail(apiBaseUrl, auth.tokens.accessToken, assetId);
       setSelectedAsset(response);
+      setAssetEditForm(toAssetEditForm(response));
     } catch (loadError) {
       setDetailError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -179,6 +217,7 @@ export function DigitalAssetsWorkspace() {
         ...(emptyToUndefined(assetForm.stableSlug) ? { stableSlug: emptyToUndefined(assetForm.stableSlug) } : {}),
       });
       setSelectedAsset(response);
+      setAssetEditForm(toAssetEditForm(response));
       setAssetForm(defaultAssetForm);
       await reloadAssets();
     } catch (createError) {
@@ -212,6 +251,32 @@ export function DigitalAssetsWorkspace() {
       setDetailError(versionError instanceof Error ? versionError.message : String(versionError));
     } finally {
       setIsAddingVersion(false);
+    }
+  };
+
+  const handleUpdateAsset = async () => {
+    if (!auth || !selectedAsset) return;
+    setIsUpdatingAsset(true);
+    setDetailError(null);
+    try {
+      await updateDigitalAssetRecord(apiBaseUrl, auth.tokens.accessToken, selectedAsset.id, {
+        title: assetEditForm.title,
+        description: emptyToNull(assetEditForm.description),
+        status: assetEditForm.status,
+        visibility: assetEditForm.visibility,
+        reviewStatus: assetEditForm.reviewStatus,
+        audience: assetEditForm.audience,
+        brandScope: emptyToNull(assetEditForm.brandScope),
+        regionScope: emptyToNull(assetEditForm.regionScope),
+        dealerGroupType: emptyToNull(assetEditForm.dealerGroupType),
+        dealerGroupId: emptyToNull(assetEditForm.dealerGroupId),
+      });
+      await loadAssetDetail(selectedAsset.id);
+      await reloadAssets();
+    } catch (updateError) {
+      setDetailError(updateError instanceof Error ? updateError.message : String(updateError));
+    } finally {
+      setIsUpdatingAsset(false);
     }
   };
 
@@ -397,9 +462,17 @@ export function DigitalAssetsWorkspace() {
                 ) : selectedAsset ? (
                   <AssetDetailPanel
                     asset={selectedAsset}
+                    editForm={assetEditForm}
                     form={versionForm}
+                    canEdit={canEditAssets}
                     isAddingVersion={isAddingVersion}
+                    isUpdatingAsset={isUpdatingAsset}
+                    statusOptions={statusOptions}
+                    visibilityOptions={visibilityOptions}
+                    reviewStatusOptions={reviewStatusOptions}
+                    onEditFormChange={setAssetEditForm}
                     onFormChange={setVersionForm}
+                    onUpdateAsset={handleUpdateAsset}
                     onSubmit={handleAddVersion}
                   />
                 ) : (
@@ -486,15 +559,31 @@ export function DigitalAssetsWorkspace() {
 
 function AssetDetailPanel({
   asset,
+  editForm,
   form,
+  canEdit,
   isAddingVersion,
+  isUpdatingAsset,
+  statusOptions,
+  visibilityOptions,
+  reviewStatusOptions,
+  onEditFormChange,
   onFormChange,
+  onUpdateAsset,
   onSubmit,
 }: {
   asset: DigitalAssetDetail;
+  editForm: AssetEditFormState;
   form: VersionFormState;
+  canEdit: boolean;
   isAddingVersion: boolean;
+  isUpdatingAsset: boolean;
+  statusOptions: Array<{ value: string; label: string }>;
+  visibilityOptions: Array<{ value: string; label: string }>;
+  reviewStatusOptions: Array<{ value: string; label: string }>;
+  onEditFormChange: (form: AssetEditFormState) => void;
   onFormChange: (form: VersionFormState) => void;
+  onUpdateAsset: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -519,6 +608,31 @@ function AssetDetailPanel({
         <Text component="a" href={asset.legacyUrl} target="_blank" rel="noreferrer" size="sm" c="blue">
           {asset.legacyUrl}
         </Text>
+      ) : null}
+
+      {canEdit ? (
+        <Paper withBorder p="md">
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Title order={5}>Governance</Title>
+              <Button onClick={onUpdateAsset} loading={isUpdatingAsset} disabled={!editForm.title.trim()}>
+                Save Asset
+              </Button>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <TextInput label="Title" value={editForm.title} onChange={(event) => onEditFormChange({ ...editForm, title: event.currentTarget.value })} />
+              <TextInput label="Audience" value={editForm.audience} onChange={(event) => onEditFormChange({ ...editForm, audience: event.currentTarget.value })} />
+              <Select label="Status" data={statusOptions} value={editForm.status} onChange={(value) => onEditFormChange({ ...editForm, status: (value as DigitalAssetStatusKey | null) ?? 'draft' })} allowDeselect={false} />
+              <Select label="Visibility" data={visibilityOptions} value={editForm.visibility} onChange={(value) => onEditFormChange({ ...editForm, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' })} allowDeselect={false} />
+              <Select label="Review" data={reviewStatusOptions} value={editForm.reviewStatus} onChange={(value) => onEditFormChange({ ...editForm, reviewStatus: (value as DigitalAssetReviewStatusKey | null) ?? 'pending_review' })} allowDeselect={false} />
+              <TextInput label="Brand scope" value={editForm.brandScope} onChange={(event) => onEditFormChange({ ...editForm, brandScope: event.currentTarget.value })} />
+              <TextInput label="Region scope" value={editForm.regionScope} onChange={(event) => onEditFormChange({ ...editForm, regionScope: event.currentTarget.value })} />
+              <TextInput label="Dealer group type" value={editForm.dealerGroupType} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupType: event.currentTarget.value })} />
+              <TextInput label="Dealer group ID" value={editForm.dealerGroupId} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupId: event.currentTarget.value })} />
+            </SimpleGrid>
+            <Textarea label="Description" minRows={2} value={editForm.description} onChange={(event) => onEditFormChange({ ...editForm, description: event.currentTarget.value })} />
+          </Stack>
+        </Paper>
       ) : null}
 
       <form onSubmit={onSubmit}>
@@ -762,6 +876,21 @@ function emptyToNull(value: string) {
 function emptyToUndefined(value: string) {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function toAssetEditForm(asset: DigitalAssetDetail): AssetEditFormState {
+  return {
+    title: asset.title,
+    description: asset.description ?? '',
+    status: asset.status,
+    visibility: asset.visibility,
+    reviewStatus: asset.reviewStatus,
+    audience: asset.audience,
+    brandScope: asset.brandScope ?? '',
+    regionScope: asset.regionScope ?? '',
+    dealerGroupType: asset.dealerGroupType ?? '',
+    dealerGroupId: asset.dealerGroupId ?? '',
+  };
 }
 
 function formatLabel(value: string) {

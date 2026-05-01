@@ -173,6 +173,19 @@ export interface UpdateProductPresentationRequest {
   publishStatus?: ProductPublishStatusKey;
 }
 
+export interface UpsertCatalogInclusionRequest {
+  presentationId?: string;
+  dealerGroupType?: string;
+  dealerGroupId?: string | null;
+  regionScope?: string | null;
+  brandLabel?: string | null;
+  isVisible?: boolean;
+  publishStatus?: ProductPublishStatusKey;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  notes?: string | null;
+}
+
 export interface ProductPublishValidationResponse {
   presentationId: string;
   status: ProductReadinessStatusKey;

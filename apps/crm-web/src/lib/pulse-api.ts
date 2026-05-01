@@ -244,19 +244,25 @@ import type {
   ListProductsResponse,
   ProductDetail,
   ProductCategorySummary,
+  ProductPresentationSummary,
+  CatalogInclusionSummary,
   ProductReferenceImportPreviewRequest,
   ProductReferenceImportPreviewResponse,
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
+  UpdateProductPresentationRequest,
+  UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
 import type {
   CreateDigitalAssetRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
   DigitalAssetDetail,
+  DigitalAssetSummary,
   ListDigitalAssetsRequest,
   ListDigitalAssetsResponse,
   ProductAssetAssignmentSummary,
+  UpdateDigitalAssetRequest,
 } from '@pulse/contracts/digital-assets';
 
 export type WidenImportPreviewRequest = {
@@ -433,6 +439,30 @@ export async function validateProductManagementPresentation(apiBaseUrl: string, 
   });
 }
 
+export async function updateProductManagementPresentation(apiBaseUrl: string, accessToken: string, presentationId: string, input: UpdateProductPresentationRequest) {
+  return requestJson<ProductPresentationSummary>(apiBaseUrl, `/api/v1/product-management/presentations/${presentationId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createProductCatalogInclusion(apiBaseUrl: string, accessToken: string, input: UpsertCatalogInclusionRequest) {
+  return requestJson<CatalogInclusionSummary>(apiBaseUrl, '/api/v1/product-management/catalog-inclusions', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateProductCatalogInclusion(apiBaseUrl: string, accessToken: string, inclusionId: string, input: UpsertCatalogInclusionRequest) {
+  return requestJson<CatalogInclusionSummary>(apiBaseUrl, `/api/v1/product-management/catalog-inclusions/${inclusionId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
 export async function previewProductReferenceImport(
   apiBaseUrl: string,
   accessToken: string,
@@ -488,6 +518,14 @@ export async function createDigitalAsset(apiBaseUrl: string, accessToken: string
 export async function createDigitalAssetRecord(apiBaseUrl: string, accessToken: string, input: CreateDigitalAssetRequest) {
   return requestJson<DigitalAssetDetail>(apiBaseUrl, '/api/v1/digital-assets/assets', {
     method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateDigitalAssetRecord(apiBaseUrl: string, accessToken: string, assetId: string, input: UpdateDigitalAssetRequest) {
+  return requestJson<DigitalAssetSummary>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}`, {
+    method: 'PATCH',
     accessToken,
     body: input,
   });

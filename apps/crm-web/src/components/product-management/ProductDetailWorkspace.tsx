@@ -2,21 +2,69 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck } from '@tabler/icons-react';
 import {
   PRODUCT_ASSET_ROLES,
   type DigitalAssetSummary,
   type ProductAssetRoleKey,
 } from '@pulse/contracts/digital-assets';
-import type { ProductDetail } from '@pulse/contracts/product-management';
+import {
+  PRODUCT_PUBLISH_STATUSES,
+  type ProductDetail,
+  type ProductPublishStatusKey,
+} from '@pulse/contracts/product-management';
 import {
   assignDigitalAssetToProduct,
+  createProductCatalogInclusion,
   fetchDigitalAssetLibrary,
   fetchProductManagementProductDetail,
+  updateProductCatalogInclusion,
+  updateProductManagementPresentation,
   validateProductManagementPresentation,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+
+type PresentationFormState = {
+  displayName: string;
+  shortDescription: string;
+  longDescription: string;
+  specSummary: string;
+  regionScope: string;
+  brandLabel: string;
+  publishStatus: ProductPublishStatusKey;
+};
+
+type InclusionFormState = {
+  dealerGroupType: string;
+  dealerGroupId: string;
+  regionScope: string;
+  brandLabel: string;
+  isVisible: boolean;
+  publishStatus: ProductPublishStatusKey;
+  notes: string;
+};
+
+const emptyPresentationForm: PresentationFormState = {
+  displayName: '',
+  shortDescription: '',
+  longDescription: '',
+  specSummary: '',
+  regionScope: '',
+  brandLabel: '',
+  publishStatus: 'draft',
+};
+
+const emptyInclusionForm: InclusionFormState = {
+  dealerGroupType: 'all_dealers',
+  dealerGroupId: '',
+  regionScope: '',
+  brandLabel: '',
+  isVisible: true,
+  publishStatus: 'draft',
+  notes: '',
+};
 
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
@@ -24,11 +72,17 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [availableAssets, setAvailableAssets] = useState<DigitalAssetSummary[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [selectedAssetRole, setSelectedAssetRole] = useState<ProductAssetRoleKey>('primary_image');
+  const [presentationForm, setPresentationForm] = useState<PresentationFormState>(emptyPresentationForm);
+  const [inclusionForm, setInclusionForm] = useState<InclusionFormState>(emptyInclusionForm);
+  const [editingInclusionId, setEditingInclusionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAssigningAsset, setIsAssigningAsset] = useState(false);
+  const [isSavingPresentation, setIsSavingPresentation] = useState(false);
+  const [isSavingInclusion, setIsSavingInclusion] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const canManageProducts = auth ? canPerformAction(auth.identity.role, 'product.manage') : false;
 
   useEffect(() => {
     if (!auth) return;
@@ -59,6 +113,20 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     const response = await fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, productId);
     setProduct(response);
   };
+
+  useEffect(() => {
+    const presentation = product?.presentations[0];
+    if (!presentation) return;
+    setPresentationForm({
+      displayName: presentation.displayName,
+      shortDescription: presentation.shortDescription ?? '',
+      longDescription: presentation.longDescription ?? '',
+      specSummary: presentation.specSummary ?? '',
+      regionScope: presentation.regionScope ?? '',
+      brandLabel: presentation.brandLabel ?? '',
+      publishStatus: presentation.publishStatus,
+    });
+  }, [product?.presentations]);
 
   const handleAssignAsset = async () => {
     if (!auth || !product || !selectedAssetId) return;
@@ -102,6 +170,75 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     }
   };
 
+  const handleSavePresentation = async () => {
+    if (!auth || !primaryPresentation) return;
+    setIsSavingPresentation(true);
+    setAssetError(null);
+    try {
+      await updateProductManagementPresentation(apiBaseUrl, auth.tokens.accessToken, primaryPresentation.id, {
+        displayName: presentationForm.displayName,
+        shortDescription: emptyToNull(presentationForm.shortDescription),
+        longDescription: emptyToNull(presentationForm.longDescription),
+        specSummary: emptyToNull(presentationForm.specSummary),
+        regionScope: emptyToNull(presentationForm.regionScope),
+        brandLabel: emptyToNull(presentationForm.brandLabel),
+        publishStatus: presentationForm.publishStatus,
+      });
+      await reloadProduct();
+    } catch (saveError) {
+      setAssetError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingPresentation(false);
+    }
+  };
+
+  const handleEditInclusion = (inclusion: ProductDetail['inclusions'][number]) => {
+    setEditingInclusionId(inclusion.id);
+    setInclusionForm({
+      dealerGroupType: inclusion.dealerGroupType,
+      dealerGroupId: inclusion.dealerGroupId ?? '',
+      regionScope: inclusion.regionScope ?? '',
+      brandLabel: inclusion.brandLabel ?? '',
+      isVisible: inclusion.isVisible,
+      publishStatus: inclusion.publishStatus,
+      notes: inclusion.notes ?? '',
+    });
+  };
+
+  const handleResetInclusion = () => {
+    setEditingInclusionId(null);
+    setInclusionForm(emptyInclusionForm);
+  };
+
+  const handleSaveInclusion = async () => {
+    if (!auth || !primaryPresentation) return;
+    setIsSavingInclusion(true);
+    setAssetError(null);
+    const payload = {
+      presentationId: primaryPresentation.id,
+      dealerGroupType: inclusionForm.dealerGroupType,
+      dealerGroupId: emptyToNull(inclusionForm.dealerGroupId),
+      regionScope: emptyToNull(inclusionForm.regionScope),
+      brandLabel: emptyToNull(inclusionForm.brandLabel),
+      isVisible: inclusionForm.isVisible,
+      publishStatus: inclusionForm.publishStatus,
+      notes: emptyToNull(inclusionForm.notes),
+    };
+    try {
+      if (editingInclusionId) {
+        await updateProductCatalogInclusion(apiBaseUrl, auth.tokens.accessToken, editingInclusionId, payload);
+      } else {
+        await createProductCatalogInclusion(apiBaseUrl, auth.tokens.accessToken, payload);
+      }
+      handleResetInclusion();
+      await reloadProduct();
+    } catch (saveError) {
+      setAssetError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingInclusion(false);
+    }
+  };
+
   if (isLoading) {
     return <Group justify="center" p="xl"><Loader /></Group>;
   }
@@ -121,6 +258,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const primaryPresentation = product.presentations[0];
   const blockedChecks = product.readinessChecks.filter((check) => check.status === 'blocked');
   const assetRoleOptions = PRODUCT_ASSET_ROLES.map((role) => ({ value: role, label: formatLabel(role) }));
+  const publishStatusOptions = PRODUCT_PUBLISH_STATUSES.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
 
   return (
     <Stack gap="lg">
@@ -164,6 +302,22 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           </Group>
         </Group>
         <Text>{primaryPresentation?.shortDescription ?? 'No dealer-facing description has been approved yet.'}</Text>
+        {primaryPresentation && canManageProducts ? (
+          <Stack gap="sm" mt="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput label="Display name" value={presentationForm.displayName} onChange={(event) => setPresentationForm((current) => ({ ...current, displayName: event.currentTarget.value }))} />
+              <Select label="Review status" data={publishStatusOptions} value={presentationForm.publishStatus} onChange={(value) => setPresentationForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
+              <TextInput label="Region scope" value={presentationForm.regionScope} onChange={(event) => setPresentationForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+              <TextInput label="Brand label" value={presentationForm.brandLabel} onChange={(event) => setPresentationForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
+            </SimpleGrid>
+            <Textarea label="Short description" minRows={2} value={presentationForm.shortDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, shortDescription: event.currentTarget.value }))} />
+            <Textarea label="Long description" minRows={3} value={presentationForm.longDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, longDescription: event.currentTarget.value }))} />
+            <Textarea label="Spec summary" minRows={2} value={presentationForm.specSummary} onChange={(event) => setPresentationForm((current) => ({ ...current, specSummary: event.currentTarget.value }))} />
+            <Group justify="flex-end">
+              <Button onClick={handleSavePresentation} loading={isSavingPresentation}>Save Presentation</Button>
+            </Group>
+          </Stack>
+        ) : null}
       </Paper>
 
       <Paper withBorder p="md">
@@ -256,6 +410,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               <Table.Th>Region</Table.Th>
               <Table.Th>Brand</Table.Th>
               <Table.Th>Status</Table.Th>
+              <Table.Th />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -266,13 +421,31 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 <Table.Td>{inclusion.regionScope ?? 'Any'}</Table.Td>
                 <Table.Td>{inclusion.brandLabel ?? 'Neutral'}</Table.Td>
                 <Table.Td>{inclusion.isVisible ? inclusion.publishStatus : 'hidden'}</Table.Td>
+                <Table.Td>{canManageProducts ? <Button size="xs" variant="light" onClick={() => handleEditInclusion(inclusion)}>Edit</Button> : null}</Table.Td>
               </Table.Tr>
             ))}
             {!product.inclusions.length ? (
-              <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="md">No dealer visibility rules yet.</Text></Table.Td></Table.Tr>
+              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer visibility rules yet.</Text></Table.Td></Table.Tr>
             ) : null}
           </Table.Tbody>
         </Table>
+        {primaryPresentation && canManageProducts ? (
+          <Stack gap="sm" mt="md">
+            <SimpleGrid cols={{ base: 1, md: 3 }}>
+              <TextInput label="Group type" value={inclusionForm.dealerGroupType} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
+              <TextInput label="Group ID" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+              <Select label="Publish status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
+              <TextInput label="Region scope" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+              <TextInput label="Brand label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
+              <Checkbox mt="xl" label="Visible" checked={inclusionForm.isVisible} onChange={(event) => setInclusionForm((current) => ({ ...current, isVisible: event.currentTarget.checked }))} />
+            </SimpleGrid>
+            <Textarea label="Notes" minRows={2} value={inclusionForm.notes} onChange={(event) => setInclusionForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={handleResetInclusion}>Reset</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Rule' : 'Add Rule'}</Button>
+            </Group>
+          </Stack>
+        ) : null}
       </Paper>
 
       <Paper withBorder p="md">
@@ -305,4 +478,9 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
 
 function formatLabel(value: string) {
   return value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function emptyToNull(value: string) {
+  const cleaned = value.trim();
+  return cleaned ? cleaned : null;
 }

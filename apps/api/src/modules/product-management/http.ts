@@ -6,6 +6,7 @@ import type {
   ProductReferenceImportPreviewRequest,
   UpdateProductCategoryRequest,
   UpdateProductPresentationRequest,
+  UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
 import {
   badRequestResponse,
@@ -25,11 +26,13 @@ import {
   requireAuthenticatedActor,
 } from '../auth/request.js';
 import {
+  createCatalogInclusion,
   createProductCategory,
   getProductDetail,
   listProductCategories,
   listProducts,
   runProductPublishValidation,
+  updateCatalogInclusion,
   updateProductCategory,
   updateProductPresentation,
 } from './service.js';
@@ -120,6 +123,21 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
       if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
       const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.publish' });
       return jsonResponse(res, 200, await runProductPublishValidation(actor, presentationId));
+    }
+
+    if (pathname === '/api/v1/product-management/catalog-inclusions') {
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 201, await createCatalogInclusion(actor, (await readJsonBody(req)) as UpsertCatalogInclusionRequest));
+    }
+
+    const inclusionMatch = matchPath(pathname, '/api/v1/product-management/catalog-inclusions/:inclusionId');
+    if (inclusionMatch) {
+      const inclusionId = inclusionMatch.inclusionId;
+      if (!inclusionId) return badRequestResponse(res, 'Catalog inclusion id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await updateCatalogInclusion(actor, inclusionId, (await readJsonBody(req)) as UpsertCatalogInclusionRequest));
     }
 
     return notFoundResponse(res, { path: pathname, method });

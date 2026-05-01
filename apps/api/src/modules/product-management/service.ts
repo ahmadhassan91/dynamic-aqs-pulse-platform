@@ -14,6 +14,7 @@ import {
 } from '@pulse/db';
 import type {
   BaseProductSummary,
+  CatalogInclusionSummary,
   CreateProductCategoryRequest,
   ListProductsRequest,
   ListProductsResponse,
@@ -24,6 +25,7 @@ import type {
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
   UpdateProductPresentationRequest,
+  UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
 import { PRODUCT_ASSET_ROLES } from '@pulse/contracts/digital-assets';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -155,6 +157,13 @@ export async function updateProductPresentation(
   assertActionAccess(actor.role, 'product.manage');
   const before = await prisma.productPresentation.findUnique({ where: { id: presentationId } });
   if (!before) throw new Error('Product presentation not found');
+  const nextPublishStatus = input.publishStatus !== undefined ? toProductPublishStatus(input.publishStatus) : undefined;
+  const approvalData = nextPublishStatus === ProductPublishStatus.APPROVED || nextPublishStatus === ProductPublishStatus.PUBLISHED
+    ? { approvedByUserId: actor.userId, approvedAt: before.approvedAt ?? new Date() }
+    : {};
+  const publishData = nextPublishStatus === ProductPublishStatus.PUBLISHED
+    ? { publishedAt: before.publishedAt ?? new Date(), readyForDealerPortal: true }
+    : {};
   const updated = await prisma.productPresentation.update({
     where: { id: presentationId },
     data: {
@@ -164,7 +173,9 @@ export async function updateProductPresentation(
       ...(input.specSummary !== undefined ? { specSummary: cleanNullable(input.specSummary) } : {}),
       ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
       ...(input.brandLabel !== undefined ? { brandLabel: cleanNullable(input.brandLabel) } : {}),
-      ...(input.publishStatus !== undefined ? { publishStatus: toProductPublishStatus(input.publishStatus) } : {}),
+      ...(nextPublishStatus !== undefined ? { publishStatus: nextPublishStatus } : {}),
+      ...approvalData,
+      ...publishData,
     },
   });
   await prisma.auditEntry.create({
@@ -179,6 +190,72 @@ export async function updateProductPresentation(
     }),
   });
   return mapPresentation(updated);
+}
+
+export async function createCatalogInclusion(actor: AuthenticatedActor, input: UpsertCatalogInclusionRequest): Promise<CatalogInclusionSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  if (!input.presentationId?.trim()) throw new Error('presentationId is required');
+  const presentation = await prisma.productPresentation.findUnique({ where: { id: input.presentationId } });
+  if (!presentation) throw new Error('Product presentation not found');
+  const inclusion = await prisma.catalogInclusion.create({
+    data: {
+      presentationId: input.presentationId,
+      dealerGroupType: input.dealerGroupType?.trim() || 'all_dealers',
+      dealerGroupId: cleanNullable(input.dealerGroupId),
+      regionScope: cleanNullable(input.regionScope),
+      brandLabel: cleanNullable(input.brandLabel),
+      isVisible: input.isVisible ?? true,
+      publishStatus: input.publishStatus ? toProductPublishStatus(input.publishStatus) : ProductPublishStatus.DRAFT,
+      effectiveFrom: parseDateOrNull(input.effectiveFrom),
+      effectiveTo: parseDateOrNull(input.effectiveTo),
+      notes: cleanNullable(input.notes),
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'CATALOG_INCLUSION',
+      entityId: inclusion.id,
+      afterData: inclusion,
+      metadata: { presentationId: input.presentationId },
+    }),
+  });
+  return mapCatalogInclusion(inclusion);
+}
+
+export async function updateCatalogInclusion(actor: AuthenticatedActor, inclusionId: string, input: UpsertCatalogInclusionRequest): Promise<CatalogInclusionSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const before = await prisma.catalogInclusion.findUnique({ where: { id: inclusionId } });
+  if (!before) throw new Error('Catalog inclusion not found');
+  const updated = await prisma.catalogInclusion.update({
+    where: { id: inclusionId },
+    data: {
+      ...(input.dealerGroupType !== undefined ? { dealerGroupType: input.dealerGroupType.trim() || before.dealerGroupType } : {}),
+      ...(input.dealerGroupId !== undefined ? { dealerGroupId: cleanNullable(input.dealerGroupId) } : {}),
+      ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
+      ...(input.brandLabel !== undefined ? { brandLabel: cleanNullable(input.brandLabel) } : {}),
+      ...(input.isVisible !== undefined ? { isVisible: input.isVisible } : {}),
+      ...(input.publishStatus !== undefined ? { publishStatus: toProductPublishStatus(input.publishStatus) } : {}),
+      ...(input.effectiveFrom !== undefined ? { effectiveFrom: parseDateOrNull(input.effectiveFrom) } : {}),
+      ...(input.effectiveTo !== undefined ? { effectiveTo: parseDateOrNull(input.effectiveTo) } : {}),
+      ...(input.notes !== undefined ? { notes: cleanNullable(input.notes) } : {}),
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'CATALOG_INCLUSION',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+      metadata: { presentationId: updated.presentationId },
+    }),
+  });
+  return mapCatalogInclusion(updated);
 }
 
 export async function runProductPublishValidation(actor: AuthenticatedActor, presentationId: string): Promise<ProductPublishValidationResponse> {
@@ -260,19 +337,7 @@ function mapProductDetail(product: any): ProductDetail {
   return {
     ...mapBaseProduct(product),
     presentations,
-    inclusions: product.presentations.flatMap((presentation: any) => presentation.inclusions.map((inclusion: any) => ({
-      id: inclusion.id,
-      presentationId: inclusion.presentationId,
-      dealerGroupType: inclusion.dealerGroupType,
-      dealerGroupId: inclusion.dealerGroupId ?? undefined,
-      regionScope: inclusion.regionScope ?? undefined,
-      brandLabel: inclusion.brandLabel ?? undefined,
-      isVisible: inclusion.isVisible,
-      publishStatus: lower(inclusion.publishStatus),
-      effectiveFrom: inclusion.effectiveFrom?.toISOString(),
-      effectiveTo: inclusion.effectiveTo?.toISOString(),
-      notes: inclusion.notes ?? undefined,
-    }))),
+    inclusions: product.presentations.flatMap((presentation: any) => presentation.inclusions.map(mapCatalogInclusion)),
     readinessChecks: product.presentations.flatMap((presentation: any) => presentation.readinessChecks.map((check: any) => ({
       id: check.id,
       presentationId: check.presentationId,
@@ -284,6 +349,22 @@ function mapProductDetail(product: any): ProductDetail {
     }))),
     assetAssignments,
     assignedAssetsByRole: groupAssetsByRole(assetAssignments),
+  };
+}
+
+function mapCatalogInclusion(inclusion: any): CatalogInclusionSummary {
+  return {
+    id: inclusion.id,
+    presentationId: inclusion.presentationId,
+    dealerGroupType: inclusion.dealerGroupType,
+    dealerGroupId: inclusion.dealerGroupId ?? undefined,
+    regionScope: inclusion.regionScope ?? undefined,
+    brandLabel: inclusion.brandLabel ?? undefined,
+    isVisible: inclusion.isVisible,
+    publishStatus: lower(inclusion.publishStatus),
+    effectiveFrom: inclusion.effectiveFrom?.toISOString(),
+    effectiveTo: inclusion.effectiveTo?.toISOString(),
+    notes: inclusion.notes ?? undefined,
   };
 }
 
@@ -431,6 +512,14 @@ function clampLimit(limit?: number) {
 function cleanNullable(value: string | null | undefined) {
   const cleaned = value?.trim();
   return cleaned ? cleaned : null;
+}
+
+function parseDateOrNull(value: string | null | undefined) {
+  const cleaned = cleanNullable(value);
+  if (!cleaned) return null;
+  const parsed = new Date(cleaned);
+  if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid date: ${value}`);
+  return parsed;
 }
 
 function compact<T extends Record<string, unknown>>(value: T) {

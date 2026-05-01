@@ -163,6 +163,22 @@ export interface UpdateProductCategoryRequest {
   sortOrder?: number;
 }
 
+export interface CreateProductFamilyRequest {
+  code: string;
+  name: string;
+  description?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateProductFamilyRequest {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
 export interface UpdateProductPresentationRequest {
   displayName?: string;
   shortDescription?: string | null;

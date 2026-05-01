@@ -16,14 +16,17 @@ import type {
   BaseProductSummary,
   CatalogInclusionSummary,
   CreateProductCategoryRequest,
+  CreateProductFamilyRequest,
   ListProductsRequest,
   ListProductsResponse,
   ProductCategorySummary,
   ProductDetail,
   ProductAssetLinkSummary,
+  ProductFamilySummary,
   ProductPresentationSummary,
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
+  UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
@@ -113,6 +116,68 @@ export async function createProductCategory(actor: AuthenticatedActor, input: Cr
     }),
   });
   return mapCategory(category);
+}
+
+export async function listProductFamilies(actor: AuthenticatedActor): Promise<{ items: ProductFamilySummary[] }> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  const items = await prisma.productFamily.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
+  return { items: items.map(mapFamily) };
+}
+
+export async function createProductFamily(actor: AuthenticatedActor, input: CreateProductFamilyRequest): Promise<ProductFamilySummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  if (!input.code?.trim()) throw new Error('code is required');
+  if (!input.name?.trim()) throw new Error('name is required');
+  const family = await prisma.productFamily.create({
+    data: {
+      code: input.code.trim(),
+      name: input.name.trim(),
+      description: cleanNullable(input.description),
+      isActive: input.isActive ?? true,
+      sortOrder: input.sortOrder ?? 100,
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'PRODUCT_FAMILY',
+      entityId: family.id,
+      afterData: family,
+    }),
+  });
+  return mapFamily(family);
+}
+
+export async function updateProductFamily(actor: AuthenticatedActor, familyId: string, input: UpdateProductFamilyRequest): Promise<ProductFamilySummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const before = await prisma.productFamily.findUnique({ where: { id: familyId } });
+  if (!before) throw new Error('Product family not found');
+  const updated = await prisma.productFamily.update({
+    where: { id: familyId },
+    data: {
+      ...(input.code !== undefined ? { code: input.code.trim() || before.code } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() || before.name } : {}),
+      ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'PRODUCT_FAMILY',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+      metadata: { sourceOfTruth: 'pulse_family_governance' },
+    }),
+  });
+  return mapFamily(updated);
 }
 
 export async function updateProductCategory(actor: AuthenticatedActor, categoryId: string, input: UpdateProductCategoryRequest): Promise<ProductCategorySummary> {
@@ -405,20 +470,24 @@ function mapBaseProduct(product: any): BaseProductSummary {
     sourceSystem: lower(product.sourceSystem),
     sourceOfTruthSystem: lower(product.sourceOfTruthSystem),
     category: product.category ? mapCategory(product.category) : undefined,
-    family: product.family ? {
-      id: product.family.id,
-      code: product.family.code,
-      name: product.family.name,
-      description: product.family.description ?? undefined,
-      isActive: product.family.isActive,
-      sortOrder: product.family.sortOrder,
-    } : undefined,
+    family: product.family ? mapFamily(product.family) : undefined,
     isSellable: product.isSellable,
     isDealerVisible: product.isDealerVisible,
     acumaticaLastSyncedAt: product.acumaticaLastSyncedAt?.toISOString(),
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
   }) as BaseProductSummary;
+}
+
+function mapFamily(family: any): ProductFamilySummary {
+  return {
+    id: family.id,
+    code: family.code,
+    name: family.name,
+    description: family.description ?? undefined,
+    isActive: family.isActive,
+    sortOrder: family.sortOrder,
+  };
 }
 
 function mapCategory(category: any): ProductCategorySummary {

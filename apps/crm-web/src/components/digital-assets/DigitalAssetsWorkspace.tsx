@@ -33,13 +33,20 @@ import {
   type DigitalAssetVisibilityKey,
 } from '@pulse/contracts/digital-assets';
 import {
+  addDigitalAssetToCollection,
+  createDigitalAssetCollectionRecord,
   createDigitalAssetRecord,
   createDigitalAssetVersionRecord,
+  fetchDigitalAssetCollections,
   fetchDigitalAssetDetail,
   fetchDigitalAssetLibrary,
   fetchWidenImportRuns,
   previewWidenImport,
+  removeDigitalAssetFromCollection,
+  updateDigitalAssetCollectionRecord,
   updateDigitalAssetRecord,
+  type DigitalAssetCollectionSummary,
+  type ListDigitalAssetCollectionsResponse,
   type ListDigitalAssetsResponse,
   type ListWidenImportRunsResponse,
   type WidenImportPreviewResponse,
@@ -47,7 +54,7 @@ import {
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
-type AssetTab = 'library' | 'migration';
+type AssetTab = 'library' | 'collections' | 'migration';
 
 type CreateAssetFormState = {
   title: string;
@@ -83,6 +90,18 @@ type AssetEditFormState = {
   regionScope: string;
   dealerGroupType: string;
   dealerGroupId: string;
+};
+
+type CollectionFormState = {
+  code: string;
+  name: string;
+  description: string;
+  visibility: DigitalAssetVisibilityKey;
+  brandScope: string;
+  regionScope: string;
+  dealerGroupType: string;
+  dealerGroupId: string;
+  isActive: boolean;
 };
 
 const defaultAssetForm: CreateAssetFormState = {
@@ -121,18 +140,35 @@ const defaultAssetEditForm: AssetEditFormState = {
   dealerGroupId: '',
 };
 
+const defaultCollectionForm: CollectionFormState = {
+  code: '',
+  name: '',
+  description: '',
+  visibility: 'internal_only',
+  brandScope: '',
+  regionScope: '',
+  dealerGroupType: '',
+  dealerGroupId: '',
+  isActive: true,
+};
+
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
   const [search, setSearch] = useState('');
   const [assets, setAssets] = useState<ListDigitalAssetsResponse>({ items: [], total: 0 });
+  const [collections, setCollections] = useState<ListDigitalAssetCollectionsResponse>({ items: [], total: 0 });
   const [selectedAsset, setSelectedAsset] = useState<DigitalAssetDetail | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [assetForm, setAssetForm] = useState<CreateAssetFormState>(defaultAssetForm);
+  const [collectionForm, setCollectionForm] = useState<CollectionFormState>(defaultCollectionForm);
   const [versionForm, setVersionForm] = useState<VersionFormState>(defaultVersionForm);
   const [assetEditForm, setAssetEditForm] = useState<AssetEditFormState>(defaultAssetEditForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
+  const [isSavingCollection, setIsSavingCollection] = useState(false);
+  const [isUpdatingCollectionItem, setIsUpdatingCollectionItem] = useState(false);
   const [isAddingVersion, setIsAddingVersion] = useState(false);
   const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
@@ -152,7 +188,7 @@ export function DigitalAssetsWorkspace() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as AssetTab | null;
-    if (tab && ['library', 'migration'].includes(tab)) {
+    if (tab && ['library', 'collections', 'migration'].includes(tab)) {
       setActiveTab(tab);
     }
   }, []);
@@ -164,8 +200,14 @@ export function DigitalAssetsWorkspace() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 });
-        if (!cancelled) setAssets(response);
+        const [assetResponse, collectionResponse] = await Promise.all([
+          fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
+          fetchDigitalAssetCollections(apiBaseUrl, auth.tokens.accessToken),
+        ]);
+        if (!cancelled) {
+          setAssets(assetResponse);
+          setCollections(collectionResponse);
+        }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
       } finally {
@@ -179,8 +221,12 @@ export function DigitalAssetsWorkspace() {
 
   const reloadAssets = async () => {
     if (!auth) return;
-    const response = await fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 });
-    setAssets(response);
+    const [assetResponse, collectionResponse] = await Promise.all([
+      fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
+      fetchDigitalAssetCollections(apiBaseUrl, auth.tokens.accessToken),
+    ]);
+    setAssets(assetResponse);
+    setCollections(collectionResponse);
   };
 
   const loadAssetDetail = async (assetId: string) => {
@@ -280,6 +326,87 @@ export function DigitalAssetsWorkspace() {
     }
   };
 
+  const handleEditCollection = (collection: DigitalAssetCollectionSummary) => {
+    setSelectedCollectionId(collection.id);
+    setCollectionForm({
+      code: collection.code,
+      name: collection.name,
+      description: collection.description ?? '',
+      visibility: collection.visibility,
+      brandScope: collection.brandScope ?? '',
+      regionScope: collection.regionScope ?? '',
+      dealerGroupType: collection.dealerGroupType ?? '',
+      dealerGroupId: collection.dealerGroupId ?? '',
+      isActive: collection.isActive,
+    });
+    setActiveTab('collections');
+  };
+
+  const handleResetCollection = () => {
+    setSelectedCollectionId(null);
+    setCollectionForm(defaultCollectionForm);
+  };
+
+  const handleSaveCollection = async () => {
+    if (!auth) return;
+    setIsSavingCollection(true);
+    setError(null);
+    const payload = {
+      code: collectionForm.code,
+      name: collectionForm.name,
+      description: emptyToNull(collectionForm.description),
+      visibility: collectionForm.visibility,
+      brandScope: emptyToNull(collectionForm.brandScope),
+      regionScope: emptyToNull(collectionForm.regionScope),
+      dealerGroupType: emptyToNull(collectionForm.dealerGroupType),
+      dealerGroupId: emptyToNull(collectionForm.dealerGroupId),
+      isActive: collectionForm.isActive,
+    };
+    try {
+      if (selectedCollectionId) {
+        await updateDigitalAssetCollectionRecord(apiBaseUrl, auth.tokens.accessToken, selectedCollectionId, payload);
+      } else {
+        await createDigitalAssetCollectionRecord(apiBaseUrl, auth.tokens.accessToken, payload);
+      }
+      handleResetCollection();
+      await reloadAssets();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingCollection(false);
+    }
+  };
+
+  const handleAddSelectedAssetToCollection = async () => {
+    if (!auth || !selectedCollectionId || !selectedAsset) return;
+    setIsUpdatingCollectionItem(true);
+    setDetailError(null);
+    try {
+      await addDigitalAssetToCollection(apiBaseUrl, auth.tokens.accessToken, selectedCollectionId, {
+        assetId: selectedAsset.id,
+      });
+      await reloadAssets();
+    } catch (membershipError) {
+      setDetailError(membershipError instanceof Error ? membershipError.message : String(membershipError));
+    } finally {
+      setIsUpdatingCollectionItem(false);
+    }
+  };
+
+  const handleRemoveSelectedAssetFromCollection = async () => {
+    if (!auth || !selectedCollectionId || !selectedAsset) return;
+    setIsUpdatingCollectionItem(true);
+    setDetailError(null);
+    try {
+      await removeDigitalAssetFromCollection(apiBaseUrl, auth.tokens.accessToken, selectedCollectionId, selectedAsset.id);
+      await reloadAssets();
+    } catch (membershipError) {
+      setDetailError(membershipError instanceof Error ? membershipError.message : String(membershipError));
+    } finally {
+      setIsUpdatingCollectionItem(false);
+    }
+  };
+
   const handlePreviewImport = async () => {
     if (!auth) return;
     setIsPreviewingImport(true);
@@ -324,6 +451,7 @@ export function DigitalAssetsWorkspace() {
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as AssetTab) ?? 'library')}>
         <Tabs.List>
           <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Asset Library</Tabs.Tab>
+          <Tabs.Tab value="collections">Collections</Tabs.Tab>
           <Tabs.Tab value="migration" leftSection={<IconCloudUpload size={16} />}>Migration Manifest</Tabs.Tab>
         </Tabs.List>
 
@@ -486,6 +614,90 @@ export function DigitalAssetsWorkspace() {
           </SimpleGrid>
         </Tabs.Panel>
 
+        <Tabs.Panel value="collections" pt="md">
+          <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+            <Paper withBorder p="md">
+              <Stack gap="sm">
+                <Group justify="space-between">
+                  <Title order={4}>{selectedCollectionId ? 'Edit Collection' : 'Create Collection'}</Title>
+                  <Button onClick={handleSaveCollection} loading={isSavingCollection} disabled={!collectionForm.code.trim() || !collectionForm.name.trim()}>
+                    {selectedCollectionId ? 'Save' : 'Create'}
+                  </Button>
+                </Group>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <TextInput label="Code" value={collectionForm.code} onChange={(event) => setCollectionForm((current) => ({ ...current, code: event.currentTarget.value }))} />
+                  <TextInput label="Name" value={collectionForm.name} onChange={(event) => setCollectionForm((current) => ({ ...current, name: event.currentTarget.value }))} />
+                  <Select label="Visibility" data={visibilityOptions} value={collectionForm.visibility} onChange={(value) => setCollectionForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))} allowDeselect={false} />
+                  <TextInput label="Brand scope" value={collectionForm.brandScope} onChange={(event) => setCollectionForm((current) => ({ ...current, brandScope: event.currentTarget.value }))} />
+                  <TextInput label="Region scope" value={collectionForm.regionScope} onChange={(event) => setCollectionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+                  <TextInput label="Dealer group type" value={collectionForm.dealerGroupType} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
+                  <TextInput label="Dealer group ID" value={collectionForm.dealerGroupId} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+                  <Checkbox mt="xl" label="Active" checked={collectionForm.isActive} onChange={(event) => setCollectionForm((current) => ({ ...current, isActive: event.currentTarget.checked }))} />
+                </SimpleGrid>
+                <Textarea label="Description" minRows={2} value={collectionForm.description} onChange={(event) => setCollectionForm((current) => ({ ...current, description: event.currentTarget.value }))} />
+                <Group justify="flex-end">
+                  <Button variant="subtle" onClick={handleResetCollection}>Reset</Button>
+                </Group>
+              </Stack>
+            </Paper>
+
+            <Paper withBorder>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Collection</Table.Th>
+                    <Table.Th>Visibility</Table.Th>
+                    <Table.Th>Items</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {collections.items.map((collection) => (
+                    <Table.Tr key={collection.id}>
+                      <Table.Td>
+                        <Text fw={600}>{collection.name}</Text>
+                        <Text size="xs" c="dimmed">{collection.code}</Text>
+                      </Table.Td>
+                      <Table.Td>{collection.visibility}</Table.Td>
+                      <Table.Td>{collection.itemCount ?? 0}</Table.Td>
+                      <Table.Td><Badge color={collection.isActive ? 'green' : 'gray'} variant="light">{collection.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
+                      <Table.Td><Button size="xs" variant="light" onClick={() => handleEditCollection(collection)}>Edit</Button></Table.Td>
+                    </Table.Tr>
+                  ))}
+                  {!collections.items.length ? (
+                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No collections configured yet.</Text></Table.Td></Table.Tr>
+                  ) : null}
+                </Table.Tbody>
+              </Table>
+            </Paper>
+          </SimpleGrid>
+
+          <Paper withBorder p="md" mt="md">
+            <Stack gap="sm">
+              <Title order={4}>Selected Asset Membership</Title>
+              <Text size="sm" c="dimmed">{selectedAsset ? selectedAsset.title : 'Select an asset in the library tab before adding it to a collection.'}</Text>
+              <Group align="flex-end">
+                <Select
+                  label="Collection"
+                  data={collections.items.map((collection) => ({ value: collection.id, label: collection.name }))}
+                  value={selectedCollectionId}
+                  onChange={setSelectedCollectionId}
+                  searchable
+                  clearable
+                  w={320}
+                />
+                <Button onClick={handleAddSelectedAssetToCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
+                  Add Asset
+                </Button>
+                <Button variant="light" color="red" onClick={handleRemoveSelectedAssetFromCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
+                  Remove Asset
+                </Button>
+              </Group>
+            </Stack>
+          </Paper>
+        </Tabs.Panel>
+
         <Tabs.Panel value="migration" pt="md">
           <Stack gap="md">
             <Paper withBorder p="md">
@@ -631,6 +843,56 @@ function AssetDetailPanel({
               <TextInput label="Dealer group ID" value={editForm.dealerGroupId} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupId: event.currentTarget.value })} />
             </SimpleGrid>
             <Textarea label="Description" minRows={2} value={editForm.description} onChange={(event) => onEditFormChange({ ...editForm, description: event.currentTarget.value })} />
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {(asset.legacyMetadataFields?.length || asset.migrationIssues?.length || asset.legacyMetadata) ? (
+        <Paper withBorder p="md">
+          <Stack gap="md">
+            <Title order={5}>Migration Trace</Title>
+            {asset.legacyMetadataFields?.length ? (
+              <Table striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Field</Table.Th>
+                    <Table.Th>Value</Table.Th>
+                    <Table.Th>Type</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {asset.legacyMetadataFields.slice(0, 12).map((field) => (
+                    <Table.Tr key={field.id}>
+                      <Table.Td>{field.fieldLabel ?? field.fieldKey}</Table.Td>
+                      <Table.Td>{field.fieldValue ?? JSON.stringify(field.fieldValueJson ?? '')}</Table.Td>
+                      <Table.Td>{field.valueType ?? 'text'}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            ) : asset.legacyMetadata ? (
+              <Text size="sm" c="dimmed">{Object.keys(asset.legacyMetadata).slice(0, 12).join(', ')}</Text>
+            ) : null}
+            {asset.migrationIssues?.length ? (
+              <Table striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Severity</Table.Th>
+                    <Table.Th>Issue</Table.Th>
+                    <Table.Th>Message</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {asset.migrationIssues.slice(0, 10).map((issue) => (
+                    <Table.Tr key={issue.id}>
+                      <Table.Td><Badge color={issue.severity === 'error' ? 'red' : 'yellow'} variant="light">{issue.severity}</Badge></Table.Td>
+                      <Table.Td>{issue.issueCode}</Table.Td>
+                      <Table.Td>{issue.message}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            ) : null}
           </Stack>
         </Paper>
       ) : null}

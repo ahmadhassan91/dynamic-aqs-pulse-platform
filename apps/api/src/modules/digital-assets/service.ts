@@ -15,17 +15,23 @@ import {
 } from '@pulse/db';
 import type {
   CommitWidenManifestImportResponse,
+  CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
+  DigitalAssetCollectionItemSummary,
+  DigitalAssetCollectionSummary,
   DigitalAssetDetail,
   DigitalAssetSummary,
   DigitalAssetVersionSummary,
+  ListDigitalAssetCollectionsResponse,
   ListDigitalAssetsRequest,
   ListDigitalAssetsResponse,
   ListWidenManifestImportRunsResponse,
   ProductAssetAssignmentSummary,
+  UpdateDigitalAssetCollectionRequest,
   UpdateDigitalAssetRequest,
+  UpsertDigitalAssetCollectionItemRequest,
   WidenManifestImportSummary,
   WidenManifestImportRequest,
   WidenManifestPreviewResponse,
@@ -168,6 +174,129 @@ export async function updateDigitalAsset(actor: AuthenticatedActor, assetId: str
   });
   await prisma.auditEntry.create({ data: buildAuditEntryData({ actorUserId: actor.userId, action: AuditAction.UPDATE, entityType: 'DIGITAL_ASSET', entityId: assetId, beforeData: before, afterData: updated }) });
   return mapAsset(updated);
+}
+
+export async function listDigitalAssetCollections(actor: AuthenticatedActor): Promise<ListDigitalAssetCollectionsResponse> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.view');
+  const [items, total] = await Promise.all([
+    prisma.digitalAssetCollection.findMany({
+      orderBy: [{ updatedAt: 'desc' }],
+      include: { _count: { select: { items: true } } },
+    }),
+    prisma.digitalAssetCollection.count(),
+  ]);
+  return { items: items.map(mapCollection), total };
+}
+
+export async function createDigitalAssetCollection(actor: AuthenticatedActor, input: CreateDigitalAssetCollectionRequest): Promise<DigitalAssetCollectionSummary> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.edit');
+  if (!input.code?.trim()) throw new Error('code is required');
+  if (!input.name?.trim()) throw new Error('name is required');
+  const collection = await prisma.digitalAssetCollection.create({
+    data: {
+      code: input.code.trim(),
+      name: input.name.trim(),
+      description: cleanNullable(input.description),
+      visibility: input.visibility ? toAssetVisibility(input.visibility) : DigitalAssetVisibility.INTERNAL_ONLY,
+      brandScope: cleanNullable(input.brandScope),
+      regionScope: cleanNullable(input.regionScope),
+      dealerGroupType: cleanNullable(input.dealerGroupType),
+      dealerGroupId: cleanNullable(input.dealerGroupId),
+      isActive: input.isActive ?? true,
+    },
+    include: { _count: { select: { items: true } } },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'DIGITAL_ASSET_COLLECTION',
+      entityId: collection.id,
+      afterData: collection,
+    }),
+  });
+  return mapCollection(collection);
+}
+
+export async function updateDigitalAssetCollection(actor: AuthenticatedActor, collectionId: string, input: UpdateDigitalAssetCollectionRequest): Promise<DigitalAssetCollectionSummary> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.edit');
+  const before = await prisma.digitalAssetCollection.findUnique({ where: { id: collectionId } });
+  if (!before) throw new Error('Digital asset collection not found');
+  const updated = await prisma.digitalAssetCollection.update({
+    where: { id: collectionId },
+    data: {
+      ...(input.code !== undefined ? { code: input.code.trim() || before.code } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() || before.name } : {}),
+      ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
+      ...(input.visibility !== undefined ? { visibility: toAssetVisibility(input.visibility) } : {}),
+      ...(input.brandScope !== undefined ? { brandScope: cleanNullable(input.brandScope) } : {}),
+      ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
+      ...(input.dealerGroupType !== undefined ? { dealerGroupType: cleanNullable(input.dealerGroupType) } : {}),
+      ...(input.dealerGroupId !== undefined ? { dealerGroupId: cleanNullable(input.dealerGroupId) } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    },
+    include: { _count: { select: { items: true } } },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'DIGITAL_ASSET_COLLECTION',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+    }),
+  });
+  return mapCollection(updated);
+}
+
+export async function upsertDigitalAssetCollectionItem(actor: AuthenticatedActor, collectionId: string, input: UpsertDigitalAssetCollectionItemRequest): Promise<DigitalAssetCollectionItemSummary> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.edit');
+  const [collection, asset] = await Promise.all([
+    prisma.digitalAssetCollection.findUnique({ where: { id: collectionId } }),
+    prisma.digitalAsset.findUnique({ where: { id: input.assetId } }),
+  ]);
+  if (!collection) throw new Error('Digital asset collection not found');
+  if (!asset) throw new Error('Digital asset not found');
+  const item = await prisma.digitalAssetCollectionItem.upsert({
+    where: { collectionId_assetId: { collectionId, assetId: input.assetId } },
+    create: { collectionId, assetId: input.assetId, sortOrder: input.sortOrder ?? 100 },
+    update: { sortOrder: input.sortOrder ?? 100 },
+    include: { asset: { include: { versions: { where: { isCurrent: true }, take: 1 }, _count: { select: { versions: true } } } } },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'DIGITAL_ASSET_COLLECTION',
+      entityId: collectionId,
+      metadata: { operation: 'collection.item_upsert', assetId: input.assetId },
+      afterData: item,
+    }),
+  });
+  return mapCollectionItem(item);
+}
+
+export async function removeDigitalAssetCollectionItem(actor: AuthenticatedActor, collectionId: string, assetId: string): Promise<{ collectionId: string; assetId: string; removed: boolean }> {
+  assertModuleAccess(actor.role, 'digital_assets');
+  assertActionAccess(actor.role, 'digital_asset.edit');
+  const collection = await prisma.digitalAssetCollection.findUnique({ where: { id: collectionId } });
+  if (!collection) throw new Error('Digital asset collection not found');
+  const deleted = await prisma.digitalAssetCollectionItem.deleteMany({ where: { collectionId, assetId } });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'DIGITAL_ASSET_COLLECTION',
+      entityId: collectionId,
+      metadata: { operation: 'collection.item_remove', assetId, removed: deleted.count > 0 },
+    }),
+  });
+  return { collectionId, assetId, removed: deleted.count > 0 };
 }
 
 export async function createDigitalAssetVersion(actor: AuthenticatedActor, assetId: string, input: CreateDigitalAssetVersionRequest): Promise<DigitalAssetDetail> {
@@ -968,6 +1097,36 @@ function mapAsset(asset: any): DigitalAssetSummary {
   if (legacyMetadata) summary.legacyMetadata = legacyMetadata;
   const rawSourcePayload = objectJson(asset.rawSourcePayload);
   if (rawSourcePayload) summary.rawSourcePayload = rawSourcePayload;
+  return summary;
+}
+
+function mapCollection(collection: any): DigitalAssetCollectionSummary {
+  return {
+    id: collection.id,
+    code: collection.code,
+    name: collection.name,
+    description: collection.description ?? undefined,
+    visibility: lower(collection.visibility),
+    brandScope: collection.brandScope ?? undefined,
+    regionScope: collection.regionScope ?? undefined,
+    dealerGroupType: collection.dealerGroupType ?? undefined,
+    dealerGroupId: collection.dealerGroupId ?? undefined,
+    isActive: collection.isActive,
+    itemCount: collection._count?.items ?? (Array.isArray(collection.items) ? collection.items.length : undefined),
+    createdAt: collection.createdAt.toISOString(),
+    updatedAt: collection.updatedAt.toISOString(),
+  };
+}
+
+function mapCollectionItem(item: any): DigitalAssetCollectionItemSummary {
+  const summary: DigitalAssetCollectionItemSummary = {
+    id: item.id,
+    collectionId: item.collectionId,
+    assetId: item.assetId,
+    sortOrder: item.sortOrder,
+    createdAt: item.createdAt.toISOString(),
+  };
+  if (item.asset) summary.asset = mapAsset(item.asset);
   return summary;
 }
 

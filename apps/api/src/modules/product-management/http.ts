@@ -3,8 +3,10 @@ import type { URL } from 'node:url';
 import type {
   CommitProductReferenceImportRequest,
   CreateProductCategoryRequest,
+  CreateProductFamilyRequest,
   ProductReferenceImportPreviewRequest,
   UpdateProductCategoryRequest,
+  UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
@@ -28,12 +30,15 @@ import {
 import {
   createCatalogInclusion,
   createProductCategory,
+  createProductFamily,
   getProductDetail,
   listProductCategories,
+  listProductFamilies,
   listProducts,
   runProductPublishValidation,
   updateCatalogInclusion,
   updateProductCategory,
+  updateProductFamily,
   updateProductPresentation,
 } from './service.js';
 import {
@@ -83,6 +88,27 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
       if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
       const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
       return jsonResponse(res, 200, await updateProductCategory(actor, categoryId, (await readJsonBody(req)) as UpdateProductCategoryRequest));
+    }
+
+    if (pathname === '/api/v1/product-management/families') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+        return jsonResponse(res, 200, await listProductFamilies(actor));
+      }
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+        return jsonResponse(res, 201, await createProductFamily(actor, (await readJsonBody(req)) as CreateProductFamilyRequest));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const familyMatch = matchPath(pathname, '/api/v1/product-management/families/:familyId');
+    if (familyMatch) {
+      const familyId = familyMatch.familyId;
+      if (!familyId) return badRequestResponse(res, 'Product family id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await updateProductFamily(actor, familyId, (await readJsonBody(req)) as UpdateProductFamilyRequest));
     }
 
     if (pathname === '/api/v1/product-management/import-preview') {

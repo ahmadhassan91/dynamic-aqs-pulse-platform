@@ -158,8 +158,52 @@ export interface DigitalAssetCollectionSummary {
   dealerGroupType?: string;
   dealerGroupId?: string;
   isActive: boolean;
+  itemCount?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DigitalAssetCollectionItemSummary {
+  id: string;
+  collectionId: string;
+  assetId: string;
+  sortOrder: number;
+  asset?: DigitalAssetSummary;
+  createdAt: string;
+}
+
+export interface ListDigitalAssetCollectionsResponse {
+  items: DigitalAssetCollectionSummary[];
+  total: number;
+}
+
+export interface CreateDigitalAssetCollectionRequest {
+  code: string;
+  name: string;
+  description?: string | null;
+  visibility?: DigitalAssetVisibilityKey;
+  brandScope?: string | null;
+  regionScope?: string | null;
+  dealerGroupType?: string | null;
+  dealerGroupId?: string | null;
+  isActive?: boolean;
+}
+
+export interface UpdateDigitalAssetCollectionRequest {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  visibility?: DigitalAssetVisibilityKey;
+  brandScope?: string | null;
+  regionScope?: string | null;
+  dealerGroupType?: string | null;
+  dealerGroupId?: string | null;
+  isActive?: boolean;
+}
+
+export interface UpsertDigitalAssetCollectionItemRequest {
+  assetId: string;
+  sortOrder?: number;
 }
 
 export interface ListDigitalAssetsRequest {

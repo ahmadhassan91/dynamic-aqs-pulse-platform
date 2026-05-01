@@ -240,29 +240,38 @@ import type {
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
   CreateProductCategoryRequest,
+  CreateProductFamilyRequest,
   ListProductsRequest,
   ListProductsResponse,
   ProductDetail,
   ProductCategorySummary,
   ProductPresentationSummary,
   CatalogInclusionSummary,
+  ProductFamilySummary,
   ProductReferenceImportPreviewRequest,
   ProductReferenceImportPreviewResponse,
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
+  UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
 } from '@pulse/contracts/product-management';
 import type {
+  CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
+  DigitalAssetCollectionItemSummary,
+  DigitalAssetCollectionSummary,
   DigitalAssetDetail,
   DigitalAssetSummary,
+  ListDigitalAssetCollectionsResponse,
   ListDigitalAssetsRequest,
   ListDigitalAssetsResponse,
   ProductAssetAssignmentSummary,
+  UpdateDigitalAssetCollectionRequest,
   UpdateDigitalAssetRequest,
+  UpsertDigitalAssetCollectionItemRequest,
 } from '@pulse/contracts/digital-assets';
 
 export type WidenImportPreviewRequest = {
@@ -357,7 +366,14 @@ export type {
   ConsignmentSiteDetail,
   ConsignmentSiteSummary,
 } from '@pulse/contracts';
-export type { ListProductsResponse, ProductCategorySummary, ListDigitalAssetsResponse };
+export type {
+  DigitalAssetCollectionSummary,
+  ListDigitalAssetCollectionsResponse,
+  ListProductsResponse,
+  ProductCategorySummary,
+  ProductFamilySummary,
+  ListDigitalAssetsResponse,
+};
 
 export type ConsignmentDashboardResponse = {
   metrics: {
@@ -419,6 +435,29 @@ export async function createProductManagementCategory(apiBaseUrl: string, access
 
 export async function updateProductManagementCategory(apiBaseUrl: string, accessToken: string, categoryId: string, input: UpdateProductCategoryRequest) {
   return requestJson<ProductCategorySummary>(apiBaseUrl, `/api/v1/product-management/categories/${categoryId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchProductManagementFamilies(apiBaseUrl: string, accessToken: string) {
+  return requestJson<{ items: ProductFamilySummary[] }>(apiBaseUrl, '/api/v1/product-management/families', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createProductManagementFamily(apiBaseUrl: string, accessToken: string, input: CreateProductFamilyRequest) {
+  return requestJson<ProductFamilySummary>(apiBaseUrl, '/api/v1/product-management/families', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateProductManagementFamily(apiBaseUrl: string, accessToken: string, familyId: string, input: UpdateProductFamilyRequest) {
+  return requestJson<ProductFamilySummary>(apiBaseUrl, `/api/v1/product-management/families/${familyId}`, {
     method: 'PATCH',
     accessToken,
     body: input,
@@ -528,6 +567,44 @@ export async function updateDigitalAssetRecord(apiBaseUrl: string, accessToken: 
     method: 'PATCH',
     accessToken,
     body: input,
+  });
+}
+
+export async function fetchDigitalAssetCollections(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListDigitalAssetCollectionsResponse>(apiBaseUrl, '/api/v1/digital-assets/collections', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createDigitalAssetCollectionRecord(apiBaseUrl: string, accessToken: string, input: CreateDigitalAssetCollectionRequest) {
+  return requestJson<DigitalAssetCollectionSummary>(apiBaseUrl, '/api/v1/digital-assets/collections', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateDigitalAssetCollectionRecord(apiBaseUrl: string, accessToken: string, collectionId: string, input: UpdateDigitalAssetCollectionRequest) {
+  return requestJson<DigitalAssetCollectionSummary>(apiBaseUrl, `/api/v1/digital-assets/collections/${encodeURIComponent(collectionId)}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function addDigitalAssetToCollection(apiBaseUrl: string, accessToken: string, collectionId: string, input: UpsertDigitalAssetCollectionItemRequest) {
+  return requestJson<DigitalAssetCollectionItemSummary>(apiBaseUrl, `/api/v1/digital-assets/collections/${encodeURIComponent(collectionId)}/items`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function removeDigitalAssetFromCollection(apiBaseUrl: string, accessToken: string, collectionId: string, assetId: string) {
+  return requestJson<{ collectionId: string; assetId: string; removed: boolean }>(apiBaseUrl, `/api/v1/digital-assets/collections/${encodeURIComponent(collectionId)}/items/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE',
+    accessToken,
   });
 }
 

@@ -1,10 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  CreateDigitalAssetCollectionRequest,
   CreateDigitalAssetRequest,
   CreateDigitalAssetVersionRequest,
   CreateProductAssetAssignmentRequest,
+  UpdateDigitalAssetCollectionRequest,
   UpdateDigitalAssetRequest,
+  UpsertDigitalAssetCollectionItemRequest,
   WidenManifestImportRequest,
 } from '@pulse/contracts/digital-assets';
 import {
@@ -21,16 +24,21 @@ import {
 } from '../../utils/http.js';
 import { isAuthenticationError, isAuthorizationError, requireAuthenticatedActor } from '../auth/request.js';
 import {
+  createDigitalAssetCollection,
   createDigitalAsset,
   createDigitalAssetVersion,
   assignProductAsset,
   commitWidenManifestImport,
   getDigitalAssetDetail,
+  listDigitalAssetCollections,
   listWidenManifestImportRuns,
   listDigitalAssets,
   previewWidenManifestImport,
+  removeDigitalAssetCollectionItem,
   unlinkProductAsset,
   updateDigitalAsset,
+  updateDigitalAssetCollection,
+  upsertDigitalAssetCollectionItem,
 } from './service.js';
 
 export async function handleDigitalAssetRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
@@ -86,6 +94,46 @@ export async function handleDigitalAssetRoutes(req: IncomingMessage, res: Server
       if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
       const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.upload' });
       return jsonResponse(res, 201, await createDigitalAssetVersion(actor, assetId, (await readJsonBody(req)) as CreateDigitalAssetVersionRequest));
+    }
+
+    if (pathname === '/api/v1/digital-assets/collections') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.view' });
+        return jsonResponse(res, 200, await listDigitalAssetCollections(actor));
+      }
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.edit' });
+        return jsonResponse(res, 201, await createDigitalAssetCollection(actor, (await readJsonBody(req)) as CreateDigitalAssetCollectionRequest));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const collectionMatch = matchPath(pathname, '/api/v1/digital-assets/collections/:collectionId');
+    if (collectionMatch) {
+      const collectionId = collectionMatch.collectionId;
+      if (!collectionId) return badRequestResponse(res, 'Digital asset collection id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.edit' });
+      return jsonResponse(res, 200, await updateDigitalAssetCollection(actor, collectionId, (await readJsonBody(req)) as UpdateDigitalAssetCollectionRequest));
+    }
+
+    const collectionItemMatch = matchPath(pathname, '/api/v1/digital-assets/collections/:collectionId/items');
+    if (collectionItemMatch) {
+      const collectionId = collectionItemMatch.collectionId;
+      if (!collectionId) return badRequestResponse(res, 'Digital asset collection id is required');
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.edit' });
+      return jsonResponse(res, 201, await upsertDigitalAssetCollectionItem(actor, collectionId, (await readJsonBody(req)) as UpsertDigitalAssetCollectionItemRequest));
+    }
+
+    const removeCollectionItemMatch = matchPath(pathname, '/api/v1/digital-assets/collections/:collectionId/items/:assetId');
+    if (removeCollectionItemMatch) {
+      const collectionId = removeCollectionItemMatch.collectionId;
+      const assetId = removeCollectionItemMatch.assetId;
+      if (!collectionId || !assetId) return badRequestResponse(res, 'Digital asset collection id and asset id are required');
+      if (method !== 'DELETE') return methodNotAllowedResponse(res, method, ['DELETE']);
+      const actor = await requireAuthenticatedActor(req, { module: 'digital_assets', action: 'digital_asset.edit' });
+      return jsonResponse(res, 200, await removeDigitalAssetCollectionItem(actor, collectionId, assetId));
     }
 
     if (pathname === '/api/v1/digital-assets/product-assignments') {

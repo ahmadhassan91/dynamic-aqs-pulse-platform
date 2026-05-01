@@ -7,16 +7,20 @@ import type { ProductReferenceImportPreviewResponse } from '@pulse/contracts/pro
 import { IconAlertTriangle, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
 import {
   createProductManagementCategory,
+  createProductManagementFamily,
   fetchProductManagementCategories,
+  fetchProductManagementFamilies,
   fetchProductManagementProducts,
   previewProductReferenceImport,
   updateProductManagementCategory,
+  updateProductManagementFamily,
   type ListProductsResponse,
   type ProductCategorySummary,
+  type ProductFamilySummary,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
-type ProductTab = 'categories' | 'products' | 'readiness' | 'publish';
+type ProductTab = 'categories' | 'families' | 'products' | 'readiness' | 'publish';
 type CategoryFormState = {
   code: string;
   name: string;
@@ -24,6 +28,13 @@ type CategoryFormState = {
   description: string;
   categoryType: string;
   regionScope: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+type FamilyFormState = {
+  code: string;
+  name: string;
+  description: string;
   isActive: boolean;
   sortOrder: number;
 };
@@ -38,6 +49,13 @@ const emptyCategoryForm: CategoryFormState = {
   isActive: true,
   sortOrder: 100,
 };
+const emptyFamilyForm: FamilyFormState = {
+  code: '',
+  name: '',
+  description: '',
+  isActive: true,
+  sortOrder: 100,
+};
 
 export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
@@ -45,20 +63,24 @@ export function ProductManagementWorkspace() {
   const [search, setSearch] = useState('');
   const [products, setProducts] = useState<ListProductsResponse>({ items: [], total: 0 });
   const [categories, setCategories] = useState<ProductCategorySummary[]>([]);
+  const [families, setFamilies] = useState<ProductFamilySummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [isSavingFamily, setIsSavingFamily] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ProductReferenceImportPreviewResponse | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingFamilyId, setEditingFamilyId] = useState<string | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+  const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     if (tab === 'groups') {
       setActiveTab('categories');
-    } else if (tab && ['categories', 'products', 'readiness', 'publish'].includes(tab)) {
+    } else if (tab && ['categories', 'families', 'products', 'readiness', 'publish'].includes(tab)) {
       setActiveTab(tab as ProductTab);
     }
   }, []);
@@ -70,13 +92,15 @@ export function ProductManagementWorkspace() {
       setIsLoading(true);
       setError(null);
       try {
-        const [productResponse, categoryResponse] = await Promise.all([
+        const [productResponse, categoryResponse, familyResponse] = await Promise.all([
           fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
           fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
+          fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
         ]);
         if (!cancelled) {
           setProducts(productResponse);
           setCategories(categoryResponse.items);
+          setFamilies(familyResponse.items);
         }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -92,9 +116,10 @@ export function ProductManagementWorkspace() {
   const metrics = useMemo(() => ({
     totalProducts: products.total,
     categories: categories.length,
+    families: families.length,
     dealerVisible: products.items.filter((product) => product.isDealerVisible).length,
     acumaticaLinked: products.items.filter((product) => product.acumaticaInventoryId).length,
-  }), [categories.length, products]);
+  }), [categories.length, families.length, products]);
 
   const categoryParentOptions = useMemo(() => categories
     .filter((category) => category.id !== editingCategoryId)
@@ -102,12 +127,14 @@ export function ProductManagementWorkspace() {
 
   const reloadCatalog = async () => {
     if (!auth) return;
-    const [productResponse, categoryResponse] = await Promise.all([
+    const [productResponse, categoryResponse, familyResponse] = await Promise.all([
       fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
       fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
+      fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
     ]);
     setProducts(productResponse);
     setCategories(categoryResponse.items);
+    setFamilies(familyResponse.items);
   };
 
   const handleEditCategory = (category: ProductCategorySummary) => {
@@ -159,6 +186,49 @@ export function ProductManagementWorkspace() {
     }
   };
 
+  const handleEditFamily = (family: ProductFamilySummary) => {
+    setEditingFamilyId(family.id);
+    setFamilyForm({
+      code: family.code,
+      name: family.name,
+      description: family.description ?? '',
+      isActive: family.isActive,
+      sortOrder: family.sortOrder,
+    });
+    setActiveTab('families');
+  };
+
+  const handleResetFamilyForm = () => {
+    setEditingFamilyId(null);
+    setFamilyForm(emptyFamilyForm);
+  };
+
+  const handleSaveFamily = async () => {
+    if (!auth) return;
+    setIsSavingFamily(true);
+    setError(null);
+    const payload = {
+      code: familyForm.code,
+      name: familyForm.name,
+      description: familyForm.description || null,
+      isActive: familyForm.isActive,
+      sortOrder: familyForm.sortOrder,
+    };
+    try {
+      if (editingFamilyId) {
+        await updateProductManagementFamily(apiBaseUrl, auth.tokens.accessToken, editingFamilyId, payload);
+      } else {
+        await createProductManagementFamily(apiBaseUrl, auth.tokens.accessToken, payload);
+      }
+      handleResetFamilyForm();
+      await reloadCatalog();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingFamily(false);
+    }
+  };
+
   const handlePreviewImport = async () => {
     if (!auth) return;
     setIsPreviewingImport(true);
@@ -185,8 +255,8 @@ export function ProductManagementWorkspace() {
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
         <Metric label="Products" value={metrics.totalProducts} />
         <Metric label="Categories" value={metrics.categories} />
+        <Metric label="Families" value={metrics.families} />
         <Metric label="Dealer Visible" value={metrics.dealerVisible} />
-        <Metric label="Acumatica Linked" value={metrics.acumaticaLinked} />
       </SimpleGrid>
 
       {error ? (
@@ -198,6 +268,7 @@ export function ProductManagementWorkspace() {
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as ProductTab) ?? 'categories')}>
         <Tabs.List>
           <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
+          <Tabs.Tab value="families">Families</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
@@ -314,6 +385,86 @@ export function ProductManagementWorkspace() {
               <Badge variant="light">Pricing remains separate from product visibility</Badge>
             </Stack>
           </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="families" pt="md">
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+            <Paper withBorder p="md">
+              <Stack gap="sm">
+                <Title order={4}>{editingFamilyId ? 'Edit Family' : 'Create Family'}</Title>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <TextInput
+                    label="Code"
+                    value={familyForm.code}
+                    onChange={(event) => setFamilyForm((current) => ({ ...current, code: event.currentTarget.value }))}
+                    required
+                  />
+                  <TextInput
+                    label="Name"
+                    value={familyForm.name}
+                    onChange={(event) => setFamilyForm((current) => ({ ...current, name: event.currentTarget.value }))}
+                    required
+                  />
+                </SimpleGrid>
+                <Textarea
+                  label="Description"
+                  minRows={3}
+                  value={familyForm.description}
+                  onChange={(event) => setFamilyForm((current) => ({ ...current, description: event.currentTarget.value }))}
+                />
+                <Group align="flex-end">
+                  <NumberInput
+                    label="Sort order"
+                    min={0}
+                    value={familyForm.sortOrder}
+                    onChange={(value) => setFamilyForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
+                  />
+                  <Switch
+                    label="Active"
+                    checked={familyForm.isActive}
+                    onChange={(event) => setFamilyForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                  />
+                </Group>
+                <Group justify="flex-end">
+                  <Button variant="subtle" onClick={handleResetFamilyForm}>Reset</Button>
+                  <Button onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save Family' : 'Create Family'}</Button>
+                </Group>
+              </Stack>
+            </Paper>
+
+            <Paper withBorder>
+              {isLoading ? (
+                <Group justify="center" p="xl"><Loader /></Group>
+              ) : (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Family</Table.Th>
+                      <Table.Th>Products</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {families.map((family) => (
+                      <Table.Tr key={family.id}>
+                        <Table.Td>
+                          <Text fw={600}>{family.name}</Text>
+                          <Text size="xs" c="dimmed">{family.code}</Text>
+                        </Table.Td>
+                        <Table.Td>{products.items.filter((product) => product.family?.id === family.id).length}</Table.Td>
+                        <Table.Td><Badge color={family.isActive ? 'green' : 'gray'} variant="light">{family.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
+                        <Table.Td><Button size="xs" variant="light" onClick={() => handleEditFamily(family)}>Edit</Button></Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {!families.length ? (
+                      <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="lg">No families configured yet.</Text></Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              )}
+            </Paper>
+          </SimpleGrid>
         </Tabs.Panel>
 
         <Tabs.Panel value="products" pt="md">

@@ -9,17 +9,31 @@ const SERIAL = { concurrency: false };
 let prisma;
 let createCatalogInclusion;
 let createProductCategory;
+let createProductFamily;
 let getProductDetail;
+let listProductFamilies;
 let runProductPublishValidation;
 let updateCatalogInclusion;
 let updateProductCategory;
+let updateProductFamily;
 let updateProductPresentation;
 let unlinkProductAsset;
 let actor;
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ createCatalogInclusion, createProductCategory, getProductDetail, runProductPublishValidation, updateCatalogInclusion, updateProductCategory, updateProductPresentation } = await import('../dist/modules/product-management/service.js'));
+  ({
+    createCatalogInclusion,
+    createProductCategory,
+    createProductFamily,
+    getProductDetail,
+    listProductFamilies,
+    runProductPublishValidation,
+    updateCatalogInclusion,
+    updateProductCategory,
+    updateProductFamily,
+    updateProductPresentation,
+  } = await import('../dist/modules/product-management/service.js'));
   ({ unlinkProductAsset } = await import('../dist/modules/digital-assets/service.js'));
   await prisma.$connect();
 });
@@ -110,6 +124,35 @@ test('product categories can be updated with audit trail', SERIAL, async () => {
     },
   });
   assert.ok(audit);
+});
+
+test('product families can be created and updated with audit trail', SERIAL, async () => {
+  const family = await createProductFamily(actor, {
+    code: 'iaq-systems',
+    name: 'IAQ Systems',
+    description: 'Indoor air quality equipment family.',
+    sortOrder: 15,
+  });
+
+  const updated = await updateProductFamily(actor, family.id, {
+    name: 'Indoor Air Quality Systems',
+    description: null,
+    isActive: false,
+    sortOrder: 5,
+  });
+
+  assert.equal(updated.name, 'Indoor Air Quality Systems');
+  assert.equal(updated.description, undefined);
+  assert.equal(updated.isActive, false);
+  assert.equal(updated.sortOrder, 5);
+  const families = await listProductFamilies(actor);
+  assert.equal(families.items.length, 1);
+  assert.equal(families.items[0].id, family.id);
+  const audits = await prisma.auditEntry.findMany({
+    where: { entityType: 'PRODUCT_FAMILY', entityId: family.id },
+  });
+  assert.equal(audits.filter((entry) => entry.action === 'CREATE').length, 1);
+  assert.equal(audits.filter((entry) => entry.action === 'UPDATE').length, 1);
 });
 
 test('product presentation can be updated with audit trail', SERIAL, async () => {

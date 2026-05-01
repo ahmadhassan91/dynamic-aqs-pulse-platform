@@ -75,9 +75,9 @@ const CATEGORY_TYPE_OPTIONS = [
   { value: 'internal_reference', label: 'Internal reference' },
 ];
 const CATEGORY_REGION_OPTIONS = [
-  { value: 'ALL', label: 'All regions' },
-  { value: 'US', label: 'United States' },
-  { value: 'CA', label: 'Canada' },
+  { value: 'ALL_REGIONS', label: 'All regions' },
+  { value: 'COUNTRY_US', label: 'Country: United States' },
+  { value: 'COUNTRY_CA', label: 'Country: Canada' },
   ...APP_LEAD_REGION_OPTIONS.map((option) => ({
     value: option.value,
     label: `${option.group}: ${option.label} (${option.value})`,

@@ -3,13 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
-import type { ProductReferenceImportPreviewResponse } from '@pulse/contracts/product-management';
+import {
+  PRODUCT_PUBLISH_STATUSES,
+  type ProductDetail,
+  type ProductPublishStatusKey,
+  type ProductReferenceImportPreviewResponse,
+} from '@pulse/contracts/product-management';
 import { IconAlertTriangle, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
 import {
   createProductManagementCategory,
   createProductManagementFamily,
   fetchProductManagementCategories,
   fetchProductManagementFamilies,
+  fetchProductManagementProductDetail,
   fetchProductManagementProducts,
   previewProductReferenceImport,
   updateProductManagementCategory,
@@ -61,7 +67,11 @@ export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const [activeTab, setActiveTab] = useState<ProductTab>('categories');
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [familyFilter, setFamilyFilter] = useState<string | null>(null);
+  const [publishStatusFilter, setPublishStatusFilter] = useState<ProductPublishStatusKey | null>(null);
   const [products, setProducts] = useState<ListProductsResponse>({ items: [], total: 0 });
+  const [productDetails, setProductDetails] = useState<ProductDetail[]>([]);
   const [categories, setCategories] = useState<ProductCategorySummary[]>([]);
   const [families, setFamilies] = useState<ProductFamilySummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -92,13 +102,24 @@ export function ProductManagementWorkspace() {
       setIsLoading(true);
       setError(null);
       try {
+        const productQuery = {
+          search,
+          limit: 100,
+          ...(categoryFilter ? { categoryId: categoryFilter } : {}),
+          ...(familyFilter ? { familyId: familyFilter } : {}),
+          ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
+        };
         const [productResponse, categoryResponse, familyResponse] = await Promise.all([
-          fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
+          fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, productQuery),
           fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
           fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
         ]);
+        const detailResponse = await Promise.all(
+          productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
+        );
         if (!cancelled) {
           setProducts(productResponse);
+          setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
           setCategories(categoryResponse.items);
           setFamilies(familyResponse.items);
         }
@@ -111,7 +132,7 @@ export function ProductManagementWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, search]);
+  }, [apiBaseUrl, auth, categoryFilter, familyFilter, publishStatusFilter, search]);
 
   const metrics = useMemo(() => ({
     totalProducts: products.total,
@@ -124,15 +145,73 @@ export function ProductManagementWorkspace() {
   const categoryParentOptions = useMemo(() => categories
     .filter((category) => category.id !== editingCategoryId)
     .map((category) => ({ value: category.id, label: `${category.name} (${category.code})` })), [categories, editingCategoryId]);
+  const categoryFilterOptions = useMemo(() => categories.map((category) => ({
+    value: category.id,
+    label: `${category.name} (${category.code})`,
+  })), [categories]);
+  const familyFilterOptions = useMemo(() => families.map((family) => ({
+    value: family.id,
+    label: `${family.name} (${family.code})`,
+  })), [families]);
+  const publishStatusOptions = useMemo(() => PRODUCT_PUBLISH_STATUSES.map((status) => ({
+    value: status,
+    label: formatLabel(status),
+  })), []);
+  const readinessRows = useMemo(() => productDetails.map((product) => {
+    const presentation = product.presentations[0];
+    const hasContent = Boolean(presentation?.displayName?.trim() && presentation.shortDescription?.trim());
+    const hasPrimaryImage = product.assetAssignments.some((assignment) => assignment.role === 'primary_image' && assignment.status === 'active' && assignment.reviewStatus === 'approved');
+    const hasDealerVisibility = product.inclusions.some((inclusion) => inclusion.isVisible);
+    const blockers = [
+      product.category ? null : 'Missing category',
+      hasContent ? null : 'Missing dealer-facing content',
+      hasPrimaryImage ? null : 'Missing approved primary image',
+      hasDealerVisibility ? null : 'Missing dealer visibility rule',
+    ].filter(Boolean) as string[];
+    const warnings = [
+      product.family ? null : 'No family assigned',
+      product.assetAssignments.some((assignment) => assignment.role === 'spec_sheet') ? null : 'No spec sheet attached',
+      product.assetAssignments.some((assignment) => assignment.role === 'brochure') ? null : 'No brochure attached',
+    ].filter(Boolean) as string[];
+    return {
+      product,
+      presentation,
+      status: blockers.length ? 'blocked' : warnings.length ? 'warning' : 'pass',
+      blockers,
+      warnings,
+    };
+  }), [productDetails]);
+  const publishRows = useMemo(() => productDetails.map((product) => {
+    const presentation = product.presentations[0];
+    const readiness = readinessRows.find((row) => row.product.id === product.id);
+    return {
+      product,
+      presentation,
+      readinessStatus: readiness?.status ?? 'blocked',
+      visibilityCount: product.inclusions.filter((inclusion) => inclusion.isVisible).length,
+      assetCount: product.assetAssignments.length,
+    };
+  }), [productDetails, readinessRows]);
 
   const reloadCatalog = async () => {
     if (!auth) return;
+    const productQuery = {
+      search,
+      limit: 100,
+      ...(categoryFilter ? { categoryId: categoryFilter } : {}),
+      ...(familyFilter ? { familyId: familyFilter } : {}),
+      ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
+    };
     const [productResponse, categoryResponse, familyResponse] = await Promise.all([
-      fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
+      fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, productQuery),
       fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
       fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
     ]);
+    const detailResponse = await Promise.all(
+      productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
+    );
     setProducts(productResponse);
+    setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
     setCategories(categoryResponse.items);
     setFamilies(familyResponse.items);
   };
@@ -477,6 +556,35 @@ export function ProductManagementWorkspace() {
                 value={search}
                 onChange={(event) => setSearch(event.currentTarget.value)}
               />
+              <Select
+                w={220}
+                label="Category"
+                placeholder="All categories"
+                clearable
+                searchable
+                data={categoryFilterOptions}
+                value={categoryFilter}
+                onChange={setCategoryFilter}
+              />
+              <Select
+                w={220}
+                label="Family"
+                placeholder="All families"
+                clearable
+                searchable
+                data={familyFilterOptions}
+                value={familyFilter}
+                onChange={setFamilyFilter}
+              />
+              <Select
+                w={190}
+                label="Publish status"
+                placeholder="Any status"
+                clearable
+                data={publishStatusOptions}
+                value={publishStatusFilter}
+                onChange={(value) => setPublishStatusFilter(value as ProductPublishStatusKey | null)}
+              />
               <Button variant="light" onClick={handlePreviewImport} loading={isPreviewingImport}>
                 Preview CSV Import
               </Button>
@@ -499,6 +607,7 @@ export function ProductManagementWorkspace() {
                       <Table.Th>SKU</Table.Th>
                       <Table.Th>Name</Table.Th>
                       <Table.Th>Category</Table.Th>
+                      <Table.Th>Family</Table.Th>
                       <Table.Th>Source</Table.Th>
                       <Table.Th>Status</Table.Th>
                     </Table.Tr>
@@ -513,12 +622,13 @@ export function ProductManagementWorkspace() {
                           </Text>
                         </Table.Td>
                         <Table.Td>{product.category?.name ?? 'Unassigned'}</Table.Td>
+                        <Table.Td>{product.family?.name ?? 'Unassigned'}</Table.Td>
                         <Table.Td><Badge variant="light">{product.sourceSystem}</Badge></Table.Td>
                         <Table.Td>{product.lifecycleStatus}</Table.Td>
                       </Table.Tr>
                     ))}
                     {!products.items.length ? (
-                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No products loaded yet.</Text></Table.Td></Table.Tr>
+                      <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No products loaded yet.</Text></Table.Td></Table.Tr>
                     ) : null}
                   </Table.Tbody>
                 </Table>
@@ -528,16 +638,101 @@ export function ProductManagementWorkspace() {
         </Tabs.Panel>
 
         <Tabs.Panel value="readiness" pt="md">
-          <Paper withBorder p="md">
-            <Title order={4}>Go-live checklist</Title>
-            <Text c="dimmed">Publish validation will block missing category, content, primary image, required documents, visibility rules, and unresolved wrong-brand warnings.</Text>
-          </Paper>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              <Metric label="Blocked" value={readinessRows.filter((row) => row.status === 'blocked').length} />
+              <Metric label="Warnings" value={readinessRows.filter((row) => row.status === 'warning').length} />
+              <Metric label="Ready" value={readinessRows.filter((row) => row.status === 'pass').length} />
+            </SimpleGrid>
+            <Paper withBorder>
+              {isLoading ? (
+                <Group justify="center" p="xl"><Loader /></Group>
+              ) : (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Product</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th>Blocking Gaps</Table.Th>
+                      <Table.Th>Warnings</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {readinessRows.map((row) => (
+                      <Table.Tr key={row.product.id}>
+                        <Table.Td>
+                          <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                          <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={row.status === 'pass' ? 'green' : row.status === 'warning' ? 'yellow' : 'red'} variant="light">
+                            {row.status}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>{row.blockers.join(', ') || 'None'}</Table.Td>
+                        <Table.Td>{row.warnings.join(', ') || 'None'}</Table.Td>
+                        <Table.Td>
+                          <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
+                            Open
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {!readinessRows.length ? (
+                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No products match the current filters.</Text></Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              )}
+            </Paper>
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="publish" pt="md">
-          <Paper withBorder p="md">
-            <Title order={4}>Dealer catalog publish feed</Title>
-            <Text c="dimmed">Dealer Portal will consume approved Pulse catalog views, not raw ERP rows, Shopify seed data, or unrestricted asset library records.</Text>
+          <Paper withBorder>
+            {isLoading ? (
+              <Group justify="center" p="xl"><Loader /></Group>
+            ) : (
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Product</Table.Th>
+                    <Table.Th>Presentation Status</Table.Th>
+                    <Table.Th>Readiness</Table.Th>
+                    <Table.Th>Visibility Rules</Table.Th>
+                    <Table.Th>Assets</Table.Th>
+                    <Table.Th />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {publishRows.map((row) => (
+                    <Table.Tr key={row.product.id}>
+                      <Table.Td>
+                        <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                        <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                      </Table.Td>
+                      <Table.Td><Badge variant="light">{row.presentation?.publishStatus ?? 'draft'}</Badge></Table.Td>
+                      <Table.Td>
+                        <Badge color={row.readinessStatus === 'pass' ? 'green' : row.readinessStatus === 'warning' ? 'yellow' : 'red'} variant="light">
+                          {row.readinessStatus}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{row.visibilityCount}</Table.Td>
+                      <Table.Td>{row.assetCount}</Table.Td>
+                      <Table.Td>
+                        <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
+                          Review
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                  {!publishRows.length ? (
+                    <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No products match the current filters.</Text></Table.Td></Table.Tr>
+                  ) : null}
+                </Table.Tbody>
+              </Table>
+            )}
           </Paper>
         </Tabs.Panel>
       </Tabs>
@@ -552,4 +747,8 @@ function Metric({ label, value }: { label: string; value: number }) {
       <Text size="xl" fw={700}>{value}</Text>
     </Paper>
   );
+}
+
+function formatLabel(value: string) {
+  return value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }

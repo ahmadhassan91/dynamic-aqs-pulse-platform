@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import {
   type ProductDetail,
+  type DealerCatalogViewSummary,
   type ProductPublishStatusKey,
   type ProductReferenceImportPreviewResponse,
 } from '@pulse/contracts/product-management';
@@ -14,6 +15,7 @@ import {
   createProductManagementCategory,
   createProductManagementFamily,
   fetchProductManagementCategories,
+  fetchDealerCatalogViews,
   fetchProductManagementFamilies,
   fetchProductManagementProductDetail,
   fetchProductManagementProducts,
@@ -37,6 +39,7 @@ type CatalogViewRow = {
   productCount: number;
   publishedCount: number;
   blockedCount: number;
+  isConfigured: boolean;
 };
 type CategoryFormState = {
   code: string;
@@ -108,6 +111,7 @@ export function ProductManagementWorkspace() {
   const [productDetails, setProductDetails] = useState<ProductDetail[]>([]);
   const [categories, setCategories] = useState<ProductCategorySummary[]>([]);
   const [families, setFamilies] = useState<ProductFamilySummary[]>([]);
+  const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [isSavingFamily, setIsSavingFamily] = useState(false);
@@ -142,10 +146,11 @@ export function ProductManagementWorkspace() {
           ...(familyFilter ? { familyId: familyFilter } : {}),
           ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
         };
-        const [productResponse, categoryResponse, familyResponse] = await Promise.all([
+        const [productResponse, categoryResponse, familyResponse, catalogViewResponse] = await Promise.all([
           fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, productQuery),
           fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
           fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
+          fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
         ]);
         const detailResponse = await Promise.all(
           productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
@@ -155,6 +160,7 @@ export function ProductManagementWorkspace() {
           setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
           setCategories(categoryResponse.items);
           setFamilies(familyResponse.items);
+          setCatalogViews(catalogViewResponse.items);
         }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -171,9 +177,9 @@ export function ProductManagementWorkspace() {
     totalProducts: products.total,
     categories: categories.length,
     families: families.length,
-    dealerVisible: products.items.filter((product) => product.isDealerVisible).length,
+    dealerVisible: catalogViews.length,
     acumaticaLinked: products.items.filter((product) => product.acumaticaInventoryId).length,
-  }), [categories.length, families.length, products]);
+  }), [catalogViews.length, categories.length, families.length, products]);
 
   const categoryParentOptions = useMemo(() => categories
     .filter((category) => category.id !== editingCategoryId)
@@ -232,6 +238,7 @@ export function ProductManagementWorkspace() {
         id: `${product.id}-missing`,
         product,
         presentation,
+        catalogViewId: undefined,
         audience: 'No visibility rule',
         region: presentation?.regionScope ?? 'All regions',
         brand: presentation?.brandLabel ?? 'Default brand',
@@ -243,7 +250,8 @@ export function ProductManagementWorkspace() {
       id: inclusion.id,
       product,
       presentation,
-      audience: formatCatalogAudience(inclusion.dealerGroupType, inclusion.dealerGroupId),
+      catalogViewId: inclusion.dealerCatalogViewId,
+      audience: inclusion.dealerCatalogView?.name ?? formatCatalogAudience(inclusion.dealerGroupType, inclusion.dealerGroupId),
       region: inclusion.regionScope ?? presentation?.regionScope ?? 'All regions',
       brand: inclusion.brandLabel ?? presentation?.brandLabel ?? 'Default brand',
       isVisible: inclusion.isVisible,
@@ -252,8 +260,22 @@ export function ProductManagementWorkspace() {
   }), [productDetails]);
   const catalogViewRows = useMemo(() => {
     const grouped = new Map<string, CatalogViewRow>();
+    for (const catalogView of catalogViews) {
+      const key = catalogView.id;
+      grouped.set(key, {
+        key,
+        catalogView: catalogView.name,
+        resolverInput: buildCatalogViewResolverLabel(catalogView),
+        region: catalogView.regionScope ?? 'All regions',
+        brand: catalogView.brandLabel ?? 'Default brand',
+        productCount: 0,
+        publishedCount: 0,
+        blockedCount: 0,
+        isConfigured: true,
+      });
+    }
     for (const row of visibilityRows) {
-      const key = `${row.audience}|${row.region}|${row.brand}`;
+      const key = row.catalogViewId ?? `${row.audience}|${row.region}|${row.brand}`;
       const existing = grouped.get(key) ?? {
         key,
         catalogView: row.audience,
@@ -263,6 +285,7 @@ export function ProductManagementWorkspace() {
         productCount: 0,
         publishedCount: 0,
         blockedCount: 0,
+        isConfigured: false,
       };
       existing.productCount += row.isVisible ? 1 : 0;
       existing.publishedCount += row.isVisible && row.publishStatus === 'published' ? 1 : 0;
@@ -270,7 +293,7 @@ export function ProductManagementWorkspace() {
       grouped.set(key, existing);
     }
     return Array.from(grouped.values()).sort((left, right) => left.catalogView.localeCompare(right.catalogView));
-  }, [visibilityRows]);
+  }, [catalogViews, visibilityRows]);
 
   const reloadCatalog = async () => {
     if (!auth) return;
@@ -281,10 +304,11 @@ export function ProductManagementWorkspace() {
       ...(familyFilter ? { familyId: familyFilter } : {}),
       ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
     };
-    const [productResponse, categoryResponse, familyResponse] = await Promise.all([
+    const [productResponse, categoryResponse, familyResponse, catalogViewResponse] = await Promise.all([
       fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, productQuery),
       fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
       fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
+      fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
     ]);
     const detailResponse = await Promise.all(
       productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
@@ -293,6 +317,7 @@ export function ProductManagementWorkspace() {
     setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
     setCategories(categoryResponse.items);
     setFamilies(familyResponse.items);
+    setCatalogViews(catalogViewResponse.items);
   };
 
   const handleEditCategory = (category: ProductCategorySummary) => {
@@ -678,7 +703,7 @@ export function ProductManagementWorkspace() {
                       <Table.Tr key={row.key}>
                         <Table.Td>
                           <Text fw={600}>{row.catalogView}</Text>
-                          <Text size="xs" c="dimmed">Catalog and file visibility context</Text>
+                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured catalog view' : 'Inferred from product rule'}</Text>
                         </Table.Td>
                         <Table.Td>{row.resolverInput}</Table.Td>
                         <Table.Td>
@@ -979,4 +1004,16 @@ function buildResolverInputLabel(catalogView: string) {
   if (lowerView.includes('standard')) return 'Default eligible dealer context';
   if (lowerView.includes('no visibility')) return 'Missing resolved catalog context';
   return 'Resolved dealer/account context';
+}
+
+function buildCatalogViewResolverLabel(catalogView: DealerCatalogViewSummary) {
+  if (catalogView.resolverLabel) return catalogView.resolverLabel;
+  if (catalogView.resolverKey) return catalogView.resolverKey;
+  if (catalogView.kind === 'standard') return 'Default eligible dealer context';
+  if (catalogView.kind === 'independent') return 'Independent classification outcome';
+  if (catalogView.kind === 'region') return catalogView.regionScope ?? 'Region resolver';
+  if (catalogView.kind === 'brand' || catalogView.kind === 'private_label') return catalogView.brandLabel ?? 'Brand/private-label resolver';
+  if (catalogView.kind === 'affinity') return 'Affinity group resolver';
+  if (catalogView.kind === 'ownership') return 'Ownership / PE resolver';
+  return 'Account-specific override';
 }

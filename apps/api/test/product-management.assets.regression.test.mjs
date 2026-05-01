@@ -8,12 +8,15 @@ ensureTestDatabaseReady();
 const SERIAL = { concurrency: false };
 let prisma;
 let createCatalogInclusion;
+let createDealerCatalogView;
 let createProductCategory;
 let createProductFamily;
 let getProductDetail;
+let listDealerCatalogViews;
 let listProductFamilies;
 let runProductPublishValidation;
 let updateCatalogInclusion;
+let updateDealerCatalogView;
 let updateProductCategory;
 let updateProductFamily;
 let updateProductPresentation;
@@ -24,12 +27,15 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({
     createCatalogInclusion,
+    createDealerCatalogView,
     createProductCategory,
     createProductFamily,
     getProductDetail,
+    listDealerCatalogViews,
     listProductFamilies,
     runProductPublishValidation,
     updateCatalogInclusion,
+    updateDealerCatalogView,
     updateProductCategory,
     updateProductFamily,
     updateProductPresentation,
@@ -221,6 +227,74 @@ test('catalog inclusions can be created and updated with audit trail', SERIAL, a
   const audits = await prisma.auditEntry.findMany({ where: { entityType: 'CATALOG_INCLUSION', entityId: created.id } });
   assert.equal(audits.filter((entry) => entry.action === 'CREATE').length, 1);
   assert.equal(audits.filter((entry) => entry.action === 'UPDATE').length, 2);
+});
+
+test('dealer catalog views are governed separately from product categories and families', SERIAL, async () => {
+  const standardView = await createDealerCatalogView(actor, {
+    name: 'Standard US Dealer Catalog',
+    kind: 'standard',
+    regionScope: 'US',
+    isDefault: true,
+    precedence: 100,
+  });
+  const ownershipView = await createDealerCatalogView(actor, {
+    name: 'Redwood Ownership Catalog',
+    kind: 'ownership',
+    resolverKey: 'redwood',
+    resolverLabel: 'Redwood / Apollo',
+    precedence: 40,
+  });
+
+  const updated = await updateDealerCatalogView(actor, ownershipView.id, {
+    description: 'Ownership/PE overlay for catalog visibility only. Pricing remains ERP price class driven.',
+    isActive: false,
+  });
+
+  assert.equal(standardView.kind, 'standard');
+  assert.equal(standardView.regionScope, 'US');
+  assert.equal(updated.kind, 'ownership');
+  assert.equal(updated.resolverKey, 'redwood');
+  assert.equal(updated.isActive, false);
+
+  const activeViews = await listDealerCatalogViews(actor, { isActive: true });
+  assert.equal(activeViews.items.length, 1);
+  assert.equal(activeViews.items[0].id, standardView.id);
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'DEALER_CATALOG_VIEW',
+      entityId: ownershipView.id,
+      action: 'UPDATE',
+    },
+  });
+  assert.ok(audit);
+});
+
+test('catalog inclusion links to an explicit dealer catalog view', SERIAL, async () => {
+  const fixture = await seedProductFixture();
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Nexstar Dealer Catalog',
+    kind: 'affinity',
+    resolverKey: 'nexstar',
+    resolverLabel: 'Nexstar',
+    precedence: 50,
+  });
+
+  const inclusion = await createCatalogInclusion(actor, {
+    presentationId: fixture.presentation.id,
+    dealerCatalogViewId: catalogView.id,
+    dealerGroupType: 'affinity_group',
+    dealerGroupId: 'nexstar',
+    isVisible: true,
+    publishStatus: 'ready_for_review',
+  });
+
+  assert.equal(inclusion.dealerCatalogViewId, catalogView.id);
+
+  const detail = await getProductDetail(actor, fixture.product.id);
+  const linked = detail.inclusions.find((item) => item.id === inclusion.id);
+  assert.equal(linked.dealerCatalogView.name, 'Nexstar Dealer Catalog');
+  assert.equal(linked.dealerCatalogView.kind, 'affinity');
 });
 
 test('publish validation blocks missing primary image and warns on expected missing document roles', SERIAL, async () => {

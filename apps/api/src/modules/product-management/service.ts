@@ -1,6 +1,7 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import {
   AuditAction,
+  DealerCatalogViewKind,
   DigitalAssetKind,
   DigitalAssetReviewStatus,
   DigitalAssetStatus,
@@ -15,8 +16,11 @@ import {
 import type {
   BaseProductSummary,
   CatalogInclusionSummary,
+  CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
+  DealerCatalogViewSummary,
+  ListDealerCatalogViewsRequest,
   ListProductsRequest,
   ListProductsResponse,
   ProductCategorySummary,
@@ -26,6 +30,7 @@ import type {
   ProductPresentationSummary,
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
+  UpdateDealerCatalogViewRequest,
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
@@ -42,7 +47,7 @@ const PRODUCT_INCLUDE = {
   family: true,
   presentations: {
     include: {
-      inclusions: true,
+      inclusions: { include: { dealerCatalogView: true } },
       readinessChecks: { orderBy: [{ createdAt: 'desc' as const }] },
       assetAssignments: {
         include: {
@@ -123,6 +128,93 @@ export async function listProductFamilies(actor: AuthenticatedActor): Promise<{ 
   assertActionAccess(actor.role, 'product.view');
   const items = await prisma.productFamily.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
   return { items: items.map(mapFamily) };
+}
+
+export async function listDealerCatalogViews(actor: AuthenticatedActor, input: ListDealerCatalogViewsRequest = {}): Promise<{ items: DealerCatalogViewSummary[] }> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  const where: any = {};
+  if (input.kind) where.kind = toDealerCatalogViewKind(input.kind);
+  if (input.isActive !== undefined) where.isActive = input.isActive;
+  if (input.search?.trim()) {
+    const contains = input.search.trim();
+    where.OR = [
+      { code: { contains, mode: 'insensitive' } },
+      { name: { contains, mode: 'insensitive' } },
+      { resolverKey: { contains, mode: 'insensitive' } },
+      { resolverLabel: { contains, mode: 'insensitive' } },
+      { regionScope: { contains, mode: 'insensitive' } },
+      { brandLabel: { contains, mode: 'insensitive' } },
+    ];
+  }
+  const items = await prisma.dealerCatalogView.findMany({
+    where,
+    orderBy: [{ precedence: 'asc' }, { name: 'asc' }],
+  });
+  return { items: items.map(mapDealerCatalogView) };
+}
+
+export async function createDealerCatalogView(actor: AuthenticatedActor, input: CreateDealerCatalogViewRequest): Promise<DealerCatalogViewSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  if (!input.name?.trim()) throw new Error('name is required');
+  const kind = toDealerCatalogViewKind(input.kind);
+  const code = input.code?.trim() || buildDealerCatalogViewCode({
+    kind,
+    resolverKey: cleanNullable(input.resolverKey),
+    regionScope: cleanNullable(input.regionScope),
+    brandLabel: cleanNullable(input.brandLabel),
+    name: input.name,
+  });
+  const catalogView = await prisma.dealerCatalogView.create({
+    data: buildDealerCatalogViewData(actor.userId, code, kind, input),
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'DEALER_CATALOG_VIEW',
+      entityId: catalogView.id,
+      afterData: catalogView,
+      metadata: { sourceOfTruth: 'pulse_catalog_view_governance' },
+    }),
+  });
+  return mapDealerCatalogView(catalogView);
+}
+
+export async function updateDealerCatalogView(actor: AuthenticatedActor, catalogViewId: string, input: UpdateDealerCatalogViewRequest): Promise<DealerCatalogViewSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const before = await prisma.dealerCatalogView.findUnique({ where: { id: catalogViewId } });
+  if (!before) throw new Error('Dealer catalog view not found');
+  const updated = await prisma.dealerCatalogView.update({
+    where: { id: catalogViewId },
+    data: {
+      ...(input.code !== undefined ? { code: input.code.trim() || before.code } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() || before.name } : {}),
+      ...(input.kind !== undefined ? { kind: toDealerCatalogViewKind(input.kind) } : {}),
+      ...(input.resolverKey !== undefined ? { resolverKey: cleanNullable(input.resolverKey) } : {}),
+      ...(input.resolverLabel !== undefined ? { resolverLabel: cleanNullable(input.resolverLabel) } : {}),
+      ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
+      ...(input.brandLabel !== undefined ? { brandLabel: cleanNullable(input.brandLabel) } : {}),
+      ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
+      ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.precedence !== undefined ? { precedence: input.precedence } : {}),
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'DEALER_CATALOG_VIEW',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+      metadata: { sourceOfTruth: 'pulse_catalog_view_governance' },
+    }),
+  });
+  return mapDealerCatalogView(updated);
 }
 
 export async function createProductFamily(actor: AuthenticatedActor, input: CreateProductFamilyRequest): Promise<ProductFamilySummary> {
@@ -263,9 +355,11 @@ export async function createCatalogInclusion(actor: AuthenticatedActor, input: U
   if (!input.presentationId?.trim()) throw new Error('presentationId is required');
   const presentation = await prisma.productPresentation.findUnique({ where: { id: input.presentationId } });
   if (!presentation) throw new Error('Product presentation not found');
+  const dealerCatalogViewId = await resolveDealerCatalogViewId(actor, input);
   const inclusion = await prisma.catalogInclusion.create({
     data: {
       presentationId: input.presentationId,
+      dealerCatalogViewId,
       dealerGroupType: input.dealerGroupType?.trim() || 'all_dealers',
       dealerGroupId: cleanNullable(input.dealerGroupId),
       regionScope: cleanNullable(input.regionScope),
@@ -295,9 +389,21 @@ export async function updateCatalogInclusion(actor: AuthenticatedActor, inclusio
   assertActionAccess(actor.role, 'product.manage');
   const before = await prisma.catalogInclusion.findUnique({ where: { id: inclusionId } });
   if (!before) throw new Error('Catalog inclusion not found');
+  const dealerCatalogViewId = input.dealerCatalogViewId !== undefined
+    ? cleanNullable(input.dealerCatalogViewId)
+    : input.dealerGroupType !== undefined || input.dealerGroupId !== undefined || input.regionScope !== undefined || input.brandLabel !== undefined
+      ? await resolveDealerCatalogViewId(actor, {
+          ...input,
+          dealerGroupType: input.dealerGroupType ?? before.dealerGroupType,
+          dealerGroupId: input.dealerGroupId !== undefined ? input.dealerGroupId : before.dealerGroupId,
+          regionScope: input.regionScope !== undefined ? input.regionScope : before.regionScope,
+          brandLabel: input.brandLabel !== undefined ? input.brandLabel : before.brandLabel,
+        })
+      : undefined;
   const updated = await prisma.catalogInclusion.update({
     where: { id: inclusionId },
     data: {
+      ...(dealerCatalogViewId !== undefined ? { dealerCatalogViewId } : {}),
       ...(input.dealerGroupType !== undefined ? { dealerGroupType: input.dealerGroupType.trim() || before.dealerGroupType } : {}),
       ...(input.dealerGroupId !== undefined ? { dealerGroupId: cleanNullable(input.dealerGroupId) } : {}),
       ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
@@ -418,9 +524,11 @@ function mapProductDetail(product: any): ProductDetail {
 }
 
 function mapCatalogInclusion(inclusion: any): CatalogInclusionSummary {
-  return {
+  return compact({
     id: inclusion.id,
     presentationId: inclusion.presentationId,
+    dealerCatalogViewId: inclusion.dealerCatalogViewId ?? undefined,
+    dealerCatalogView: inclusion.dealerCatalogView ? mapDealerCatalogView(inclusion.dealerCatalogView) : undefined,
     dealerGroupType: inclusion.dealerGroupType,
     dealerGroupId: inclusion.dealerGroupId ?? undefined,
     regionScope: inclusion.regionScope ?? undefined,
@@ -430,6 +538,27 @@ function mapCatalogInclusion(inclusion: any): CatalogInclusionSummary {
     effectiveFrom: inclusion.effectiveFrom?.toISOString(),
     effectiveTo: inclusion.effectiveTo?.toISOString(),
     notes: inclusion.notes ?? undefined,
+  }) as CatalogInclusionSummary;
+}
+
+function mapDealerCatalogView(catalogView: any): DealerCatalogViewSummary {
+  return {
+    id: catalogView.id,
+    code: catalogView.code,
+    name: catalogView.name,
+    kind: lower(catalogView.kind),
+    resolverKey: catalogView.resolverKey ?? undefined,
+    resolverLabel: catalogView.resolverLabel ?? undefined,
+    regionScope: catalogView.regionScope ?? undefined,
+    brandLabel: catalogView.brandLabel ?? undefined,
+    description: catalogView.description ?? undefined,
+    isDefault: catalogView.isDefault,
+    isActive: catalogView.isActive,
+    precedence: catalogView.precedence,
+    sourceSystem: lower(catalogView.sourceSystem),
+    sourceOfTruthSystem: lower(catalogView.sourceOfTruthSystem),
+    createdAt: catalogView.createdAt.toISOString(),
+    updatedAt: catalogView.updatedAt.toISOString(),
   };
 }
 
@@ -589,6 +718,143 @@ function parseDateOrNull(value: string | null | undefined) {
   const parsed = new Date(cleaned);
   if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid date: ${value}`);
   return parsed;
+}
+
+async function resolveDealerCatalogViewId(actor: AuthenticatedActor, input: UpsertCatalogInclusionRequest) {
+  const explicitId = cleanNullable(input.dealerCatalogViewId);
+  if (explicitId) {
+    const existing = await prisma.dealerCatalogView.findUnique({ where: { id: explicitId } });
+    if (!existing) throw new Error('Dealer catalog view not found');
+    return existing.id;
+  }
+  const kind = dealerCatalogViewKindFromLegacyType(input.dealerGroupType);
+  const resolverKey = cleanNullable(input.dealerGroupId);
+  const regionScope = cleanNullable(input.regionScope);
+  const brandLabel = cleanNullable(input.brandLabel);
+  const name = buildDealerCatalogViewName(kind, resolverKey, regionScope, brandLabel);
+  const code = buildDealerCatalogViewCode({ kind, resolverKey, regionScope, brandLabel, name });
+  const catalogView = await prisma.dealerCatalogView.upsert({
+    where: { code },
+    create: {
+      code,
+      name,
+      kind,
+      resolverKey,
+      resolverLabel: resolverKey,
+      regionScope,
+      brandLabel,
+      description: 'Auto-created from product catalog visibility rule. Review and rename if needed.',
+      isDefault: kind === DealerCatalogViewKind.STANDARD && !resolverKey && !regionScope && !brandLabel,
+      isActive: true,
+      precedence: defaultCatalogViewPrecedence(kind),
+      sourceSystem: ProductSourceSystem.PULSE,
+      sourceOfTruthSystem: ProductSourceSystem.PULSE,
+      provenance: {
+        createdFrom: 'catalog_inclusion',
+        legacyDealerGroupType: input.dealerGroupType ?? 'all_dealers',
+      },
+      createdByUserId: actor.userId,
+    },
+    update: {
+      resolverLabel: resolverKey,
+      regionScope,
+      brandLabel,
+      isActive: true,
+    },
+  });
+  return catalogView.id;
+}
+
+function buildDealerCatalogViewData(
+  actorUserId: string,
+  code: string,
+  kind: DealerCatalogViewKind,
+  input: CreateDealerCatalogViewRequest,
+) {
+  return {
+    code,
+    name: input.name.trim(),
+    kind,
+    resolverKey: cleanNullable(input.resolverKey),
+    resolverLabel: cleanNullable(input.resolverLabel),
+    regionScope: cleanNullable(input.regionScope),
+    brandLabel: cleanNullable(input.brandLabel),
+    description: cleanNullable(input.description),
+    isDefault: input.isDefault ?? false,
+    isActive: input.isActive ?? true,
+    precedence: input.precedence ?? defaultCatalogViewPrecedence(kind),
+    sourceSystem: ProductSourceSystem.PULSE,
+    sourceOfTruthSystem: ProductSourceSystem.PULSE,
+    provenance: { source: 'manual_catalog_view_governance' },
+    createdByUserId: actorUserId,
+  };
+}
+
+function dealerCatalogViewKindFromLegacyType(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'affinity_group') return DealerCatalogViewKind.AFFINITY;
+  if (normalized === 'ownership_group') return DealerCatalogViewKind.OWNERSHIP;
+  if (normalized === 'independent') return DealerCatalogViewKind.INDEPENDENT;
+  if (normalized === 'region') return DealerCatalogViewKind.REGION;
+  if (normalized === 'brand') return DealerCatalogViewKind.BRAND;
+  if (normalized === 'private_label') return DealerCatalogViewKind.PRIVATE_LABEL;
+  if (normalized === 'account_override') return DealerCatalogViewKind.ACCOUNT_OVERRIDE;
+  return DealerCatalogViewKind.STANDARD;
+}
+
+function toDealerCatalogViewKind(value: string) {
+  return value.toUpperCase() as DealerCatalogViewKind;
+}
+
+function buildDealerCatalogViewCode(input: {
+  kind: DealerCatalogViewKind;
+  resolverKey?: string | null;
+  regionScope?: string | null;
+  brandLabel?: string | null;
+  name?: string | null;
+}) {
+  return [
+    'catalog',
+    lower(input.kind),
+    input.resolverKey,
+    input.regionScope,
+    input.brandLabel,
+    input.name && !input.resolverKey && !input.regionScope && !input.brandLabel ? input.name : undefined,
+  ]
+    .filter(Boolean)
+    .map((part) => slugify(String(part)))
+    .join('-')
+    .slice(0, 140);
+}
+
+function buildDealerCatalogViewName(kind: DealerCatalogViewKind, resolverKey: string | null, regionScope: string | null, brandLabel: string | null) {
+  if (kind === DealerCatalogViewKind.STANDARD && !resolverKey && !regionScope && !brandLabel) return 'Standard Dealer Catalog';
+  const prefix = {
+    [DealerCatalogViewKind.STANDARD]: 'Standard',
+    [DealerCatalogViewKind.AFFINITY]: 'Affinity',
+    [DealerCatalogViewKind.OWNERSHIP]: 'Ownership / PE',
+    [DealerCatalogViewKind.INDEPENDENT]: 'Independent',
+    [DealerCatalogViewKind.REGION]: 'Regional',
+    [DealerCatalogViewKind.BRAND]: 'Brand',
+    [DealerCatalogViewKind.PRIVATE_LABEL]: 'Private-label',
+    [DealerCatalogViewKind.ACCOUNT_OVERRIDE]: 'Account override',
+  }[kind];
+  return `${prefix} Catalog${resolverKey ? `: ${resolverKey}` : ''}${regionScope ? ` (${regionScope})` : ''}${brandLabel ? ` - ${brandLabel}` : ''}`;
+}
+
+function defaultCatalogViewPrecedence(kind: DealerCatalogViewKind) {
+  if (kind === DealerCatalogViewKind.ACCOUNT_OVERRIDE) return 10;
+  if (kind === DealerCatalogViewKind.PRIVATE_LABEL) return 20;
+  if (kind === DealerCatalogViewKind.BRAND) return 30;
+  if (kind === DealerCatalogViewKind.OWNERSHIP) return 40;
+  if (kind === DealerCatalogViewKind.AFFINITY) return 50;
+  if (kind === DealerCatalogViewKind.REGION) return 70;
+  if (kind === DealerCatalogViewKind.INDEPENDENT) return 80;
+  return 100;
+}
+
+function slugify(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'default';
 }
 
 function compact<T extends Record<string, unknown>>(value: T) {

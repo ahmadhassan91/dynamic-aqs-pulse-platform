@@ -239,8 +239,11 @@ import type {
 import type {
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
+  CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
+  DealerCatalogViewSummary,
+  ListDealerCatalogViewsRequest,
   ListProductsRequest,
   ListProductsResponse,
   ProductDetail,
@@ -252,6 +255,7 @@ import type {
   ProductReferenceImportPreviewResponse,
   ProductPublishValidationResponse,
   UpdateProductCategoryRequest,
+  UpdateDealerCatalogViewRequest,
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
@@ -461,6 +465,33 @@ export async function createProductManagementFamily(apiBaseUrl: string, accessTo
 
 export async function updateProductManagementFamily(apiBaseUrl: string, accessToken: string, familyId: string, input: UpdateProductFamilyRequest) {
   return requestJson<ProductFamilySummary>(apiBaseUrl, `/api/v1/product-management/families/${familyId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchDealerCatalogViews(apiBaseUrl: string, accessToken: string, input: ListDealerCatalogViewsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  appendQuery(searchParams, 'kind', input.kind);
+  appendQuery(searchParams, 'search', input.search);
+  if (input.isActive !== undefined) appendQuery(searchParams, 'isActive', String(input.isActive));
+  return requestJson<{ items: DealerCatalogViewSummary[] }>(apiBaseUrl, `/api/v1/product-management/catalog-views?${searchParams.toString()}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createDealerCatalogView(apiBaseUrl: string, accessToken: string, input: CreateDealerCatalogViewRequest) {
+  return requestJson<DealerCatalogViewSummary>(apiBaseUrl, '/api/v1/product-management/catalog-views', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateDealerCatalogView(apiBaseUrl: string, accessToken: string, catalogViewId: string, input: UpdateDealerCatalogViewRequest) {
+  return requestJson<DealerCatalogViewSummary>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}`, {
     method: 'PATCH',
     accessToken,
     body: input,

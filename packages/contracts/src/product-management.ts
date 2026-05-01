@@ -13,6 +13,9 @@ export type ProductSourceSystemKey = (typeof PRODUCT_SOURCE_SYSTEMS)[number];
 export const PRODUCT_READINESS_STATUSES = ['pass', 'warning', 'blocked'] as const;
 export type ProductReadinessStatusKey = (typeof PRODUCT_READINESS_STATUSES)[number];
 
+export const DEALER_CATALOG_VIEW_KINDS = ['standard', 'affinity', 'ownership', 'independent', 'region', 'brand', 'private_label', 'account_override'] as const;
+export type DealerCatalogViewKindKey = (typeof DEALER_CATALOG_VIEW_KINDS)[number];
+
 export interface ProductCategorySummary {
   id: string;
   code: string;
@@ -75,6 +78,8 @@ export interface ProductPresentationSummary {
 export interface CatalogInclusionSummary {
   id: string;
   presentationId: string;
+  dealerCatalogViewId?: string;
+  dealerCatalogView?: DealerCatalogViewSummary;
   dealerGroupType: string;
   dealerGroupId?: string;
   regionScope?: string;
@@ -84,6 +89,25 @@ export interface CatalogInclusionSummary {
   effectiveFrom?: string;
   effectiveTo?: string;
   notes?: string;
+}
+
+export interface DealerCatalogViewSummary {
+  id: string;
+  code: string;
+  name: string;
+  kind: DealerCatalogViewKindKey;
+  resolverKey?: string;
+  resolverLabel?: string;
+  regionScope?: string;
+  brandLabel?: string;
+  description?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  precedence: number;
+  sourceSystem: ProductSourceSystemKey;
+  sourceOfTruthSystem: ProductSourceSystemKey;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProductReadinessCheckSummary {
@@ -191,6 +215,7 @@ export interface UpdateProductPresentationRequest {
 
 export interface UpsertCatalogInclusionRequest {
   presentationId?: string;
+  dealerCatalogViewId?: string | null;
   dealerGroupType?: string;
   dealerGroupId?: string | null;
   regionScope?: string | null;
@@ -200,6 +225,40 @@ export interface UpsertCatalogInclusionRequest {
   effectiveFrom?: string | null;
   effectiveTo?: string | null;
   notes?: string | null;
+}
+
+export interface ListDealerCatalogViewsRequest {
+  kind?: DealerCatalogViewKindKey;
+  isActive?: boolean;
+  search?: string;
+}
+
+export interface CreateDealerCatalogViewRequest {
+  code?: string;
+  name: string;
+  kind: DealerCatalogViewKindKey;
+  resolverKey?: string | null;
+  resolverLabel?: string | null;
+  regionScope?: string | null;
+  brandLabel?: string | null;
+  description?: string | null;
+  isDefault?: boolean;
+  isActive?: boolean;
+  precedence?: number;
+}
+
+export interface UpdateDealerCatalogViewRequest {
+  code?: string;
+  name?: string;
+  kind?: DealerCatalogViewKindKey;
+  resolverKey?: string | null;
+  resolverLabel?: string | null;
+  regionScope?: string | null;
+  brandLabel?: string | null;
+  description?: string | null;
+  isDefault?: boolean;
+  isActive?: boolean;
+  precedence?: number;
 }
 
 export interface ProductPublishValidationResponse {

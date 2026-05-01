@@ -174,6 +174,17 @@ enum ProductReadinessStatus {
   BLOCKED
 }
 
+enum DealerCatalogViewKind {
+  STANDARD
+  AFFINITY
+  OWNERSHIP
+  INDEPENDENT
+  REGION
+  BRAND
+  PRIVATE_LABEL
+  ACCOUNT_OVERRIDE
+}
+
 enum DigitalAssetKind {
   IMAGE
   DOCUMENT
@@ -1254,24 +1265,57 @@ model ProductPresentation {
   @@index([readyForDealerPortal])
 }
 
-model CatalogInclusion {
-  id              String               @id @default(uuid()) @db.Uuid
-  presentationId  String               @db.Uuid
-  dealerGroupType String
-  dealerGroupId   String?
-  regionScope     String?
-  brandLabel      String?
-  isVisible       Boolean              @default(true)
-  publishStatus   ProductPublishStatus @default(DRAFT)
-  effectiveFrom   DateTime?
-  effectiveTo     DateTime?
-  notes           String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+model DealerCatalogView {
+  id                  String                @id @default(uuid()) @db.Uuid
+  code                String                @unique
+  name                String
+  kind                DealerCatalogViewKind
+  resolverKey         String?
+  resolverLabel       String?
+  regionScope         String?
+  brandLabel          String?
+  description         String?
+  isDefault           Boolean               @default(false)
+  isActive            Boolean               @default(true)
+  precedence          Int                   @default(100)
+  sourceSystem        ProductSourceSystem   @default(PULSE)
+  sourceOfTruthSystem ProductSourceSystem   @default(PULSE)
+  provenance          Json?
+  createdByUserId     String?               @db.Uuid
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
-  presentation ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  catalogInclusions CatalogInclusion[]
+
+  @@index([kind, isActive])
+  @@index([resolverKey])
+  @@index([regionScope])
+  @@index([brandLabel])
+  @@index([isDefault])
+  @@index([precedence])
+}
+
+model CatalogInclusion {
+  id                  String               @id @default(uuid()) @db.Uuid
+  presentationId      String               @db.Uuid
+  dealerCatalogViewId String?              @db.Uuid
+  dealerGroupType     String
+  dealerGroupId       String?
+  regionScope         String?
+  brandLabel          String?
+  isVisible           Boolean              @default(true)
+  publishStatus       ProductPublishStatus @default(DRAFT)
+  effectiveFrom       DateTime?
+  effectiveTo         DateTime?
+  notes               String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  presentation       ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  dealerCatalogView DealerCatalogView?   @relation(fields: [dealerCatalogViewId], references: [id], onDelete: SetNull)
 
   @@index([presentationId])
+  @@index([dealerCatalogViewId])
   @@index([dealerGroupType, dealerGroupId])
   @@index([regionScope])
   @@index([brandLabel])

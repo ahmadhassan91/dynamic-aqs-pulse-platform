@@ -2,8 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   CommitProductReferenceImportRequest,
+  CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
+  UpdateDealerCatalogViewRequest,
   ProductReferenceImportPreviewRequest,
   UpdateProductCategoryRequest,
   UpdateProductFamilyRequest,
@@ -29,14 +31,17 @@ import {
 } from '../auth/request.js';
 import {
   createCatalogInclusion,
+  createDealerCatalogView,
   createProductCategory,
   createProductFamily,
   getProductDetail,
+  listDealerCatalogViews,
   listProductCategories,
   listProductFamilies,
   listProducts,
   runProductPublishValidation,
   updateCatalogInclusion,
+  updateDealerCatalogView,
   updateProductCategory,
   updateProductFamily,
   updateProductPresentation,
@@ -100,6 +105,32 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
         return jsonResponse(res, 201, await createProductFamily(actor, (await readJsonBody(req)) as CreateProductFamilyRequest));
       }
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    if (pathname === '/api/v1/product-management/catalog-views') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+        const isActiveQuery = readTrimmedQuery(url, 'isActive');
+        return jsonResponse(res, 200, await listDealerCatalogViews(actor, compact({
+          kind: readTrimmedQuery(url, 'kind') as any,
+          search: readTrimmedQuery(url, 'search'),
+          isActive: isActiveQuery === undefined ? undefined : isActiveQuery === 'true',
+        }) as any));
+      }
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+        return jsonResponse(res, 201, await createDealerCatalogView(actor, (await readJsonBody(req)) as CreateDealerCatalogViewRequest));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const catalogViewMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId');
+    if (catalogViewMatch) {
+      const catalogViewId = catalogViewMatch.catalogViewId;
+      if (!catalogViewId) return badRequestResponse(res, 'Dealer catalog view id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await updateDealerCatalogView(actor, catalogViewId, (await readJsonBody(req)) as UpdateDealerCatalogViewRequest));
     }
 
     const familyMatch = matchPath(pathname, '/api/v1/product-management/families/:familyId');

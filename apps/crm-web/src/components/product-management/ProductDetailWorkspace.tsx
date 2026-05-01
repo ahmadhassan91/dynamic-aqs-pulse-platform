@@ -9,12 +9,14 @@ import {
   type ProductAssetRoleKey,
 } from '@pulse/contracts/digital-assets';
 import {
+  type DealerCatalogViewSummary,
   type ProductDetail,
   type ProductPublishStatusKey,
 } from '@pulse/contracts/product-management';
 import {
   assignDigitalAssetToProduct,
   createProductCatalogInclusion,
+  fetchDealerCatalogViews,
   fetchDigitalAssetLibrary,
   fetchProductManagementProductDetail,
   unlinkDigitalAssetFromProduct,
@@ -36,6 +38,7 @@ type PresentationFormState = {
 };
 
 type InclusionFormState = {
+  dealerCatalogViewId: string | null;
   dealerGroupType: string;
   dealerGroupId: string;
   regionScope: string;
@@ -56,6 +59,7 @@ const emptyPresentationForm: PresentationFormState = {
 };
 
 const emptyInclusionForm: InclusionFormState = {
+  dealerCatalogViewId: null,
   dealerGroupType: 'all_dealers',
   dealerGroupId: '',
   regionScope: '',
@@ -89,6 +93,7 @@ const CATALOG_VIEW_TYPE_OPTIONS = [
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
   const [product, setProduct] = useState<ProductDetail | null>(null);
+  const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
   const [availableAssets, setAvailableAssets] = useState<DigitalAssetSummary[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [selectedAssetRole, setSelectedAssetRole] = useState<ProductAssetRoleKey>('primary_image');
@@ -112,12 +117,14 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       setIsLoading(true);
       setError(null);
       try {
-        const [response, assetLibrary] = await Promise.all([
+        const [response, assetLibrary, catalogViewResponse] = await Promise.all([
           fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, productId),
           fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { limit: 100 }),
+          fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
         ]);
         if (!cancelled) setProduct(response);
         if (!cancelled) setAvailableAssets(assetLibrary.items);
+        if (!cancelled) setCatalogViews(catalogViewResponse.items);
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
       } finally {
@@ -131,8 +138,12 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
 
   const reloadProduct = async () => {
     if (!auth) return;
-    const response = await fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, productId);
+    const [response, catalogViewResponse] = await Promise.all([
+      fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, productId),
+      fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
+    ]);
     setProduct(response);
+    setCatalogViews(catalogViewResponse.items);
   };
 
   useEffect(() => {
@@ -230,6 +241,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const handleEditInclusion = (inclusion: ProductDetail['inclusions'][number]) => {
     setEditingInclusionId(inclusion.id);
     setInclusionForm({
+      dealerCatalogViewId: inclusion.dealerCatalogViewId ?? null,
       dealerGroupType: inclusion.dealerGroupType,
       dealerGroupId: inclusion.dealerGroupId ?? '',
       regionScope: inclusion.regionScope ?? '',
@@ -251,6 +263,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     setAssetError(null);
     const payload = {
       presentationId: primaryPresentation.id,
+      dealerCatalogViewId: inclusionForm.dealerCatalogViewId,
       dealerGroupType: inclusionForm.dealerGroupType,
       dealerGroupId: emptyToNull(inclusionForm.dealerGroupId),
       regionScope: emptyToNull(inclusionForm.regionScope),
@@ -294,6 +307,10 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const blockedChecks = product.readinessChecks.filter((check) => check.status === 'blocked');
   const assetRoleOptions = PRODUCT_ASSET_ROLE_OPTIONS.map((role) => ({ value: role, label: formatLabel(role) }));
   const publishStatusOptions = PRODUCT_PUBLISH_STATUS_OPTIONS.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
+  const catalogViewOptions = catalogViews.map((catalogView) => ({
+    value: catalogView.id,
+    label: `${catalogView.name}${catalogView.resolverKey ? ` (${catalogView.resolverKey})` : ''}`,
+  }));
 
   return (
     <Stack gap="lg">
@@ -471,8 +488,8 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Table.Tbody>
             {product.inclusions.map((inclusion) => (
               <Table.Tr key={inclusion.id}>
-                <Table.Td>{formatCatalogViewType(inclusion.dealerGroupType)}</Table.Td>
-                <Table.Td>{inclusion.dealerGroupId ?? 'Default eligible dealers'}</Table.Td>
+                <Table.Td>{inclusion.dealerCatalogView?.name ?? formatCatalogViewType(inclusion.dealerGroupType)}</Table.Td>
+                <Table.Td>{inclusion.dealerCatalogView?.resolverLabel ?? inclusion.dealerGroupId ?? 'Default eligible dealers'}</Table.Td>
                 <Table.Td>{inclusion.regionScope ?? 'Any'}</Table.Td>
                 <Table.Td>{inclusion.brandLabel ?? 'Neutral'}</Table.Td>
                 <Table.Td>{inclusion.isVisible ? inclusion.publishStatus : 'hidden'}</Table.Td>
@@ -487,6 +504,14 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         {primaryPresentation && canManageProducts ? (
           <Stack gap="sm" mt="md">
             <SimpleGrid cols={{ base: 1, md: 3 }}>
+              <Select
+                label="Use existing catalog view"
+                placeholder="Auto-create from fields below"
+                data={catalogViewOptions}
+                value={inclusionForm.dealerCatalogViewId}
+                onChange={(value) => setInclusionForm((current) => ({ ...current, dealerCatalogViewId: value }))}
+                clearable
+              />
               <Select label="Catalog view type" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
               <TextInput label="Resolver value" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
               <Select label="Publish status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />

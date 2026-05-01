@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -9,6 +9,7 @@ import {
   FileInput,
   Group,
   Loader,
+  Modal,
   NumberInput,
   Paper,
   Select,
@@ -117,6 +118,14 @@ type ShareFormState = {
   note: string;
 };
 
+type BulkUploadFormState = {
+  kind: DigitalAssetKindKey;
+  visibility: DigitalAssetVisibilityKey;
+  audience: string;
+  brandScope: string;
+  regionScope: string;
+};
+
 const defaultAssetForm: CreateAssetFormState = {
   title: '',
   stableSlug: '',
@@ -179,6 +188,14 @@ const defaultShareForm: ShareFormState = {
   note: '',
 };
 
+const defaultBulkUploadForm: BulkUploadFormState = {
+  kind: 'image',
+  visibility: 'internal_only',
+  audience: 'internal',
+  brandScope: '',
+  regionScope: '',
+};
+
 const DIGITAL_ASSET_KIND_OPTIONS: DigitalAssetKindKey[] = ['image', 'document', 'video', 'logo', 'presentation', 'other'];
 const DIGITAL_ASSET_STATUS_OPTIONS: DigitalAssetStatusKey[] = ['draft', 'active', 'needs_review', 'archived', 'expired'];
 const DIGITAL_ASSET_VISIBILITY_OPTIONS: DigitalAssetVisibilityKey[] = ['internal_only', 'dealer_portal', 'public'];
@@ -186,6 +203,7 @@ const DIGITAL_ASSET_REVIEW_STATUS_OPTIONS: DigitalAssetReviewStatusKey[] = ['not
 
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
+  const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
   const [search, setSearch] = useState('');
   const [assets, setAssets] = useState<ListDigitalAssetsResponse>({ items: [], total: 0 });
@@ -197,9 +215,13 @@ export function DigitalAssetsWorkspace() {
   const [versionForm, setVersionForm] = useState<VersionFormState>(defaultVersionForm);
   const [assetEditForm, setAssetEditForm] = useState<AssetEditFormState>(defaultAssetEditForm);
   const [shareForm, setShareForm] = useState<ShareFormState>(defaultShareForm);
+  const [bulkUploadForm, setBulkUploadForm] = useState<BulkUploadFormState>(defaultBulkUploadForm);
+  const [bulkUploadFiles, setBulkUploadFiles] = useState<File[]>([]);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
+  const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [isSavingCollection, setIsSavingCollection] = useState(false);
   const [isUpdatingCollectionItem, setIsUpdatingCollectionItem] = useState(false);
   const [isAddingVersion, setIsAddingVersion] = useState(false);
@@ -300,11 +322,10 @@ export function DigitalAssetsWorkspace() {
         ...(emptyToUndefined(assetForm.stableSlug) ? { stableSlug: emptyToUndefined(assetForm.stableSlug) } : {}),
       });
 
-      const hasInitialFile = assetForm.externalUrl.trim() || assetForm.fileBase64.trim();
+      const hasInitialFile = assetForm.externalUrl.trim();
       const assetWithVersion = hasInitialFile && assetForm.fileName.trim()
         ? await createDigitalAssetVersionRecord(apiBaseUrl, auth.tokens.accessToken, response.id, {
           externalUrl: assetForm.externalUrl,
-          fileBase64: emptyToNull(assetForm.fileBase64),
           fileName: assetForm.fileName,
           mimeType: emptyToNull(assetForm.mimeType),
           makeCurrent: true,
@@ -319,6 +340,46 @@ export function DigitalAssetsWorkspace() {
       setDetailError(createError instanceof Error ? createError.message : String(createError));
     } finally {
       setIsCreatingAsset(false);
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (!auth || !bulkUploadFiles.length) return;
+    setIsBulkUploading(true);
+    setDetailError(null);
+    try {
+      let lastAsset: DigitalAssetDetail | null = null;
+      for (const file of bulkUploadFiles) {
+        const created = await createDigitalAssetRecord(apiBaseUrl, auth.tokens.accessToken, {
+          title: titleFromFileName(file.name),
+          description: null,
+          kind: inferAssetKind(file.type, bulkUploadForm.kind),
+          visibility: bulkUploadForm.visibility,
+          audience: bulkUploadForm.audience.trim() || 'internal',
+          brandScope: emptyToNull(bulkUploadForm.brandScope),
+          regionScope: emptyToNull(bulkUploadForm.regionScope),
+          legacyUrl: null,
+          sourceSystem: 'manual',
+        });
+        lastAsset = await createDigitalAssetVersionRecord(apiBaseUrl, auth.tokens.accessToken, created.id, {
+          fileBase64: await readFileAsDataUrl(file),
+          fileName: file.name,
+          mimeType: file.type || null,
+          makeCurrent: true,
+        });
+      }
+      if (lastAsset) {
+        setSelectedAsset(lastAsset);
+        setAssetEditForm(toAssetEditForm(lastAsset));
+      }
+      setBulkUploadFiles([]);
+      setBulkUploadForm(defaultBulkUploadForm);
+      setIsBulkUploadOpen(false);
+      await reloadAssets();
+    } catch (uploadError) {
+      setDetailError(uploadError instanceof Error ? uploadError.message : String(uploadError));
+    } finally {
+      setIsBulkUploading(false);
     }
   };
 
@@ -525,8 +586,15 @@ export function DigitalAssetsWorkspace() {
   return (
     <Stack gap="lg">
       <Stack gap={4}>
-        <Title order={2}>Digital Assets</Title>
-        <Text c="dimmed">Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library.</Text>
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={4}>
+            <Title order={2}>Digital Assets</Title>
+            <Text c="dimmed">Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library.</Text>
+          </Stack>
+          <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>
+            Bulk Upload
+          </Button>
+        </Group>
       </Stack>
 
       {error ? (
@@ -550,11 +618,11 @@ export function DigitalAssetsWorkspace() {
                   <Stack gap="sm">
                     <Group justify="space-between" align="flex-start">
                       <Stack gap={2}>
-                        <Title order={4}>Add Asset</Title>
-                        <Text c="dimmed" size="sm">Add a file or paste a link, then choose who can use it.</Text>
+                        <Title order={4}>Add Asset Link</Title>
+                        <Text c="dimmed" size="sm">Paste a file link for one asset. Use Bulk Upload when you have files from your computer.</Text>
                       </Stack>
-                      <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean((assetForm.externalUrl.trim() || assetForm.fileBase64.trim()) && !assetForm.fileName.trim())}>
-                        Add Asset
+                      <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean(assetForm.externalUrl.trim() && !assetForm.fileName.trim())}>
+                        Add Link
                       </Button>
                     </Group>
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -577,24 +645,6 @@ export function DigitalAssetsWorkspace() {
                         data={visibilityOptions}
                         onChange={(value) => setAssetForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey) ?? 'internal_only' }))}
                         allowDeselect={false}
-                      />
-                      <FileInput
-                        label="Upload file"
-                        clearable
-                        onChange={(file) => {
-                          if (!file) {
-                            setAssetForm((current) => ({ ...current, fileBase64: '' }));
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onload = () => setAssetForm((current) => ({
-                            ...current,
-                            fileBase64: String(reader.result ?? ''),
-                            fileName: current.fileName || file.name,
-                            mimeType: current.mimeType || file.type,
-                          }));
-                          reader.readAsDataURL(file);
-                        }}
                       />
                       <TextInput
                         label="Paste file link"
@@ -902,6 +952,100 @@ export function DigitalAssetsWorkspace() {
           </Stack>
         </Tabs.Panel>
       </Tabs>
+
+      <Modal opened={isBulkUploadOpen} onClose={() => setIsBulkUploadOpen(false)} title="Bulk Upload Assets" size="xl" centered>
+        <Stack gap="md">
+          <Paper withBorder p="lg">
+            <Stack gap="sm" align="center">
+              <IconCloudUpload size={32} />
+              <Stack gap={2} align="center">
+                <Title order={4}>Choose multiple files</Title>
+                <Text size="sm" c="dimmed" ta="center">Upload product photos, brochures, spec sheets, presentations, or videos in one batch.</Text>
+              </Stack>
+              <input
+                ref={bulkFileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(event) => setBulkUploadFiles(Array.from(event.currentTarget.files ?? []))}
+              />
+              <Group>
+                <Button variant="light" onClick={() => bulkFileInputRef.current?.click()}>
+                  Choose Files
+                </Button>
+                {bulkUploadFiles.length ? (
+                  <Button variant="subtle" color="red" onClick={() => setBulkUploadFiles([])}>
+                    Clear
+                  </Button>
+                ) : null}
+              </Group>
+              <Text size="sm" c="dimmed">{bulkUploadFiles.length ? `${bulkUploadFiles.length} file${bulkUploadFiles.length === 1 ? '' : 's'} selected` : 'No files selected yet'}</Text>
+            </Stack>
+          </Paper>
+
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <Select
+              label="Default type"
+              value={bulkUploadForm.kind}
+              data={kindOptions}
+              onChange={(value) => setBulkUploadForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey | null) ?? 'image' }))}
+              allowDeselect={false}
+            />
+            <Select
+              label="Who can access"
+              value={bulkUploadForm.visibility}
+              data={visibilityOptions}
+              onChange={(value) => setBulkUploadForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))}
+              allowDeselect={false}
+            />
+            <TextInput
+              label="Use for"
+              value={bulkUploadForm.audience}
+              onChange={(event) => setBulkUploadForm((current) => ({ ...current, audience: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Brand"
+              value={bulkUploadForm.brandScope}
+              onChange={(event) => setBulkUploadForm((current) => ({ ...current, brandScope: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Region"
+              value={bulkUploadForm.regionScope}
+              onChange={(event) => setBulkUploadForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
+            />
+          </SimpleGrid>
+
+          {bulkUploadFiles.length ? (
+            <Paper withBorder>
+              <Table striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>File</Table.Th>
+                    <Table.Th>Detected type</Table.Th>
+                    <Table.Th>Size</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {bulkUploadFiles.map((file) => (
+                    <Table.Tr key={`${file.name}-${file.size}-${file.lastModified}`}>
+                      <Table.Td>{file.name}</Table.Td>
+                      <Table.Td>{formatLabel(inferAssetKind(file.type, bulkUploadForm.kind))}</Table.Td>
+                      <Table.Td>{formatBytes(file.size)}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Paper>
+          ) : null}
+
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setIsBulkUploadOpen(false)}>Cancel</Button>
+            <Button leftSection={<IconCloudUpload size={16} />} onClick={handleBulkUpload} loading={isBulkUploading} disabled={!bulkUploadFiles.length}>
+              Upload {bulkUploadFiles.length || ''} Asset{bulkUploadFiles.length === 1 ? '' : 's'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
@@ -1448,6 +1592,34 @@ function formatLabel(value: string) {
 function formatDate(value: string) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function titleFromFileName(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || fileName;
+}
+
+function inferAssetKind(mimeType: string, fallback: DigitalAssetKindKey): DigitalAssetKindKey {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return 'presentation';
+  if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('word')) return 'document';
+  return fallback;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function copyToClipboard(value: string) {

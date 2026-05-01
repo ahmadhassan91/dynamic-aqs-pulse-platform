@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import {
   type ProductDetail,
@@ -23,6 +24,7 @@ import {
   type ProductCategorySummary,
   type ProductFamilySummary,
 } from '@/lib/pulse-api';
+import { APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'readiness' | 'publish';
@@ -63,9 +65,31 @@ const emptyFamilyForm: FamilyFormState = {
 };
 
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
+const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'readiness', 'publish'];
+const CATEGORY_TYPE_OPTIONS = [
+  { value: 'portal_section', label: 'Dealer portal section' },
+  { value: 'product_line', label: 'Product line' },
+  { value: 'application', label: 'Application / use case' },
+  { value: 'brand', label: 'Brand / private label' },
+  { value: 'legacy_shopify_collection', label: 'Legacy Shopify collection' },
+  { value: 'internal_reference', label: 'Internal reference' },
+];
+const CATEGORY_REGION_OPTIONS = [
+  { value: 'ALL', label: 'All regions' },
+  { value: 'US', label: 'United States' },
+  { value: 'CA', label: 'Canada' },
+  ...APP_LEAD_REGION_OPTIONS.map((option) => ({
+    value: option.value,
+    label: `${option.label} (${option.value})`,
+    group: option.group,
+  })),
+];
 
 export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<ProductTab>('categories');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -87,14 +111,13 @@ export function ProductManagementWorkspace() {
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
+    const tab = searchParams.get('tab');
     if (tab === 'groups') {
       setActiveTab('visibility');
-    } else if (tab && ['categories', 'families', 'products', 'visibility', 'readiness', 'publish'].includes(tab)) {
+    } else if (tab && PRODUCT_TABS.includes(tab as ProductTab)) {
       setActiveTab(tab as ProductTab);
     }
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!auth) return;
@@ -370,7 +393,16 @@ export function ProductManagementWorkspace() {
         </Alert>
       ) : null}
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as ProductTab) ?? 'categories')}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => {
+          const nextTab = (value as ProductTab | null) ?? 'categories';
+          setActiveTab(nextTab);
+          const nextParams = new URLSearchParams(searchParams.toString());
+          nextParams.set('tab', nextTab);
+          router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+        }}
+      >
         <Tabs.List>
           <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
           <Tabs.Tab value="families">Families</Tabs.Tab>
@@ -410,15 +442,23 @@ export function ProductManagementWorkspace() {
                   onChange={(value) => setCategoryForm((current) => ({ ...current, parentId: value }))}
                 />
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <TextInput
+                  <Select
                     label="Type"
-                    value={categoryForm.categoryType}
-                    onChange={(event) => setCategoryForm((current) => ({ ...current, categoryType: event.currentTarget.value }))}
+                    placeholder="Choose category purpose"
+                    clearable
+                    searchable
+                    data={CATEGORY_TYPE_OPTIONS}
+                    value={categoryForm.categoryType || null}
+                    onChange={(value) => setCategoryForm((current) => ({ ...current, categoryType: value ?? '' }))}
                   />
-                  <TextInput
+                  <Select
                     label="Region scope"
-                    value={categoryForm.regionScope}
-                    onChange={(event) => setCategoryForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
+                    placeholder="All regions"
+                    clearable
+                    searchable
+                    data={CATEGORY_REGION_OPTIONS}
+                    value={categoryForm.regionScope || null}
+                    onChange={(value) => setCategoryForm((current) => ({ ...current, regionScope: value ?? '' }))}
                   />
                 </SimpleGrid>
                 <Textarea

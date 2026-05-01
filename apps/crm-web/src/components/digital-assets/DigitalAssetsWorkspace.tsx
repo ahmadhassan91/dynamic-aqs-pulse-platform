@@ -12,6 +12,7 @@ import {
   Modal,
   NumberInput,
   Paper,
+  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -55,6 +56,7 @@ import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type AssetTab = 'library' | 'collections' | 'migration';
+type LibraryViewMode = 'cards' | 'list';
 
 type CreateAssetFormState = {
   title: string;
@@ -205,7 +207,10 @@ export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
+  const [viewMode, setViewMode] = useState<LibraryViewMode>('cards');
   const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<DigitalAssetKindKey | null>(null);
+  const [visibilityFilter, setVisibilityFilter] = useState<DigitalAssetVisibilityKey | null>(null);
   const [assets, setAssets] = useState<ListDigitalAssetsResponse>({ items: [], total: 0 });
   const [collections, setCollections] = useState<ListDigitalAssetCollectionsResponse>({ items: [], total: 0 });
   const [selectedAsset, setSelectedAsset] = useState<DigitalAssetDetail | null>(null);
@@ -217,6 +222,7 @@ export function DigitalAssetsWorkspace() {
   const [shareForm, setShareForm] = useState<ShareFormState>(defaultShareForm);
   const [bulkUploadForm, setBulkUploadForm] = useState<BulkUploadFormState>(defaultBulkUploadForm);
   const [bulkUploadFiles, setBulkUploadFiles] = useState<File[]>([]);
+  const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -240,6 +246,17 @@ export function DigitalAssetsWorkspace() {
   const statusOptions = useMemo(() => DIGITAL_ASSET_STATUS_OPTIONS.map((status) => ({ value: status, label: formatLabel(status) })), []);
   const visibilityOptions = useMemo(() => DIGITAL_ASSET_VISIBILITY_OPTIONS.map((visibility) => ({ value: visibility, label: formatLabel(visibility) })), []);
   const reviewStatusOptions = useMemo(() => DIGITAL_ASSET_REVIEW_STATUS_OPTIONS.map((status) => ({ value: status, label: formatLabel(status) })), []);
+  const visibleAssets = useMemo(() => assets.items.filter((asset) => {
+    if (kindFilter && asset.kind !== kindFilter) return false;
+    if (visibilityFilter && asset.visibility !== visibilityFilter) return false;
+    return true;
+  }), [assets.items, kindFilter, visibilityFilter]);
+  const assetMetrics = useMemo(() => ({
+    total: assets.total,
+    ready: assets.items.filter((asset) => asset.status === 'active' && asset.reviewStatus === 'approved').length,
+    shared: assets.items.filter((asset) => (asset.activeShareLinkCount ?? 0) > 0).length,
+    productLinked: assets.items.filter((asset) => (asset.productUsageCount ?? 0) > 0).length,
+  }), [assets.items, assets.total]);
   const canEditAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.edit') : false;
   const canShareAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.share') : false;
 
@@ -335,6 +352,7 @@ export function DigitalAssetsWorkspace() {
       setSelectedAsset(assetWithVersion);
       setAssetEditForm(toAssetEditForm(assetWithVersion));
       setAssetForm(defaultAssetForm);
+      setIsAddLinkOpen(false);
       await reloadAssets();
     } catch (createError) {
       setDetailError(createError instanceof Error ? createError.message : String(createError));
@@ -591,9 +609,14 @@ export function DigitalAssetsWorkspace() {
             <Title order={2}>Digital Assets</Title>
             <Text c="dimmed">Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library.</Text>
           </Stack>
-          <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>
-            Bulk Upload
-          </Button>
+          <Group>
+            <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setIsAddLinkOpen(true)}>
+              Add Link
+            </Button>
+            <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>
+              Bulk Upload
+            </Button>
+          </Group>
         </Group>
       </Stack>
 
@@ -611,104 +634,106 @@ export function DigitalAssetsWorkspace() {
         </Tabs.List>
 
         <Tabs.Panel value="library" pt="md">
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md" mb="md">
+            <Metric label="Assets" value={assetMetrics.total} />
+            <Metric label="Ready To Use" value={assetMetrics.ready} />
+            <Metric label="Shared Links" value={assetMetrics.shared} />
+            <Metric label="Linked To Products" value={assetMetrics.productLinked} />
+          </SimpleGrid>
+
           <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
             <Stack gap="md">
               <Paper withBorder p="md">
-                <form onSubmit={handleCreateAsset}>
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="flex-start">
-                      <Stack gap={2}>
-                        <Title order={4}>Add Asset Link</Title>
-                        <Text c="dimmed" size="sm">Paste a file link for one asset. Use Bulk Upload when you have files from your computer.</Text>
-                      </Stack>
-                      <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean(assetForm.externalUrl.trim() && !assetForm.fileName.trim())}>
-                        Add Link
-                      </Button>
-                    </Group>
-                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                      <TextInput
-                        label="Asset name"
-                        value={assetForm.title}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, title: event.currentTarget.value }))}
-                        required
-                      />
-                      <Select
-                        label="Type"
-                        value={assetForm.kind}
-                        data={kindOptions}
-                        onChange={(value) => setAssetForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey) ?? 'image' }))}
-                        allowDeselect={false}
-                      />
-                      <Select
-                        label="Who can access"
-                        value={assetForm.visibility}
-                        data={visibilityOptions}
-                        onChange={(value) => setAssetForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey) ?? 'internal_only' }))}
-                        allowDeselect={false}
-                      />
-                      <TextInput
-                        label="Paste file link"
-                        value={assetForm.externalUrl}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, externalUrl: event.currentTarget.value }))}
-                        placeholder="https://..."
-                      />
-                      <TextInput
-                        label="File name"
-                        value={assetForm.fileName}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, fileName: event.currentTarget.value }))}
-                        placeholder="Auto-filled after upload"
-                      />
-                      <TextInput
-                        label="Use for"
-                        value={assetForm.audience}
-                        onChange={(event) => setAssetForm((current) => ({ ...current, audience: event.currentTarget.value }))}
-                      />
-                    </SimpleGrid>
-                    <Textarea
-                      label="Notes"
-                      value={assetForm.description}
-                      onChange={(event) => setAssetForm((current) => ({ ...current, description: event.currentTarget.value }))}
-                      minRows={2}
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-start">
+                    <Stack gap={2}>
+                      <Title order={4}>Library</Title>
+                      <Text c="dimmed" size="sm">Find approved content by name, type, access, usage, or sharing status.</Text>
+                    </Stack>
+                    <SegmentedControl
+                      value={viewMode}
+                      onChange={(value) => setViewMode(value as LibraryViewMode)}
+                      data={[
+                        { label: 'Cards', value: 'cards' },
+                        { label: 'List', value: 'list' },
+                      ]}
                     />
-                    <details>
-                      <summary>Advanced details</summary>
-                      <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
-                        <TextInput
-                          label="Custom URL slug"
-                          value={assetForm.stableSlug}
-                          onChange={(event) => setAssetForm((current) => ({ ...current, stableSlug: event.currentTarget.value }))}
-                          placeholder="Auto-generated when blank"
-                        />
-                        <TextInput
-                          label="MIME type"
-                          value={assetForm.mimeType}
-                          onChange={(event) => setAssetForm((current) => ({ ...current, mimeType: event.currentTarget.value }))}
-                          placeholder="Auto-filled after upload"
-                        />
-                        <TextInput
-                          label="Brand"
-                          value={assetForm.brandScope}
-                          onChange={(event) => setAssetForm((current) => ({ ...current, brandScope: event.currentTarget.value }))}
-                        />
-                        <TextInput
-                          label="Region"
-                          value={assetForm.regionScope}
-                          onChange={(event) => setAssetForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
-                        />
-                        <TextInput
-                          label="Original Widen URL"
-                          value={assetForm.legacyUrl}
-                          onChange={(event) => setAssetForm((current) => ({ ...current, legacyUrl: event.currentTarget.value }))}
-                        />
-                      </SimpleGrid>
-                    </details>
-                  </Stack>
-                </form>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                    <TextInput
+                      leftSection={<IconSearch size={16} />}
+                      placeholder="Search assets"
+                      value={search}
+                      onChange={(event) => setSearch(event.currentTarget.value)}
+                    />
+                    <Select
+                      placeholder="All types"
+                      data={kindOptions}
+                      value={kindFilter}
+                      onChange={(value) => setKindFilter(value as DigitalAssetKindKey | null)}
+                      clearable
+                    />
+                    <Select
+                      placeholder="All access"
+                      data={visibilityOptions}
+                      value={visibilityFilter}
+                      onChange={(value) => setVisibilityFilter(value as DigitalAssetVisibilityKey | null)}
+                      clearable
+                    />
+                  </SimpleGrid>
+                </Stack>
               </Paper>
 
-              <Paper withBorder>
+              <Paper withBorder p={viewMode === 'cards' ? 'md' : 0}>
                 {isLoading ? (
                   <Group justify="center" p="xl"><Loader /></Group>
+                ) : viewMode === 'cards' ? (
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                    {visibleAssets.map((asset) => (
+                      <Paper key={asset.id} withBorder p="md">
+                        <Stack gap="sm">
+                          <Group justify="space-between" align="flex-start">
+                            <Stack gap={2}>
+                              <Text fw={700}>{asset.title}</Text>
+                              <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? `/${asset.stableSlug}`}</Text>
+                            </Stack>
+                            <Badge variant="light">{formatLabel(asset.kind)}</Badge>
+                          </Group>
+                          <Group gap="xs">
+                            <Badge color={asset.visibility === 'public' ? 'green' : asset.visibility === 'dealer_portal' ? 'blue' : 'gray'} variant="light">
+                              {formatLabel(asset.visibility)}
+                            </Badge>
+                            <Badge color={asset.reviewStatus === 'approved' ? 'green' : 'yellow'} variant="light">
+                              {formatLabel(asset.reviewStatus)}
+                            </Badge>
+                          </Group>
+                          <SimpleGrid cols={2}>
+                            <CountLine label="Products" value={String(asset.productUsageCount ?? 0)} />
+                            <CountLine label="Shares" value={String(asset.activeShareLinkCount ?? 0)} />
+                          </SimpleGrid>
+                          <Group justify="space-between">
+                            <Text size="xs" c="dimmed">{[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Text>
+                            <Button size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
+                              Open
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Paper>
+                    ))}
+                    {!visibleAssets.length ? (
+                      <Paper withBorder p="xl">
+                        <Stack gap="xs" align="center">
+                          <IconPhoto size={28} />
+                          <Text fw={700}>No assets found</Text>
+                          <Text size="sm" c="dimmed" ta="center">Upload files in bulk or add a file link to start the library.</Text>
+                          <Group>
+                            <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setIsAddLinkOpen(true)}>Add Link</Button>
+                            <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>Bulk Upload</Button>
+                          </Group>
+                        </Stack>
+                      </Paper>
+                    ) : null}
+                  </SimpleGrid>
                 ) : (
                   <Table striped highlightOnHover>
                     <Table.Thead>
@@ -723,7 +748,7 @@ export function DigitalAssetsWorkspace() {
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {assets.items.map((asset) => (
+                      {visibleAssets.map((asset) => (
                         <Table.Tr key={asset.id}>
                           <Table.Td>
                             <Text fw={600}>{asset.title}</Text>
@@ -741,8 +766,8 @@ export function DigitalAssetsWorkspace() {
                           </Table.Td>
                         </Table.Tr>
                       ))}
-                      {!assets.items.length ? (
-                        <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No assets loaded yet.</Text></Table.Td></Table.Tr>
+                      {!visibleAssets.length ? (
+                        <Table.Tr><Table.Td colSpan={7}><Text ta="center" c="dimmed" py="lg">No assets found.</Text></Table.Td></Table.Tr>
                       ) : null}
                     </Table.Tbody>
                   </Table>
@@ -751,13 +776,6 @@ export function DigitalAssetsWorkspace() {
             </Stack>
 
             <Stack gap="md">
-              <TextInput
-                leftSection={<IconSearch size={16} />}
-                placeholder="Search title, stable slug, or Widen asset ID"
-                value={search}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-              />
-
               <Paper withBorder p="md">
                 {detailError ? (
                   <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="sm">
@@ -952,6 +970,96 @@ export function DigitalAssetsWorkspace() {
           </Stack>
         </Tabs.Panel>
       </Tabs>
+
+      <Modal opened={isAddLinkOpen} onClose={() => setIsAddLinkOpen(false)} title="Add Asset Link" size="lg" centered>
+        <form onSubmit={handleCreateAsset}>
+          <Stack gap="sm">
+            <Text c="dimmed" size="sm">Paste a file link for one asset. Use Bulk Upload when you have files from your computer.</Text>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <TextInput
+                label="Asset name"
+                value={assetForm.title}
+                onChange={(event) => setAssetForm((current) => ({ ...current, title: event.currentTarget.value }))}
+                required
+              />
+              <Select
+                label="Type"
+                value={assetForm.kind}
+                data={kindOptions}
+                onChange={(value) => setAssetForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey) ?? 'image' }))}
+                allowDeselect={false}
+              />
+              <Select
+                label="Who can access"
+                value={assetForm.visibility}
+                data={visibilityOptions}
+                onChange={(value) => setAssetForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey) ?? 'internal_only' }))}
+                allowDeselect={false}
+              />
+              <TextInput
+                label="Paste file link"
+                value={assetForm.externalUrl}
+                onChange={(event) => setAssetForm((current) => ({ ...current, externalUrl: event.currentTarget.value }))}
+                placeholder="https://..."
+              />
+              <TextInput
+                label="File name"
+                value={assetForm.fileName}
+                onChange={(event) => setAssetForm((current) => ({ ...current, fileName: event.currentTarget.value }))}
+                placeholder="Required when link is provided"
+              />
+              <TextInput
+                label="Use for"
+                value={assetForm.audience}
+                onChange={(event) => setAssetForm((current) => ({ ...current, audience: event.currentTarget.value }))}
+              />
+            </SimpleGrid>
+            <Textarea
+              label="Notes"
+              value={assetForm.description}
+              onChange={(event) => setAssetForm((current) => ({ ...current, description: event.currentTarget.value }))}
+              minRows={2}
+            />
+            <details>
+              <summary>Advanced details</summary>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+                <TextInput
+                  label="Custom URL slug"
+                  value={assetForm.stableSlug}
+                  onChange={(event) => setAssetForm((current) => ({ ...current, stableSlug: event.currentTarget.value }))}
+                  placeholder="Auto-generated when blank"
+                />
+                <TextInput
+                  label="MIME type"
+                  value={assetForm.mimeType}
+                  onChange={(event) => setAssetForm((current) => ({ ...current, mimeType: event.currentTarget.value }))}
+                />
+                <TextInput
+                  label="Brand"
+                  value={assetForm.brandScope}
+                  onChange={(event) => setAssetForm((current) => ({ ...current, brandScope: event.currentTarget.value }))}
+                />
+                <TextInput
+                  label="Region"
+                  value={assetForm.regionScope}
+                  onChange={(event) => setAssetForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
+                />
+                <TextInput
+                  label="Original Widen URL"
+                  value={assetForm.legacyUrl}
+                  onChange={(event) => setAssetForm((current) => ({ ...current, legacyUrl: event.currentTarget.value }))}
+                />
+              </SimpleGrid>
+            </details>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setIsAddLinkOpen(false)}>Cancel</Button>
+              <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean(assetForm.externalUrl.trim() && !assetForm.fileName.trim())}>
+                Add Link
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
 
       <Modal opened={isBulkUploadOpen} onClose={() => setIsBulkUploadOpen(false)} title="Bulk Upload Assets" size="xl" centered>
         <Stack gap="md">

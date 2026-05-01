@@ -31,9 +31,11 @@ import type {
   WidenManifestRowIssue,
   WidenManifestRowPreview,
 } from '@pulse/contracts/digital-assets';
+import { loadAppConfig } from '@pulse/config';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildPublicAssetUrl, storeDigitalAssetObject } from './storage.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -164,12 +166,13 @@ export async function createDigitalAssetVersion(actor: AuthenticatedActor, asset
   assertActionAccess(actor.role, 'digital_asset.upload');
   const asset = await prisma.digitalAsset.findUnique({ where: { id: assetId }, select: { id: true } });
   if (!asset) throw new Error('Digital asset not found');
+  const nextVersion = ((await prisma.digitalAssetVersion.aggregate({ where: { assetId }, _max: { versionNumber: true } }))._max.versionNumber ?? 0) + 1;
+  const preparedInput = await prepareDigitalAssetVersionInput(assetId, nextVersion, input);
   await prisma.$transaction(async (tx) => {
-    const nextVersion = ((await tx.digitalAssetVersion.aggregate({ where: { assetId }, _max: { versionNumber: true } }))._max.versionNumber ?? 0) + 1;
     if (input.makeCurrent !== false) {
       await tx.digitalAssetVersion.updateMany({ where: { assetId }, data: { isCurrent: false } });
     }
-    const version = await createDigitalAssetVersionRow(tx, actor.userId, assetId, nextVersion, input, input.makeCurrent !== false);
+    const version = await createDigitalAssetVersionRow(tx, actor.userId, assetId, nextVersion, preparedInput, input.makeCurrent !== false);
     if (input.makeCurrent !== false) {
       await tx.digitalAsset.update({ where: { id: assetId }, data: { currentVersionId: version.id } });
     }
@@ -202,7 +205,7 @@ async function createDigitalAssetVersionRow(
   isCurrent: boolean,
 ) {
   if (!input.fileName?.trim()) throw new Error('fileName is required');
-  if (!input.storageKey?.trim() && !input.externalUrl?.trim()) throw new Error('storageKey or externalUrl is required');
+  if (!input.storageKey?.trim() && !input.externalUrl?.trim() && !input.fileBase64?.trim()) throw new Error('storageKey, externalUrl, or fileBase64 is required');
   return tx.digitalAssetVersion.create({
     data: {
       assetId,
@@ -222,6 +225,33 @@ async function createDigitalAssetVersionRow(
       createdByUserId: actorUserId,
     },
   });
+}
+
+async function prepareDigitalAssetVersionInput(
+  assetId: string,
+  versionNumber: number,
+  input: CreateDigitalAssetVersionRequest,
+): Promise<CreateDigitalAssetVersionRequest> {
+  if (!input.fileBase64?.trim()) {
+    return input;
+  }
+
+  const config = loadAppConfig();
+  const stored = await storeDigitalAssetObject(config, {
+    assetId,
+    versionNumber,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    fileBase64: input.fileBase64,
+  });
+
+  return {
+    ...input,
+    storageKey: stored.storageKey,
+    sizeBytes: stored.sizeBytes,
+    sha256: stored.sha256,
+    fileBase64: null,
+  };
 }
 
 export async function assignProductAsset(actor: AuthenticatedActor, input: CreateProductAssetAssignmentRequest): Promise<ProductAssetAssignmentSummary> {
@@ -855,12 +885,14 @@ function mapAsset(asset: any): DigitalAssetSummary {
 }
 
 function mapVersion(version: any) {
+  const config = loadAppConfig();
   const summary: DigitalAssetVersionSummary = {
     id: version.id,
     assetId: version.assetId,
     versionNumber: version.versionNumber,
     storageKey: version.storageKey ?? undefined,
     externalUrl: version.externalUrl ?? undefined,
+    publicUrl: version.externalUrl ?? buildPublicAssetUrl(config, version.storageKey),
     fileName: version.fileName,
     mimeType: version.mimeType ?? undefined,
     sizeBytes: version.sizeBytes ?? undefined,

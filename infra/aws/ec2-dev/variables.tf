@@ -57,3 +57,15 @@ variable "enable_http_api_ports" {
   type        = bool
   default     = false
 }
+
+variable "asset_s3_bucket_arn" {
+  description = "Optional Pulse asset S3 bucket ARN. When set, the EC2 role can manage asset objects."
+  type        = string
+  default     = ""
+}
+
+variable "asset_cloudfront_distribution_arn" {
+  description = "Optional Pulse asset CloudFront distribution ARN. When set, the EC2 role can create invalidations."
+  type        = string
+  default     = ""
+}

@@ -32,6 +32,7 @@ export interface DigitalAssetVersionSummary {
   versionNumber: number;
   storageKey?: string;
   externalUrl?: string;
+  publicUrl?: string;
   fileName: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -207,6 +208,7 @@ export interface CreateDigitalAssetRequest {
 export interface CreateDigitalAssetVersionRequest {
   storageKey?: string | null;
   externalUrl?: string | null;
+  fileBase64?: string | null;
   fileName: string;
   mimeType?: string | null;
   sizeBytes?: number | null;

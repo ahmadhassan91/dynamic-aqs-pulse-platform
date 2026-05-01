@@ -26,3 +26,8 @@ output "github_secrets_required" {
     "DEV_ENV_FILE=<optional full /etc/pulse/pulse.env override>",
   ]
 }
+
+output "instance_role_name" {
+  description = "EC2 IAM role name."
+  value       = aws_iam_role.dev.name
+}

@@ -27,10 +27,11 @@ data "aws_subnets" "default" {
 }
 
 locals {
-  normalized_project = lower(replace(var.project_name, "_", "-"))
-  normalized_env     = lower(replace(var.environment, "_", "-"))
-  name_prefix        = "${local.normalized_project}-${local.normalized_env}"
-  domain_name_or_ip  = var.domain_name != "" ? var.domain_name : aws_eip.dev.public_ip
+  normalized_project  = lower(replace(var.project_name, "_", "-"))
+  normalized_env      = lower(replace(var.environment, "_", "-"))
+  name_prefix         = "${local.normalized_project}-${local.normalized_env}"
+  domain_name_or_ip   = var.domain_name != "" ? var.domain_name : aws_eip.dev.public_ip
+  enable_asset_access = var.asset_s3_bucket_arn != ""
 
   tags = {
     Project     = var.project_name
@@ -38,6 +39,73 @@ locals {
     ManagedBy   = "terraform"
     Module      = "pulse-ec2-dev"
   }
+}
+
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "dev" {
+  name               = "${local.name_prefix}-ec2-role"
+  description        = "Pulse dev EC2 runtime role."
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
+}
+
+resource "aws_iam_instance_profile" "dev" {
+  name = "${local.name_prefix}-ec2-profile"
+  role = aws_iam_role.dev.name
+}
+
+data "aws_iam_policy_document" "asset_access" {
+  count = local.enable_asset_access ? 1 : 0
+
+  statement {
+    sid = "ListAssetBucket"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket",
+    ]
+    resources = [var.asset_s3_bucket_arn]
+  }
+
+  statement {
+    sid = "ReadWriteAssetObjects"
+    actions = [
+      "s3:AbortMultipartUpload",
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:PutObject",
+      "s3:PutObjectTagging",
+    ]
+    resources = ["${var.asset_s3_bucket_arn}/*"]
+  }
+
+  dynamic "statement" {
+    for_each = var.asset_cloudfront_distribution_arn == "" ? [] : [var.asset_cloudfront_distribution_arn]
+
+    content {
+      sid       = "InvalidateAssetCloudFront"
+      actions   = ["cloudfront:CreateInvalidation"]
+      resources = [statement.value]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "asset_access" {
+  count = local.enable_asset_access ? 1 : 0
+
+  name   = "${local.name_prefix}-asset-access"
+  role   = aws_iam_role.dev.id
+  policy = data.aws_iam_policy_document.asset_access[0].json
 }
 
 resource "terraform_data" "account_guard" {
@@ -114,6 +182,7 @@ resource "aws_instance" "dev" {
   subnet_id                   = data.aws_subnets.default.ids[0]
   vpc_security_group_ids      = [aws_security_group.dev.id]
   key_name                    = aws_key_pair.deploy.key_name
+  iam_instance_profile        = aws_iam_instance_profile.dev.name
   associate_public_ip_address = true
   user_data_replace_on_change = false
 

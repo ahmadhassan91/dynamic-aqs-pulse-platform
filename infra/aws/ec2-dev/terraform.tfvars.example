@@ -15,3 +15,7 @@ allowed_ssh_cidrs = ["0.0.0.0/0"]
 domain_name = ""
 
 enable_http_api_ports = false
+
+# Set after infra/aws/assets is applied.
+asset_s3_bucket_arn                 = ""
+asset_cloudfront_distribution_arn   = ""

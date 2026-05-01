@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 import { applyTestEnvironment, ensureTestDatabaseReady, resetDatabase } from './support/runtime.mjs';
 
@@ -113,4 +115,27 @@ test('asset version creation requires upload permission', SERIAL, async () => {
     }),
     /cannot perform action digital_asset\.upload/i,
   );
+});
+
+test('asset version upload persists file payload through configured storage adapter', SERIAL, async () => {
+  const actor = await createActor('ADMIN_CSR_OPS', 'asset-storage');
+  const created = await service.createDigitalAsset(actor, {
+    title: 'Storage backed asset',
+    kind: 'document',
+    visibility: 'dealer_portal',
+  });
+
+  const updated = await service.createDigitalAssetVersion(actor, created.id, {
+    fileBase64: Buffer.from('Pulse asset payload').toString('base64'),
+    fileName: 'asset payload.txt',
+    mimeType: 'text/plain',
+  });
+
+  assert.equal(updated.versionCount, 1);
+  assert.match(updated.currentVersion.storageKey, new RegExp(`digital-assets/${created.id}/v1/asset-payload.txt`));
+  assert.equal(updated.currentVersion.sizeBytes, 19);
+  assert.equal(updated.currentVersion.sha256, 'fffdca0c7d573cb222000050f8244f1fe9d7ca8dfe6c692ee844267e5c754f9a');
+
+  const stored = await readFile(path.join(process.env.APP_STORAGE_ROOT_DIR, updated.currentVersion.storageKey), 'utf8');
+  assert.equal(stored, 'Pulse asset payload');
 });

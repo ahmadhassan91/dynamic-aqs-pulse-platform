@@ -8,6 +8,7 @@ This stack creates a simple testing environment:
 - Node.js 20, pnpm, PostgreSQL, Nginx
 - systemd services for Pulse API and CRM Web
 - local `/etc/pulse/pulse.env` bootstrap file
+- EC2 runtime role, optionally scoped to the Pulse asset S3/CloudFront stack
 
 The screenshot context maps to:
 

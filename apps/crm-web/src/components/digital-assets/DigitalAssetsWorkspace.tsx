@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  FileInput,
   Group,
   Loader,
   Paper,
@@ -56,6 +57,7 @@ type CreateAssetFormState = {
 
 type VersionFormState = {
   externalUrl: string;
+  fileBase64: string;
   fileName: string;
   mimeType: string;
   sourceVersionId: string;
@@ -77,6 +79,7 @@ const defaultAssetForm: CreateAssetFormState = {
 
 const defaultVersionForm: VersionFormState = {
   externalUrl: '',
+  fileBase64: '',
   fileName: '',
   mimeType: '',
   sourceVersionId: '',
@@ -185,12 +188,13 @@ export function DigitalAssetsWorkspace() {
 
   const handleAddVersion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!auth || !selectedAsset || !versionForm.fileName.trim() || !versionForm.externalUrl.trim()) return;
+    if (!auth || !selectedAsset || !versionForm.fileName.trim() || (!versionForm.externalUrl.trim() && !versionForm.fileBase64.trim())) return;
     setIsAddingVersion(true);
     setDetailError(null);
     try {
       const response = await createDigitalAssetVersionRecord(apiBaseUrl, auth.tokens.accessToken, selectedAsset.id, {
         externalUrl: versionForm.externalUrl,
+        fileBase64: emptyToNull(versionForm.fileBase64),
         fileName: versionForm.fileName,
         mimeType: emptyToNull(versionForm.mimeType),
         sourceVersionId: emptyToNull(versionForm.sourceVersionId),
@@ -517,11 +521,29 @@ function AssetDetailPanel({
         <Stack gap="sm">
           <Group justify="space-between">
             <Title order={5}>Add external URL version</Title>
-            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || !form.externalUrl.trim()}>
+            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim())}>
               Add Version
             </Button>
           </Group>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <FileInput
+              label="Upload file"
+              clearable
+              onChange={(file) => {
+                if (!file) {
+                  onFormChange({ ...form, fileBase64: '' });
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => onFormChange({
+                  ...form,
+                  fileBase64: String(reader.result ?? ''),
+                  fileName: form.fileName || file.name,
+                  mimeType: form.mimeType || file.type,
+                });
+                reader.readAsDataURL(file);
+              }}
+            />
             <TextInput
               label="External URL"
               value={form.externalUrl}
@@ -581,9 +603,9 @@ function AssetDetailPanel({
                   <Text c="dimmed" size="xs">{version.mimeType ?? 'Unknown type'}</Text>
                 </Table.Td>
                 <Table.Td>
-                  {version.externalUrl ? (
-                    <Text component="a" href={version.externalUrl} target="_blank" rel="noreferrer" size="xs" c="blue">
-                      {version.externalUrl}
+                  {version.publicUrl || version.externalUrl ? (
+                    <Text component="a" href={version.publicUrl ?? version.externalUrl} target="_blank" rel="noreferrer" size="xs" c="blue">
+                      {version.publicUrl ?? version.externalUrl}
                     </Text>
                   ) : (
                     <Text size="xs" c="dimmed">{version.storageKey ?? 'No location'}</Text>

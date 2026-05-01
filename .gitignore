@@ -2,6 +2,7 @@
 node_modules/
 .pnpm-store/
 .tools/
+.tmp/
 
 # build outputs
 dist/

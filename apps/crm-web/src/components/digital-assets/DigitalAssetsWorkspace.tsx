@@ -23,10 +23,6 @@ import {
 } from '@mantine/core';
 import { IconAlertTriangle, IconCloudUpload, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch, IconShare } from '@tabler/icons-react';
 import {
-  DIGITAL_ASSET_KINDS,
-  DIGITAL_ASSET_REVIEW_STATUSES,
-  DIGITAL_ASSET_STATUSES,
-  DIGITAL_ASSET_VISIBILITIES,
   type DigitalAssetDetail,
   type DigitalAssetKindKey,
   type DigitalAssetReviewStatusKey,
@@ -175,6 +171,11 @@ const defaultShareForm: ShareFormState = {
   note: '',
 };
 
+const DIGITAL_ASSET_KIND_OPTIONS: DigitalAssetKindKey[] = ['image', 'document', 'video', 'logo', 'presentation', 'other'];
+const DIGITAL_ASSET_STATUS_OPTIONS: DigitalAssetStatusKey[] = ['draft', 'active', 'needs_review', 'archived', 'expired'];
+const DIGITAL_ASSET_VISIBILITY_OPTIONS: DigitalAssetVisibilityKey[] = ['internal_only', 'dealer_portal', 'public'];
+const DIGITAL_ASSET_REVIEW_STATUS_OPTIONS: DigitalAssetReviewStatusKey[] = ['not_required', 'pending_review', 'approved', 'rejected'];
+
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
@@ -205,10 +206,10 @@ export function DigitalAssetsWorkspace() {
   const [importPreview, setImportPreview] = useState<WidenImportPreviewResponse | null>(null);
   const [importRuns, setImportRuns] = useState<ListWidenImportRunsResponse>({ items: [] });
 
-  const kindOptions = useMemo(() => DIGITAL_ASSET_KINDS.map((kind) => ({ value: kind, label: formatLabel(kind) })), []);
-  const statusOptions = useMemo(() => DIGITAL_ASSET_STATUSES.map((status) => ({ value: status, label: formatLabel(status) })), []);
-  const visibilityOptions = useMemo(() => DIGITAL_ASSET_VISIBILITIES.map((visibility) => ({ value: visibility, label: formatLabel(visibility) })), []);
-  const reviewStatusOptions = useMemo(() => DIGITAL_ASSET_REVIEW_STATUSES.map((status) => ({ value: status, label: formatLabel(status) })), []);
+  const kindOptions = useMemo(() => DIGITAL_ASSET_KIND_OPTIONS.map((kind) => ({ value: kind, label: formatLabel(kind) })), []);
+  const statusOptions = useMemo(() => DIGITAL_ASSET_STATUS_OPTIONS.map((status) => ({ value: status, label: formatLabel(status) })), []);
+  const visibilityOptions = useMemo(() => DIGITAL_ASSET_VISIBILITY_OPTIONS.map((visibility) => ({ value: visibility, label: formatLabel(visibility) })), []);
+  const reviewStatusOptions = useMemo(() => DIGITAL_ASSET_REVIEW_STATUS_OPTIONS.map((status) => ({ value: status, label: formatLabel(status) })), []);
   const canEditAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.edit') : false;
   const canShareAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.share') : false;
 

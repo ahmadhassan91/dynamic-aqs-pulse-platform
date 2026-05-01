@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import {
-  PRODUCT_PUBLISH_STATUSES,
   type ProductDetail,
   type ProductPublishStatusKey,
   type ProductReferenceImportPreviewResponse,
@@ -62,6 +61,8 @@ const emptyFamilyForm: FamilyFormState = {
   isActive: true,
   sortOrder: 100,
 };
+
+const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
 
 export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
@@ -153,7 +154,7 @@ export function ProductManagementWorkspace() {
     value: family.id,
     label: `${family.name} (${family.code})`,
   })), [families]);
-  const publishStatusOptions = useMemo(() => PRODUCT_PUBLISH_STATUSES.map((status) => ({
+  const publishStatusOptions = useMemo(() => PRODUCT_PUBLISH_STATUS_OPTIONS.map((status) => ({
     value: status,
     label: formatLabel(status),
   })), []);

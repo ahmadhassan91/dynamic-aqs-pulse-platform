@@ -5,12 +5,10 @@ import Link from 'next/link';
 import { Alert, Badge, Button, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
-  PRODUCT_ASSET_ROLES,
   type DigitalAssetSummary,
   type ProductAssetRoleKey,
 } from '@pulse/contracts/digital-assets';
 import {
-  PRODUCT_PUBLISH_STATUSES,
   type ProductDetail,
   type ProductPublishStatusKey,
 } from '@pulse/contracts/product-management';
@@ -66,6 +64,19 @@ const emptyInclusionForm: InclusionFormState = {
   publishStatus: 'draft',
   notes: '',
 };
+
+const PRODUCT_ASSET_ROLE_OPTIONS: ProductAssetRoleKey[] = [
+  'primary_image',
+  'gallery_image',
+  'spec_sheet',
+  'install_guide',
+  'brochure',
+  'safety_data',
+  'video',
+  'training',
+  'other',
+];
+const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
 
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
@@ -273,8 +284,8 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
 
   const primaryPresentation = product.presentations[0];
   const blockedChecks = product.readinessChecks.filter((check) => check.status === 'blocked');
-  const assetRoleOptions = PRODUCT_ASSET_ROLES.map((role) => ({ value: role, label: formatLabel(role) }));
-  const publishStatusOptions = PRODUCT_PUBLISH_STATUSES.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
+  const assetRoleOptions = PRODUCT_ASSET_ROLE_OPTIONS.map((role) => ({ value: role, label: formatLabel(role) }));
+  const publishStatusOptions = PRODUCT_PUBLISH_STATUS_OPTIONS.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
 
   return (
     <Stack gap="lg">

@@ -77,6 +77,14 @@ const PRODUCT_ASSET_ROLE_OPTIONS: ProductAssetRoleKey[] = [
   'other',
 ];
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
+const CATALOG_VIEW_TYPE_OPTIONS = [
+  { value: 'all_dealers', label: 'Standard dealers' },
+  { value: 'region', label: 'Regional catalog view' },
+  { value: 'affinity_group', label: 'Affinity catalog view' },
+  { value: 'ownership_group', label: 'Ownership / PE catalog view' },
+  { value: 'brand', label: 'Brand catalog view' },
+  { value: 'private_label', label: 'Private-label catalog view' },
+];
 
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
@@ -311,14 +319,14 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Text fw={700}>{product.lifecycleStatus}</Text>
         </Paper>
         <Paper withBorder p="md">
-          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Go-Live Blockers</Text>
+          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Catalog Go-Live Blockers</Text>
           <Text fw={700}>{blockedChecks.length}</Text>
         </Paper>
       </SimpleGrid>
 
       <Paper withBorder p="md">
         <Group justify="space-between" mb="sm">
-          <Title order={4}>Presentation</Title>
+          <Title order={4}>Dealer-Facing Presentation</Title>
           <Group>
             {primaryPresentation ? (
               <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} onClick={handleValidatePresentation} loading={isValidating}>
@@ -444,13 +452,16 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       <Paper withBorder p="md">
         <Group mb="sm">
           <IconShieldCheck size={18} />
-          <Title order={4}>Dealer Visibility</Title>
+          <Title order={4}>Dealer Catalog Views</Title>
         </Group>
+        <Text c="dimmed" size="sm" mb="sm">
+          Catalog views control which dealer context sees this product and its files. They are resolved from account attributes such as affinity, ownership/PE, independent status, region, private label, and portal eligibility. Pricing remains separate.
+        </Text>
         <Table striped>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Group Type</Table.Th>
-              <Table.Th>Group</Table.Th>
+              <Table.Th>Catalog view</Table.Th>
+              <Table.Th>Resolver value</Table.Th>
               <Table.Th>Region</Table.Th>
               <Table.Th>Brand</Table.Th>
               <Table.Th>Status</Table.Th>
@@ -460,8 +471,8 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Table.Tbody>
             {product.inclusions.map((inclusion) => (
               <Table.Tr key={inclusion.id}>
-                <Table.Td>{inclusion.dealerGroupType}</Table.Td>
-                <Table.Td>{inclusion.dealerGroupId ?? 'All'}</Table.Td>
+                <Table.Td>{formatCatalogViewType(inclusion.dealerGroupType)}</Table.Td>
+                <Table.Td>{inclusion.dealerGroupId ?? 'Default eligible dealers'}</Table.Td>
                 <Table.Td>{inclusion.regionScope ?? 'Any'}</Table.Td>
                 <Table.Td>{inclusion.brandLabel ?? 'Neutral'}</Table.Td>
                 <Table.Td>{inclusion.isVisible ? inclusion.publishStatus : 'hidden'}</Table.Td>
@@ -469,15 +480,15 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               </Table.Tr>
             ))}
             {!product.inclusions.length ? (
-              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer visibility rules yet.</Text></Table.Td></Table.Tr>
+              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer catalog view rules yet.</Text></Table.Td></Table.Tr>
             ) : null}
           </Table.Tbody>
         </Table>
         {primaryPresentation && canManageProducts ? (
           <Stack gap="sm" mt="md">
             <SimpleGrid cols={{ base: 1, md: 3 }}>
-              <TextInput label="Group type" value={inclusionForm.dealerGroupType} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
-              <TextInput label="Group ID" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+              <Select label="Catalog view type" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
+              <TextInput label="Resolver value" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
               <Select label="Publish status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
               <TextInput label="Region scope" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
               <TextInput label="Brand label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
@@ -486,7 +497,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             <Textarea label="Notes" minRows={2} value={inclusionForm.notes} onChange={(event) => setInclusionForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
             <Group justify="flex-end">
               <Button variant="subtle" onClick={handleResetInclusion}>Reset</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Rule' : 'Add Rule'}</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Catalog View Rule' : 'Add Catalog View Rule'}</Button>
             </Group>
           </Stack>
         ) : null}
@@ -522,6 +533,10 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
 
 function formatLabel(value: string) {
   return value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function formatCatalogViewType(value: string) {
+  return CATALOG_VIEW_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? formatLabel(value);
 }
 
 function emptyToNull(value: string) {

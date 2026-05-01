@@ -161,7 +161,7 @@ export function Navigation() {
       links: [
         { label: 'Catalog Setup', link: '/product-management?tab=categories' },
         { label: 'Products', link: '/product-management?tab=products' },
-        { label: 'Who Sees It', link: '/product-management?tab=visibility' },
+        { label: 'Dealer Catalog Views', link: '/product-management?tab=visibility' },
         { label: 'Readiness', link: '/product-management?tab=readiness' },
         { label: 'Publish Control', link: '/product-management?tab=publish' },
       ],

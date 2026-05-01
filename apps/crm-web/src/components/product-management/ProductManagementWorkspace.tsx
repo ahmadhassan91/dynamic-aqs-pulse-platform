@@ -28,6 +28,16 @@ import { APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'readiness' | 'publish';
+type CatalogViewRow = {
+  key: string;
+  catalogView: string;
+  resolverInput: string;
+  region: string;
+  brand: string;
+  productCount: number;
+  publishedCount: number;
+  blockedCount: number;
+};
 type CategoryFormState = {
   code: string;
   name: string;
@@ -189,7 +199,7 @@ export function ProductManagementWorkspace() {
       product.category ? null : 'Missing category',
       hasContent ? null : 'Missing dealer-facing content',
       hasPrimaryImage ? null : 'Missing approved primary image',
-      hasDealerVisibility ? null : 'Missing dealer visibility rule',
+      hasDealerVisibility ? null : 'Missing dealer catalog view rule',
     ].filter(Boolean) as string[];
     const warnings = [
       product.family ? null : 'No family assigned',
@@ -240,6 +250,27 @@ export function ProductManagementWorkspace() {
       publishStatus: inclusion.publishStatus,
     }));
   }), [productDetails]);
+  const catalogViewRows = useMemo(() => {
+    const grouped = new Map<string, CatalogViewRow>();
+    for (const row of visibilityRows) {
+      const key = `${row.audience}|${row.region}|${row.brand}`;
+      const existing = grouped.get(key) ?? {
+        key,
+        catalogView: row.audience,
+        resolverInput: buildResolverInputLabel(row.audience),
+        region: row.region,
+        brand: row.brand,
+        productCount: 0,
+        publishedCount: 0,
+        blockedCount: 0,
+      };
+      existing.productCount += row.isVisible ? 1 : 0;
+      existing.publishedCount += row.isVisible && row.publishStatus === 'published' ? 1 : 0;
+      existing.blockedCount += row.isVisible ? 0 : 1;
+      grouped.set(key, existing);
+    }
+    return Array.from(grouped.values()).sort((left, right) => left.catalogView.localeCompare(right.catalogView));
+  }, [visibilityRows]);
 
   const reloadCatalog = async () => {
     if (!auth) return;
@@ -375,7 +406,7 @@ export function ProductManagementWorkspace() {
       <Group justify="space-between" align="flex-start">
         <Stack gap={4}>
           <Title order={2}>Product Management</Title>
-          <Text c="dimmed">Prepare products for the Dealer Portal: organize the catalog, decide who can see each product, attach assets, and publish only when ready.</Text>
+          <Text c="dimmed">Prepare dealer catalog views: organize products, attach approved files, resolve dealer context, and publish only when each catalog view is ready.</Text>
         </Stack>
       </Group>
 
@@ -383,7 +414,7 @@ export function ProductManagementWorkspace() {
         <Metric label="Products" value={metrics.totalProducts} />
         <Metric label="Categories" value={metrics.categories} />
         <Metric label="Families" value={metrics.families} />
-        <Metric label="Dealer Visible" value={metrics.dealerVisible} />
+        <Metric label="Catalog Views" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
       </SimpleGrid>
 
       {error ? (
@@ -406,14 +437,14 @@ export function ProductManagementWorkspace() {
           <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
           <Tabs.Tab value="families">Families</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
-          <Tabs.Tab value="visibility">Who Sees It</Tabs.Tab>
+          <Tabs.Tab value="visibility">Dealer Catalog Views</Tabs.Tab>
           <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="categories" pt="md">
           <Alert color="blue" mb="md" title="Catalog setup, not dealer groups">
-            Categories organize the dealer catalog. Families group related SKUs. Dealer-specific visibility is handled in the Who Sees It tab.
+            Categories organize navigation and reporting. Families group related SKUs. Dealer-specific visibility belongs in Dealer Catalog Views.
           </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
             <Paper withBorder p="md">
@@ -528,8 +559,8 @@ export function ProductManagementWorkspace() {
           </SimpleGrid>
           <Paper withBorder p="md" mt="md">
             <Stack gap="xs">
-              <Title order={4}>Visibility Governance</Title>
-              <Text c="dimmed">Dealer portal visibility is still resolved from catalog inclusions, region, brand/private label, ownership group, and portal eligibility before publish.</Text>
+              <Title order={4}>Catalog View Governance</Title>
+              <Text c="dimmed">Dealer portal visibility is resolved from catalog views using region, brand/private label, affinity, ownership/PE, independent status, and portal eligibility before publish.</Text>
               <Badge variant="light">Pricing remains separate from product visibility</Badge>
             </Stack>
           </Paper>
@@ -620,13 +651,13 @@ export function ProductManagementWorkspace() {
 
         <Tabs.Panel value="visibility" pt="md">
           <Stack gap="md">
-            <Alert color="blue" title="Dealer group means catalog context">
-              Product Management defines which products and files are visible for a dealer context. Pricing stays separate and comes from account / price-class setup.
+            <Alert color="blue" title="Dealer Catalog Views">
+              A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility feed the resolver. Pricing stays separate.
             </Alert>
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
-              <Metric label="Products With Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
-              <Metric label="Missing Rules" value={visibilityRows.filter((row) => !row.isVisible).length} />
-              <Metric label="Portal Visible Products" value={metrics.dealerVisible} />
+              <Metric label="Catalog Views With Products" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
+              <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
+              <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
             </SimpleGrid>
             <Paper withBorder>
               {isLoading ? (
@@ -635,21 +666,21 @@ export function ProductManagementWorkspace() {
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Product</Table.Th>
-                      <Table.Th>Who sees it</Table.Th>
+                      <Table.Th>Dealer catalog view</Table.Th>
+                      <Table.Th>Resolver input</Table.Th>
                       <Table.Th>Region / Brand</Table.Th>
-                      <Table.Th>Portal status</Table.Th>
+                      <Table.Th>Products</Table.Th>
                       <Table.Th />
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {visibilityRows.map((row) => (
-                      <Table.Tr key={row.id}>
+                    {catalogViewRows.map((row) => (
+                      <Table.Tr key={row.key}>
                         <Table.Td>
-                          <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
-                          <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                          <Text fw={600}>{row.catalogView}</Text>
+                          <Text size="xs" c="dimmed">Catalog and file visibility context</Text>
                         </Table.Td>
-                        <Table.Td>{row.audience}</Table.Td>
+                        <Table.Td>{row.resolverInput}</Table.Td>
                         <Table.Td>
                           <Stack gap={2}>
                             <Text size="sm">{row.region}</Text>
@@ -657,24 +688,58 @@ export function ProductManagementWorkspace() {
                           </Stack>
                         </Table.Td>
                         <Table.Td>
-                          <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
-                            {row.isVisible ? 'Visible' : 'Needs rule'}
-                          </Badge>
-                          <Text size="xs" c="dimmed" mt={4}>{formatLabel(row.publishStatus)}</Text>
+                          <Text fw={600}>{row.productCount}</Text>
+                          <Text size="xs" c="dimmed">{row.publishedCount} published / {row.blockedCount} missing rules</Text>
                         </Table.Td>
                         <Table.Td>
-                          <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
-                            Manage
-                          </Button>
+                          <Button component={Link} href="/product-management?tab=products" size="xs" variant="light">Review Products</Button>
                         </Table.Td>
                       </Table.Tr>
                     ))}
-                    {!visibilityRows.length ? (
-                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No products loaded yet.</Text></Table.Td></Table.Tr>
+                    {!catalogViewRows.length ? (
+                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No dealer catalog views have product rules yet.</Text></Table.Td></Table.Tr>
                     ) : null}
                   </Table.Tbody>
                 </Table>
               )}
+            </Paper>
+            <Paper withBorder>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Product</Table.Th>
+                    <Table.Th>Catalog view rule</Table.Th>
+                    <Table.Th>Region / Brand</Table.Th>
+                    <Table.Th>Portal status</Table.Th>
+                    <Table.Th />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {visibilityRows.map((row) => (
+                    <Table.Tr key={row.id}>
+                      <Table.Td>
+                        <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                        <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                      </Table.Td>
+                      <Table.Td>{row.audience}</Table.Td>
+                      <Table.Td>{row.region} / {row.brand}</Table.Td>
+                      <Table.Td>
+                        <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
+                          {row.isVisible ? formatLabel(row.publishStatus) : 'Needs catalog view'}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
+                          Manage Rule
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                  {!visibilityRows.length ? (
+                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No product visibility rules loaded yet.</Text></Table.Td></Table.Tr>
+                  ) : null}
+                </Table.Tbody>
+              </Table>
             </Paper>
           </Stack>
         </Tabs.Panel>
@@ -833,7 +898,7 @@ export function ProductManagementWorkspace() {
                     <Table.Th>Product</Table.Th>
                     <Table.Th>Presentation Status</Table.Th>
                     <Table.Th>Readiness</Table.Th>
-                    <Table.Th>Visibility Rules</Table.Th>
+                    <Table.Th>Catalog View Rules</Table.Th>
                     <Table.Th>Assets</Table.Th>
                     <Table.Th />
                   </Table.Tr>
@@ -890,17 +955,28 @@ function formatCatalogAudience(dealerGroupType: string, dealerGroupId?: string) 
   const suffix = dealerGroupId ? `: ${dealerGroupId}` : '';
   switch (dealerGroupType) {
     case 'all_dealers':
-      return 'All eligible dealers';
+      return 'Standard dealers';
     case 'affinity_group':
-      return `Affinity group${suffix}`;
+      return `Affinity catalog view${suffix}`;
     case 'ownership_group':
-      return `Ownership group${suffix}`;
+      return `Ownership / PE catalog view${suffix}`;
     case 'brand':
     case 'private_label':
-      return `Brand / private label${suffix}`;
+      return `Brand / private-label catalog view${suffix}`;
     case 'region':
-      return `Region${suffix}`;
+      return `Regional catalog view${suffix}`;
     default:
       return `${formatLabel(dealerGroupType)}${suffix}`;
   }
+}
+
+function buildResolverInputLabel(catalogView: string) {
+  const lowerView = catalogView.toLowerCase();
+  if (lowerView.includes('affinity')) return 'Affinity + portal eligibility';
+  if (lowerView.includes('ownership') || lowerView.includes('pe')) return 'Ownership/PE + portal eligibility';
+  if (lowerView.includes('brand') || lowerView.includes('private')) return 'Brand/private label + account context';
+  if (lowerView.includes('regional')) return 'Region + country/currency context';
+  if (lowerView.includes('standard')) return 'Default eligible dealer context';
+  if (lowerView.includes('no visibility')) return 'Missing resolved catalog context';
+  return 'Resolved dealer/account context';
 }

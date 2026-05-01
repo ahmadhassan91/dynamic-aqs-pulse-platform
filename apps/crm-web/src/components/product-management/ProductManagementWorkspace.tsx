@@ -80,8 +80,7 @@ const CATEGORY_REGION_OPTIONS = [
   { value: 'CA', label: 'Canada' },
   ...APP_LEAD_REGION_OPTIONS.map((option) => ({
     value: option.value,
-    label: `${option.label} (${option.value})`,
-    group: option.group,
+    label: `${option.group}: ${option.label} (${option.value})`,
   })),
 ];
 

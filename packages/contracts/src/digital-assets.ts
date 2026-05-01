@@ -305,6 +305,8 @@ export interface WidenManifestImportRequest {
   notes?: string | null;
   limit?: number;
   dryRun?: boolean;
+  ingestSourceDownloads?: boolean;
+  maxSourceDownloads?: number;
 }
 
 export interface WidenManifestRowIssue {
@@ -335,6 +337,7 @@ export interface WidenManifestImportSummary {
   warningCount: number;
   errorCount: number;
   duplicateExternalAssetCount: number;
+  downloadableSourceCount: number;
 }
 
 export interface WidenManifestPreviewResponse extends WidenManifestImportSummary {
@@ -351,6 +354,8 @@ export interface CommitWidenManifestImportResponse extends WidenManifestImportSu
   aliasesUpserted: number;
   metadataFieldsUpserted: number;
   issuesCreated: number;
+  sourceDownloadsIngested: number;
+  sourceDownloadFailures: number;
   skippedRows: number;
   warnings: string[];
 }

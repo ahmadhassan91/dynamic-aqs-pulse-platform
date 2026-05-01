@@ -277,3 +277,73 @@ test('asset version can ingest a Widen source download URL into managed storage'
     globalThis.fetch = originalFetch;
   }
 });
+
+test('Widen manifest import can copy source downloads into managed storage and trace failures', SERIAL, async () => {
+  const actor = await createActor('SUPER_ADMIN', 'widen-bulk-source-ingest');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target === 'https://assets.example.test/download/widen-bulk-copy.pdf') {
+      return new Response(Buffer.from('Bulk Widen bytes'), {
+        status: 200,
+        headers: {
+          'content-type': 'application/pdf',
+          'content-length': String(Buffer.byteLength('Bulk Widen bytes')),
+        },
+      });
+    }
+    if (target === 'https://assets.example.test/download/widen-bulk-fail.pdf') {
+      return new Response('missing', { status: 502 });
+    }
+    throw new Error(`Unexpected fetch URL ${target}`);
+  };
+
+  try {
+    const response = await service.commitWidenManifestImport(actor, {
+      sourceExportName: 'widen-bulk-export.csv',
+      ingestSourceDownloads: true,
+      rows: [
+        {
+          assetId: 'widen-bulk-copy',
+          title: 'Bulk copied asset',
+          fileName: 'widen bulk copy.pdf',
+          downloadUrl: 'https://assets.example.test/download/widen-bulk-copy.pdf',
+          legacyUrl: 'https://assets.example.test/share/widen-bulk-copy',
+          mimeType: 'application/pdf',
+        },
+        {
+          assetId: 'widen-bulk-fail',
+          title: 'Bulk failed asset',
+          fileName: 'widen bulk fail.pdf',
+          downloadUrl: 'https://assets.example.test/download/widen-bulk-fail.pdf',
+          legacyUrl: 'https://assets.example.test/share/widen-bulk-fail',
+          mimeType: 'application/pdf',
+        },
+      ],
+    });
+
+    assert.equal(response.downloadableSourceCount, 2);
+    assert.equal(response.sourceDownloadsIngested, 1);
+    assert.equal(response.sourceDownloadFailures, 1);
+    assert.equal(response.issuesCreated, 1);
+    assert.equal(response.batch.status, 'imported_with_issues');
+
+    const copiedVersion = await prisma.digitalAssetVersion.findFirst({
+      where: { sourceDownloadUrl: 'https://assets.example.test/download/widen-bulk-copy.pdf' },
+    });
+    assert.ok(copiedVersion);
+    assert.equal(copiedVersion.externalUrl, null);
+    assert.equal(copiedVersion.mimeType, 'application/pdf');
+    assert.match(copiedVersion.storageKey, /digital-assets\/.+\/v1\/widen-bulk-copy\.pdf/);
+    const stored = await readFile(path.join(process.env.APP_STORAGE_ROOT_DIR, copiedVersion.storageKey), 'utf8');
+    assert.equal(stored, 'Bulk Widen bytes');
+
+    const failedIssue = await prisma.digitalAssetMigrationIssue.findFirst({
+      where: { issueCode: 'source_download_ingest_failed' },
+    });
+    assert.ok(failedIssue);
+    assert.equal(failedIssue.externalAssetId, 'widen-bulk-fail');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

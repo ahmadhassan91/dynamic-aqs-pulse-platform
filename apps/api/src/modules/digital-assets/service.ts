@@ -48,6 +48,8 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const DEFAULT_MANIFEST_LIMIT = 1_000;
 const MAX_MANIFEST_LIMIT = 10_000;
+const DEFAULT_WIDEN_SOURCE_DOWNLOAD_LIMIT = 25;
+const MAX_WIDEN_SOURCE_DOWNLOAD_LIMIT = 200;
 const MAX_SOURCE_DOWNLOAD_INGEST_BYTES = 100 * 1024 * 1024;
 
 export async function listDigitalAssets(actor: AuthenticatedActor, input: ListDigitalAssetsRequest = {}): Promise<ListDigitalAssetsResponse> {
@@ -586,6 +588,8 @@ export async function commitWidenManifestImport(
       aliasesUpserted: 0,
       metadataFieldsUpserted: 0,
       issuesCreated: 0,
+      sourceDownloadsIngested: 0,
+      sourceDownloadFailures: 0,
       skippedRows: summary.invalidRowCount,
       warnings: context.warnings,
     };
@@ -598,9 +602,12 @@ export async function commitWidenManifestImport(
     aliasesUpserted: 0,
     metadataFieldsUpserted: 0,
     issuesCreated: 0,
+    sourceDownloadsIngested: 0,
+    sourceDownloadFailures: 0,
     skippedRows: summary.invalidRowCount,
   };
   let batchRow: any = null;
+  const sourceIngestionTargets: WidenSourceIngestionTarget[] = [];
 
   await prisma.$transaction(async (tx) => {
     const batch = await tx.digitalAssetMigrationBatch.create({
@@ -714,6 +721,11 @@ export async function commitWidenManifestImport(
           });
           await tx.digitalAsset.update({ where: { id: asset.id }, data: { currentVersionId: version.id } });
           counters.versionsCreated += 1;
+          if (candidate.downloadUrl) {
+            sourceIngestionTargets.push(toWidenSourceIngestionTarget(candidate, batch.id, asset.id, version));
+          }
+        } else if (candidate.downloadUrl && !existingVersion.storageKey) {
+          sourceIngestionTargets.push(toWidenSourceIngestionTarget(candidate, batch.id, asset.id, existingVersion));
         }
       }
 
@@ -801,6 +813,28 @@ export async function commitWidenManifestImport(
     });
   }, { timeout: 60_000 });
 
+  if (input.ingestSourceDownloads) {
+    const limit = clampWidenSourceDownloadLimit(input.maxSourceDownloads);
+    const limitedTargets = sourceIngestionTargets.slice(0, limit);
+    if (sourceIngestionTargets.length > limit) {
+      context.warnings.push(`Widen source download ingestion limited to ${limit} files for this run.`);
+    }
+    for (const target of limitedTargets) {
+      const ingested = await ingestWidenSourceDownload(actor, target);
+      if (ingested) counters.sourceDownloadsIngested += 1;
+      else {
+        counters.sourceDownloadFailures += 1;
+        counters.issuesCreated += 1;
+      }
+    }
+    if (counters.sourceDownloadFailures > 0 && batchRow?.id) {
+      batchRow = await prisma.digitalAssetMigrationBatch.update({
+        where: { id: batchRow.id },
+        data: { status: 'imported_with_issues' },
+      });
+    }
+  }
+
   return {
     ...summary,
     dryRun: false,
@@ -867,6 +901,19 @@ type WidenManifestContext = {
   candidates: WidenManifestCandidate[];
   warnings: string[];
   sourceExportName: string | null;
+};
+
+type WidenSourceIngestionTarget = {
+  batchId: string;
+  assetId: string;
+  versionId: string;
+  versionNumber: number;
+  fileName: string;
+  mimeType: string | null;
+  sourceDownloadUrl: string;
+  externalAssetId: string | null;
+  rowNumber: number;
+  rawRow: Record<string, unknown>;
 };
 
 async function loadWidenManifestRows(input: WidenManifestImportRequest): Promise<WidenManifestContext> {
@@ -996,9 +1043,82 @@ function summarizeWidenCandidates(context: WidenManifestContext): WidenManifestI
     warningCount,
     errorCount,
     duplicateExternalAssetCount,
+    downloadableSourceCount: context.candidates.filter((candidate) => candidate.isValid && Boolean(candidate.downloadUrl)).length,
   };
   if (context.sourceExportName) summary.sourceExportName = context.sourceExportName;
   return summary;
+}
+
+function toWidenSourceIngestionTarget(
+  candidate: WidenManifestCandidate,
+  batchId: string,
+  assetId: string,
+  version: { id: string; versionNumber: number; fileName: string; mimeType: string | null },
+): WidenSourceIngestionTarget {
+  return {
+    batchId,
+    assetId,
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    fileName: version.fileName,
+    mimeType: version.mimeType,
+    sourceDownloadUrl: candidate.downloadUrl as string,
+    externalAssetId: candidate.externalAssetId,
+    rowNumber: candidate.rowNumber,
+    rawRow: candidate.rawRow,
+  };
+}
+
+async function ingestWidenSourceDownload(actor: AuthenticatedActor, target: WidenSourceIngestionTarget) {
+  try {
+    const downloaded = await downloadSourceAsset(target.sourceDownloadUrl);
+    const stored = await storeDigitalAssetObject(loadAppConfig(), {
+      assetId: target.assetId,
+      versionNumber: target.versionNumber,
+      fileName: target.fileName,
+      mimeType: target.mimeType ?? downloaded.mimeType ?? null,
+      fileBase64: downloaded.buffer.toString('base64'),
+    });
+    const before = await prisma.digitalAssetVersion.findUnique({ where: { id: target.versionId } });
+    const updated = await prisma.digitalAssetVersion.update({
+      where: { id: target.versionId },
+      data: {
+        storageKey: stored.storageKey,
+        externalUrl: null,
+        mimeType: target.mimeType ?? downloaded.mimeType ?? null,
+        sizeBytes: stored.sizeBytes,
+        sha256: stored.sha256,
+      },
+    });
+    await prisma.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'DIGITAL_ASSET_VERSION',
+        entityId: target.versionId,
+        beforeData: before ?? undefined,
+        afterData: updated,
+        sourceSystem: 'widen',
+        metadata: { assetId: target.assetId, batchId: target.batchId, sourceDownloadIngested: true },
+      }),
+    });
+    return true;
+  } catch (error) {
+    await prisma.digitalAssetMigrationIssue.create({
+      data: {
+        batchId: target.batchId,
+        assetId: target.assetId,
+        sourceSystem: ProductSourceSystem.WIDEN,
+        externalAssetId: target.externalAssetId,
+        severity: 'warning',
+        issueCode: 'source_download_ingest_failed',
+        message: `Widen source download could not be copied into managed storage: ${error instanceof Error ? error.message : 'unknown error'}`,
+        sourceRowNumber: target.rowNumber,
+        rawSourcePayload: boundedJson(target.rawRow, 'Widen source download issue raw row', JSON_SIZE_LIMITS.migrationSnapshotRawPayloadBytes),
+      },
+    });
+    return false;
+  }
 }
 
 function toWidenRowPreview(candidate: WidenManifestCandidate): WidenManifestRowPreview {
@@ -1349,6 +1469,10 @@ function clampLimit(limit?: number) {
 
 function clampManifestLimit(limit?: number) {
   return Math.min(Math.max(limit ?? DEFAULT_MANIFEST_LIMIT, 1), MAX_MANIFEST_LIMIT);
+}
+
+function clampWidenSourceDownloadLimit(limit?: number) {
+  return Math.min(Math.max(limit ?? DEFAULT_WIDEN_SOURCE_DOWNLOAD_LIMIT, 1), MAX_WIDEN_SOURCE_DOWNLOAD_LIMIT);
 }
 
 function cleanNullable(value: string | null | undefined) {

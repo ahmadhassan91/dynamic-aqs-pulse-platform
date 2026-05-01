@@ -12,6 +12,7 @@ import {
 } from '@pulse/contracts/product-management';
 import { IconAlertTriangle, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
 import {
+  createDealerCatalogView,
   createProductManagementCategory,
   createProductManagementFamily,
   fetchProductManagementCategories,
@@ -20,6 +21,7 @@ import {
   fetchProductManagementProductDetail,
   fetchProductManagementProducts,
   previewProductReferenceImport,
+  updateDealerCatalogView,
   updateProductManagementCategory,
   updateProductManagementFamily,
   type ListProductsResponse,
@@ -32,6 +34,7 @@ import { usePulseSession } from '@/lib/pulse-session';
 type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'readiness' | 'publish';
 type CatalogViewRow = {
   key: string;
+  catalogViewId?: string | undefined;
   catalogView: string;
   resolverInput: string;
   region: string;
@@ -51,6 +54,18 @@ type CategoryFormState = {
   isActive: boolean;
   sortOrder: number;
 };
+type CatalogViewFormState = {
+  name: string;
+  kind: DealerCatalogViewSummary['kind'];
+  resolverKey: string;
+  resolverLabel: string;
+  regionScope: string;
+  brandLabel: string;
+  description: string;
+  isDefault: boolean;
+  isActive: boolean;
+  precedence: number;
+};
 type FamilyFormState = {
   code: string;
   name: string;
@@ -69,6 +84,18 @@ const emptyCategoryForm: CategoryFormState = {
   isActive: true,
   sortOrder: 100,
 };
+const emptyCatalogViewForm: CatalogViewFormState = {
+  name: '',
+  kind: 'standard',
+  resolverKey: '',
+  resolverLabel: '',
+  regionScope: '',
+  brandLabel: '',
+  description: '',
+  isDefault: false,
+  isActive: true,
+  precedence: 100,
+};
 const emptyFamilyForm: FamilyFormState = {
   code: '',
   name: '',
@@ -79,6 +106,16 @@ const emptyFamilyForm: FamilyFormState = {
 
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
 const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'readiness', 'publish'];
+const CATALOG_VIEW_KIND_OPTIONS: Array<{ value: DealerCatalogViewSummary['kind']; label: string; helper: string; precedence: number }> = [
+  { value: 'standard', label: 'Standard dealers', helper: 'Default eligible dealer catalog', precedence: 100 },
+  { value: 'affinity', label: 'Affinity catalog', helper: 'Nexstar, EGIA, CertainPath, and similar networks', precedence: 50 },
+  { value: 'ownership', label: 'Ownership / PE catalog', helper: 'Common-owner or private-equity overlay', precedence: 40 },
+  { value: 'independent', label: 'Independent catalog', helper: 'Dealers without affinity/franchise or ownership overlay', precedence: 80 },
+  { value: 'region', label: 'Regional catalog', helper: 'US, Canada, province/state, or region-specific view', precedence: 70 },
+  { value: 'brand', label: 'Brand catalog', helper: 'Brand-specific presentation and files', precedence: 30 },
+  { value: 'private_label', label: 'Private-label catalog', helper: 'Dealer/private-label presentation layer', precedence: 20 },
+  { value: 'account_override', label: 'Account override', helper: 'Specific dealer/account exception', precedence: 10 },
+];
 const CATEGORY_TYPE_OPTIONS = [
   { value: 'portal_section', label: 'Dealer portal section' },
   { value: 'product_line', label: 'Product line' },
@@ -114,13 +151,16 @@ export function ProductManagementWorkspace() {
   const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [isSavingCatalogView, setIsSavingCatalogView] = useState(false);
   const [isSavingFamily, setIsSavingFamily] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ProductReferenceImportPreviewResponse | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCatalogViewId, setEditingCatalogViewId] = useState<string | null>(null);
   const [editingFamilyId, setEditingFamilyId] = useState<string | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+  const [catalogViewForm, setCatalogViewForm] = useState<CatalogViewFormState>(emptyCatalogViewForm);
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
 
   useEffect(() => {
@@ -264,6 +304,7 @@ export function ProductManagementWorkspace() {
       const key = catalogView.id;
       grouped.set(key, {
         key,
+        catalogViewId: catalogView.id,
         catalogView: catalogView.name,
         resolverInput: buildCatalogViewResolverLabel(catalogView),
         region: catalogView.regionScope ?? 'All regions',
@@ -278,6 +319,7 @@ export function ProductManagementWorkspace() {
       const key = row.catalogViewId ?? `${row.audience}|${row.region}|${row.brand}`;
       const existing = grouped.get(key) ?? {
         key,
+        catalogViewId: row.catalogViewId,
         catalogView: row.audience,
         resolverInput: buildResolverInputLabel(row.audience),
         region: row.region,
@@ -379,6 +421,59 @@ export function ProductManagementWorkspace() {
       sortOrder: family.sortOrder,
     });
     setActiveTab('families');
+  };
+
+  const handleEditCatalogView = (catalogView: DealerCatalogViewSummary) => {
+    setEditingCatalogViewId(catalogView.id);
+    setCatalogViewForm({
+      name: catalogView.name,
+      kind: catalogView.kind,
+      resolverKey: catalogView.resolverKey ?? '',
+      resolverLabel: catalogView.resolverLabel ?? '',
+      regionScope: catalogView.regionScope ?? '',
+      brandLabel: catalogView.brandLabel ?? '',
+      description: catalogView.description ?? '',
+      isDefault: catalogView.isDefault,
+      isActive: catalogView.isActive,
+      precedence: catalogView.precedence,
+    });
+    setActiveTab('visibility');
+  };
+
+  const resetCatalogViewForm = () => {
+    setEditingCatalogViewId(null);
+    setCatalogViewForm(emptyCatalogViewForm);
+  };
+
+  const handleSaveCatalogView = async () => {
+    if (!auth || !catalogViewForm.name.trim()) return;
+    setIsSavingCatalogView(true);
+    setError(null);
+    const payload = {
+      name: catalogViewForm.name.trim(),
+      kind: catalogViewForm.kind,
+      resolverKey: emptyToNull(catalogViewForm.resolverKey),
+      resolverLabel: emptyToNull(catalogViewForm.resolverLabel),
+      regionScope: emptyToNull(catalogViewForm.regionScope),
+      brandLabel: emptyToNull(catalogViewForm.brandLabel),
+      description: emptyToNull(catalogViewForm.description),
+      isDefault: catalogViewForm.isDefault,
+      isActive: catalogViewForm.isActive,
+      precedence: catalogViewForm.precedence,
+    };
+    try {
+      if (editingCatalogViewId) {
+        await updateDealerCatalogView(apiBaseUrl, auth.tokens.accessToken, editingCatalogViewId, payload);
+      } else {
+        await createDealerCatalogView(apiBaseUrl, auth.tokens.accessToken, payload);
+      }
+      resetCatalogViewForm();
+      await reloadCatalog();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingCatalogView(false);
+    }
   };
 
   const handleResetFamilyForm = () => {
@@ -684,6 +779,104 @@ export function ProductManagementWorkspace() {
               <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
               <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
             </SimpleGrid>
+            <Paper withBorder p="md">
+              <Group justify="space-between" align="flex-start" mb="sm">
+                <Stack gap={2}>
+                  <Title order={4}>{editingCatalogViewId ? 'Edit Dealer Catalog View' : 'Create Dealer Catalog View'}</Title>
+                  <Text size="sm" c="dimmed">
+                    Define the dealer-facing catalog contexts first. Products and files can be attached later after product data is validated.
+                  </Text>
+                </Stack>
+                {editingCatalogViewId ? <Button variant="subtle" onClick={resetCatalogViewForm}>New View</Button> : null}
+              </Group>
+              <SimpleGrid cols={{ base: 1, md: 3 }}>
+                <TextInput
+                  label="Catalog view name"
+                  placeholder="Standard US Dealer Catalog"
+                  value={catalogViewForm.name}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, name: event.currentTarget.value }))}
+                  required
+                />
+                <Select
+                  label="Type"
+                  data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                  value={catalogViewForm.kind}
+                  onChange={(value) => {
+                    const selected = CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === value);
+                    setCatalogViewForm((current) => ({
+                      ...current,
+                      kind: (value as DealerCatalogViewSummary['kind'] | null) ?? 'standard',
+                      precedence: selected?.precedence ?? current.precedence,
+                    }));
+                  }}
+                  allowDeselect={false}
+                />
+                <NumberInput
+                  label="Precedence"
+                  min={1}
+                  max={999}
+                  value={catalogViewForm.precedence}
+                  onChange={(value) => setCatalogViewForm((current) => ({ ...current, precedence: Number(value) || 100 }))}
+                />
+                <TextInput
+                  label="Resolver key"
+                  placeholder="nexstar, redwood, CA, private-label-code"
+                  value={catalogViewForm.resolverKey}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
+                />
+                <TextInput
+                  label="Resolver label"
+                  placeholder="Nexstar, Redwood / Apollo, Canada"
+                  value={catalogViewForm.resolverLabel}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverLabel: event.currentTarget.value }))}
+                />
+                <Select
+                  label="Region scope"
+                  placeholder="All regions"
+                  data={CATEGORY_REGION_OPTIONS}
+                  value={catalogViewForm.regionScope || null}
+                  onChange={(value) => setCatalogViewForm((current) => ({ ...current, regionScope: value ?? '' }))}
+                  searchable
+                  clearable
+                />
+                <TextInput
+                  label="Brand / private label"
+                  placeholder="Dynamic, dealer brand, private label"
+                  value={catalogViewForm.brandLabel}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))}
+                />
+                <Switch
+                  label="Default eligible dealer view"
+                  checked={catalogViewForm.isDefault}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, isDefault: event.currentTarget.checked }))}
+                  mt="xl"
+                />
+                <Switch
+                  label="Active"
+                  checked={catalogViewForm.isActive}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                  mt="xl"
+                />
+              </SimpleGrid>
+              <Textarea
+                mt="sm"
+                label="Notes"
+                minRows={2}
+                value={catalogViewForm.description}
+                onChange={(event) => setCatalogViewForm((current) => ({ ...current, description: event.currentTarget.value }))}
+              />
+              <Group justify="space-between" mt="md">
+                <Text size="sm" c="dimmed">
+                  {CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === catalogViewForm.kind)?.helper}
+                </Text>
+                <Group>
+                  <Button variant="subtle" onClick={resetCatalogViewForm}>Reset</Button>
+                  <Button onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
+                    {editingCatalogViewId ? 'Save Catalog View' : 'Create Catalog View'}
+                  </Button>
+                </Group>
+              </Group>
+            </Paper>
             <Paper withBorder>
               {isLoading ? (
                 <Group justify="center" p="xl"><Loader /></Group>
@@ -717,7 +910,21 @@ export function ProductManagementWorkspace() {
                           <Text size="xs" c="dimmed">{row.publishedCount} published / {row.blockedCount} missing rules</Text>
                         </Table.Td>
                         <Table.Td>
-                          <Button component={Link} href="/product-management?tab=products" size="xs" variant="light">Review Products</Button>
+                          <Group gap="xs" justify="flex-end">
+                            {row.catalogViewId ? (
+                              <Button
+                                size="xs"
+                                variant="light"
+                                onClick={() => {
+                                  const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
+                                  if (catalogView) handleEditCatalogView(catalogView);
+                                }}
+                              >
+                                Edit View
+                              </Button>
+                            ) : null}
+                            <Button component={Link} href="/product-management?tab=products" size="xs" variant="subtle">Review Products</Button>
+                          </Group>
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -1016,4 +1223,9 @@ function buildCatalogViewResolverLabel(catalogView: DealerCatalogViewSummary) {
   if (catalogView.kind === 'affinity') return 'Affinity group resolver';
   if (catalogView.kind === 'ownership') return 'Ownership / PE resolver';
   return 'Account-specific override';
+}
+
+function emptyToNull(value: string) {
+  const cleaned = value.trim();
+  return cleaned ? cleaned : null;
 }

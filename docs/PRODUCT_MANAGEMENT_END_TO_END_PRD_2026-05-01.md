@@ -24,6 +24,7 @@ The central product rule is: a product is not a Shopify row. Pulse should model 
 | SKU / Inventory ID | Acumatica | Store linked identity and sync status | Real Acumatica sync until sandbox/API mappings are certified |
 | UOM / item class / stock status | Acumatica | Read-only display and validation metadata | Final mapping and item lifecycle semantics |
 | Pricing / price class | Acumatica | Hold price-class references only; no accountless neutral pricing | Pricing sync and representative account validation |
+| Legacy/prototype product CSVs | Legacy reference files only | Preview, parse, compare, and produce mapping/review reports; do not apply as production product truth | Final import/apply mode is parked until Acumatica product identity, item status, UOM, and item-class mappings are certified |
 | Product category | Pulse | Governed CRM/catalog taxonomy | Category steward approval and migration review |
 | Product family | Pulse | Group sibling sellable SKUs and variant-like products | Final product steward review |
 | Product presentation | Pulse | Display names, copy, specs, region and brand overlays | Marketing approval workflow details |
@@ -151,6 +152,22 @@ sequenceDiagram
         PM->>Admin: Show missing category/assets/visibility/content
     end
 ```
+
+## Parked Data Migration Boundary
+
+The shared product CSV/prototype data can be used now for discovery, dry-run preview, mapping review, duplicate/conflict detection, and asset-reference identification. It must not be used as the final production import source yet.
+
+This slice is explicitly parked because Acumatica remains the source of truth for SKU/Inventory ID, item class, UOM, item status, sellable state, price class, and future inventory/pricing validation. Loading CSV rows directly into final product records before Acumatica mappings are certified would risk creating duplicate SKU truth, wrong lifecycle state, incorrect category/family assumptions, and dealer catalog records that later disagree with ERP.
+
+Allowed now:
+
+| Activity | Status | Notes |
+|---|---|---|
+| CSV/profile parsing | Active | Read source rows and show preview only. |
+| Mapping review | Active | Propose SKU/name/category/family/region/asset mappings with confidence and gaps. |
+| Duplicate/conflict report | Active | Flag SKU conflicts, missing identifiers, US/Canada differences, and Shopify-only rows. |
+| Final product apply/import | Parked | Resume only after Acumatica sandbox access, certified product endpoint behavior, representative sample records, and signed source-of-truth mappings are available. |
+| Pricing/inventory validation | Parked | ERP-owned and unavailable until Acumatica integration is certified. |
 
 ## Dealer Visibility Resolver
 
@@ -296,4 +313,3 @@ flowchart TB
 | PM-Q03 | Minimum required assets by category | Marketing + Product | Go-live checklist rules. |
 | PM-Q04 | Acumatica product field mapping and active/inactive semantics | Acumatica SME + Architecture | Real sync and publish confidence. |
 | PM-Q05 | Whether Export Center is P1 or stays P2 | Product + Marketing | Delivery sequencing. |
-

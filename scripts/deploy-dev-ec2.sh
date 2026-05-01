@@ -21,6 +21,7 @@ corepack enable
 corepack prepare pnpm@10.7.0 --activate
 
 pnpm install --frozen-lockfile
+find packages apps -name 'tsconfig.tsbuildinfo' -delete
 pnpm --filter @pulse/contracts build
 pnpm --filter @pulse/config build
 pnpm --filter @pulse/auth build

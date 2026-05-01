@@ -2,36 +2,64 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Group, Loader, Paper, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import type { ProductReferenceImportPreviewResponse } from '@pulse/contracts/product-management';
 import { IconAlertTriangle, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
 import {
+  createProductManagementCategory,
   fetchProductManagementCategories,
   fetchProductManagementProducts,
   previewProductReferenceImport,
+  updateProductManagementCategory,
   type ListProductsResponse,
   type ProductCategorySummary,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
-type ProductTab = 'groups' | 'products' | 'readiness' | 'publish';
+type ProductTab = 'categories' | 'products' | 'readiness' | 'publish';
+type CategoryFormState = {
+  code: string;
+  name: string;
+  parentId: string | null;
+  description: string;
+  categoryType: string;
+  regionScope: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+const emptyCategoryForm: CategoryFormState = {
+  code: '',
+  name: '',
+  parentId: null,
+  description: '',
+  categoryType: '',
+  regionScope: '',
+  isActive: true,
+  sortOrder: 100,
+};
 
 export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
-  const [activeTab, setActiveTab] = useState<ProductTab>('groups');
+  const [activeTab, setActiveTab] = useState<ProductTab>('categories');
   const [search, setSearch] = useState('');
   const [products, setProducts] = useState<ListProductsResponse>({ items: [], total: 0 });
   const [categories, setCategories] = useState<ProductCategorySummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ProductReferenceImportPreviewResponse | null>(null);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab') as ProductTab | null;
-    if (tab && ['groups', 'products', 'readiness', 'publish'].includes(tab)) {
-      setActiveTab(tab);
+    const tab = params.get('tab');
+    if (tab === 'groups') {
+      setActiveTab('categories');
+    } else if (tab && ['categories', 'products', 'readiness', 'publish'].includes(tab)) {
+      setActiveTab(tab as ProductTab);
     }
   }, []);
 
@@ -67,6 +95,69 @@ export function ProductManagementWorkspace() {
     dealerVisible: products.items.filter((product) => product.isDealerVisible).length,
     acumaticaLinked: products.items.filter((product) => product.acumaticaInventoryId).length,
   }), [categories.length, products]);
+
+  const categoryParentOptions = useMemo(() => categories
+    .filter((category) => category.id !== editingCategoryId)
+    .map((category) => ({ value: category.id, label: `${category.name} (${category.code})` })), [categories, editingCategoryId]);
+
+  const reloadCatalog = async () => {
+    if (!auth) return;
+    const [productResponse, categoryResponse] = await Promise.all([
+      fetchProductManagementProducts(apiBaseUrl, auth.tokens.accessToken, { search, limit: 100 }),
+      fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
+    ]);
+    setProducts(productResponse);
+    setCategories(categoryResponse.items);
+  };
+
+  const handleEditCategory = (category: ProductCategorySummary) => {
+    setEditingCategoryId(category.id);
+    setCategoryForm({
+      code: category.code,
+      name: category.name,
+      parentId: category.parentId ?? null,
+      description: category.description ?? '',
+      categoryType: category.categoryType ?? '',
+      regionScope: category.regionScope ?? '',
+      isActive: category.isActive,
+      sortOrder: category.sortOrder,
+    });
+    setActiveTab('categories');
+  };
+
+  const handleResetCategoryForm = () => {
+    setEditingCategoryId(null);
+    setCategoryForm(emptyCategoryForm);
+  };
+
+  const handleSaveCategory = async () => {
+    if (!auth) return;
+    setIsSavingCategory(true);
+    setError(null);
+    const payload = {
+      code: categoryForm.code,
+      name: categoryForm.name,
+      parentId: categoryForm.parentId,
+      description: categoryForm.description || null,
+      categoryType: categoryForm.categoryType || null,
+      regionScope: categoryForm.regionScope || null,
+      isActive: categoryForm.isActive,
+      sortOrder: categoryForm.sortOrder,
+    };
+    try {
+      if (editingCategoryId) {
+        await updateProductManagementCategory(apiBaseUrl, auth.tokens.accessToken, editingCategoryId, payload);
+      } else {
+        await createProductManagementCategory(apiBaseUrl, auth.tokens.accessToken, payload);
+      }
+      handleResetCategoryForm();
+      await reloadCatalog();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
 
   const handlePreviewImport = async () => {
     if (!auth) return;
@@ -104,20 +195,123 @@ export function ProductManagementWorkspace() {
         </Alert>
       ) : null}
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as ProductTab) ?? 'groups')}>
+      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as ProductTab) ?? 'categories')}>
         <Tabs.List>
-          <Tabs.Tab value="groups" leftSection={<IconShieldCheck size={16} />}>Dealer Groups</Tabs.Tab>
+          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="groups" pt="md">
-          <Paper withBorder p="md">
+        <Tabs.Panel value="categories" pt="md">
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+            <Paper withBorder p="md">
+              <Stack gap="sm">
+                <Title order={4}>{editingCategoryId ? 'Edit Category' : 'Create Category'}</Title>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <TextInput
+                    label="Code"
+                    value={categoryForm.code}
+                    onChange={(event) => setCategoryForm((current) => ({ ...current, code: event.currentTarget.value }))}
+                    required
+                  />
+                  <TextInput
+                    label="Name"
+                    value={categoryForm.name}
+                    onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.currentTarget.value }))}
+                    required
+                  />
+                </SimpleGrid>
+                <Select
+                  label="Parent category"
+                  clearable
+                  data={categoryParentOptions}
+                  value={categoryForm.parentId}
+                  onChange={(value) => setCategoryForm((current) => ({ ...current, parentId: value }))}
+                />
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <TextInput
+                    label="Type"
+                    value={categoryForm.categoryType}
+                    onChange={(event) => setCategoryForm((current) => ({ ...current, categoryType: event.currentTarget.value }))}
+                  />
+                  <TextInput
+                    label="Region scope"
+                    value={categoryForm.regionScope}
+                    onChange={(event) => setCategoryForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
+                  />
+                </SimpleGrid>
+                <Textarea
+                  label="Description"
+                  minRows={3}
+                  value={categoryForm.description}
+                  onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.currentTarget.value }))}
+                />
+                <Group align="flex-end">
+                  <NumberInput
+                    label="Sort order"
+                    min={0}
+                    value={categoryForm.sortOrder}
+                    onChange={(value) => setCategoryForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
+                  />
+                  <Switch
+                    label="Active"
+                    checked={categoryForm.isActive}
+                    onChange={(event) => setCategoryForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                  />
+                </Group>
+                <Group justify="flex-end">
+                  <Button variant="subtle" onClick={handleResetCategoryForm}>Reset</Button>
+                  <Button onClick={handleSaveCategory} loading={isSavingCategory}>
+                    {editingCategoryId ? 'Save Category' : 'Create Category'}
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+
+            <Paper withBorder>
+              {isLoading ? (
+                <Group justify="center" p="xl"><Loader /></Group>
+              ) : (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Category</Table.Th>
+                      <Table.Th>Scope</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {categories.map((category) => (
+                      <Table.Tr key={category.id}>
+                        <Table.Td>
+                          <Text fw={600}>{category.name}</Text>
+                          <Text size="xs" c="dimmed">{category.code}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Stack gap={2}>
+                            <Text size="sm">{category.categoryType ?? 'General'}</Text>
+                            <Text size="xs" c="dimmed">{category.regionScope ?? 'All regions'}</Text>
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td><Badge color={category.isActive ? 'green' : 'gray'} variant="light">{category.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
+                        <Table.Td><Button size="xs" variant="light" onClick={() => handleEditCategory(category)}>Edit</Button></Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {!categories.length ? (
+                      <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="lg">No categories configured yet.</Text></Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              )}
+            </Paper>
+          </SimpleGrid>
+          <Paper withBorder p="md" mt="md">
             <Stack gap="xs">
-              <Title order={4}>Group-first catalog governance</Title>
-              <Text c="dimmed">Product visibility will be resolved by region, brand/private label, affinity group, ownership group, and portal eligibility before dealer portal publish.</Text>
-              <Badge variant="light">Pricing stays separate from product visibility</Badge>
+              <Title order={4}>Visibility Governance</Title>
+              <Text c="dimmed">Dealer portal visibility is still resolved from catalog inclusions, region, brand/private label, ownership group, and portal eligibility before publish.</Text>
+              <Badge variant="light">Pricing remains separate from product visibility</Badge>
             </Stack>
           </Paper>
         </Tabs.Panel>

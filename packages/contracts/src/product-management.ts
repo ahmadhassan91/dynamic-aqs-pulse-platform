@@ -148,6 +148,18 @@ export interface CreateProductCategoryRequest {
   description?: string | null;
   categoryType?: string | null;
   regionScope?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateProductCategoryRequest {
+  code?: string;
+  name?: string;
+  parentId?: string | null;
+  description?: string | null;
+  categoryType?: string | null;
+  regionScope?: string | null;
+  isActive?: boolean;
   sortOrder?: number;
 }
 

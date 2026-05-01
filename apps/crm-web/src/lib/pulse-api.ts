@@ -239,6 +239,7 @@ import type {
 import type {
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
+  CreateProductCategoryRequest,
   ListProductsRequest,
   ListProductsResponse,
   ProductDetail,
@@ -246,6 +247,7 @@ import type {
   ProductReferenceImportPreviewRequest,
   ProductReferenceImportPreviewResponse,
   ProductPublishValidationResponse,
+  UpdateProductCategoryRequest,
 } from '@pulse/contracts/product-management';
 import type {
   CreateDigitalAssetRequest,
@@ -398,6 +400,22 @@ export async function fetchProductManagementCategories(apiBaseUrl: string, acces
   return requestJson<{ items: ProductCategorySummary[] }>(apiBaseUrl, '/api/v1/product-management/categories', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function createProductManagementCategory(apiBaseUrl: string, accessToken: string, input: CreateProductCategoryRequest) {
+  return requestJson<ProductCategorySummary>(apiBaseUrl, '/api/v1/product-management/categories', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateProductManagementCategory(apiBaseUrl: string, accessToken: string, categoryId: string, input: UpdateProductCategoryRequest) {
+  return requestJson<ProductCategorySummary>(apiBaseUrl, `/api/v1/product-management/categories/${categoryId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
   });
 }
 

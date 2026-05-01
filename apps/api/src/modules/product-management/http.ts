@@ -4,6 +4,7 @@ import type {
   CommitProductReferenceImportRequest,
   CreateProductCategoryRequest,
   ProductReferenceImportPreviewRequest,
+  UpdateProductCategoryRequest,
   UpdateProductPresentationRequest,
 } from '@pulse/contracts/product-management';
 import {
@@ -29,6 +30,7 @@ import {
   listProductCategories,
   listProducts,
   runProductPublishValidation,
+  updateProductCategory,
   updateProductPresentation,
 } from './service.js';
 import {
@@ -69,6 +71,15 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
         return jsonResponse(res, 201, await createProductCategory(actor, (await readJsonBody(req)) as CreateProductCategoryRequest));
       }
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const categoryMatch = matchPath(pathname, '/api/v1/product-management/categories/:categoryId');
+    if (categoryMatch) {
+      const categoryId = categoryMatch.categoryId;
+      if (!categoryId) return badRequestResponse(res, 'Product category id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await updateProductCategory(actor, categoryId, (await readJsonBody(req)) as UpdateProductCategoryRequest));
     }
 
     if (pathname === '/api/v1/product-management/import-preview') {

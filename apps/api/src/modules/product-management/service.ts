@@ -22,6 +22,7 @@ import type {
   ProductAssetLinkSummary,
   ProductPresentationSummary,
   ProductPublishValidationResponse,
+  UpdateProductCategoryRequest,
   UpdateProductPresentationRequest,
 } from '@pulse/contracts/product-management';
 import { PRODUCT_ASSET_ROLES } from '@pulse/contracts/digital-assets';
@@ -96,6 +97,7 @@ export async function createProductCategory(actor: AuthenticatedActor, input: Cr
       description: cleanNullable(input.description),
       categoryType: cleanNullable(input.categoryType),
       regionScope: cleanNullable(input.regionScope),
+      isActive: input.isActive ?? true,
       sortOrder: input.sortOrder ?? 100,
     },
   });
@@ -109,6 +111,39 @@ export async function createProductCategory(actor: AuthenticatedActor, input: Cr
     }),
   });
   return mapCategory(category);
+}
+
+export async function updateProductCategory(actor: AuthenticatedActor, categoryId: string, input: UpdateProductCategoryRequest): Promise<ProductCategorySummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const before = await prisma.productCategory.findUnique({ where: { id: categoryId } });
+  if (!before) throw new Error('Product category not found');
+  if (input.parentId && input.parentId === categoryId) throw new Error('Product category cannot be its own parent');
+  const updated = await prisma.productCategory.update({
+    where: { id: categoryId },
+    data: {
+      ...(input.code !== undefined ? { code: input.code.trim() || before.code } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() || before.name } : {}),
+      ...(input.parentId !== undefined ? { parentId: cleanNullable(input.parentId) } : {}),
+      ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
+      ...(input.categoryType !== undefined ? { categoryType: cleanNullable(input.categoryType) } : {}),
+      ...(input.regionScope !== undefined ? { regionScope: cleanNullable(input.regionScope) } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    },
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'PRODUCT_CATEGORY',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+      metadata: { sourceOfTruth: 'pulse_category_governance' },
+    }),
+  });
+  return mapCategory(updated);
 }
 
 export async function updateProductPresentation(
@@ -356,13 +391,13 @@ function buildAssetReadinessCheck(
   if (!roleAssignments.length) {
     return buildCheck(missingStatus, checkCode, checkName, missingMessage);
   }
-	  const matchingAssignment = roleAssignments.find((assignment) => {
-	    const asset = assignment.asset;
-	    return expectedKinds.includes(asset.kind)
-	      && asset.status === DigitalAssetStatus.ACTIVE
-	      && (asset.visibility === DigitalAssetVisibility.DEALER_PORTAL || asset.visibility === DigitalAssetVisibility.PUBLIC)
-	      && (asset.reviewStatus === DigitalAssetReviewStatus.APPROVED || asset.reviewStatus === DigitalAssetReviewStatus.NOT_REQUIRED);
-	  });
+  const matchingAssignment = roleAssignments.find((assignment) => {
+    const asset = assignment.asset;
+    return expectedKinds.includes(asset.kind)
+      && asset.status === DigitalAssetStatus.ACTIVE
+      && (asset.visibility === DigitalAssetVisibility.DEALER_PORTAL || asset.visibility === DigitalAssetVisibility.PUBLIC)
+      && (asset.reviewStatus === DigitalAssetReviewStatus.APPROVED || asset.reviewStatus === DigitalAssetReviewStatus.NOT_REQUIRED);
+  });
   return matchingAssignment
     ? buildCheck('PASS', checkCode, checkName, `${checkName} is ready.`)
     : buildCheck('BLOCKED', checkCode, checkName, `Assigned ${lower(role).replace(/_/g, ' ')} must use an expected asset kind and be active, approved, and dealer-visible.`);

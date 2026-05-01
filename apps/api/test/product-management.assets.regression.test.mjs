@@ -7,14 +7,16 @@ ensureTestDatabaseReady();
 
 const SERIAL = { concurrency: false };
 let prisma;
+let createProductCategory;
 let getProductDetail;
 let runProductPublishValidation;
+let updateProductCategory;
 let unlinkProductAsset;
 let actor;
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
-  ({ getProductDetail, runProductPublishValidation } = await import('../dist/modules/product-management/service.js'));
+  ({ createProductCategory, getProductDetail, runProductPublishValidation, updateProductCategory } = await import('../dist/modules/product-management/service.js'));
   ({ unlinkProductAsset } = await import('../dist/modules/digital-assets/service.js'));
   await prisma.$connect();
 });
@@ -69,6 +71,42 @@ test('product detail groups assigned assets by role', SERIAL, async () => {
   assert.equal(detail.assignedAssetsByRole.primary_image[0].assetId, fixture.primaryImage.id);
   assert.equal(detail.assignedAssetsByRole.brochure.length, 1);
   assert.equal(detail.assignedAssetsByRole.spec_sheet.length, 0);
+});
+
+test('product categories can be updated with audit trail', SERIAL, async () => {
+  const parent = await createProductCategory(actor, {
+    code: 'indoor-air',
+    name: 'Indoor Air',
+    categoryType: 'equipment',
+    sortOrder: 10,
+  });
+  const category = await createProductCategory(actor, {
+    code: 'filters',
+    name: 'Filters',
+    parentId: parent.id,
+    regionScope: 'us',
+  });
+
+  const updated = await updateProductCategory(actor, category.id, {
+    name: 'Replacement Filters',
+    description: 'Dealer-facing replacement filter catalog group.',
+    isActive: false,
+    sortOrder: 25,
+  });
+
+  assert.equal(updated.name, 'Replacement Filters');
+  assert.equal(updated.parentId, parent.id);
+  assert.equal(updated.description, 'Dealer-facing replacement filter catalog group.');
+  assert.equal(updated.isActive, false);
+  assert.equal(updated.sortOrder, 25);
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      entityType: 'PRODUCT_CATEGORY',
+      entityId: category.id,
+      action: 'UPDATE',
+    },
+  });
+  assert.ok(audit);
 });
 
 test('publish validation blocks missing primary image and warns on expected missing document roles', SERIAL, async () => {

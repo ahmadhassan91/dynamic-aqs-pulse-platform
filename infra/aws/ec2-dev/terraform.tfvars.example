@@ -1,0 +1,17 @@
+aws_region     = "us-east-1"
+aws_account_id = "622221238806"
+project_name   = "pulse"
+environment    = "dev"
+instance_type  = "t3.small"
+
+# Paste the public half of the deploy key here.
+# Add the private half to GitHub Actions as DEV_EC2_SSH_PRIVATE_KEY.
+ssh_public_key = "ssh-ed25519 replace-me pulse-dev-deploy"
+
+# Lock this to your office/VPN IP when possible, for example ["203.0.113.10/32"].
+allowed_ssh_cidrs = ["0.0.0.0/0"]
+
+# After DNS is ready, set this and re-apply so generated app callback URLs use the domain.
+domain_name = ""
+
+enable_http_api_ports = false

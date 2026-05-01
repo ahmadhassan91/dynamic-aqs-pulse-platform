@@ -16,9 +16,11 @@
     "./accounts": "./dist/accounts.js",
     "./consignment": "./dist/consignment.js",
     "./dealer-portal": "./dist/dealer-portal.js",
+    "./digital-assets": "./dist/digital-assets.js",
     "./cis": "./dist/cis.js",
     "./lead-options": "./dist/lead-options.js",
     "./leads": "./dist/leads.js",
+    "./product-management": "./dist/product-management.js",
     "./reference": "./dist/reference.js",
     "./territories": "./dist/territories.js",
     "./training": "./dist/training.js"

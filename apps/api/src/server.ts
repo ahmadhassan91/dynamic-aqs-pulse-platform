@@ -10,6 +10,7 @@ import { handleCalendarRoutes } from './modules/calendar/http.js';
 import { handleCisRoutes } from './modules/cis/http.js';
 import { handleConsignmentRoutes } from './modules/consignment/http.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
+import { handleDigitalAssetRoutes } from './modules/digital-assets/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
 import {
   ensureLeadOperationalAlertRecipientsSeeded,
@@ -19,6 +20,7 @@ import {
   processLeadOperationalAlertScanJob,
 } from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
+import { handleProductManagementRoutes } from './modules/product-management/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
 import { handleTerritoryRoutes } from './modules/territories/http.js';
@@ -289,6 +291,16 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const consignmentRouteHandled = await handleConsignmentRoutes(req, res, url);
   if (consignmentRouteHandled !== false) {
+    return;
+  }
+
+  const productManagementRouteHandled = await handleProductManagementRoutes(req, res, url);
+  if (productManagementRouteHandled !== false) {
+    return;
+  }
+
+  const digitalAssetRouteHandled = await handleDigitalAssetRoutes(req, res, url);
+  if (digitalAssetRouteHandled !== false) {
     return;
   }
 

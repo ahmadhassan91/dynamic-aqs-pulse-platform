@@ -1,0 +1,63 @@
+name: Deploy dev EC2
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev-ec2
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to dev EC2
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/pulse-dev-deploy
+          chmod 600 ~/.ssh/pulse-dev-deploy
+          ssh-keyscan -H "${{ secrets.DEV_EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: |
+          ssh -i ~/.ssh/pulse-dev-deploy ubuntu@${{ secrets.DEV_EC2_HOST }} "mkdir -p /opt/pulse/releases/${GITHUB_SHA}"
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.next' \
+            --exclude '.turbo' \
+            --exclude '.terraform' \
+            --exclude '.tools' \
+            --exclude 'dist' \
+            --exclude 'coverage' \
+            --exclude 'output' \
+            --exclude 'playwright-report' \
+            --exclude 'test-results' \
+            --exclude '*.tsbuildinfo' \
+            -e "ssh -i ~/.ssh/pulse-dev-deploy" \
+            ./ ubuntu@${{ secrets.DEV_EC2_HOST }}:/opt/pulse/releases/${GITHUB_SHA}/
+
+      - name: Write environment override
+        env:
+          DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+        run: |
+          if [ -z "${DEV_ENV_FILE}" ]; then
+            echo "DEV_ENV_FILE not set; keeping existing /etc/pulse/pulse.env"
+            exit 0
+          fi
+          printf '%s\n' "${DEV_ENV_FILE}" > pulse.env
+          scp -i ~/.ssh/pulse-dev-deploy pulse.env ubuntu@${{ secrets.DEV_EC2_HOST }}:/tmp/pulse.env
+          ssh -i ~/.ssh/pulse-dev-deploy ubuntu@${{ secrets.DEV_EC2_HOST }} "sudo install -m 0640 -o root -g ubuntu /tmp/pulse.env /etc/pulse/pulse.env && rm /tmp/pulse.env"
+
+      - name: Deploy release
+        run: |
+          ssh -i ~/.ssh/pulse-dev-deploy ubuntu@${{ secrets.DEV_EC2_HOST }} "cd /opt/pulse/releases/${GITHUB_SHA} && chmod +x scripts/deploy-dev-ec2.sh && GITHUB_SHA=${GITHUB_SHA} ./scripts/deploy-dev-ec2.sh"

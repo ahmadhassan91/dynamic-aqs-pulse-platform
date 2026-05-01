@@ -15,7 +15,14 @@ export type AppWebConfig = {
 };
 
 export type AppStorageConfig = {
+  provider: 'local' | 's3';
   rootDir: string;
+  s3Bucket?: string | undefined;
+  s3Region?: string | undefined;
+  s3KmsKeyArn?: string | undefined;
+  cloudFrontDistributionId?: string | undefined;
+  cloudFrontDomainName?: string | undefined;
+  publicBaseUrl?: string | undefined;
 };
 
 export type AppAcumaticaConfig = {
@@ -189,7 +196,14 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       publicBaseUrl: env.APP_WEB_BASE_URL?.trim() || 'http://localhost:3000',
     },
     storage: {
+      provider: parseStorageProvider(env.APP_STORAGE_PROVIDER),
       rootDir: optionalString(env.APP_STORAGE_ROOT_DIR) ?? path.resolve(process.cwd(), '.pulse-storage'),
+      s3Bucket: optionalString(env.PULSE_ASSET_S3_BUCKET),
+      s3Region: optionalString(env.PULSE_ASSET_S3_REGION) ?? optionalString(env.AWS_REGION),
+      s3KmsKeyArn: optionalString(env.PULSE_ASSET_S3_KMS_KEY_ARN),
+      cloudFrontDistributionId: optionalString(env.PULSE_ASSET_CLOUDFRONT_DISTRIBUTION_ID),
+      cloudFrontDomainName: optionalString(env.PULSE_ASSET_CLOUDFRONT_DOMAIN_NAME),
+      publicBaseUrl: optionalString(env.PULSE_ASSET_PUBLIC_BASE_URL),
     },
     database: {
       url: databaseUrl,
@@ -314,6 +328,12 @@ function parseNumber(value: string | undefined, fallback: number): number {
 function parseLogLevel(value: string | undefined): AppLoggingConfig['level'] {
   if (value === 'debug' || value === 'warn' || value === 'error') return value;
   return 'info';
+}
+
+function parseStorageProvider(value: string | undefined): AppStorageConfig['provider'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 's3') return 's3';
+  return 'local';
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean) {

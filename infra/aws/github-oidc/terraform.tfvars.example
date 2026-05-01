@@ -1,0 +1,16 @@
+aws_region     = "us-east-1"
+aws_account_id = "622221238806"
+project_name   = "pulse"
+environment    = "staging"
+
+github_owner      = "replace-with-github-owner"
+github_repository = "dynamic-aqs-pulse-platform"
+
+# Keep these narrow. Add production only when the production environment is ready.
+github_subjects = [
+  "repo:replace-with-github-owner/dynamic-aqs-pulse-platform:environment:staging",
+  "repo:replace-with-github-owner/dynamic-aqs-pulse-platform:pull_request"
+]
+
+# Set false if the AWS account already has token.actions.githubusercontent.com.
+create_oidc_provider = true

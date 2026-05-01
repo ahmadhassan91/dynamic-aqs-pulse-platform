@@ -1,0 +1,11 @@
+# Copy this file to backend.tf only after a Terraform state bucket/table exists.
+# Keep backend.tf environment-specific if staging and production use separate state.
+terraform {
+  backend "s3" {
+    bucket         = "pulse-terraform-state-622221238806"
+    key            = "pulse/staging/assets/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "pulse-terraform-locks"
+    encrypt        = true
+  }
+}

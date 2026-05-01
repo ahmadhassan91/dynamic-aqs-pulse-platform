@@ -1,6 +1,7 @@
 # dependencies
 node_modules/
 .pnpm-store/
+.tools/
 
 # build outputs
 dist/
@@ -46,3 +47,12 @@ ios/
 prisma/dev.db
 prisma/dev.db-journal
 apps/crm-web/e2e/.generated-fixtures.json
+
+# terraform
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/*.tfvars
+**/tfplan
+**/*.tfplan
+!**/*.tfvars.example

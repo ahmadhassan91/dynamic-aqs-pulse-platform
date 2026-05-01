@@ -131,6 +131,79 @@ enum DataRecordEntityType {
   OTHER
 }
 
+enum ProductLifecycleStatus {
+  DRAFT
+  ACTIVE
+  DISCONTINUED
+  ARCHIVED
+}
+
+enum ProductPublishStatus {
+  DRAFT
+  READY_FOR_REVIEW
+  APPROVED
+  PUBLISHED
+  BLOCKED
+  ARCHIVED
+}
+
+enum ProductSourceSystem {
+  ACUMATICA
+  PULSE
+  SHOPIFY
+  WIDEN
+  FILE_IMPORT
+  MANUAL
+}
+
+enum ProductAssetRole {
+  PRIMARY_IMAGE
+  GALLERY_IMAGE
+  SPEC_SHEET
+  INSTALL_GUIDE
+  BROCHURE
+  SAFETY_DATA
+  VIDEO
+  TRAINING
+  OTHER
+}
+
+enum ProductReadinessStatus {
+  PASS
+  WARNING
+  BLOCKED
+}
+
+enum DigitalAssetKind {
+  IMAGE
+  DOCUMENT
+  VIDEO
+  LOGO
+  PRESENTATION
+  OTHER
+}
+
+enum DigitalAssetStatus {
+  DRAFT
+  ACTIVE
+  NEEDS_REVIEW
+  ARCHIVED
+  EXPIRED
+}
+
+enum DigitalAssetVisibility {
+  INTERNAL_ONLY
+  DEALER_PORTAL
+  PUBLIC
+}
+
+enum DigitalAssetReviewStatus {
+  NOT_REQUIRED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum MigrationWave {
   WAVE_0
   WAVE_1
@@ -690,66 +763,66 @@ enum ConsignmentWorkItemStatus {
 }
 
 model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  email           String   @unique
-  displayName     String
-  roleCode        String
-  userType        UserKind @default(INTERNAL)
-  isActive        Boolean  @default(true)
-  lastLoginAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String    @id @default(uuid()) @db.Uuid
+  email       String    @unique
+  displayName String
+  roleCode    String
+  userType    UserKind  @default(INTERNAL)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  identities                  UserIdentity[]
-  sessions                    Session[]
-  auditEntries                AuditEntry[] @relation("AuditActor")
-  assignedSegmentAssignments   AccountSegmentAssignment[]
-  classificationExceptionsOpened   ClassificationException[] @relation("ClassificationExceptionOpenedBy")
-  classificationExceptionsResolved ClassificationException[] @relation("ClassificationExceptionResolvedBy")
-  migrationRunsStarted        MigrationRun[] @relation("MigrationRunStartedBy")
-  leadStageEvents             LeadStageEvent[] @relation("LeadStageEventActor")
-  cisInternalReviewsStarted   CisInternalReview[] @relation("CisInternalReviewStartedBy")
-  cisInternalReviewsSignedOff CisInternalReview[] @relation("CisInternalReviewSignedOffBy")
-  cisFinanceDecisionsSubmitted CisFinanceDecision[] @relation("CisFinanceDecisionSubmittedBy")
-  cisFinanceDecisionsDecided  CisFinanceDecision[] @relation("CisFinanceDecisionDecidedBy")
-  onboardingChecklistItemOwners OnboardingChecklistItem[] @relation("OnboardingChecklistItemOwner")
-  onboardingChecklistItemCompleted OnboardingChecklistItem[] @relation("OnboardingChecklistItemCompletedBy")
-  leadConversionPreparationsReviewed LeadConversionPreparation[] @relation("LeadConversionPreparationReviewedBy")
-  directedRegions            Region[] @relation("RegionDirector")
-  managedTerritories         Territory[] @relation("TerritoryManager")
-  assignedTmLeads            Lead[] @relation("LeadAssignedTm")
-  assignedRdLeads            Lead[] @relation("LeadAssignedRd")
-  assignedTmAccounts         Account[] @relation("AccountAssignedTm")
-  assignedRdAccounts         Account[] @relation("AccountAssignedRd")
-  territoryOverridesCreated  TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideCreatedBy")
-  territoryOverridesAssignedTm TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedTm")
-  territoryOverridesAssignedRd TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
-  territoryAssignmentsChanged TerritoryAssignmentHistory[] @relation("TerritoryAssignmentHistoryChangedBy")
-  websiteLeadSubmissionsReviewed WebsiteLeadSubmission[] @relation("WebsiteLeadSubmissionReviewedBy")
-  leadImportRunsCreated       LeadImportRun[] @relation("LeadImportRunCreatedBy")
-  groupRosterImportRunsCreated GroupRosterImportRun[] @relation("GroupRosterImportRunCreatedBy")
-  dealerPortalMembership      DealerPortalUser?
-  dealerPortalUsersCreated    DealerPortalUser[] @relation("DealerPortalUserCreatedBy")
-  trainingTrainerProfile      TrainingTrainerProfile?
-  trainingProgramsCreated     AccountTrainingProgram[] @relation("TrainingProgramCreatedBy")
-  trainingProgramsOwnedTm     AccountTrainingProgram[] @relation("TrainingProgramOwnerTm")
-  trainingProgramsOwnedRd     AccountTrainingProgram[] @relation("TrainingProgramOwnerRd")
-  trainingSessionsDelivered   TrainingSession[] @relation("TrainingSessionTrainer")
-  trainingCertificationsAwarded TrainingCertificationRecord[] @relation("TrainingCertificationAwardedBy")
-  trainingFollowUpTasksOwned  TrainingFollowUpTask[] @relation("TrainingFollowUpTaskOwner")
-  trainingFollowUpTasksCreated TrainingFollowUpTask[] @relation("TrainingFollowUpTaskCreatedBy")
-  trainingProofDocumentsUploaded TrainingProofDocument[] @relation("TrainingProofDocumentUploadedBy")
-  trainingProofDocumentsReviewed TrainingProofDocument[] @relation("TrainingProofDocumentReviewedBy")
-  calendarConnections         CalendarConnection[]
-  calendarAuthStates          CalendarConnectionAuthState[]
-  passwordResetTokens         PasswordResetToken[]
-  leadOperationalAlerts       LeadOperationalAlert[]        @relation("LeadOperationalAlertRecipientUser")
-  createdConsignmentSites     ConsignmentSite[]             @relation("ConsignmentSiteCreatedBy")
-  ownedConsignmentSitesTm     ConsignmentSite[]             @relation("ConsignmentSiteOwnerTm")
-  ownedConsignmentSitesRd     ConsignmentSite[]             @relation("ConsignmentSiteOwnerRd")
-  consignmentFormsCreated     ConsignmentForm[]             @relation("ConsignmentFormCreatedBy")
-  consignmentAuditsSubmitted  ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
-  consignmentWorkItemsAssigned ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
+  identities                         UserIdentity[]
+  sessions                           Session[]
+  auditEntries                       AuditEntry[]                  @relation("AuditActor")
+  assignedSegmentAssignments         AccountSegmentAssignment[]
+  classificationExceptionsOpened     ClassificationException[]     @relation("ClassificationExceptionOpenedBy")
+  classificationExceptionsResolved   ClassificationException[]     @relation("ClassificationExceptionResolvedBy")
+  migrationRunsStarted               MigrationRun[]                @relation("MigrationRunStartedBy")
+  leadStageEvents                    LeadStageEvent[]              @relation("LeadStageEventActor")
+  cisInternalReviewsStarted          CisInternalReview[]           @relation("CisInternalReviewStartedBy")
+  cisInternalReviewsSignedOff        CisInternalReview[]           @relation("CisInternalReviewSignedOffBy")
+  cisFinanceDecisionsSubmitted       CisFinanceDecision[]          @relation("CisFinanceDecisionSubmittedBy")
+  cisFinanceDecisionsDecided         CisFinanceDecision[]          @relation("CisFinanceDecisionDecidedBy")
+  onboardingChecklistItemOwners      OnboardingChecklistItem[]     @relation("OnboardingChecklistItemOwner")
+  onboardingChecklistItemCompleted   OnboardingChecklistItem[]     @relation("OnboardingChecklistItemCompletedBy")
+  leadConversionPreparationsReviewed LeadConversionPreparation[]   @relation("LeadConversionPreparationReviewedBy")
+  directedRegions                    Region[]                      @relation("RegionDirector")
+  managedTerritories                 Territory[]                   @relation("TerritoryManager")
+  assignedTmLeads                    Lead[]                        @relation("LeadAssignedTm")
+  assignedRdLeads                    Lead[]                        @relation("LeadAssignedRd")
+  assignedTmAccounts                 Account[]                     @relation("AccountAssignedTm")
+  assignedRdAccounts                 Account[]                     @relation("AccountAssignedRd")
+  territoryOverridesCreated          TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideCreatedBy")
+  territoryOverridesAssignedTm       TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedTm")
+  territoryOverridesAssignedRd       TerritoryAssignmentOverride[] @relation("TerritoryAssignmentOverrideAssignedRd")
+  territoryAssignmentsChanged        TerritoryAssignmentHistory[]  @relation("TerritoryAssignmentHistoryChangedBy")
+  websiteLeadSubmissionsReviewed     WebsiteLeadSubmission[]       @relation("WebsiteLeadSubmissionReviewedBy")
+  leadImportRunsCreated              LeadImportRun[]               @relation("LeadImportRunCreatedBy")
+  groupRosterImportRunsCreated       GroupRosterImportRun[]        @relation("GroupRosterImportRunCreatedBy")
+  dealerPortalMembership             DealerPortalUser?
+  dealerPortalUsersCreated           DealerPortalUser[]            @relation("DealerPortalUserCreatedBy")
+  trainingTrainerProfile             TrainingTrainerProfile?
+  trainingProgramsCreated            AccountTrainingProgram[]      @relation("TrainingProgramCreatedBy")
+  trainingProgramsOwnedTm            AccountTrainingProgram[]      @relation("TrainingProgramOwnerTm")
+  trainingProgramsOwnedRd            AccountTrainingProgram[]      @relation("TrainingProgramOwnerRd")
+  trainingSessionsDelivered          TrainingSession[]             @relation("TrainingSessionTrainer")
+  trainingCertificationsAwarded      TrainingCertificationRecord[] @relation("TrainingCertificationAwardedBy")
+  trainingFollowUpTasksOwned         TrainingFollowUpTask[]        @relation("TrainingFollowUpTaskOwner")
+  trainingFollowUpTasksCreated       TrainingFollowUpTask[]        @relation("TrainingFollowUpTaskCreatedBy")
+  trainingProofDocumentsUploaded     TrainingProofDocument[]       @relation("TrainingProofDocumentUploadedBy")
+  trainingProofDocumentsReviewed     TrainingProofDocument[]       @relation("TrainingProofDocumentReviewedBy")
+  calendarConnections                CalendarConnection[]
+  calendarAuthStates                 CalendarConnectionAuthState[]
+  passwordResetTokens                PasswordResetToken[]
+  leadOperationalAlerts              LeadOperationalAlert[]        @relation("LeadOperationalAlertRecipientUser")
+  createdConsignmentSites            ConsignmentSite[]             @relation("ConsignmentSiteCreatedBy")
+  ownedConsignmentSitesTm            ConsignmentSite[]             @relation("ConsignmentSiteOwnerTm")
+  ownedConsignmentSitesRd            ConsignmentSite[]             @relation("ConsignmentSiteOwnerRd")
+  consignmentFormsCreated            ConsignmentForm[]             @relation("ConsignmentFormCreatedBy")
+  consignmentAuditsSubmitted         ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
+  consignmentWorkItemsAssigned       ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
 
   @@index([roleCode])
   @@index([userType])
@@ -757,20 +830,20 @@ model User {
 }
 
 model ShippingCenter {
-  id               String    @id @default(uuid()) @db.Uuid
-  code             String    @unique
-  name             String
-  city             String?
-  state            String?
-  countryCode      String    @default("US")
-  isActive         Boolean   @default(true)
-  notes            String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  city        String?
+  state       String?
+  countryCode String   @default("US")
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   territories      Territory[]
-  assignedLeads    Lead[]    @relation("LeadShippingCenter")
-  assignedAccounts Account[] @relation("AccountShippingCenter")
+  assignedLeads    Lead[]            @relation("LeadShippingCenter")
+  assignedAccounts Account[]         @relation("AccountShippingCenter")
   consignmentSites ConsignmentSite[]
 
   @@index([isActive])
@@ -778,26 +851,26 @@ model ShippingCenter {
 }
 
 model TerritoryPolicy {
-  id                               String   @id @default("default")
-  preHandoffTmVisibility           Boolean  @default(false)
-  assignNationalTmLeadsByDefault   Boolean  @default(true)
-  strategicGrowthRetainsOwnership  Boolean  @default(true)
-  notes                            String?
-  createdAt                        DateTime @default(now())
-  updatedAt                        DateTime @updatedAt
+  id                              String   @id @default("default")
+  preHandoffTmVisibility          Boolean  @default(false)
+  assignNationalTmLeadsByDefault  Boolean  @default(true)
+  strategicGrowthRetainsOwnership Boolean  @default(true)
+  notes                           String?
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
 }
 
 model Region {
-  id               String      @id @default(uuid()) @db.Uuid
-  code             String      @unique
-  name             String
-  directorUserId   String?     @db.Uuid
-  isActive         Boolean     @default(true)
-  notes            String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  id             String   @id @default(uuid()) @db.Uuid
+  code           String   @unique
+  name           String
+  directorUserId String?  @db.Uuid
+  isActive       Boolean  @default(true)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  directorUser     User?       @relation("RegionDirector", fields: [directorUserId], references: [id], onDelete: SetNull)
+  directorUser     User?             @relation("RegionDirector", fields: [directorUserId], references: [id], onDelete: SetNull)
   territories      Territory[]
   consignmentSites ConsignmentSite[]
 
@@ -806,25 +879,25 @@ model Region {
 }
 
 model Territory {
-  id               String                       @id @default(uuid()) @db.Uuid
-  code             String                       @unique
+  id               String   @id @default(uuid()) @db.Uuid
+  code             String   @unique
   name             String
-  regionId         String                       @db.Uuid
-  managerUserId    String?                      @db.Uuid
-  shippingCenterId String?                      @db.Uuid
-  isActive         Boolean                      @default(true)
+  regionId         String   @db.Uuid
+  managerUserId    String?  @db.Uuid
+  shippingCenterId String?  @db.Uuid
+  isActive         Boolean  @default(true)
   notes            String?
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  region           Region                       @relation(fields: [regionId], references: [id], onDelete: Cascade)
-  managerUser      User?                        @relation("TerritoryManager", fields: [managerUserId], references: [id], onDelete: SetNull)
-  shippingCenter   ShippingCenter?              @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
-  stateCoverage    TerritoryStateCoverage[]
-  leads            Lead[]
-  accounts         Account[]
+  region              Region                        @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  managerUser         User?                         @relation("TerritoryManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  shippingCenter      ShippingCenter?               @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  stateCoverage       TerritoryStateCoverage[]
+  leads               Lead[]
+  accounts            Account[]
   assignmentOverrides TerritoryAssignmentOverride[]
-  consignmentSites ConsignmentSite[]
+  consignmentSites    ConsignmentSite[]
 
   @@index([regionId])
   @@index([managerUserId])
@@ -833,36 +906,36 @@ model Territory {
 }
 
 model TerritoryStateCoverage {
-  id               String    @id @default(uuid()) @db.Uuid
-  territoryId      String    @db.Uuid
-  stateCode        String
-  countryCode      String    @default("US")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  territoryId String   @db.Uuid
+  stateCode   String
+  countryCode String   @default("US")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  territory        Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  territory Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
 
   @@unique([countryCode, stateCode])
   @@index([territoryId])
 }
 
 model TerritoryAssignmentOverride {
-  id               String                       @id @default(uuid()) @db.Uuid
+  id               String                        @id @default(uuid()) @db.Uuid
   entityType       TerritoryAssignmentEntityType
   entityId         String
-  territoryId      String                       @db.Uuid
-  assignedTmUserId String?                      @db.Uuid
-  assignedRdUserId String?                      @db.Uuid
+  territoryId      String                        @db.Uuid
+  assignedTmUserId String?                       @db.Uuid
+  assignedRdUserId String?                       @db.Uuid
   reasonCode       String
   reasonNote       String?
-  createdByUserId  String?                      @db.Uuid
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
+  createdByUserId  String?                       @db.Uuid
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
 
-  territory        Territory                    @relation(fields: [territoryId], references: [id], onDelete: Cascade)
-  assignedTmUser   User?                        @relation("TerritoryAssignmentOverrideAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
-  assignedRdUser   User?                        @relation("TerritoryAssignmentOverrideAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
-  createdByUser    User?                        @relation("TerritoryAssignmentOverrideCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  territory      Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  assignedTmUser User?     @relation("TerritoryAssignmentOverrideAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser User?     @relation("TerritoryAssignmentOverrideAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
+  createdByUser  User?     @relation("TerritoryAssignmentOverrideCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@unique([entityType, entityId])
   @@index([territoryId])
@@ -872,27 +945,27 @@ model TerritoryAssignmentOverride {
 }
 
 model TerritoryAssignmentHistory {
-  id                      String                       @id @default(uuid()) @db.Uuid
-  entityType              TerritoryAssignmentEntityType
-  entityId                String
-  assignmentMethod        TerritoryAssignmentMethod
-  previousTerritoryId     String?                      @db.Uuid
-  previousTerritoryCode   String?
-  nextTerritoryId         String?                      @db.Uuid
-  nextTerritoryCode       String?
-  previousShippingCenterId String?                     @db.Uuid
-  nextShippingCenterId    String?                      @db.Uuid
-  previousAssignedTmUserId String?                     @db.Uuid
-  nextAssignedTmUserId    String?                      @db.Uuid
-  previousAssignedRdUserId String?                     @db.Uuid
-  nextAssignedRdUserId    String?                      @db.Uuid
-  changedByUserId         String?                      @db.Uuid
-  reasonCode              String?
-  reasonNote              String?
-  metadata                Json?
-  changedAt               DateTime                     @default(now())
+  id                       String                        @id @default(uuid()) @db.Uuid
+  entityType               TerritoryAssignmentEntityType
+  entityId                 String
+  assignmentMethod         TerritoryAssignmentMethod
+  previousTerritoryId      String?                       @db.Uuid
+  previousTerritoryCode    String?
+  nextTerritoryId          String?                       @db.Uuid
+  nextTerritoryCode        String?
+  previousShippingCenterId String?                       @db.Uuid
+  nextShippingCenterId     String?                       @db.Uuid
+  previousAssignedTmUserId String?                       @db.Uuid
+  nextAssignedTmUserId     String?                       @db.Uuid
+  previousAssignedRdUserId String?                       @db.Uuid
+  nextAssignedRdUserId     String?                       @db.Uuid
+  changedByUserId          String?                       @db.Uuid
+  reasonCode               String?
+  reasonNote               String?
+  metadata                 Json?
+  changedAt                DateTime                      @default(now())
 
-  changedByUser           User?                        @relation("TerritoryAssignmentHistoryChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  changedByUser User? @relation("TerritoryAssignmentHistoryChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
 
   @@index([entityType, entityId, changedAt])
   @@index([changedByUserId])
@@ -910,7 +983,7 @@ model UserIdentity {
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 
-  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions            Session[]
   passwordResetTokens PasswordResetToken[]
 
@@ -921,24 +994,24 @@ model UserIdentity {
 }
 
 model Session {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @db.Uuid
-  identityId       String   @db.Uuid
-  accessTokenHash  String   @unique
-  refreshTokenHash String   @unique
+  id               String            @id @default(uuid()) @db.Uuid
+  userId           String            @db.Uuid
+  identityId       String            @db.Uuid
+  accessTokenHash  String            @unique
+  refreshTokenHash String            @unique
   authMethod       SessionAuthMethod
-  ipAddress       String?
-  userAgent       String?
-  expiresAt       DateTime
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
   refreshExpiresAt DateTime
-  lastSeenAt      DateTime?
-  revokedAt       DateTime?
-  revokedReason   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  lastSeenAt       DateTime?
+  revokedAt        DateTime?
+  revokedReason    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identity         UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identity UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([identityId])
@@ -948,32 +1021,32 @@ model Session {
 }
 
 model AuthLoginState {
-  id         String           @id @default(uuid()) @db.Uuid
-  provider   IdentityProvider
-  stateHash  String           @unique
-  nextPath   String?
-  expiresAt  DateTime
-  usedAt     DateTime?
-  createdAt  DateTime         @default(now())
+  id        String           @id @default(uuid()) @db.Uuid
+  provider  IdentityProvider
+  stateHash String           @unique
+  nextPath  String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
 
   @@index([provider, expiresAt])
 }
 
 model PasswordResetToken {
-  id                 String       @id @default(uuid()) @db.Uuid
-  userId             String       @db.Uuid
-  identityId         String       @db.Uuid
-  tokenHash          String       @unique
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @db.Uuid
+  identityId         String    @db.Uuid
+  tokenHash          String    @unique
   requestedEmail     String
   requestedIpAddress String?
   requestedUserAgent String?
   expiresAt          DateTime
   usedAt             DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identity           UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identity UserIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
   @@index([identityId, expiresAt])
@@ -982,26 +1055,26 @@ model PasswordResetToken {
 }
 
 model CalendarConnection {
-  id                    String                     @id @default(uuid()) @db.Uuid
-  userId                String                     @db.Uuid
-  provider              CalendarConnectionProvider
-  providerSubject       String
-  providerEmail         String?
-  scope                 String
-  targetCalendarId      String?
-  targetCalendarName    String?
+  id                        String                            @id @default(uuid()) @db.Uuid
+  userId                    String                            @db.Uuid
+  provider                  CalendarConnectionProvider
+  providerSubject           String
+  providerEmail             String?
+  scope                     String
+  targetCalendarId          String?
+  targetCalendarName        String?
   meetingProviderPreference CalendarMeetingProviderPreference @default(NONE)
-  accessTokenEncrypted  String
-  refreshTokenEncrypted String
-  accessTokenExpiresAt  DateTime
-  isActive              Boolean                    @default(true)
-  lastSyncedAt          DateTime?
-  lastSyncError         String?
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
+  accessTokenEncrypted      String
+  refreshTokenEncrypted     String
+  accessTokenExpiresAt      DateTime
+  isActive                  Boolean                           @default(true)
+  lastSyncedAt              DateTime?
+  lastSyncError             String?
+  createdAt                 DateTime                          @default(now())
+  updatedAt                 DateTime                          @updatedAt
 
-  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bindings              CalendarEventBinding[]
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bindings CalendarEventBinding[]
 
   @@unique([userId, provider])
   @@unique([provider, providerSubject])
@@ -1011,38 +1084,38 @@ model CalendarConnection {
 }
 
 model CalendarConnectionAuthState {
-  id                    String                     @id @default(uuid()) @db.Uuid
-  userId                String                     @db.Uuid
-  provider              CalendarConnectionProvider
-  stateHash             String                     @unique
-  expiresAt             DateTime
-  usedAt                DateTime?
-  createdAt             DateTime                   @default(now())
+  id        String                     @id @default(uuid()) @db.Uuid
+  userId    String                     @db.Uuid
+  provider  CalendarConnectionProvider
+  stateHash String                     @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime                   @default(now())
 
-  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, provider, expiresAt])
   @@index([expiresAt])
 }
 
 model CalendarEventBinding {
-  id                    String                     @id @default(uuid()) @db.Uuid
-  connectionId          String                     @db.Uuid
-  provider              CalendarConnectionProvider
-  sourceModule          String
-  sourceRecordId        String
-  eventType             String
-  externalEventId       String
-  externalWebLink       String?
+  id                     String                            @id @default(uuid()) @db.Uuid
+  connectionId           String                            @db.Uuid
+  provider               CalendarConnectionProvider
+  sourceModule           String
+  sourceRecordId         String
+  eventType              String
+  externalEventId        String
+  externalWebLink        String?
   externalMeetingJoinUrl String?
-  targetCalendarId      String?
-  meetingProvider       CalendarMeetingProviderPreference @default(NONE)
-  lastSyncedAt          DateTime                   @default(now())
-  lastSyncError         String?
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
+  targetCalendarId       String?
+  meetingProvider        CalendarMeetingProviderPreference @default(NONE)
+  lastSyncedAt           DateTime                          @default(now())
+  lastSyncError          String?
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
 
-  connection            CalendarConnection         @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  connection CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@unique([connectionId, sourceModule, sourceRecordId, eventType])
   @@index([connectionId, lastSyncedAt])
@@ -1050,20 +1123,20 @@ model CalendarEventBinding {
 }
 
 model AuditEntry {
-  id               String    @id @default(uuid()) @db.Uuid
-  actorUserId      String?   @db.Uuid
-  action           AuditAction
-  entityType       String
-  entityId         String?
-  beforeData       Json?
-  afterData        Json?
-  metadata         Json?
-  requestId        String?
-  correlationId    String?
-  sourceSystem     String?
-  createdAt        DateTime  @default(now())
+  id            String      @id @default(uuid()) @db.Uuid
+  actorUserId   String?     @db.Uuid
+  action        AuditAction
+  entityType    String
+  entityId      String?
+  beforeData    Json?
+  afterData     Json?
+  metadata      Json?
+  requestId     String?
+  correlationId String?
+  sourceSystem  String?
+  createdAt     DateTime    @default(now())
 
-  actor            User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([actorUserId])
   @@index([entityType, entityId])
@@ -1074,25 +1147,434 @@ model AuditEntry {
   @@index([createdAt])
 }
 
+model ProductCategory {
+  id           String   @id @default(uuid()) @db.Uuid
+  parentId     String?  @db.Uuid
+  code         String   @unique
+  name         String
+  description  String?
+  categoryType String?
+  regionScope  String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(100)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  parent       ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children     ProductCategory[] @relation("ProductCategoryTree")
+  baseProducts BaseProduct[]
+
+  @@index([parentId])
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model ProductFamily {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  baseProducts BaseProduct[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model BaseProduct {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  sku                   String                 @unique
+  acumaticaInventoryId  String?
+  acumaticaItemClass    String?
+  uom                   String?
+  itemStatus            String?
+  productName           String
+  lifecycleStatus       ProductLifecycleStatus @default(DRAFT)
+  sourceSystem          ProductSourceSystem    @default(MANUAL)
+  sourceOfTruthSystem   ProductSourceSystem    @default(ACUMATICA)
+  categoryId            String?                @db.Uuid
+  familyId              String?                @db.Uuid
+  isSellable            Boolean                @default(true)
+  isDealerVisible       Boolean                @default(false)
+  acumaticaLastSyncedAt DateTime?
+  sourceModifiedAt      DateTime?
+  sourceChecksum        String?
+  createdByUserId       String?                @db.Uuid
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  category      ProductCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  family        ProductFamily?        @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  presentations ProductPresentation[]
+
+  @@index([acumaticaInventoryId])
+  @@index([acumaticaItemClass])
+  @@index([lifecycleStatus])
+  @@index([sourceSystem])
+  @@index([sourceOfTruthSystem])
+  @@index([categoryId])
+  @@index([familyId])
+  @@index([isSellable])
+  @@index([isDealerVisible])
+  @@index([productName])
+}
+
+model ProductPresentation {
+  id                   String               @id @default(uuid()) @db.Uuid
+  baseProductId        String               @db.Uuid
+  displayName          String
+  shortDescription     String?
+  longDescription      String?
+  specSummary          String?
+  regionScope          String?
+  brandLabel           String?
+  businessSegment      AccountSegment       @default(RESIDENTIAL)
+  publishStatus        ProductPublishStatus @default(DRAFT)
+  readyForDealerPortal Boolean              @default(false)
+  approvedByUserId     String?              @db.Uuid
+  approvedAt           DateTime?
+  publishedAt          DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  baseProduct      BaseProduct              @relation(fields: [baseProductId], references: [id], onDelete: Cascade)
+  inclusions       CatalogInclusion[]
+  readinessChecks  ProductPublishCheck[]
+  assetAssignments ProductAssetAssignment[]
+
+  @@index([baseProductId])
+  @@index([publishStatus])
+  @@index([regionScope])
+  @@index([brandLabel])
+  @@index([businessSegment])
+  @@index([readyForDealerPortal])
+}
+
+model CatalogInclusion {
+  id              String               @id @default(uuid()) @db.Uuid
+  presentationId  String               @db.Uuid
+  dealerGroupType String
+  dealerGroupId   String?
+  regionScope     String?
+  brandLabel      String?
+  isVisible       Boolean              @default(true)
+  publishStatus   ProductPublishStatus @default(DRAFT)
+  effectiveFrom   DateTime?
+  effectiveTo     DateTime?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  presentation ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  @@index([presentationId])
+  @@index([dealerGroupType, dealerGroupId])
+  @@index([regionScope])
+  @@index([brandLabel])
+  @@index([publishStatus])
+  @@index([isVisible])
+}
+
+model ProductPublishCheck {
+  id             String                 @id @default(uuid()) @db.Uuid
+  presentationId String                 @db.Uuid
+  checkCode      String
+  checkName      String
+  status         ProductReadinessStatus
+  message        String?
+  createdAt      DateTime               @default(now())
+
+  presentation ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  @@index([presentationId])
+  @@index([checkCode])
+  @@index([status])
+}
+
+model DigitalAsset {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  stableSlug          String                   @unique
+  title               String
+  description         String?
+  kind                DigitalAssetKind
+  status              DigitalAssetStatus       @default(DRAFT)
+  visibility          DigitalAssetVisibility   @default(INTERNAL_ONLY)
+  reviewStatus        DigitalAssetReviewStatus @default(NOT_REQUIRED)
+  sourceSystem        ProductSourceSystem      @default(MANUAL)
+  sourceOfTruthSystem ProductSourceSystem      @default(PULSE)
+  audience            String                   @default("internal")
+  brandScope          String?
+  regionScope         String?
+  dealerGroupType     String?
+  dealerGroupId       String?
+  widenAssetId        String?
+  legacyUrl           String?
+  legacyFileName      String?
+  legacyFolderPath    String?
+  legacyCreatedAt     DateTime?
+  legacyUpdatedAt     DateTime?
+  legacyPublishedAt   DateTime?
+  migratedAt          DateTime?
+  migrationBatchId    String?                  @db.Uuid
+  legacyMetadata      Json?
+  rawSourcePayload    Json?
+  currentVersionId    String?                  @db.Uuid
+  createdByUserId     String?                  @db.Uuid
+  approvedByUserId    String?                  @db.Uuid
+  approvedAt          DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  versions             DigitalAssetVersion[]
+  productAssignments   ProductAssetAssignment[]
+  collectionItems      DigitalAssetCollectionItem[]
+  migrationAliases     DigitalAssetMigrationAlias[]
+  legacyMetadataFields DigitalAssetLegacyMetadata[]
+  migrationIssues      DigitalAssetMigrationIssue[]
+  migrationBatch       DigitalAssetMigrationBatch?  @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
+
+  @@index([kind])
+  @@index([status])
+  @@index([visibility])
+  @@index([reviewStatus])
+  @@index([sourceSystem])
+  @@index([brandScope])
+  @@index([regionScope])
+  @@index([dealerGroupType, dealerGroupId])
+  @@index([widenAssetId])
+  @@index([legacyFileName])
+  @@index([legacyFolderPath])
+  @@index([migrationBatchId])
+  @@index([migratedAt])
+}
+
+model DigitalAssetVersion {
+  id                  String   @id @default(uuid()) @db.Uuid
+  assetId             String   @db.Uuid
+  versionNumber       Int
+  storageKey          String?
+  externalUrl         String?
+  fileName            String
+  mimeType            String?
+  sizeBytes           Int?
+  sha256              String?
+  sourceVersionId     String?
+  sourceDownloadUrl   String?
+  legacyRenditionName String?
+  legacyMetadata      Json?
+  rawSourcePayload    Json?
+  isCurrent           Boolean  @default(false)
+  createdByUserId     String?  @db.Uuid
+  createdAt           DateTime @default(now())
+
+  asset              DigitalAsset             @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  productAssignments ProductAssetAssignment[]
+
+  @@unique([assetId, versionNumber])
+  @@index([assetId])
+  @@index([sha256])
+  @@index([isCurrent])
+  @@index([sourceVersionId])
+}
+
+model ProductAssetAssignment {
+  id              String           @id @default(uuid()) @db.Uuid
+  presentationId  String           @db.Uuid
+  assetId         String           @db.Uuid
+  assetVersionId  String?          @db.Uuid
+  role            ProductAssetRole
+  dealerGroupType String?
+  dealerGroupId   String?
+  brandLabel      String?
+  regionScope     String?
+  sortOrder       Int              @default(100)
+  isRequired      Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  presentation ProductPresentation  @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  asset        DigitalAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetVersion DigitalAssetVersion? @relation(fields: [assetVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([presentationId, assetId, role, dealerGroupType, dealerGroupId, brandLabel, regionScope])
+  @@index([presentationId])
+  @@index([assetId])
+  @@index([assetVersionId])
+  @@index([role])
+  @@index([dealerGroupType, dealerGroupId])
+  @@index([brandLabel])
+  @@index([regionScope])
+}
+
+model DigitalAssetCollection {
+  id              String                 @id @default(uuid()) @db.Uuid
+  code            String                 @unique
+  name            String
+  description     String?
+  visibility      DigitalAssetVisibility @default(INTERNAL_ONLY)
+  brandScope      String?
+  regionScope     String?
+  dealerGroupType String?
+  dealerGroupId   String?
+  isActive        Boolean                @default(true)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  items DigitalAssetCollectionItem[]
+
+  @@index([visibility])
+  @@index([brandScope])
+  @@index([regionScope])
+  @@index([dealerGroupType, dealerGroupId])
+  @@index([isActive])
+}
+
+model DigitalAssetCollectionItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  collectionId String   @db.Uuid
+  assetId      String   @db.Uuid
+  sortOrder    Int      @default(100)
+  createdAt    DateTime @default(now())
+
+  collection DigitalAssetCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  asset      DigitalAsset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, assetId])
+  @@index([assetId])
+  @@index([sortOrder])
+}
+
+model DigitalAssetMigrationAlias {
+  id                String              @id @default(uuid()) @db.Uuid
+  assetId           String              @db.Uuid
+  sourceSystem      ProductSourceSystem
+  externalAssetId   String?
+  externalVersionId String?
+  legacyUrl         String
+  legacyPath        String?
+  legacyEmbedCode   String?
+  pulseStableUrl    String?
+  redirectStatus    String              @default("pending")
+  httpStatusCode    Int?
+  lastVerifiedAt    DateTime?
+  notes             String?
+  rawSourcePayload  Json?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  asset DigitalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceSystem, legacyUrl])
+  @@index([assetId])
+  @@index([sourceSystem])
+  @@index([externalAssetId])
+  @@index([externalVersionId])
+  @@index([legacyPath])
+  @@index([redirectStatus])
+}
+
+model DigitalAssetMigrationBatch {
+  id                 String              @id @default(uuid()) @db.Uuid
+  sourceSystem       ProductSourceSystem
+  batchCode          String              @unique
+  sourceExportName   String?
+  sourceExportedAt   DateTime?
+  status             String              @default("staged")
+  sourceRecordCount  Int                 @default(0)
+  createdAssetCount  Int                 @default(0)
+  updatedAssetCount  Int                 @default(0)
+  skippedRecordCount Int                 @default(0)
+  errorCount         Int                 @default(0)
+  importedByUserId   String?             @db.Uuid
+  notes              String?
+  rawManifest        Json?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  assets DigitalAsset[]
+  issues DigitalAssetMigrationIssue[]
+
+  @@index([sourceSystem])
+  @@index([status])
+  @@index([sourceExportedAt])
+}
+
+model DigitalAssetLegacyMetadata {
+  id             String              @id @default(uuid()) @db.Uuid
+  assetId        String              @db.Uuid
+  sourceSystem   ProductSourceSystem
+  fieldKey       String
+  fieldLabel     String?
+  fieldValue     String?
+  fieldValueJson Json?
+  valueType      String?
+  isSearchable   Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  asset DigitalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, sourceSystem, fieldKey, fieldValue])
+  @@index([assetId])
+  @@index([sourceSystem])
+  @@index([fieldKey])
+  @@index([fieldValue])
+  @@index([isSearchable])
+}
+
+model DigitalAssetMigrationIssue {
+  id               String              @id @default(uuid()) @db.Uuid
+  batchId          String?             @db.Uuid
+  assetId          String?             @db.Uuid
+  sourceSystem     ProductSourceSystem
+  externalAssetId  String?
+  severity         String              @default("warning")
+  issueCode        String
+  message          String
+  sourceRowNumber  Int?
+  rawSourcePayload Json?
+  resolvedAt       DateTime?
+  resolvedByUserId String?             @db.Uuid
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  batch DigitalAssetMigrationBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  asset DigitalAsset?               @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([batchId])
+  @@index([assetId])
+  @@index([sourceSystem])
+  @@index([externalAssetId])
+  @@index([severity])
+  @@index([issueCode])
+  @@index([resolvedAt])
+}
+
 model FeatureFlag {
-  id               String           @id @default(uuid()) @db.Uuid
-  key              String           @unique
-  name             String
-  description      String?
-  state            FeatureFlagState  @default(OFF)
-  rolloutPercent   Int              @default(0)
-  enabledForJson   Json?
-  disabledForJson  Json?
-  metadata         Json?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id              String           @id @default(uuid()) @db.Uuid
+  key             String           @unique
+  name            String
+  description     String?
+  state           FeatureFlagState @default(OFF)
+  rolloutPercent  Int              @default(0)
+  enabledForJson  Json?
+  disabledForJson Json?
+  metadata        Json?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([state])
   @@index([rolloutPercent])
 }
 
 model ExternalReference {
-  id               String                     @id @default(uuid()) @db.Uuid
+  id               String                      @id @default(uuid()) @db.Uuid
   source           ExternalReferenceSource
   entityType       ExternalReferenceEntityType
   entityId         String
@@ -1100,10 +1582,10 @@ model ExternalReference {
   externalParentId String?
   externalKey      String?
   payload          Json?
-  isPrimary        Boolean                    @default(false)
-  isActive         Boolean                    @default(true)
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
+  isPrimary        Boolean                     @default(false)
+  isActive         Boolean                     @default(true)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
 
   @@unique([source, entityType, externalId])
   @@index([entityType, entityId])
@@ -1112,24 +1594,24 @@ model ExternalReference {
 }
 
 model MigrationRun {
-  id               String             @id @default(uuid()) @db.Uuid
-  sourceSystem     DataSourceSystem
-  wave             MigrationWave?
-  mode             MigrationRunMode
-  status           MigrationRunStatus @default(PENDING)
-  startedByUserId  String?            @db.Uuid
-  entityScope      Json?
-  summary          Json?
-  reconciliation   Json?
-  notes            String?
-  startedAt        DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id              String             @id @default(uuid()) @db.Uuid
+  sourceSystem    DataSourceSystem
+  wave            MigrationWave?
+  mode            MigrationRunMode
+  status          MigrationRunStatus @default(PENDING)
+  startedByUserId String?            @db.Uuid
+  entityScope     Json?
+  summary         Json?
+  reconciliation  Json?
+  notes           String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  startedBy        User?              @relation("MigrationRunStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
-  sourceSnapshots  SourceRecordSnapshot[]
-  records          MigrationRunRecord[]
+  startedBy       User?                  @relation("MigrationRunStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+  sourceSnapshots SourceRecordSnapshot[]
+  records         MigrationRunRecord[]
 
   @@index([sourceSystem, mode])
   @@index([status])
@@ -1138,27 +1620,27 @@ model MigrationRun {
 }
 
 model SourceRecordSnapshot {
-  id               String             @id @default(uuid()) @db.Uuid
-  migrationRunId   String             @db.Uuid
-  sourceSystem     DataSourceSystem
-  entityType       DataRecordEntityType
-  externalId       String
-  targetEntityType DataRecordEntityType?
-  targetEntityId   String?
-  sourceModifiedAt DateTime?
-  capturedAt       DateTime           @default(now())
-  normalizedAt     DateTime?
-  reconciledAt     DateTime?
-  status           SnapshotStatus     @default(CAPTURED)
-  payloadChecksum  String?
-  rawPayload       Json
+  id                String                @id @default(uuid()) @db.Uuid
+  migrationRunId    String                @db.Uuid
+  sourceSystem      DataSourceSystem
+  entityType        DataRecordEntityType
+  externalId        String
+  targetEntityType  DataRecordEntityType?
+  targetEntityId    String?
+  sourceModifiedAt  DateTime?
+  capturedAt        DateTime              @default(now())
+  normalizedAt      DateTime?
+  reconciledAt      DateTime?
+  status            SnapshotStatus        @default(CAPTURED)
+  payloadChecksum   String?
+  rawPayload        Json
   normalizedPayload Json?
-  metadata         Json?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  metadata          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
-  migrationRun     MigrationRun       @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
-  records          MigrationRunRecord[]
+  migrationRun MigrationRun         @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+  records      MigrationRunRecord[]
 
   @@unique([migrationRunId, sourceSystem, entityType, externalId])
   @@index([migrationRunId])
@@ -1169,9 +1651,9 @@ model SourceRecordSnapshot {
 }
 
 model MigrationRunRecord {
-  id               String               @id @default(uuid()) @db.Uuid
-  migrationRunId   String               @db.Uuid
-  snapshotId       String?              @db.Uuid
+  id               String                @id @default(uuid()) @db.Uuid
+  migrationRunId   String                @db.Uuid
+  snapshotId       String?               @db.Uuid
   sourceSystem     DataSourceSystem
   entityType       DataRecordEntityType
   externalId       String?
@@ -1181,35 +1663,35 @@ model MigrationRunRecord {
   message          String?
   fieldDiff        Json?
   reconciliation   Json?
-  attemptCount     Int                  @default(0)
+  attemptCount     Int                   @default(0)
   processedAt      DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
-  migrationRun     MigrationRun         @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
-  snapshot         SourceRecordSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  migrationRun MigrationRun          @relation(fields: [migrationRunId], references: [id], onDelete: Cascade)
+  snapshot     SourceRecordSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
 
+  @@unique([migrationRunId, snapshotId])
   @@index([migrationRunId, status])
   @@index([snapshotId])
   @@index([sourceSystem, entityType])
   @@index([targetEntityType, targetEntityId])
-  @@unique([migrationRunId, snapshotId])
 }
 
 model BusinessSegmentRef {
-  id               String             @id @default(uuid()) @db.Uuid
-  code             String             @unique
-  name             String
-  description      String?
-  isActive         Boolean            @default(true)
-  sortOrder        Int                @default(0)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  assignments      AccountSegmentAssignment[]
-  accounts         Account[]
-  leads            Lead[]
-  exceptions       ClassificationException[]
+  assignments AccountSegmentAssignment[]
+  accounts    Account[]
+  leads       Lead[]
+  exceptions  ClassificationException[]
 
   @@index([isActive])
   @@index([sortOrder])
@@ -1228,9 +1710,9 @@ model AffinityGroupRef {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  leads       Lead[]
-  accounts    Account[]
-  cisFormData CisFormData[]
+  leads            Lead[]
+  accounts         Account[]
+  cisFormData      CisFormData[]
   rosterImportRuns GroupRosterImportRun[] @relation("AffinityGroupRosterImportRuns")
 
   @@index([isActive])
@@ -1251,9 +1733,9 @@ model OwnershipGroupRef {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
-  leads         Lead[]
-  accounts      Account[]
-  cisFormData   CisFormData[]
+  leads            Lead[]
+  accounts         Account[]
+  cisFormData      CisFormData[]
   rosterImportRuns GroupRosterImportRun[] @relation("OwnershipGroupRosterImportRuns")
 
   @@index([isActive])
@@ -1262,48 +1744,48 @@ model OwnershipGroupRef {
 }
 
 model LeadSourceRef {
-  id               String    @id @default(uuid()) @db.Uuid
-  code             String    @unique
-  name             String
-  description      String?
-  isActive         Boolean   @default(true)
-  sortOrder        Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  leads            Lead[]
+  leads Lead[]
 
   @@index([isActive])
   @@index([sortOrder])
 }
 
 model WebsiteLeadSite {
-  id                     String                           @id @default(uuid()) @db.Uuid
-  siteId                 String                           @unique
-  siteName               String
-  url                    String
-  allowedOrigins         String[]                         @default([])
-  brandTag               String
-  formType               WebsiteLeadFormType
-  isActive               Boolean                          @default(true)
-  notes                  String?
-  headline               String?
-  subheadline            String?
-  submitButtonLabel      String?                          @default("Submit")
-  successTitle           String?
-  successMessage         String?
-  homeownerInquiryLabel  String?
-  contractorInquiryLabel String?
-  messageLabel           String?
-  referralSourceLabel    String?
-  referralDetailLabel    String?
-  marketingConsentLabel  String?
-  customerStatusLabel    String?
-  homeownerInquiryOptions String[]                        @default([])
-  contractorInquiryOptions String[]                       @default([])
-  referralSourceOptions  String[]                         @default([])
-  createdAt              DateTime                         @default(now())
-  updatedAt              DateTime                         @updatedAt
+  id                       String              @id @default(uuid()) @db.Uuid
+  siteId                   String              @unique
+  siteName                 String
+  url                      String
+  allowedOrigins           String[]            @default([])
+  brandTag                 String
+  formType                 WebsiteLeadFormType
+  isActive                 Boolean             @default(true)
+  notes                    String?
+  headline                 String?
+  subheadline              String?
+  submitButtonLabel        String?             @default("Submit")
+  successTitle             String?
+  successMessage           String?
+  homeownerInquiryLabel    String?
+  contractorInquiryLabel   String?
+  messageLabel             String?
+  referralSourceLabel      String?
+  referralDetailLabel      String?
+  marketingConsentLabel    String?
+  customerStatusLabel      String?
+  homeownerInquiryOptions  String[]            @default([])
+  contractorInquiryOptions String[]            @default([])
+  referralSourceOptions    String[]            @default([])
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
 
   submissions            WebsiteLeadSubmission[]
   notificationRecipients WebsiteLeadNotificationRecipient[]
@@ -1314,16 +1796,16 @@ model WebsiteLeadSite {
 }
 
 model WebsiteLeadNotificationRecipient {
-  id                String            @id @default(uuid()) @db.Uuid
-  websiteLeadSiteId String?           @db.Uuid
+  id                String   @id @default(uuid()) @db.Uuid
+  websiteLeadSiteId String?  @db.Uuid
   name              String
   email             String
   roleTitle         String?
-  isActive          Boolean           @default(true)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  websiteLeadSite   WebsiteLeadSite?  @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
+  websiteLeadSite WebsiteLeadSite? @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
 
   @@unique([websiteLeadSiteId, email])
   @@index([websiteLeadSiteId])
@@ -1332,132 +1814,132 @@ model WebsiteLeadNotificationRecipient {
 }
 
 model LeadStageRef {
-  id               String    @id @default(uuid()) @db.Uuid
-  stage            LeadStage @unique
-  code             String    @unique
-  name             String
-  dashboardLabel   String?
-  description      String?
-  isActive         Boolean   @default(true)
-  isTerminal       Boolean   @default(false)
-  sortOrder        Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id             String    @id @default(uuid()) @db.Uuid
+  stage          LeadStage @unique
+  code           String    @unique
+  name           String
+  dashboardLabel String?
+  description    String?
+  isActive       Boolean   @default(true)
+  isTerminal     Boolean   @default(false)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([isActive])
   @@index([sortOrder])
 }
 
 model LeadRoutingPolicy {
-  id                                       String           @id @default("default")
-  routingBasis                             LeadRoutingBasis @default(SERVICE_TECH_COUNT)
-  strategicGrowthMax                       Int              @default(5)
-  initialContactSlaHours                   Int              @default(24)
-  initialContactUrgentWindowHours          Int              @default(12)
-  initialContactManagerEscalationDelayHours Int            @default(12)
-  initialContactLeadershipEscalationDelayHours Int         @default(24)
-  discoverySchedulingSlaHours              Int              @default(72)
-  discoverySchedulingManagerEscalationDelayHours Int       @default(48)
-  cisFollowUpBusinessDays                  Int              @default(5)
-  cisFollowUpProspectReminderDelayBusinessDays Int         @default(3)
-  cisFollowUpOwnerAlertDelayBusinessDays   Int              @default(5)
-  stagnantStageDays                        Int              @default(7)
-  operationalAlertQuietHoursEnabled        Boolean          @default(false)
-  operationalAlertQuietHoursStartLocal     String           @default("18:00")
-  operationalAlertQuietHoursEndLocal       String           @default("08:00")
-  operationalAlertQuietHoursTimeZone       String           @default("America/Los_Angeles")
-  notes                                    String?
-  createdAt                                DateTime         @default(now())
-  updatedAt                                DateTime         @updatedAt
+  id                                             String           @id @default("default")
+  routingBasis                                   LeadRoutingBasis @default(SERVICE_TECH_COUNT)
+  strategicGrowthMax                             Int              @default(5)
+  initialContactSlaHours                         Int              @default(24)
+  initialContactUrgentWindowHours                Int              @default(12)
+  initialContactManagerEscalationDelayHours      Int              @default(12)
+  initialContactLeadershipEscalationDelayHours   Int              @default(24)
+  discoverySchedulingSlaHours                    Int              @default(72)
+  discoverySchedulingManagerEscalationDelayHours Int              @default(48)
+  cisFollowUpBusinessDays                        Int              @default(5)
+  cisFollowUpProspectReminderDelayBusinessDays   Int              @default(3)
+  cisFollowUpOwnerAlertDelayBusinessDays         Int              @default(5)
+  stagnantStageDays                              Int              @default(7)
+  operationalAlertQuietHoursEnabled              Boolean          @default(false)
+  operationalAlertQuietHoursStartLocal           String           @default("18:00")
+  operationalAlertQuietHoursEndLocal             String           @default("08:00")
+  operationalAlertQuietHoursTimeZone             String           @default("America/Los_Angeles")
+  notes                                          String?
+  createdAt                                      DateTime         @default(now())
+  updatedAt                                      DateTime         @updatedAt
 }
 
 model Lead {
-  id                       String            @id @default(uuid()) @db.Uuid
-  companyName              String
-  contactFirstName         String?
-  contactLastName          String?
-  contactDisplayName       String
-  email                    String?
-  phone                    String?
-  state                    String?
-  countryCode              String?           @default("US")
-  businessSegmentId        String            @db.Uuid
-  leadSourceId             String            @db.Uuid
-  leadCaptureMethod        LeadCaptureMethod @default(MANUAL_ENTRY)
-  leadType                 WebsiteLeadType?
-  sourceDetail             String?
-  sourceSiteId             String?
-  sourceSiteName           String?
-  sourceBrandTag           String?
-  sourceCampaign           String?
-  leadRating               String?
-  serviceTechCount         Int
-  installTechCount         Int?
-  truckCount               Int?
-  salesPersonCount         Int?
-  affinityGroupSelection   GroupAxisSelection @default(UNKNOWN)
-  affinityGroupId          String?           @db.Uuid
-  ownershipGroupSelection  GroupAxisSelection @default(UNKNOWN)
-  ownershipGroupId         String?           @db.Uuid
-  groupClassification      GroupClassification?
-  privateLabelName         String?
-  potentialValueCents      Int?
-  routingBasisSnapshot     LeadRoutingBasis
-  routingThresholdSnapshot Int
-  routingTeam              LeadRoutingTeam
-  leadOwnerName            String?
-  territoryId              String?            @db.Uuid
+  id                        String                         @id @default(uuid()) @db.Uuid
+  companyName               String
+  contactFirstName          String?
+  contactLastName           String?
+  contactDisplayName        String
+  email                     String?
+  phone                     String?
+  state                     String?
+  countryCode               String?                        @default("US")
+  businessSegmentId         String                         @db.Uuid
+  leadSourceId              String                         @db.Uuid
+  leadCaptureMethod         LeadCaptureMethod              @default(MANUAL_ENTRY)
+  leadType                  WebsiteLeadType?
+  sourceDetail              String?
+  sourceSiteId              String?
+  sourceSiteName            String?
+  sourceBrandTag            String?
+  sourceCampaign            String?
+  leadRating                String?
+  serviceTechCount          Int
+  installTechCount          Int?
+  truckCount                Int?
+  salesPersonCount          Int?
+  affinityGroupSelection    GroupAxisSelection             @default(UNKNOWN)
+  affinityGroupId           String?                        @db.Uuid
+  ownershipGroupSelection   GroupAxisSelection             @default(UNKNOWN)
+  ownershipGroupId          String?                        @db.Uuid
+  groupClassification       GroupClassification?
+  privateLabelName          String?
+  potentialValueCents       Int?
+  routingBasisSnapshot      LeadRoutingBasis
+  routingThresholdSnapshot  Int
+  routingTeam               LeadRoutingTeam
+  leadOwnerName             String?
+  territoryId               String?                        @db.Uuid
   territoryAssignmentMethod TerritoryAssignmentMethod?
-  territoryAssignedAt      DateTime?
-  shippingCenterId         String?            @db.Uuid
-  assignedTmUserId         String?            @db.Uuid
-  assignedRdUserId         String?            @db.Uuid
-  assignedTmName           String?
-  stage                    LeadStage         @default(NEW)
-  lifecycleStatus          LeadLifecycleStatus @default(ACTIVE)
-  lifecycleChangedAt       DateTime?
-  lifecycleReasonCode      String?
-  lifecycleReasonNote      String?
-  initialContactDueAt      DateTime?
-  initialContactedAt       DateTime?
-  discoveryCallSkipped     Boolean           @default(false)
-  discoveryScheduledAt     DateTime?
-  discoveryCompletedAt     DateTime?
-  discoveryPainPoints      String[]          @default([])
-  discoveryCurrentIaqSetup String?
-  discoveryDecisionMaker   String?
-  discoveryBuyingIntent    String?
+  territoryAssignedAt       DateTime?
+  shippingCenterId          String?                        @db.Uuid
+  assignedTmUserId          String?                        @db.Uuid
+  assignedRdUserId          String?                        @db.Uuid
+  assignedTmName            String?
+  stage                     LeadStage                      @default(NEW)
+  lifecycleStatus           LeadLifecycleStatus            @default(ACTIVE)
+  lifecycleChangedAt        DateTime?
+  lifecycleReasonCode       String?
+  lifecycleReasonNote       String?
+  initialContactDueAt       DateTime?
+  initialContactedAt        DateTime?
+  discoveryCallSkipped      Boolean                        @default(false)
+  discoveryScheduledAt      DateTime?
+  discoveryCompletedAt      DateTime?
+  discoveryPainPoints       String[]                       @default([])
+  discoveryCurrentIaqSetup  String?
+  discoveryDecisionMaker    String?
+  discoveryBuyingIntent     String?
   consignmentInterestStatus LeadConsignmentInterestStatus?
-  consignmentEntryTiming   LeadConsignmentEntryTiming?
-  discoveryFastTrackReason String?
-  discoverySummary         String?
-  cisSentAt                DateTime?
-  cisSubmittedAt           DateTime?
-  cisSignedAt              DateTime?
-  onboardingCompletedAt    DateTime?
-  firstOrderAt             DateTime?
-  notes                    String?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  consignmentEntryTiming    LeadConsignmentEntryTiming?
+  discoveryFastTrackReason  String?
+  discoverySummary          String?
+  cisSentAt                 DateTime?
+  cisSubmittedAt            DateTime?
+  cisSignedAt               DateTime?
+  onboardingCompletedAt     DateTime?
+  firstOrderAt              DateTime?
+  notes                     String?
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
 
-  businessSegment          BusinessSegmentRef @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
-  leadSource               LeadSourceRef      @relation(fields: [leadSourceId], references: [id], onDelete: Restrict)
-  affinityGroup            AffinityGroupRef?  @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
-  ownershipGroup           OwnershipGroupRef? @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
-  territory                Territory?         @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  shippingCenter           ShippingCenter?    @relation("LeadShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
-  assignedTmUser           User?              @relation("LeadAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
-  assignedRdUser           User?              @relation("LeadAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
-  extension                LeadExtension?
-  stageEvents              LeadStageEvent[]
-  operationalAlerts        LeadOperationalAlert[]
-  cisPackages              CisPackage[]
-  leadContacts             LeadContact[]
-  readinessState           LeadReadinessState?
-  onboardingChecklist      OnboardingChecklist?
-  conversionPreparation    LeadConversionPreparation?
-  convertedAccount         Account?           @relation("LeadToAccount")
-  websiteSubmissions       WebsiteLeadSubmission[] @relation("LeadToWebsiteSubmission")
+  businessSegment       BusinessSegmentRef         @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
+  leadSource            LeadSourceRef              @relation(fields: [leadSourceId], references: [id], onDelete: Restrict)
+  affinityGroup         AffinityGroupRef?          @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup        OwnershipGroupRef?         @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  territory             Territory?                 @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  shippingCenter        ShippingCenter?            @relation("LeadShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  assignedTmUser        User?                      @relation("LeadAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser        User?                      @relation("LeadAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
+  extension             LeadExtension?
+  stageEvents           LeadStageEvent[]
+  operationalAlerts     LeadOperationalAlert[]
+  cisPackages           CisPackage[]
+  leadContacts          LeadContact[]
+  readinessState        LeadReadinessState?
+  onboardingChecklist   OnboardingChecklist?
+  conversionPreparation LeadConversionPreparation?
+  convertedAccount      Account?                   @relation("LeadToAccount")
+  websiteSubmissions    WebsiteLeadSubmission[]    @relation("LeadToWebsiteSubmission")
 
   @@index([businessSegmentId])
   @@index([leadSourceId])
@@ -1494,29 +1976,29 @@ model LeadOperationalAlertRecipient {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  alerts      LeadOperationalAlert[]
+  alerts LeadOperationalAlert[]
 
   @@index([routingTeam, isActive, sortOrder])
 }
 
 model LeadOperationalAlert {
-  id               String                  @id @default(uuid()) @db.Uuid
-  leadId           String                  @db.Uuid
-  recipientId      String?                 @db.Uuid
-  recipientUserId  String?                 @db.Uuid
-  alertType        LeadOperationalAlertType
-  deliveryStatus   LeadOperationalAlertDeliveryStatus @default(PENDING)
-  recipientName    String
-  recipientEmail   String?
-  dedupeKey        String                  @unique
-  metadata         Json?
-  createdAt        DateTime                @default(now())
+  id                    String                             @id @default(uuid()) @db.Uuid
+  leadId                String                             @db.Uuid
+  recipientId           String?                            @db.Uuid
+  recipientUserId       String?                            @db.Uuid
+  alertType             LeadOperationalAlertType
+  deliveryStatus        LeadOperationalAlertDeliveryStatus @default(PENDING)
+  recipientName         String
+  recipientEmail        String?
+  dedupeKey             String                             @unique
+  metadata              Json?
+  createdAt             DateTime                           @default(now())
   lastDeliveryAttemptAt DateTime?
-  deliveredAt      DateTime?
+  deliveredAt           DateTime?
 
-  lead             Lead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  recipient        LeadOperationalAlertRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
-  recipientUser    User?                   @relation("LeadOperationalAlertRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  lead             Lead                                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  recipient        LeadOperationalAlertRecipient?        @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  recipientUser    User?                                 @relation("LeadOperationalAlertRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
   deliveryAttempts LeadOperationalAlertDeliveryAttempt[]
 
   @@index([leadId, alertType])
@@ -1527,21 +2009,21 @@ model LeadOperationalAlert {
 }
 
 model LeadOperationalAlertDeliveryAttempt {
-  id            String                          @id @default(uuid()) @db.Uuid
-  alertId       String                          @db.Uuid
-  attemptNumber Int
-  deliveryMode  LeadOperationalAlertDeliveryMode
-  status        LeadOperationalAlertDeliveryStatus
-  providerKey   String
-  recipientName String
+  id             String                             @id @default(uuid()) @db.Uuid
+  alertId        String                             @db.Uuid
+  attemptNumber  Int
+  deliveryMode   LeadOperationalAlertDeliveryMode
+  status         LeadOperationalAlertDeliveryStatus
+  providerKey    String
+  recipientName  String
   recipientEmail String?
-  subject       String
-  errorMessage  String?
-  metadata      Json?
-  createdAt     DateTime                        @default(now())
-  completedAt   DateTime?
+  subject        String
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime                           @default(now())
+  completedAt    DateTime?
 
-  alert         LeadOperationalAlert            @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  alert LeadOperationalAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
 
   @@unique([alertId, attemptNumber])
   @@index([alertId, createdAt])
@@ -1549,37 +2031,37 @@ model LeadOperationalAlertDeliveryAttempt {
 }
 
 model WebsiteLeadSubmission {
-  id                String                         @id @default(uuid()) @db.Uuid
-  websiteLeadSiteId String?                        @db.Uuid
-  linkedLeadId      String?                        @db.Uuid
-  leadType          WebsiteLeadType
-  outcome           WebsiteLeadSubmissionOutcome   @default(CREATED_NEW_LEAD)
-  reviewStatus      WebsiteLeadSubmissionReviewStatus @default(NOT_REQUIRED)
-  reviewedByUserId  String?                        @db.Uuid
-  reviewedAt        DateTime?
-  reviewNote        String?
+  id                 String                            @id @default(uuid()) @db.Uuid
+  websiteLeadSiteId  String?                           @db.Uuid
+  linkedLeadId       String?                           @db.Uuid
+  leadType           WebsiteLeadType
+  outcome            WebsiteLeadSubmissionOutcome      @default(CREATED_NEW_LEAD)
+  reviewStatus       WebsiteLeadSubmissionReviewStatus @default(NOT_REQUIRED)
+  reviewedByUserId   String?                           @db.Uuid
+  reviewedAt         DateTime?
+  reviewNote         String?
   contactDisplayName String
-  contactFirstName  String?
-  contactLastName   String?
-  companyName       String?
-  email             String?
-  phone             String?
-  state             String?
-  countryCode       String?
-  serviceTechCount  Int?
-  installTechCount  Int?
-  truckCount        Int?
-  salesPersonCount  Int?
-  inquiryTopic      String?
-  referralSource    String?
-  referralDetail    String?
-  message           String?
-  payload           Json?
-  createdAt         DateTime                       @default(now())
+  contactFirstName   String?
+  contactLastName    String?
+  companyName        String?
+  email              String?
+  phone              String?
+  state              String?
+  countryCode        String?
+  serviceTechCount   Int?
+  installTechCount   Int?
+  truckCount         Int?
+  salesPersonCount   Int?
+  inquiryTopic       String?
+  referralSource     String?
+  referralDetail     String?
+  message            String?
+  payload            Json?
+  createdAt          DateTime                          @default(now())
 
-  websiteLeadSite   WebsiteLeadSite?               @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
-  linkedLead        Lead?                          @relation("LeadToWebsiteSubmission", fields: [linkedLeadId], references: [id], onDelete: SetNull)
-  reviewedBy        User?                          @relation("WebsiteLeadSubmissionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  websiteLeadSite WebsiteLeadSite? @relation(fields: [websiteLeadSiteId], references: [id], onDelete: SetNull)
+  linkedLead      Lead?            @relation("LeadToWebsiteSubmission", fields: [linkedLeadId], references: [id], onDelete: SetNull)
+  reviewedBy      User?            @relation("WebsiteLeadSubmissionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([websiteLeadSiteId, createdAt])
   @@index([linkedLeadId])
@@ -1592,8 +2074,8 @@ model WebsiteLeadSubmission {
 }
 
 model LeadImportRun {
-  id                  String            @id @default(uuid()) @db.Uuid
-  createdByUserId     String?           @db.Uuid
+  id                  String              @id @default(uuid()) @db.Uuid
+  createdByUserId     String?             @db.Uuid
   status              LeadImportRunStatus @default(REVIEW_READY)
   fileName            String
   fileFormat          String
@@ -1608,17 +2090,17 @@ model LeadImportRun {
   mappings            Json
   totalRows           Int
   mappedRows          Int
-  readyRowCount       Int              @default(0)
-  attentionRowCount   Int              @default(0)
-  createdCount        Int              @default(0)
-  skippedCount        Int              @default(0)
-  errorCount          Int              @default(0)
+  readyRowCount       Int                 @default(0)
+  attentionRowCount   Int                 @default(0)
+  createdCount        Int                 @default(0)
+  skippedCount        Int                 @default(0)
+  errorCount          Int                 @default(0)
   committedAt         DateTime?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
-  createdBy           User?            @relation("LeadImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  rows                LeadImportRunRow[]
+  createdBy User?              @relation("LeadImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rows      LeadImportRunRow[]
 
   @@index([createdByUserId, createdAt])
   @@index([status, createdAt])
@@ -1626,22 +2108,22 @@ model LeadImportRun {
 }
 
 model LeadImportRunRow {
-  id                    String                   @id @default(uuid()) @db.Uuid
-  runId                 String                   @db.Uuid
-  rowNumber             Int
-  status                LeadImportRunRowStatus
-  detail                String
-  sourceValues          Json?
-  mappedPayload         Json?
-  duplicateCandidates   Json?
-  duplicateDecision     LeadImportDuplicateDecision?
-  targetEntityId        String?
-  importedLeadId        String?                  @db.Uuid
-  importedAt            DateTime?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
+  id                  String                       @id @default(uuid()) @db.Uuid
+  runId               String                       @db.Uuid
+  rowNumber           Int
+  status              LeadImportRunRowStatus
+  detail              String
+  sourceValues        Json?
+  mappedPayload       Json?
+  duplicateCandidates Json?
+  duplicateDecision   LeadImportDuplicateDecision?
+  targetEntityId      String?
+  importedLeadId      String?                      @db.Uuid
+  importedAt          DateTime?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
 
-  run                   LeadImportRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run LeadImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, rowNumber])
   @@index([runId, status, rowNumber])
@@ -1649,36 +2131,36 @@ model LeadImportRunRow {
 }
 
 model GroupRosterImportRun {
-  id                 String                    @id @default(uuid()) @db.Uuid
-  createdByUserId    String?                   @db.Uuid
-  status             GroupRosterImportRunStatus @default(REVIEW_READY)
-  groupKind          GroupRosterImportKind
-  affinityGroupId    String?                   @db.Uuid
-  ownershipGroupId   String?                   @db.Uuid
-  fileName           String
-  fileFormat         String
-  fileDigest         String
-  sheetName          String
-  batchName          String?
-  sourceLabel        String?
-  sourceVersion      String?
-  effectiveDate      DateTime?
-  mappings           Json
-  totalRows          Int
-  mappedRows         Int
-  readyRowCount      Int                      @default(0)
-  attentionRowCount  Int                      @default(0)
-  appliedCount       Int                      @default(0)
-  skippedCount       Int                      @default(0)
-  errorCount         Int                      @default(0)
-  appliedAt          DateTime?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  id                String                     @id @default(uuid()) @db.Uuid
+  createdByUserId   String?                    @db.Uuid
+  status            GroupRosterImportRunStatus @default(REVIEW_READY)
+  groupKind         GroupRosterImportKind
+  affinityGroupId   String?                    @db.Uuid
+  ownershipGroupId  String?                    @db.Uuid
+  fileName          String
+  fileFormat        String
+  fileDigest        String
+  sheetName         String
+  batchName         String?
+  sourceLabel       String?
+  sourceVersion     String?
+  effectiveDate     DateTime?
+  mappings          Json
+  totalRows         Int
+  mappedRows        Int
+  readyRowCount     Int                        @default(0)
+  attentionRowCount Int                        @default(0)
+  appliedCount      Int                        @default(0)
+  skippedCount      Int                        @default(0)
+  errorCount        Int                        @default(0)
+  appliedAt         DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
-  createdBy          User?                    @relation("GroupRosterImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  affinityGroup      AffinityGroupRef?        @relation("AffinityGroupRosterImportRuns", fields: [affinityGroupId], references: [id], onDelete: SetNull)
-  ownershipGroup     OwnershipGroupRef?       @relation("OwnershipGroupRosterImportRuns", fields: [ownershipGroupId], references: [id], onDelete: SetNull)
-  rows               GroupRosterImportRunRow[]
+  createdBy      User?                     @relation("GroupRosterImportRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  affinityGroup  AffinityGroupRef?         @relation("AffinityGroupRosterImportRuns", fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup OwnershipGroupRef?        @relation("OwnershipGroupRosterImportRuns", fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  rows           GroupRosterImportRunRow[]
 
   @@index([createdByUserId, createdAt])
   @@index([status, createdAt])
@@ -1688,8 +2170,8 @@ model GroupRosterImportRun {
 }
 
 model GroupRosterImportRunRow {
-  id                 String                     @id @default(uuid()) @db.Uuid
-  runId              String                     @db.Uuid
+  id                 String                        @id @default(uuid()) @db.Uuid
+  runId              String                        @db.Uuid
   rowNumber          Int
   status             GroupRosterImportRowStatus
   detail             String
@@ -1698,13 +2180,13 @@ model GroupRosterImportRunRow {
   decision           GroupRosterImportRowDecision?
   selectedEntityType GroupRosterMatchEntityType?
   selectedEntityId   String?
-  appliedLeadId      String?                    @db.Uuid
-  appliedAccountId   String?                    @db.Uuid
+  appliedLeadId      String?                       @db.Uuid
+  appliedAccountId   String?                       @db.Uuid
   appliedAt          DateTime?
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
 
-  run                GroupRosterImportRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run GroupRosterImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, rowNumber])
   @@index([runId, status, rowNumber])
@@ -1714,28 +2196,28 @@ model GroupRosterImportRunRow {
 }
 
 model LeadExtension {
-  leadId              String    @id @db.Uuid
-  legacyAttributes    Json?
-  sourceMetadata      Json?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  leadId           String   @id @db.Uuid
+  legacyAttributes Json?
+  sourceMetadata   Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 }
 
 model LeadStageEvent {
-  id                  String    @id @default(uuid()) @db.Uuid
-  leadId              String    @db.Uuid
-  actorUserId         String?   @db.Uuid
-  fromStage           LeadStage?
-  toStage             LeadStage
-  note                String?
-  metadata            Json?
-  occurredAt          DateTime  @default(now())
-  createdAt           DateTime  @default(now())
+  id          String     @id @default(uuid()) @db.Uuid
+  leadId      String     @db.Uuid
+  actorUserId String?    @db.Uuid
+  fromStage   LeadStage?
+  toStage     LeadStage
+  note        String?
+  metadata    Json?
+  occurredAt  DateTime   @default(now())
+  createdAt   DateTime   @default(now())
 
-  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  actor               User?     @relation("LeadStageEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  lead  Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor User? @relation("LeadStageEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([leadId, occurredAt])
   @@index([actorUserId])
@@ -1743,24 +2225,24 @@ model LeadStageEvent {
 }
 
 model LeadContact {
-  id                       String            @id @default(uuid()) @db.Uuid
-  leadId                   String            @db.Uuid
-  role                     LeadContactRole
-  source                   LeadContactSource?
-  displayName              String
-  firstName                String?
-  lastName                 String?
-  title                    String?
-  email                    String?
-  phone                    String?
-  mobilePhone              String?
-  isPrimary                Boolean           @default(false)
-  isActive                 Boolean           @default(true)
-  notes                    String?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id          String             @id @default(uuid()) @db.Uuid
+  leadId      String             @db.Uuid
+  role        LeadContactRole
+  source      LeadContactSource?
+  displayName String
+  firstName   String?
+  lastName    String?
+  title       String?
+  email       String?
+  phone       String?
+  mobilePhone String?
+  isPrimary   Boolean            @default(false)
+  isActive    Boolean            @default(true)
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
-  lead                     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([leadId])
   @@index([role])
@@ -1770,22 +2252,22 @@ model LeadContact {
 }
 
 model LeadReadinessState {
-  leadId                   String                    @id @db.Uuid
-  status                   LeadReadinessStatus       @default(NOT_STARTED)
-  checklistGeneratedAt     DateTime?
-  financeApprovedAt        DateTime?
-  priceClassResolvedAt     DateTime?
-  portalAccessGrantedAt    DateTime?
-  firstOrderReadyAt        DateTime?
-  convertedAt              DateTime?
-  blockedReason            String?
-  notes                    String?
-  sourceCisPackageId       String?                   @db.Uuid
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
+  leadId                String              @id @db.Uuid
+  status                LeadReadinessStatus @default(NOT_STARTED)
+  checklistGeneratedAt  DateTime?
+  financeApprovedAt     DateTime?
+  priceClassResolvedAt  DateTime?
+  portalAccessGrantedAt DateTime?
+  firstOrderReadyAt     DateTime?
+  convertedAt           DateTime?
+  blockedReason         String?
+  notes                 String?
+  sourceCisPackageId    String?             @db.Uuid
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
-  lead                     Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  sourceCisPackage         CisPackage?               @relation(fields: [sourceCisPackageId], references: [id], onDelete: SetNull)
+  lead             Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sourceCisPackage CisPackage? @relation(fields: [sourceCisPackageId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([financeApprovedAt])
@@ -1795,43 +2277,43 @@ model LeadReadinessState {
 }
 
 model OnboardingChecklist {
-  id                       String                    @id @default(uuid()) @db.Uuid
-  leadId                   String                    @unique @db.Uuid
-  status                   OnboardingChecklistStatus @default(NOT_STARTED)
-  startedAt                DateTime                  @default(now())
-  completedAt              DateTime?
-  blockedReason            String?
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
+  id            String                    @id @default(uuid()) @db.Uuid
+  leadId        String                    @unique @db.Uuid
+  status        OnboardingChecklistStatus @default(NOT_STARTED)
+  startedAt     DateTime                  @default(now())
+  completedAt   DateTime?
+  blockedReason String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
 
-  lead                     Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  items                    OnboardingChecklistItem[]
+  lead  Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  items OnboardingChecklistItem[]
 
   @@index([status])
   @@index([completedAt])
 }
 
 model OnboardingChecklistItem {
-  id                       String                       @id @default(uuid()) @db.Uuid
-  checklistId              String                       @db.Uuid
-  code                     String
-  label                    String
-  ownerRoleCode            String?
-  ownerUserId              String?                      @db.Uuid
-  status                   OnboardingChecklistItemStatus @default(PENDING)
-  required                 Boolean                      @default(true)
-  sortOrder                Int                          @default(0)
-  dueAt                    DateTime?
-  completedAt              DateTime?
-  completedByUserId        String?                      @db.Uuid
-  notes                    String?
-  metadata                 Json?
-  createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
+  id                String                        @id @default(uuid()) @db.Uuid
+  checklistId       String                        @db.Uuid
+  code              String
+  label             String
+  ownerRoleCode     String?
+  ownerUserId       String?                       @db.Uuid
+  status            OnboardingChecklistItemStatus @default(PENDING)
+  required          Boolean                       @default(true)
+  sortOrder         Int                           @default(0)
+  dueAt             DateTime?
+  completedAt       DateTime?
+  completedByUserId String?                       @db.Uuid
+  notes             String?
+  metadata          Json?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
 
-  checklist                OnboardingChecklist          @relation(fields: [checklistId], references: [id], onDelete: Cascade)
-  ownerUser                User?                        @relation("OnboardingChecklistItemOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  completedByUser          User?                        @relation("OnboardingChecklistItemCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  checklist       OnboardingChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  ownerUser       User?               @relation("OnboardingChecklistItemOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  completedByUser User?               @relation("OnboardingChecklistItemCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([checklistId, code])
   @@index([checklistId, sortOrder])
@@ -1843,36 +2325,36 @@ model OnboardingChecklistItem {
 }
 
 model CisPackage {
-  id                       String            @id @default(uuid()) @db.Uuid
-  leadId                   String            @db.Uuid
-  status                   CisPackageStatus  @default(NOT_SENT)
-  entryMethod              CisEntryMethod
-  externalLinkTokenHash    String?           @unique
-  externalLinkExpiresAt    DateTime?
-  externalLinkLastSentAt   DateTime?
-  externalLinkSentCount    Int               @default(0)
-  submittedAt              DateTime?
-  reviewStartedAt          DateTime?
-  salesSignedOffAt         DateTime?
-  financeSubmittedAt       DateTime?
-  financeDecidedAt         DateTime?
-  completedAt              DateTime?
-  paymentStatus            CisPaymentStatus  @default(NOT_STARTED)
-  esignStatus              CisEsignStatus    @default(NOT_STARTED)
-  notes                    String?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id                     String           @id @default(uuid()) @db.Uuid
+  leadId                 String           @db.Uuid
+  status                 CisPackageStatus @default(NOT_SENT)
+  entryMethod            CisEntryMethod
+  externalLinkTokenHash  String?          @unique
+  externalLinkExpiresAt  DateTime?
+  externalLinkLastSentAt DateTime?
+  externalLinkSentCount  Int              @default(0)
+  submittedAt            DateTime?
+  reviewStartedAt        DateTime?
+  salesSignedOffAt       DateTime?
+  financeSubmittedAt     DateTime?
+  financeDecidedAt       DateTime?
+  completedAt            DateTime?
+  paymentStatus          CisPaymentStatus @default(NOT_STARTED)
+  esignStatus            CisEsignStatus   @default(NOT_STARTED)
+  notes                  String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
-  lead                     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  formData                 CisFormData?
-  internalReview           CisInternalReview?
-  financeDecision          CisFinanceDecision?
-  events                   CisPackageEvent[]
-  documents                CisDocument[]
-  parsedDrafts             CisParsedDraft[]
-  paymentCaptureAttempts   CisPaymentCaptureAttempt[]
-  paymentVaultReferences   CisPaymentVaultReference[]
-  readinessStates          LeadReadinessState[]
+  lead                   Lead                       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  formData               CisFormData?
+  internalReview         CisInternalReview?
+  financeDecision        CisFinanceDecision?
+  events                 CisPackageEvent[]
+  documents              CisDocument[]
+  parsedDrafts           CisParsedDraft[]
+  paymentCaptureAttempts CisPaymentCaptureAttempt[]
+  paymentVaultReferences CisPaymentVaultReference[]
+  readinessStates        LeadReadinessState[]
 
   @@index([leadId, createdAt])
   @@index([status])
@@ -1880,19 +2362,19 @@ model CisPackage {
 }
 
 model CisInternalReview {
-  id                       String            @id @default(uuid()) @db.Uuid
-  cisPackageId             String            @unique @db.Uuid
-  reviewStartedByUserId    String?           @db.Uuid
-  salesReviewNotes         String?
-  salesSignedOffByUserId   String?           @db.Uuid
-  salesSignedOffAt         DateTime?
-  financeCoverNotes        String?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id                     String    @id @default(uuid()) @db.Uuid
+  cisPackageId           String    @unique @db.Uuid
+  reviewStartedByUserId  String?   @db.Uuid
+  salesReviewNotes       String?
+  salesSignedOffByUserId String?   @db.Uuid
+  salesSignedOffAt       DateTime?
+  financeCoverNotes      String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  reviewStartedBy          User?             @relation("CisInternalReviewStartedBy", fields: [reviewStartedByUserId], references: [id], onDelete: SetNull)
-  salesSignedOffBy         User?             @relation("CisInternalReviewSignedOffBy", fields: [salesSignedOffByUserId], references: [id], onDelete: SetNull)
+  cisPackage       CisPackage @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  reviewStartedBy  User?      @relation("CisInternalReviewStartedBy", fields: [reviewStartedByUserId], references: [id], onDelete: SetNull)
+  salesSignedOffBy User?      @relation("CisInternalReviewSignedOffBy", fields: [salesSignedOffByUserId], references: [id], onDelete: SetNull)
 
   @@index([reviewStartedByUserId])
   @@index([salesSignedOffByUserId])
@@ -1900,24 +2382,24 @@ model CisInternalReview {
 }
 
 model CisFinanceDecision {
-  id                         String                    @id @default(uuid()) @db.Uuid
-  cisPackageId               String                    @unique @db.Uuid
-  status                     CisFinanceDecisionStatus  @default(NOT_SUBMITTED)
-  submittedByUserId          String?                   @db.Uuid
-  submittedAt                DateTime?
-  creditLineAmountCents      Int?
-  paymentTerms               CisPaymentTerms?
-  submissionNotes            String?
-  requestedInfoNotes         String?
-  decisionNotes              String?
-  decidedByUserId            String?                   @db.Uuid
-  decidedAt                  DateTime?
-  createdAt                  DateTime                  @default(now())
-  updatedAt                  DateTime                  @updatedAt
+  id                    String                   @id @default(uuid()) @db.Uuid
+  cisPackageId          String                   @unique @db.Uuid
+  status                CisFinanceDecisionStatus @default(NOT_SUBMITTED)
+  submittedByUserId     String?                  @db.Uuid
+  submittedAt           DateTime?
+  creditLineAmountCents Int?
+  paymentTerms          CisPaymentTerms?
+  submissionNotes       String?
+  requestedInfoNotes    String?
+  decisionNotes         String?
+  decidedByUserId       String?                  @db.Uuid
+  decidedAt             DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
 
-  cisPackage                 CisPackage                @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  submittedBy                User?                     @relation("CisFinanceDecisionSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
-  decidedBy                  User?                     @relation("CisFinanceDecisionDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  cisPackage  CisPackage @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  submittedBy User?      @relation("CisFinanceDecisionSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  decidedBy   User?      @relation("CisFinanceDecisionDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([submittedByUserId])
@@ -1927,33 +2409,33 @@ model CisFinanceDecision {
 }
 
 model CisFormData {
-  id                         String            @id @default(uuid()) @db.Uuid
-  cisPackageId               String            @unique @db.Uuid
-  companyWebsite             String?
-  numOfTechs                 Int?
-  numOfInstallTechs          Int?
-  numOfSalespeopleAdvisors   Int?
-  affinityGroupOrFranchise   String?
-  isPrivateEquity            Boolean            @default(false)
-  parentCompanyName          String?
-  affinityGroupSelection     GroupAxisSelection @default(UNKNOWN)
-  affinityGroupId            String?            @db.Uuid
-  ownershipGroupSelection    GroupAxisSelection @default(UNKNOWN)
-  ownershipGroupId           String?            @db.Uuid
-  primaryContactName         String?
-  primaryContactTitle        String?
-  primaryContactEmail        String?
-  primaryContactCellPhone    String?
-  ownerManagerName           String?
-  ownerManagerTitle          String?
-  ownerManagerEmail          String?
-  ownerManagerCellPhone      String?
-  legalCompanyName           String?
-  physicalAddress            String?
-  physicalCity               String?
-  physicalState              String?
-  physicalZip                String?
-  physicalCountryCode        String?           @default("US")
+  id                        String             @id @default(uuid()) @db.Uuid
+  cisPackageId              String             @unique @db.Uuid
+  companyWebsite            String?
+  numOfTechs                Int?
+  numOfInstallTechs         Int?
+  numOfSalespeopleAdvisors  Int?
+  affinityGroupOrFranchise  String?
+  isPrivateEquity           Boolean            @default(false)
+  parentCompanyName         String?
+  affinityGroupSelection    GroupAxisSelection @default(UNKNOWN)
+  affinityGroupId           String?            @db.Uuid
+  ownershipGroupSelection   GroupAxisSelection @default(UNKNOWN)
+  ownershipGroupId          String?            @db.Uuid
+  primaryContactName        String?
+  primaryContactTitle       String?
+  primaryContactEmail       String?
+  primaryContactCellPhone   String?
+  ownerManagerName          String?
+  ownerManagerTitle         String?
+  ownerManagerEmail         String?
+  ownerManagerCellPhone     String?
+  legalCompanyName          String?
+  physicalAddress           String?
+  physicalCity              String?
+  physicalState             String?
+  physicalZip               String?
+  physicalCountryCode       String?            @default("US")
   billingAddress            String?
   billingCity               String?
   billingState              String?
@@ -1970,18 +2452,18 @@ model CisFormData {
   apDirectPhone             String?
   apEmail                   String?
   paymentMethod             CisPaymentMethod?
-  achAuthorized             Boolean           @default(false)
-  cardOnFileAuthorized      Boolean           @default(false)
-  resaleCertificateAttached Boolean           @default(false)
+  achAuthorized             Boolean            @default(false)
+  cardOnFileAuthorized      Boolean            @default(false)
+  resaleCertificateAttached Boolean            @default(false)
   signatureCapturedAt       DateTime?
   submittedByProspectAt     DateTime?
   lastSavedAt               DateTime?
-  createdAt                 DateTime          @default(now())
-  updatedAt                 DateTime          @updatedAt
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
 
-  cisPackage                CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  affinityGroup             AffinityGroupRef?  @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
-  ownershipGroup            OwnershipGroupRef? @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  cisPackage     CisPackage         @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  affinityGroup  AffinityGroupRef?  @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup OwnershipGroupRef? @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
 
   @@index([affinityGroupId])
   @@index([ownershipGroupId])
@@ -1990,59 +2472,59 @@ model CisFormData {
 }
 
 model CisPackageEvent {
-  id                       String            @id @default(uuid()) @db.Uuid
-  cisPackageId             String            @db.Uuid
-  eventType                String
-  fromStatus               CisPackageStatus?
-  toStatus                 CisPackageStatus?
-  actorUserId              String?           @db.Uuid
-  actorType                String
-  note                     String?
-  metadata                 Json?
-  occurredAt               DateTime          @default(now())
-  createdAt                DateTime          @default(now())
+  id           String            @id @default(uuid()) @db.Uuid
+  cisPackageId String            @db.Uuid
+  eventType    String
+  fromStatus   CisPackageStatus?
+  toStatus     CisPackageStatus?
+  actorUserId  String?           @db.Uuid
+  actorType    String
+  note         String?
+  metadata     Json?
+  occurredAt   DateTime          @default(now())
+  createdAt    DateTime          @default(now())
 
-  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  cisPackage CisPackage @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
 
   @@index([cisPackageId, occurredAt])
   @@index([eventType])
 }
 
 model CisDocument {
-  id                       String            @id @default(uuid()) @db.Uuid
-  cisPackageId             String            @db.Uuid
-  documentType             CisDocumentType
-  storageKey               String
-  fileName                 String
-  mimeType                 String
-  uploadedByUserId         String?           @db.Uuid
-  uploadedAt               DateTime          @default(now())
-  sha256                   String?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id               String          @id @default(uuid()) @db.Uuid
+  cisPackageId     String          @db.Uuid
+  documentType     CisDocumentType
+  storageKey       String
+  fileName         String
+  mimeType         String
+  uploadedByUserId String?         @db.Uuid
+  uploadedAt       DateTime        @default(now())
+  sha256           String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  parsedDrafts             CisParsedDraft[]
+  cisPackage   CisPackage       @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  parsedDrafts CisParsedDraft[]
 
   @@index([cisPackageId, documentType])
 }
 
 model CisParsedDraft {
-  id                       String            @id @default(uuid()) @db.Uuid
-  cisPackageId             String            @db.Uuid
-  documentId               String            @db.Uuid
-  parserVersion            String
-  parseStatus              CisParseStatus    @default(QUEUED)
-  rawExtractionText        String?
-  rawStructuredPayload     Json?
-  fieldConfidenceMap       Json?
-  safeFieldPayload         Json?
-  paymentFieldsDetected    Boolean           @default(false)
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id                    String         @id @default(uuid()) @db.Uuid
+  cisPackageId          String         @db.Uuid
+  documentId            String         @db.Uuid
+  parserVersion         String
+  parseStatus           CisParseStatus @default(QUEUED)
+  rawExtractionText     String?
+  rawStructuredPayload  Json?
+  fieldConfidenceMap    Json?
+  safeFieldPayload      Json?
+  paymentFieldsDetected Boolean        @default(false)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
-  cisPackage               CisPackage        @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  document                 CisDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  cisPackage CisPackage  @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  document   CisDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([cisPackageId, createdAt])
   @@index([documentId])
@@ -2050,21 +2532,21 @@ model CisParsedDraft {
 }
 
 model CisPaymentVaultReference {
-  id                       String                  @id @default(uuid()) @db.Uuid
-  cisPackageId             String                  @db.Uuid
-  sourceCaptureAttemptId   String?                 @db.Uuid
-  provider                 CisPaymentVaultProvider @default(UNKNOWN)
-  vaultToken               String?
-  vaultCustomerRef         String?
-  last4                    String?
-  brand                    String?
-  authorizationCapturedAt  DateTime?
-  status                   String
-  createdAt                DateTime                @default(now())
-  updatedAt                DateTime                @updatedAt
+  id                      String                  @id @default(uuid()) @db.Uuid
+  cisPackageId            String                  @db.Uuid
+  sourceCaptureAttemptId  String?                 @db.Uuid
+  provider                CisPaymentVaultProvider @default(UNKNOWN)
+  vaultToken              String?
+  vaultCustomerRef        String?
+  last4                   String?
+  brand                   String?
+  authorizationCapturedAt DateTime?
+  status                  String
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
 
-  cisPackage               CisPackage              @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  sourceCaptureAttempt     CisPaymentCaptureAttempt? @relation("CisCaptureAttemptVaultReferences", fields: [sourceCaptureAttemptId], references: [id], onDelete: SetNull)
+  cisPackage                CisPackage                     @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  sourceCaptureAttempt      CisPaymentCaptureAttempt?      @relation("CisCaptureAttemptVaultReferences", fields: [sourceCaptureAttemptId], references: [id], onDelete: SetNull)
   promotedAccountReferences AccountPaymentVaultReference[]
 
   @@index([cisPackageId, createdAt])
@@ -2073,27 +2555,27 @@ model CisPaymentVaultReference {
 }
 
 model CisPaymentCaptureAttempt {
-  id                       String                        @id @default(uuid()) @db.Uuid
-  cisPackageId             String                        @db.Uuid
-  provider                 CisPaymentVaultProvider       @default(UNKNOWN)
-  status                   CisPaymentCaptureAttemptStatus @default(LAUNCHED)
-  providerProfileId        String?
-  launchedByUserId         String?                       @db.Uuid
-  completedByUserId        String?                       @db.Uuid
-  launchNote               String?
-  resultNote               String?
-  temporaryTokenEncrypted  String?
-  providerResultCode       String?
-  providerErrorMessage     String?
-  providerBin              String?
-  launchedAt               DateTime                      @default(now())
-  completedAt              DateTime?
-  expiresAt                DateTime?
-  createdAt                DateTime                      @default(now())
-  updatedAt                DateTime                      @updatedAt
+  id                      String                         @id @default(uuid()) @db.Uuid
+  cisPackageId            String                         @db.Uuid
+  provider                CisPaymentVaultProvider        @default(UNKNOWN)
+  status                  CisPaymentCaptureAttemptStatus @default(LAUNCHED)
+  providerProfileId       String?
+  launchedByUserId        String?                        @db.Uuid
+  completedByUserId       String?                        @db.Uuid
+  launchNote              String?
+  resultNote              String?
+  temporaryTokenEncrypted String?
+  providerResultCode      String?
+  providerErrorMessage    String?
+  providerBin             String?
+  launchedAt              DateTime                       @default(now())
+  completedAt             DateTime?
+  expiresAt               DateTime?
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
 
-  cisPackage               CisPackage                    @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
-  vaultReferences          CisPaymentVaultReference[]    @relation("CisCaptureAttemptVaultReferences")
+  cisPackage      CisPackage                 @relation(fields: [cisPackageId], references: [id], onDelete: Cascade)
+  vaultReferences CisPaymentVaultReference[] @relation("CisCaptureAttemptVaultReferences")
 
   @@index([cisPackageId, createdAt])
   @@index([status])
@@ -2101,25 +2583,25 @@ model CisPaymentCaptureAttempt {
 }
 
 model AccountPaymentVaultReference {
-  id                       String                  @id @default(uuid()) @db.Uuid
-  accountId                String                  @db.Uuid
-  sourceCisVaultReferenceId String?                @db.Uuid
-  provider                 CisPaymentVaultProvider @default(UNKNOWN)
-  vaultToken               String?
-  vaultCustomerRef         String?
-  externalPaymentMethodRef String?
-  last4                    String?
-  brand                    String?
-  billingZip               String?
-  authorizationCapturedAt  DateTime?
-  isDefault                Boolean                 @default(false)
-  isActive                 Boolean                 @default(true)
-  status                   String
-  createdAt                DateTime                @default(now())
-  updatedAt                DateTime                @updatedAt
+  id                        String                  @id @default(uuid()) @db.Uuid
+  accountId                 String                  @db.Uuid
+  sourceCisVaultReferenceId String?                 @db.Uuid
+  provider                  CisPaymentVaultProvider @default(UNKNOWN)
+  vaultToken                String?
+  vaultCustomerRef          String?
+  externalPaymentMethodRef  String?
+  last4                     String?
+  brand                     String?
+  billingZip                String?
+  authorizationCapturedAt   DateTime?
+  isDefault                 Boolean                 @default(false)
+  isActive                  Boolean                 @default(true)
+  status                    String
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
 
-  account                  Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  sourceCisVaultReference  CisPaymentVaultReference? @relation(fields: [sourceCisVaultReferenceId], references: [id], onDelete: SetNull)
+  account                 Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sourceCisVaultReference CisPaymentVaultReference? @relation(fields: [sourceCisVaultReferenceId], references: [id], onDelete: SetNull)
 
   @@index([accountId, createdAt])
   @@index([accountId, isActive])
@@ -2128,58 +2610,58 @@ model AccountPaymentVaultReference {
 }
 
 model Account {
-  id                         String                  @id @default(uuid()) @db.Uuid
-  accountNumber              String?                 @unique
-  sourceLeadId               String?                 @unique @db.Uuid
-  displayName                String
-  legalName                  String?
-  accountType                String?
-  businessSegmentId          String?                 @db.Uuid
-  businessSegmentSource      SegmentAssignmentSource?
-  affinityGroupSelection     GroupAxisSelection      @default(UNKNOWN)
-  affinityGroupId            String?                 @db.Uuid
-  ownershipGroupSelection    GroupAxisSelection      @default(UNKNOWN)
-  ownershipGroupId           String?                 @db.Uuid
-  groupClassification        GroupClassification?
-  isMixedBusinessAccount     Boolean                 @default(false)
-  classificationDriftFlag     Boolean                 @default(false)
-  financeAuthorityMode       String?
-  territoryId                String?                 @db.Uuid
-  territoryAssignmentMethod  TerritoryAssignmentMethod?
-  territoryAssignedAt        DateTime?
-  shippingCenterId           String?                 @db.Uuid
-  assignedTmUserId           String?                 @db.Uuid
-  assignedRdUserId           String?                 @db.Uuid
-  lifecycleStatus            AccountLifecycleStatus  @default(ACTIVE)
-  lifecycleStatusChangedAt   DateTime?
-  lifecycleReasonNote        String?
-  lastOrderAt                DateTime?
-  lastEngagementAt           DateTime?
-  isActive                   Boolean                 @default(true)
-  createdAt                  DateTime                @default(now())
-  updatedAt                  DateTime                @updatedAt
+  id                        String                     @id @default(uuid()) @db.Uuid
+  accountNumber             String?                    @unique
+  sourceLeadId              String?                    @unique @db.Uuid
+  displayName               String
+  legalName                 String?
+  accountType               String?
+  businessSegmentId         String?                    @db.Uuid
+  businessSegmentSource     SegmentAssignmentSource?
+  affinityGroupSelection    GroupAxisSelection         @default(UNKNOWN)
+  affinityGroupId           String?                    @db.Uuid
+  ownershipGroupSelection   GroupAxisSelection         @default(UNKNOWN)
+  ownershipGroupId          String?                    @db.Uuid
+  groupClassification       GroupClassification?
+  isMixedBusinessAccount    Boolean                    @default(false)
+  classificationDriftFlag   Boolean                    @default(false)
+  financeAuthorityMode      String?
+  territoryId               String?                    @db.Uuid
+  territoryAssignmentMethod TerritoryAssignmentMethod?
+  territoryAssignedAt       DateTime?
+  shippingCenterId          String?                    @db.Uuid
+  assignedTmUserId          String?                    @db.Uuid
+  assignedRdUserId          String?                    @db.Uuid
+  lifecycleStatus           AccountLifecycleStatus     @default(ACTIVE)
+  lifecycleStatusChangedAt  DateTime?
+  lifecycleReasonNote       String?
+  lastOrderAt               DateTime?
+  lastEngagementAt          DateTime?
+  isActive                  Boolean                    @default(true)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
-  businessSegment            BusinessSegmentRef?     @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
-  affinityGroup             AffinityGroupRef?       @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
-  ownershipGroup            OwnershipGroupRef?      @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
-  sourceLead                 Lead?                   @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
-  territory                  Territory?              @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  shippingCenter             ShippingCenter?         @relation("AccountShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
-  assignedTmUser             User?                   @relation("AccountAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
-  assignedRdUser             User?                   @relation("AccountAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
-  locations                  AccountLocation[]
-  contacts                   Contact[]
-  dealerPortalAccount        DealerPortalAccount?
-  dealerPortalUsers          DealerPortalUser[]
-  extension                  AccountExtension?
-  segmentAssignments         AccountSegmentAssignment[]
-  classificationExceptions    ClassificationException[]
-  trainingPrograms           AccountTrainingProgram[]
-  trainingSessions           TrainingSession[]
-  trainingFollowUpTasks      TrainingFollowUpTask[]
-  trainingCertifications     TrainingCertificationRecord[]
-  paymentVaultReferences     AccountPaymentVaultReference[]
-  consignmentSites           ConsignmentSite[]
+  businessSegment          BusinessSegmentRef?            @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  affinityGroup            AffinityGroupRef?              @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
+  ownershipGroup           OwnershipGroupRef?             @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  sourceLead               Lead?                          @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
+  territory                Territory?                     @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  shippingCenter           ShippingCenter?                @relation("AccountShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  assignedTmUser           User?                          @relation("AccountAssignedTm", fields: [assignedTmUserId], references: [id], onDelete: SetNull)
+  assignedRdUser           User?                          @relation("AccountAssignedRd", fields: [assignedRdUserId], references: [id], onDelete: SetNull)
+  locations                AccountLocation[]
+  contacts                 Contact[]
+  dealerPortalAccount      DealerPortalAccount?
+  dealerPortalUsers        DealerPortalUser[]
+  extension                AccountExtension?
+  segmentAssignments       AccountSegmentAssignment[]
+  classificationExceptions ClassificationException[]
+  trainingPrograms         AccountTrainingProgram[]
+  trainingSessions         TrainingSession[]
+  trainingFollowUpTasks    TrainingFollowUpTask[]
+  trainingCertifications   TrainingCertificationRecord[]
+  paymentVaultReferences   AccountPaymentVaultReference[]
+  consignmentSites         ConsignmentSite[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -2198,27 +2680,27 @@ model Account {
 }
 
 model LeadConversionPreparation {
-  leadId                   String                          @id @db.Uuid
-  status                   LeadConversionPreparationStatus @default(DRAFT)
-  targetAccountName        String?
-  legalCompanyName         String?
-  accountType              String?
-  financeAuthorityMode     String?
-  priceClassCode           String?
-  portalEligibilityStatus  PortalEligibilityStatus         @default(UNASSESSED)
-  shippingAddressSnapshot  Json?
-  billingAddressSnapshot   Json?
-  conversionReady          Boolean                         @default(false)
-  conversionBlockedReason  String?
-  notes                    String?
-  validatedAt              DateTime?
-  reviewedAt               DateTime?
-  reviewedByUserId         String?                         @db.Uuid
-  createdAt                DateTime                       @default(now())
-  updatedAt                DateTime                       @updatedAt
+  leadId                  String                          @id @db.Uuid
+  status                  LeadConversionPreparationStatus @default(DRAFT)
+  targetAccountName       String?
+  legalCompanyName        String?
+  accountType             String?
+  financeAuthorityMode    String?
+  priceClassCode          String?
+  portalEligibilityStatus PortalEligibilityStatus         @default(UNASSESSED)
+  shippingAddressSnapshot Json?
+  billingAddressSnapshot  Json?
+  conversionReady         Boolean                         @default(false)
+  conversionBlockedReason String?
+  notes                   String?
+  validatedAt             DateTime?
+  reviewedAt              DateTime?
+  reviewedByUserId        String?                         @db.Uuid
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
 
-  lead                     Lead                           @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  reviewedBy               User?                          @relation("LeadConversionPreparationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  lead       Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("LeadConversionPreparationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([portalEligibilityStatus])
@@ -2227,22 +2709,22 @@ model LeadConversionPreparation {
 }
 
 model AccountLocation {
-  id               String    @id @default(uuid()) @db.Uuid
-  accountId        String    @db.Uuid
-  locationCode     String?
-  name             String?
-  line1            String?
-  line2            String?
-  city             String?
-  state            String?
-  postalCode       String?
-  countryCode      String?   @default("US")
-  isPrimary        Boolean   @default(false)
-  isActive         Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id           String   @id @default(uuid()) @db.Uuid
+  accountId    String   @db.Uuid
+  locationCode String?
+  name         String?
+  line1        String?
+  line2        String?
+  city         String?
+  state        String?
+  postalCode   String?
+  countryCode  String?  @default("US")
+  isPrimary    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account          Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   contacts         Contact[]
   extension        AccountLocationExtension?
   trainingSessions TrainingSession[]
@@ -2254,46 +2736,46 @@ model AccountLocation {
 }
 
 model ConsignmentSite {
-  id                       String                     @id @default(uuid()) @db.Uuid
-  accountId                String                     @db.Uuid
-  locationId               String?                    @db.Uuid
-  name                     String
-  status                   ConsignmentSiteStatus      @default(ONBOARDING_IN_PROGRESS)
-  acumaticaStatus          ConsignmentAcumaticaStatus @default(PARKED)
-  warehouseCode            String?
-  acumaticaWarehouseId     String?
-  acumaticaLastSyncedAt    DateTime?
-  acumaticaLastError       String?
-  activeSince              DateTime?
-  exitedAt                 DateTime?
-  baselineEstablishedAt    DateTime?
-  lastAuditCompletedAt     DateTime?
-  nextAuditDueAt           DateTime?
-  ownerTmUserId            String?                    @db.Uuid
-  ownerRdUserId            String?                    @db.Uuid
-  territoryId              String?                    @db.Uuid
-  regionId                 String?                    @db.Uuid
-  shippingCenterId         String?                    @db.Uuid
-  primaryContactName       String?
-  primaryContactEmail      String?
-  primaryContactPhone      String?
-  notes                    String?
-  createdByUserId          String?                    @db.Uuid
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
+  id                    String                     @id @default(uuid()) @db.Uuid
+  accountId             String                     @db.Uuid
+  locationId            String?                    @db.Uuid
+  name                  String
+  status                ConsignmentSiteStatus      @default(ONBOARDING_IN_PROGRESS)
+  acumaticaStatus       ConsignmentAcumaticaStatus @default(PARKED)
+  warehouseCode         String?
+  acumaticaWarehouseId  String?
+  acumaticaLastSyncedAt DateTime?
+  acumaticaLastError    String?
+  activeSince           DateTime?
+  exitedAt              DateTime?
+  baselineEstablishedAt DateTime?
+  lastAuditCompletedAt  DateTime?
+  nextAuditDueAt        DateTime?
+  ownerTmUserId         String?                    @db.Uuid
+  ownerRdUserId         String?                    @db.Uuid
+  territoryId           String?                    @db.Uuid
+  regionId              String?                    @db.Uuid
+  shippingCenterId      String?                    @db.Uuid
+  primaryContactName    String?
+  primaryContactEmail   String?
+  primaryContactPhone   String?
+  notes                 String?
+  createdByUserId       String?                    @db.Uuid
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
 
-  account                  Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  location                 AccountLocation?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  ownerTmUser              User?                      @relation("ConsignmentSiteOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
-  ownerRdUser              User?                      @relation("ConsignmentSiteOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
-  territory                Territory?                 @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  region                   Region?                    @relation(fields: [regionId], references: [id], onDelete: SetNull)
-  shippingCenter           ShippingCenter?            @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
-  createdBy                User?                      @relation("ConsignmentSiteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  forms                    ConsignmentForm[]
-  audits                   ConsignmentAudit[]
-  discrepancyCases         ConsignmentDiscrepancyCase[]
-  workItems                ConsignmentWorkItem[]
+  account          Account                      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location         AccountLocation?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  ownerTmUser      User?                        @relation("ConsignmentSiteOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
+  ownerRdUser      User?                        @relation("ConsignmentSiteOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
+  territory        Territory?                   @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  region           Region?                      @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  shippingCenter   ShippingCenter?              @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
+  createdBy        User?                        @relation("ConsignmentSiteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  forms            ConsignmentForm[]
+  audits           ConsignmentAudit[]
+  discrepancyCases ConsignmentDiscrepancyCase[]
+  workItems        ConsignmentWorkItem[]
 
   @@index([accountId])
   @@index([locationId])
@@ -2327,8 +2809,8 @@ model ConsignmentForm {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
-  site            ConsignmentSite       @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  createdBy       User?                 @relation("ConsignmentFormCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  site      ConsignmentSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("ConsignmentFormCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([siteId])
   @@index([formType, status])
@@ -2336,24 +2818,24 @@ model ConsignmentForm {
 }
 
 model ConsignmentAudit {
-  id                    String                           @id @default(uuid()) @db.Uuid
-  siteId                String                           @db.Uuid
-  scheduledFor          DateTime
-  startedAt             DateTime?
-  completedAt           DateTime?
-  status                ConsignmentAuditStatus           @default(SCHEDULED)
-  reconciliationStatus  ConsignmentReconciliationStatus  @default(NOT_STARTED)
-  expectedSource        String                           @default("manual_or_imported")
-  sourceFreshnessLabel  String                           @default("acumatica_parked")
-  notes                 String?
-  submittedByUserId     String?                          @db.Uuid
-  createdAt             DateTime                         @default(now())
-  updatedAt             DateTime                         @updatedAt
+  id                   String                          @id @default(uuid()) @db.Uuid
+  siteId               String                          @db.Uuid
+  scheduledFor         DateTime
+  startedAt            DateTime?
+  completedAt          DateTime?
+  status               ConsignmentAuditStatus          @default(SCHEDULED)
+  reconciliationStatus ConsignmentReconciliationStatus @default(NOT_STARTED)
+  expectedSource       String                          @default("manual_or_imported")
+  sourceFreshnessLabel String                          @default("acumatica_parked")
+  notes                String?
+  submittedByUserId    String?                         @db.Uuid
+  createdAt            DateTime                        @default(now())
+  updatedAt            DateTime                        @updatedAt
 
-  site                  ConsignmentSite                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  submittedBy           User?                            @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
-  lines                 ConsignmentAuditLine[]
-  discrepancyCases      ConsignmentDiscrepancyCase[]
+  site             ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  submittedBy      User?                        @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  lines            ConsignmentAuditLine[]
+  discrepancyCases ConsignmentDiscrepancyCase[]
 
   @@index([siteId])
   @@index([scheduledFor])
@@ -2362,8 +2844,8 @@ model ConsignmentAudit {
 }
 
 model ConsignmentAuditLine {
-  id               String           @id @default(uuid()) @db.Uuid
-  auditId          String           @db.Uuid
+  id               String   @id @default(uuid()) @db.Uuid
+  auditId          String   @db.Uuid
   sku              String?
   barcode          String?
   productName      String
@@ -2371,10 +2853,10 @@ model ConsignmentAuditLine {
   actualQuantity   Int?
   varianceQuantity Int?
   notes            String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  audit            ConsignmentAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit ConsignmentAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
 
   @@index([auditId])
   @@index([sku])
@@ -2382,24 +2864,24 @@ model ConsignmentAuditLine {
 }
 
 model ConsignmentDiscrepancyCase {
-  id                 String                       @id @default(uuid()) @db.Uuid
-  siteId             String                       @db.Uuid
-  auditId            String?                      @db.Uuid
-  status             ConsignmentDiscrepancyStatus @default(OPEN)
-  poFollowUpStatus   ConsignmentPoFollowUpStatus  @default(NOT_REQUIRED)
-  reasonCode         String?
-  sku                String?
-  productName        String?
-  quantity           Int?
-  trueUpConfirmedAt  DateTime?
-  poDueAt            DateTime?
-  externalPoRef      String?
-  notes              String?
-  createdAt          DateTime                     @default(now())
-  updatedAt          DateTime                     @updatedAt
+  id                String                       @id @default(uuid()) @db.Uuid
+  siteId            String                       @db.Uuid
+  auditId           String?                      @db.Uuid
+  status            ConsignmentDiscrepancyStatus @default(OPEN)
+  poFollowUpStatus  ConsignmentPoFollowUpStatus  @default(NOT_REQUIRED)
+  reasonCode        String?
+  sku               String?
+  productName       String?
+  quantity          Int?
+  trueUpConfirmedAt DateTime?
+  poDueAt           DateTime?
+  externalPoRef     String?
+  notes             String?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
 
-  site               ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  audit              ConsignmentAudit?            @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  site  ConsignmentSite   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  audit ConsignmentAudit? @relation(fields: [auditId], references: [id], onDelete: SetNull)
 
   @@index([siteId])
   @@index([auditId])
@@ -2409,21 +2891,21 @@ model ConsignmentDiscrepancyCase {
 }
 
 model ConsignmentWorkItem {
-  id               String                     @id @default(uuid()) @db.Uuid
-  siteId           String                     @db.Uuid
+  id               String                    @id @default(uuid()) @db.Uuid
+  siteId           String                    @db.Uuid
   type             ConsignmentWorkItemType
-  status           ConsignmentWorkItemStatus  @default(OPEN)
-  priority         String                     @default("normal")
+  status           ConsignmentWorkItemStatus @default(OPEN)
+  priority         String                    @default("normal")
   title            String
-  assignedToUserId String?                    @db.Uuid
+  assignedToUserId String?                   @db.Uuid
   dueAt            DateTime?
   completedAt      DateTime?
   notes            String?
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
-  site             ConsignmentSite            @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  assignedTo       User?                      @relation("ConsignmentWorkItemAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  site       ConsignmentSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  assignedTo User?           @relation("ConsignmentWorkItemAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   @@index([siteId])
   @@index([type])
@@ -2433,25 +2915,25 @@ model ConsignmentWorkItem {
 }
 
 model Contact {
-  id               String    @id @default(uuid()) @db.Uuid
-  accountId        String    @db.Uuid
-  locationId       String?   @db.Uuid
-  firstName        String
-  lastName         String
-  title            String?
-  email            String?
-  phone            String?
-  mobilePhone      String?
-  roleCode         String?
-  isPrimary        Boolean   @default(false)
-  isActive         Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  accountId   String   @db.Uuid
+  locationId  String?  @db.Uuid
+  firstName   String
+  lastName    String
+  title       String?
+  email       String?
+  phone       String?
+  mobilePhone String?
+  roleCode    String?
+  isPrimary   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  location         AccountLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location          AccountLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
   dealerPortalUsers DealerPortalUser[]
-  extension        ContactExtension?
+  extension         ContactExtension?
 
   @@index([accountId])
   @@index([locationId])
@@ -2460,40 +2942,40 @@ model Contact {
 }
 
 model DealerPortalAccount {
-  accountId         String                         @id @db.Uuid
-  status            DealerPortalProvisioningStatus @default(NOT_STARTED)
-  notes             String?
-  provisionedAt     DateTime?
-  suspendedAt       DateTime?
-  deactivatedAt     DateTime?
-  createdAt         DateTime                       @default(now())
-  updatedAt         DateTime                       @updatedAt
+  accountId     String                         @id @db.Uuid
+  status        DealerPortalProvisioningStatus @default(NOT_STARTED)
+  notes         String?
+  provisionedAt DateTime?
+  suspendedAt   DateTime?
+  deactivatedAt DateTime?
+  createdAt     DateTime                       @default(now())
+  updatedAt     DateTime                       @updatedAt
 
-  account           Account                        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([provisionedAt])
 }
 
 model DealerPortalUser {
-  id                String                 @id @default(uuid()) @db.Uuid
-  accountId         String                 @db.Uuid
-  contactId         String?                @db.Uuid
-  userId            String                 @unique @db.Uuid
-  createdByUserId   String?                @db.Uuid
-  status            DealerPortalUserStatus @default(ACTIVE)
-  isPrimaryOwner    Boolean                @default(false)
-  notes             String?
-  activatedAt       DateTime?
-  suspendedAt       DateTime?
-  deactivatedAt     DateTime?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  id              String                 @id @default(uuid()) @db.Uuid
+  accountId       String                 @db.Uuid
+  contactId       String?                @db.Uuid
+  userId          String                 @unique @db.Uuid
+  createdByUserId String?                @db.Uuid
+  status          DealerPortalUserStatus @default(ACTIVE)
+  isPrimaryOwner  Boolean                @default(false)
+  notes           String?
+  activatedAt     DateTime?
+  suspendedAt     DateTime?
+  deactivatedAt   DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
-  account           Account                @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  contact           Contact?               @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdByUser     User?                  @relation("DealerPortalUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact       Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser User?    @relation("DealerPortalUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([accountId])
   @@index([contactId])
@@ -2503,17 +2985,17 @@ model DealerPortalUser {
 }
 
 model TrainingCategory {
-  id               String               @id @default(uuid()) @db.Uuid
-  kind             TrainingCategoryKind
-  code             String               @unique
-  name             String
-  description      String?
-  sortOrder        Int                  @default(100)
-  isActive         Boolean              @default(true)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id          String               @id @default(uuid()) @db.Uuid
+  kind        TrainingCategoryKind
+  code        String               @unique
+  name        String
+  description String?
+  sortOrder   Int                  @default(100)
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 
-  trainingTypes    TrainingType[]
+  trainingTypes TrainingType[]
 
   @@index([kind])
   @@index([sortOrder])
@@ -2538,12 +3020,12 @@ model TrainingType {
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
 
-  category               TrainingCategory      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  templates              TrainingTemplate[]
-  cadencePolicies        TrainingCadencePolicy[]
-  accountPrograms        AccountTrainingProgram[]
-  sessions               TrainingSession[]
-  certificationRecords   TrainingCertificationRecord[]
+  category             TrainingCategory              @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  templates            TrainingTemplate[]
+  cadencePolicies      TrainingCadencePolicy[]
+  accountPrograms      AccountTrainingProgram[]
+  sessions             TrainingSession[]
+  certificationRecords TrainingCertificationRecord[]
 
   @@index([categoryId])
   @@index([family])
@@ -2554,20 +3036,20 @@ model TrainingType {
 }
 
 model TrainingTemplate {
-  id                   String                   @id @default(uuid()) @db.Uuid
-  trainingTypeId       String                   @db.Uuid
-  code                 String                   @unique
-  title                String
-  description          String?
-  prerequisiteSummary  String?
-  materialsSummary     String?
-  proofRequirement     TrainingProofRequirement @default(ATTENDANCE_AND_NOTES)
-  isActive             Boolean                  @default(true)
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  id                  String                   @id @default(uuid()) @db.Uuid
+  trainingTypeId      String                   @db.Uuid
+  code                String                   @unique
+  title               String
+  description         String?
+  prerequisiteSummary String?
+  materialsSummary    String?
+  proofRequirement    TrainingProofRequirement @default(ATTENDANCE_AND_NOTES)
+  isActive            Boolean                  @default(true)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
 
-  trainingType         TrainingType             @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
-  accountPrograms      AccountTrainingProgram[]
+  trainingType    TrainingType             @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
+  accountPrograms AccountTrainingProgram[]
 
   @@index([trainingTypeId])
   @@index([proofRequirement])
@@ -2575,67 +3057,67 @@ model TrainingTemplate {
 }
 
 model TrainingCadencePolicy {
-  id                String       @id @default(uuid()) @db.Uuid
-  trainingTypeId    String       @db.Uuid
-  segmentScope      AccountSegment?
-  cadenceDays       Int
-  isRequired        Boolean      @default(false)
-  appliesToAllAccounts Boolean   @default(true)
-  isActive          Boolean      @default(true)
-  notes             String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                   String          @id @default(uuid()) @db.Uuid
+  trainingTypeId       String          @db.Uuid
+  segmentScope         AccountSegment?
+  cadenceDays          Int
+  isRequired           Boolean         @default(false)
+  appliesToAllAccounts Boolean         @default(true)
+  isActive             Boolean         @default(true)
+  notes                String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  trainingType      TrainingType @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
+  trainingType TrainingType @relation(fields: [trainingTypeId], references: [id], onDelete: Cascade)
 
+  @@unique([trainingTypeId, segmentScope])
   @@index([trainingTypeId])
   @@index([segmentScope])
   @@index([isRequired])
   @@index([isActive])
-  @@unique([trainingTypeId, segmentScope])
 }
 
 model TrainingTrainerProfile {
-  userId            String     @id @db.Uuid
-  title             String?
-  notes             String?
-  isActive          Boolean    @default(true)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  userId    String   @id @db.Uuid
+  title     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AccountTrainingProgram {
-  id                String                       @id @default(uuid()) @db.Uuid
-  accountId         String                       @db.Uuid
-  trainingTypeId    String?                      @db.Uuid
-  templateId        String?                      @db.Uuid
-  createdByUserId   String?                      @db.Uuid
-  ownerTmUserId     String?                      @db.Uuid
-  ownerRdUserId     String?                      @db.Uuid
-  title             String
-  description       String?
-  status            AccountTrainingProgramStatus @default(ACTIVE)
-  cadenceDays       Int?
-  isRequired        Boolean                      @default(false)
-  targetSegment     AccountSegment?
-  nextDueAt         DateTime?
-  lastCompletedAt   DateTime?
-  startedAt         DateTime?
-  completedAt       DateTime?
-  notes             String?
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
+  id              String                       @id @default(uuid()) @db.Uuid
+  accountId       String                       @db.Uuid
+  trainingTypeId  String?                      @db.Uuid
+  templateId      String?                      @db.Uuid
+  createdByUserId String?                      @db.Uuid
+  ownerTmUserId   String?                      @db.Uuid
+  ownerRdUserId   String?                      @db.Uuid
+  title           String
+  description     String?
+  status          AccountTrainingProgramStatus @default(ACTIVE)
+  cadenceDays     Int?
+  isRequired      Boolean                      @default(false)
+  targetSegment   AccountSegment?
+  nextDueAt       DateTime?
+  lastCompletedAt DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  notes           String?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
 
-  account           Account                      @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  trainingType      TrainingType?                @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
-  template          TrainingTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  createdByUser     User?                        @relation("TrainingProgramCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  ownerTmUser       User?                        @relation("TrainingProgramOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
-  ownerRdUser       User?                        @relation("TrainingProgramOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
-  sessions          TrainingSession[]
-  certifications    TrainingCertificationRecord[]
+  account        Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  trainingType   TrainingType?                 @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  template       TrainingTemplate?             @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdByUser  User?                         @relation("TrainingProgramCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  ownerTmUser    User?                         @relation("TrainingProgramOwnerTm", fields: [ownerTmUserId], references: [id], onDelete: SetNull)
+  ownerRdUser    User?                         @relation("TrainingProgramOwnerRd", fields: [ownerRdUserId], references: [id], onDelete: SetNull)
+  sessions       TrainingSession[]
+  certifications TrainingCertificationRecord[]
 
   @@index([accountId])
   @@index([trainingTypeId])
@@ -2649,39 +3131,39 @@ model AccountTrainingProgram {
 }
 
 model TrainingSession {
-  id                String                 @id @default(uuid()) @db.Uuid
-  accountId         String                 @db.Uuid
-  locationId        String?                @db.Uuid
-  programId         String?                @db.Uuid
-  trainingTypeId    String?                @db.Uuid
-  trainerUserId     String?                @db.Uuid
-  activityKind      TrainingActivityKind   @default(TRAINING)
-  status            TrainingSessionStatus  @default(SCHEDULED)
+  id                   String                       @id @default(uuid()) @db.Uuid
+  accountId            String                       @db.Uuid
+  locationId           String?                      @db.Uuid
+  programId            String?                      @db.Uuid
+  trainingTypeId       String?                      @db.Uuid
+  trainerUserId        String?                      @db.Uuid
+  activityKind         TrainingActivityKind         @default(TRAINING)
+  status               TrainingSessionStatus        @default(SCHEDULED)
   certificationOutcome TrainingCertificationOutcome @default(NOT_APPLICABLE)
-  title             String
-  scheduledAt       DateTime?
-  checkedInAt       DateTime?
-  checkedOutAt      DateTime?
-  completedAt       DateTime?
-  durationMinutes   Int                    @default(0)
-  attendeeCount     Int                    @default(0)
-  notes             String?
-  checkoutNotes     String?
-  proofNotes        String?
-  proofAttachmentCount Int                 @default(0)
-  proofCapturedAt   DateTime?
-  completionSummary String?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  title                String
+  scheduledAt          DateTime?
+  checkedInAt          DateTime?
+  checkedOutAt         DateTime?
+  completedAt          DateTime?
+  durationMinutes      Int                          @default(0)
+  attendeeCount        Int                          @default(0)
+  notes                String?
+  checkoutNotes        String?
+  proofNotes           String?
+  proofAttachmentCount Int                          @default(0)
+  proofCapturedAt      DateTime?
+  completionSummary    String?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
 
-  account           Account                @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  location          AccountLocation?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  program           AccountTrainingProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
-  trainingType      TrainingType?          @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
-  trainerUser       User?                  @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
-  followUpTasks     TrainingFollowUpTask[]
-  certifications    TrainingCertificationRecord[]
-  proofDocuments    TrainingProofDocument[]
+  account        Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location       AccountLocation?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  program        AccountTrainingProgram?       @relation(fields: [programId], references: [id], onDelete: SetNull)
+  trainingType   TrainingType?                 @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  trainerUser    User?                         @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
+  followUpTasks  TrainingFollowUpTask[]
+  certifications TrainingCertificationRecord[]
+  proofDocuments TrainingProofDocument[]
 
   @@index([accountId])
   @@index([locationId])
@@ -2699,26 +3181,26 @@ model TrainingSession {
 }
 
 model TrainingProofDocument {
-  id                String                    @id @default(uuid()) @db.Uuid
-  sessionId         String                    @db.Uuid
-  documentType      TrainingProofDocumentType @default(PROOF_ATTACHMENT)
-  storageKey        String
-  fileName          String
-  mimeType          String
-  sizeBytes         Int
-  uploadedByUserId  String?                   @db.Uuid
-  uploadedAt        DateTime                  @default(now())
-  sha256            String?
-  reviewStatus      TrainingProofReviewStatus @default(PENDING_REVIEW)
-  reviewedByUserId  String?                   @db.Uuid
-  reviewedAt        DateTime?
-  reviewNotes       String?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  id               String                    @id @default(uuid()) @db.Uuid
+  sessionId        String                    @db.Uuid
+  documentType     TrainingProofDocumentType @default(PROOF_ATTACHMENT)
+  storageKey       String
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  uploadedByUserId String?                   @db.Uuid
+  uploadedAt       DateTime                  @default(now())
+  sha256           String?
+  reviewStatus     TrainingProofReviewStatus @default(PENDING_REVIEW)
+  reviewedByUserId String?                   @db.Uuid
+  reviewedAt       DateTime?
+  reviewNotes      String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
-  session           TrainingSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  uploadedByUser    User?                     @relation("TrainingProofDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  reviewedByUser    User?                     @relation("TrainingProofDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  session        TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  uploadedByUser User?           @relation("TrainingProofDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  reviewedByUser User?           @relation("TrainingProofDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
   @@index([documentType])
@@ -2729,26 +3211,26 @@ model TrainingProofDocument {
 }
 
 model TrainingCertificationRecord {
-  id                String                    @id @default(uuid()) @db.Uuid
-  accountId         String                    @db.Uuid
-  sessionId         String?                   @db.Uuid
-  programId         String?                   @db.Uuid
-  trainingTypeId    String?                   @db.Uuid
-  awardedByUserId   String?                   @db.Uuid
+  id                String                      @id @default(uuid()) @db.Uuid
+  accountId         String                      @db.Uuid
+  sessionId         String?                     @db.Uuid
+  programId         String?                     @db.Uuid
+  trainingTypeId    String?                     @db.Uuid
+  awardedByUserId   String?                     @db.Uuid
   certificationCode String?
   title             String
   status            TrainingCertificationStatus @default(ACTIVE)
   awardedAt         DateTime
   expiresAt         DateTime?
   notes             String?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
 
-  account           Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  session           TrainingSession?          @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  program           AccountTrainingProgram?   @relation(fields: [programId], references: [id], onDelete: SetNull)
-  trainingType      TrainingType?             @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
-  awardedByUser     User?                     @relation("TrainingCertificationAwardedBy", fields: [awardedByUserId], references: [id], onDelete: SetNull)
+  account       Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  session       TrainingSession?        @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  program       AccountTrainingProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  trainingType  TrainingType?           @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  awardedByUser User?                   @relation("TrainingCertificationAwardedBy", fields: [awardedByUserId], references: [id], onDelete: SetNull)
 
   @@index([accountId])
   @@index([sessionId])
@@ -2761,23 +3243,23 @@ model TrainingCertificationRecord {
 }
 
 model TrainingFollowUpTask {
-  id                String                    @id @default(uuid()) @db.Uuid
-  sessionId         String                    @db.Uuid
-  accountId         String                    @db.Uuid
-  ownerUserId       String?                   @db.Uuid
-  createdByUserId   String?                   @db.Uuid
-  title             String
-  description       String?
-  dueAt             DateTime?
-  status            TrainingFollowUpTaskStatus @default(OPEN)
-  completedAt       DateTime?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  id              String                     @id @default(uuid()) @db.Uuid
+  sessionId       String                     @db.Uuid
+  accountId       String                     @db.Uuid
+  ownerUserId     String?                    @db.Uuid
+  createdByUserId String?                    @db.Uuid
+  title           String
+  description     String?
+  dueAt           DateTime?
+  status          TrainingFollowUpTaskStatus @default(OPEN)
+  completedAt     DateTime?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
 
-  session           TrainingSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  account           Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  ownerUser         User?                     @relation("TrainingFollowUpTaskOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  createdByUser     User?                     @relation("TrainingFollowUpTaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  session       TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  account       Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ownerUser     User?           @relation("TrainingFollowUpTaskOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdByUser User?           @relation("TrainingFollowUpTaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
   @@index([accountId])
@@ -2788,54 +3270,54 @@ model TrainingFollowUpTask {
 }
 
 model AccountExtension {
-  accountId            String    @id @db.Uuid
-  legacyAttributes     Json?
-  sourceMetadata       Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  accountId        String   @id @db.Uuid
+  legacyAttributes Json?
+  sourceMetadata   Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
 model AccountLocationExtension {
-  locationId           String          @id @db.Uuid
-  legacyAttributes     Json?
-  sourceMetadata       Json?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  locationId       String   @id @db.Uuid
+  legacyAttributes Json?
+  sourceMetadata   Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  location             AccountLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  location AccountLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
 }
 
 model ContactExtension {
-  contactId            String    @id @db.Uuid
-  legacyAttributes     Json?
-  sourceMetadata       Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  contactId        String   @id @db.Uuid
+  legacyAttributes Json?
+  sourceMetadata   Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  contact              Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 }
 
 model AccountSegmentAssignment {
-  id                      String               @id @default(uuid()) @db.Uuid
-  accountId               String               @db.Uuid
-  businessSegmentId       String               @db.Uuid
-  source                  SegmentAssignmentSource
-  confidence              Int                  @default(100)
-  isPrimary               Boolean              @default(true)
-  assignedByUserId        String?              @db.Uuid
-  assignedAt              DateTime             @default(now())
-  effectiveFrom           DateTime             @default(now())
-  effectiveTo             DateTime?
-  notes                   String?
-  metadata                Json?
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
+  id                String                  @id @default(uuid()) @db.Uuid
+  accountId         String                  @db.Uuid
+  businessSegmentId String                  @db.Uuid
+  source            SegmentAssignmentSource
+  confidence        Int                     @default(100)
+  isPrimary         Boolean                 @default(true)
+  assignedByUserId  String?                 @db.Uuid
+  assignedAt        DateTime                @default(now())
+  effectiveFrom     DateTime                @default(now())
+  effectiveTo       DateTime?
+  notes             String?
+  metadata          Json?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
-  account                 Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  businessSegment         BusinessSegmentRef   @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
-  assignedBy              User?                @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  account         Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  businessSegment BusinessSegmentRef @relation(fields: [businessSegmentId], references: [id], onDelete: Restrict)
+  assignedBy      User?              @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@index([accountId])
   @@index([businessSegmentId])
@@ -2845,24 +3327,24 @@ model AccountSegmentAssignment {
 }
 
 model ClassificationException {
-  id                      String                      @id @default(uuid()) @db.Uuid
-  accountId               String                      @db.Uuid
-  businessSegmentId       String?                     @db.Uuid
-  status                  ClassificationExceptionStatus @default(OPEN)
-  reasonCode              String
-  summary                 String
-  details                 Json?
-  openedByUserId          String?                     @db.Uuid
-  resolvedByUserId        String?                     @db.Uuid
-  openedAt                DateTime                    @default(now())
-  resolvedAt              DateTime?
-  createdAt               DateTime                    @default(now())
-  updatedAt               DateTime                    @updatedAt
+  id                String                        @id @default(uuid()) @db.Uuid
+  accountId         String                        @db.Uuid
+  businessSegmentId String?                       @db.Uuid
+  status            ClassificationExceptionStatus @default(OPEN)
+  reasonCode        String
+  summary           String
+  details           Json?
+  openedByUserId    String?                       @db.Uuid
+  resolvedByUserId  String?                       @db.Uuid
+  openedAt          DateTime                      @default(now())
+  resolvedAt        DateTime?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
 
-  account                 Account                     @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  businessSegment         BusinessSegmentRef?         @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
-  openedBy                User?                       @relation("ClassificationExceptionOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
-  resolvedBy              User?                       @relation("ClassificationExceptionResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  account         Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  businessSegment BusinessSegmentRef? @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
+  openedBy        User?               @relation("ClassificationExceptionOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  resolvedBy      User?               @relation("ClassificationExceptionResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
 
   @@index([accountId])
   @@index([businessSegmentId])

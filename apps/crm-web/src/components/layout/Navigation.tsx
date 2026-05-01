@@ -11,6 +11,8 @@ import {
   IconClipboardList,
   IconHome,
   IconMapPin,
+  IconPackage,
+  IconPhoto,
   IconSchool,
   IconShield,
   IconUserPlus,
@@ -148,6 +150,32 @@ export function Navigation() {
       icon: IconClipboardList,
       links: [
         { label: 'Dashboard & Sites', link: '/consignment' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'product_management')) {
+    navItems.push({
+      label: 'Product Management',
+      icon: IconPackage,
+      links: [
+        { label: 'Dealer Groups', link: '/product-management?tab=groups' },
+        { label: 'Products', link: '/product-management?tab=products' },
+        { label: 'Readiness', link: '/product-management?tab=readiness' },
+        { label: 'Publish Control', link: '/product-management?tab=publish' },
+      ],
+    });
+  }
+
+  if (role && canAccessModule(role, 'digital_assets')) {
+    navItems.push({
+      label: 'Digital Assets',
+      icon: IconPhoto,
+      links: [
+        { label: 'Asset Library', link: '/digital-assets?tab=library' },
+        { label: 'Collections', link: '/digital-assets?tab=collections' },
+        { label: 'Migration Manifest', link: '/digital-assets?tab=migration' },
+        { label: 'Delivery Health', link: '/digital-assets?tab=delivery-health' },
       ],
     });
   }

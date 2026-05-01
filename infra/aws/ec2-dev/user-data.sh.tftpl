@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y ca-certificates curl git nginx postgresql postgresql-contrib unzip ufw
+
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs
+corepack enable
+corepack prepare pnpm@10.7.0 --activate
+
+npm install -g pm2
+
+mkdir -p /opt/pulse/releases /opt/pulse/shared /etc/pulse /var/log/pulse
+chown -R ubuntu:ubuntu /opt/pulse /var/log/pulse
+chgrp ubuntu /etc/pulse
+chmod 750 /etc/pulse
+
+sudo -u postgres psql <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pulse') THEN
+    CREATE ROLE pulse LOGIN PASSWORD 'pulse_dev_password_change_me';
+  END IF;
+END
+$$;
+
+SELECT 'CREATE DATABASE pulse_dev OWNER pulse'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pulse_dev')\gexec
+SQL
+
+cat >/etc/pulse/pulse.env <<'EOF'
+APP_NAME=pulse-api
+APP_VERSION=0.1.0
+NODE_ENV=staging
+PORT=4000
+LOG_LEVEL=info
+APP_WEB_BASE_URL=http://${domain_name_or_ip}
+NEXT_PUBLIC_PULSE_WEB_BASE_URL=http://${domain_name_or_ip}
+NEXT_PUBLIC_PULSE_API_BASE_URL=http://${domain_name_or_ip}/api
+DATABASE_URL=postgresql://pulse:pulse_dev_password_change_me@127.0.0.1:5432/pulse_dev
+PG_BOSS_CONNECTION_STRING=postgresql://pulse:pulse_dev_password_change_me@127.0.0.1:5432/pulse_dev
+PGBOSS_SCHEMA=pgboss
+PGBOSS_ARCHIVE_SECONDS=604800
+PGBOSS_DELETE_AFTER_SECONDS=2592000
+PGBOSS_MONITOR_INTERVAL_SECONDS=5
+PGBOSS_POLLING_INTERVAL_SECONDS=2
+PGBOSS_DEAD_LETTER_QUEUE=pulse.dead-letter
+APP_STORAGE_PROVIDER=local
+APP_STORAGE_ROOT_DIR=/opt/pulse/shared/storage
+AWS_REGION=${aws_region}
+PULSE_ASSET_S3_REGION=${aws_region}
+ACUMATICA_BASE_URL=https://example.acumatica.local
+ACUMATICA_API_VERSION=24.100.001
+ACUMATICA_COMPANY="Dynamic AQS"
+ACUMATICA_USERNAME=
+ACUMATICA_PASSWORD=
+ACUMATICA_ACCESS_TOKEN=
+MIGRATION_ADMIN_TOKEN=replace-with-strong-admin-token
+AUTH_ISSUER=pulse.dev
+AUTH_ACCESS_TOKEN_TTL_MINUTES=15
+AUTH_REFRESH_TOKEN_TTL_DAYS=14
+AUTH_PASSWORD_RECOVERY_TOKEN_TTL_MINUTES=60
+AUTH_PASSWORD_RECOVERY_PREVIEW_ENABLED=true
+AUTH_BOOTSTRAP_ADMIN_EMAIL=admin@pulse.local
+AUTH_BOOTSTRAP_ADMIN_PASSWORD=replace-me-before-use
+AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME="Pulse Dev Admin"
+AUTH_BOOTSTRAP_ADMIN_ROLE=SUPER_ADMIN
+APP_ENCRYPTION_KEY=replace-with-strong-random-secret
+MONERIS_HOSTED_TOKENIZATION_PROFILE_ID=
+MONERIS_HOSTED_TOKENIZATION_IFRAME_URL=
+MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN=
+MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES=30
+MICROSOFT_ENTRA_TENANT_ID=
+MICROSOFT_ENTRA_CLIENT_ID=
+MICROSOFT_ENTRA_CLIENT_SECRET=
+MICROSOFT_ENTRA_LOGIN_REDIRECT_URI=http://${domain_name_or_ip}/auth/entra/callback
+MICROSOFT_ENTRA_LOGIN_SCOPES="openid profile email offline_access User.Read"
+MICROSOFT_ENTRA_GROUP_ROLE_MAP=
+MICROSOFT_GRAPH_REDIRECT_URI=http://${domain_name_or_ip}/api/v1/integrations/outlook/callback
+MICROSOFT_GRAPH_SCOPES="openid profile email offline_access User.Read Calendars.ReadWrite"
+MICROSOFT_ENTRA_AUTH_BASE_URL=https://login.microsoftonline.com
+MICROSOFT_GRAPH_API_BASE_URL=https://graph.microsoft.com/v1.0
+EOF
+chmod 640 /etc/pulse/pulse.env
+chown root:ubuntu /etc/pulse/pulse.env
+
+cat >/etc/systemd/system/pulse-api.service <<'EOF'
+[Unit]
+Description=Pulse API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/pulse/current
+EnvironmentFile=/etc/pulse/pulse.env
+ExecStart=/usr/bin/node apps/api/dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/pulse/api.log
+StandardError=append:/var/log/pulse/api.err.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/pulse-web.service <<'EOF'
+[Unit]
+Description=Pulse CRM Web
+After=network.target pulse-api.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/pulse/current/apps/crm-web
+EnvironmentFile=/etc/pulse/pulse.env
+ExecStart=/usr/bin/env pnpm start --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/pulse/web.log
+StandardError=append:/var/log/pulse/web.err.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/nginx/sites-available/pulse <<'EOF'
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
+
+  client_max_body_size 50m;
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:4000/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+EOF
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/pulse /etc/nginx/sites-enabled/pulse
+nginx -t
+systemctl enable nginx postgresql pulse-api pulse-web
+systemctl restart nginx postgresql
+
+ufw allow OpenSSH
+ufw allow 'Nginx Full'
+ufw --force enable

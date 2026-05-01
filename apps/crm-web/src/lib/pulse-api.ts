@@ -236,6 +236,110 @@ import type {
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
 } from '@pulse/contracts';
+import type {
+  CommitProductReferenceImportRequest,
+  CommitProductReferenceImportResponse,
+  ListProductsRequest,
+  ListProductsResponse,
+  ProductDetail,
+  ProductCategorySummary,
+  ProductReferenceImportPreviewRequest,
+  ProductReferenceImportPreviewResponse,
+  ProductPublishValidationResponse,
+} from '@pulse/contracts/product-management';
+import type {
+  CreateDigitalAssetRequest,
+  CreateDigitalAssetVersionRequest,
+  CreateProductAssetAssignmentRequest,
+  DigitalAssetDetail,
+  ListDigitalAssetsRequest,
+  ListDigitalAssetsResponse,
+  ProductAssetAssignmentSummary,
+} from '@pulse/contracts/digital-assets';
+
+export type WidenImportPreviewRequest = {
+  limit?: number;
+  sourceExportName?: string;
+  dryRun?: boolean;
+};
+
+export type WidenImportIssueSummary = {
+  severity: string;
+  issueCode: string;
+  message: string;
+  count?: number;
+};
+
+export type WidenImportRowIssue = {
+  rowNumber: number;
+  externalAssetId?: string;
+  severity: 'warning' | 'error';
+  issueCode: string;
+  message: string;
+};
+
+export type WidenImportRowPreview = {
+  rowNumber: number;
+  externalAssetId?: string;
+  title?: string;
+  fileName?: string;
+  legacyUrl?: string;
+  kind: string;
+  status: 'ready' | 'invalid';
+  issues: WidenImportRowIssue[];
+};
+
+export type WidenImportPreviewResponse = {
+  sourceSystem?: 'widen' | string;
+  sourceRecordCount?: number;
+  validRowCount?: number;
+  invalidRowCount?: number;
+  totalRecords?: number;
+  candidateAssetCount?: number;
+  createdAssetCount?: number;
+  updatedAssetCount?: number;
+  skippedRecordCount?: number;
+  errorCount?: number;
+  warningCount?: number;
+  duplicateCount?: number;
+  duplicateExternalAssetCount?: number;
+  missingLegacyUrlCount?: number;
+  stableUrlCount?: number;
+  redirectCount?: number;
+  redirectPlanCount?: number;
+  issues?: WidenImportIssueSummary[];
+  warnings?: string[];
+  sampleRows?: WidenImportRowPreview[];
+  sampleAssets?: Array<{
+    widenAssetId?: string;
+    title?: string;
+    stableSlug?: string;
+    legacyUrl?: string;
+    proposedStableUrl?: string;
+    status?: string;
+  }>;
+  generatedAt?: string;
+};
+
+export type WidenImportRunSummary = {
+  id: string;
+  batchCode?: string;
+  sourceExportName?: string;
+  status: string;
+  sourceRecordCount: number;
+  createdAssetCount: number;
+  updatedAssetCount: number;
+  skippedRecordCount: number;
+  errorCount: number;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+};
+
+export type ListWidenImportRunsResponse = {
+  items: WidenImportRunSummary[];
+  total?: number;
+};
 
 export type {
   AccountSummary,
@@ -245,6 +349,7 @@ export type {
   ConsignmentSiteDetail,
   ConsignmentSiteSummary,
 } from '@pulse/contracts';
+export type { ListProductsResponse, ProductCategorySummary, ListDigitalAssetsResponse };
 
 export type ConsignmentDashboardResponse = {
   metrics: {
@@ -272,6 +377,158 @@ export type ConsignmentDashboardResponse = {
     lastContactAt?: string;
   }>;
 };
+
+export async function fetchProductManagementProducts(apiBaseUrl: string, accessToken: string, input: ListProductsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  appendQuery(searchParams, 'search', input.search);
+  appendQuery(searchParams, 'categoryId', input.categoryId);
+  appendQuery(searchParams, 'familyId', input.familyId);
+  appendQuery(searchParams, 'publishStatus', input.publishStatus);
+  appendQuery(searchParams, 'regionScope', input.regionScope);
+  appendQuery(searchParams, 'brandLabel', input.brandLabel);
+  appendQuery(searchParams, 'sourceSystem', input.sourceSystem);
+  appendQuery(searchParams, 'limit', input.limit);
+  return requestJson<ListProductsResponse>(apiBaseUrl, `/api/v1/product-management/products?${searchParams.toString()}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchProductManagementCategories(apiBaseUrl: string, accessToken: string) {
+  return requestJson<{ items: ProductCategorySummary[] }>(apiBaseUrl, '/api/v1/product-management/categories', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchProductManagementProductDetail(apiBaseUrl: string, accessToken: string, productId: string) {
+  return requestJson<ProductDetail>(apiBaseUrl, `/api/v1/product-management/products/${productId}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function validateProductManagementPresentation(apiBaseUrl: string, accessToken: string, presentationId: string) {
+  return requestJson<ProductPublishValidationResponse>(apiBaseUrl, `/api/v1/product-management/presentations/${presentationId}/validate`, {
+    method: 'POST',
+    accessToken,
+  });
+}
+
+export async function previewProductReferenceImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: ProductReferenceImportPreviewRequest = {},
+) {
+  return requestJson<ProductReferenceImportPreviewResponse>(apiBaseUrl, '/api/v1/product-management/import-preview', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function commitProductReferenceImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CommitProductReferenceImportRequest = {},
+) {
+  return requestJson<CommitProductReferenceImportResponse>(apiBaseUrl, '/api/v1/product-management/import-runs', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchDigitalAssetLibrary(apiBaseUrl: string, accessToken: string, input: ListDigitalAssetsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  appendQuery(searchParams, 'search', input.search);
+  appendQuery(searchParams, 'kind', input.kind);
+  appendQuery(searchParams, 'status', input.status);
+  appendQuery(searchParams, 'visibility', input.visibility);
+  appendQuery(searchParams, 'brandScope', input.brandScope);
+  appendQuery(searchParams, 'regionScope', input.regionScope);
+  appendQuery(searchParams, 'dealerGroupId', input.dealerGroupId);
+  appendQuery(searchParams, 'sourceSystem', input.sourceSystem);
+  appendQuery(searchParams, 'limit', input.limit);
+  return requestJson<ListDigitalAssetsResponse>(apiBaseUrl, `/api/v1/digital-assets/assets?${searchParams.toString()}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchDigitalAssetDetail(apiBaseUrl: string, accessToken: string, assetId: string) {
+  return requestJson<DigitalAssetDetail>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createDigitalAsset(apiBaseUrl: string, accessToken: string, input: CreateDigitalAssetRequest) {
+  return createDigitalAssetRecord(apiBaseUrl, accessToken, input);
+}
+
+export async function createDigitalAssetRecord(apiBaseUrl: string, accessToken: string, input: CreateDigitalAssetRequest) {
+  return requestJson<DigitalAssetDetail>(apiBaseUrl, '/api/v1/digital-assets/assets', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createDigitalAssetVersion(
+  apiBaseUrl: string,
+  accessToken: string,
+  assetId: string,
+  input: CreateDigitalAssetVersionRequest,
+) {
+  return createDigitalAssetVersionRecord(apiBaseUrl, accessToken, assetId, input);
+}
+
+export async function createDigitalAssetVersionRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  assetId: string,
+  input: CreateDigitalAssetVersionRequest,
+) {
+  return requestJson<DigitalAssetDetail>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}/versions`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function assignDigitalAssetToProduct(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: CreateProductAssetAssignmentRequest,
+) {
+  return requestJson<ProductAssetAssignmentSummary>(apiBaseUrl, '/api/v1/digital-assets/product-assignments', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function previewWidenImport(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: WidenImportPreviewRequest = {},
+) {
+  return requestJson<WidenImportPreviewResponse>(apiBaseUrl, '/api/v1/digital-assets/widen-import-preview', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchWidenImportRuns(apiBaseUrl: string, accessToken: string, limit = 10) {
+  const searchParams = new URLSearchParams();
+  appendQuery(searchParams, 'limit', limit);
+  return requestJson<ListWidenImportRunsResponse>(apiBaseUrl, `/api/v1/digital-assets/widen-import-runs?${searchParams.toString()}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
 
 type AuthBundle = {
   identity: AuthIdentity;
@@ -2555,6 +2812,14 @@ async function readErrorDetail(response: Response) {
 
 function normalizeApiBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+function appendQuery(searchParams: URLSearchParams, key: string, value: string | number | boolean | null | undefined) {
+  if (value === undefined || value === null || value === '') {
+    return;
+  }
+
+  searchParams.set(key, String(value));
 }
 
 function normalizeNetworkError(apiBaseUrl: string, error: unknown) {

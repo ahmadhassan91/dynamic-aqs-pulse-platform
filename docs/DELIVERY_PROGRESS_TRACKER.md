@@ -1,6 +1,6 @@
 # Dynamic AQS Pulse Delivery Progress Tracker
 
-Last updated: 2026-04-30
+Last updated: 2026-05-02
 
 This tracker is the production-repo progress view for delivery execution.
 
@@ -84,7 +84,7 @@ Use it to:
 | Wave 1 | Customer, Account, Contact & Multi-Location Management | `Partial` | `In Progress` | Authenticated account/contact/location APIs are verified, converted accounts inherit lead territory ownership at the first-order boundary, prototype-aligned customer visibility routes now support live profile/contact/location maintenance and governed lifecycle state management, while hierarchy, classification writes, merge, and ERP-backed tabs are still to come. |
 | Wave 1 | Dealer identity at company-account level | `Partial` | `Planned` | Will use shared auth foundation plus account context, not a separate auth stack. |
 | Wave 2 | Product Management & Dealer Catalog Governance | `Mostly Ready` | `In Progress` | Product/Digital Asset kernel, product readiness checks, first-class Dealer Catalog View registry, catalog-view API, and production UI language cleanup are live. Legacy/prototype CSV data is allowed for preview/mapping only; final product import/apply remains parked until Acumatica product identity, item status, UOM, item-class, and pricing/inventory mappings are certified. |
-| Wave 2 | Digital Assets & Document Handling | `Mostly Ready` | `Planned` | Keep Widen scope bounded to validated product/dealer workflow. |
+| Wave 2 | Digital Assets & Document Handling | `Mostly Ready` | `In Progress` | Digital asset schema, S3/CloudFront-ready delivery adapter, share-link foundation, Widen legacy flexibility, production UI cleanup, and bounded asset-library workflow are live; next depth is bulk-upload UX, simpler asset detail flow, delivery-health hardening, and broader product-asset attachment polish. |
 | Wave 2 | Pricing & ERP-Dependent Commercial Rules | `Mostly Ready` | `Planned` | Requires Acumatica certification and account/dealer context. |
 | Wave 2 | Dealer Portal Replacement for Shopify | `Partial` | `In Progress` | Shared backend dealer portal kernel is now live for provisioning, dealer account status, dealer session lifecycle, and the first branded dealer-facing routes (`/dealer`, `/dealer/login`, `/dealer/dashboard`, `/dealer/account`) under the approved prototype structure; product catalog, ordering, invoices, and payment flows remain intentionally parked until those backends are real. |
 | Wave 3 | Territory Management & Field Routing | `Mostly Ready` | `In Progress` | Territory kernel, state coverage, shipping-center alignment, lead assignment history, live lead override controls, named-owner override UX, scoped TM/RD territory reads, prototype-aligned `dashboard / map view / territory list / admin config / calendar` workspace, bulk customer transfer, paper-map-aligned live map styling, embedded territory calendar access, and deeper CRM-owned command-center reporting are now live; next depth is the remaining parked reporting and field-routing dependencies, not missing kernel basics. |
@@ -139,6 +139,7 @@ Use it to:
 | CIS internal review and finance queue baseline | `Done` | Runtime-verified sales sign-off, finance submission, `awaiting_submission` / `pending` queue filters, and finance approval capture are now live on the production API without storing raw bank/card details |
 | Shared request authz helper for business modules | `Done` | Customer routes now reuse one request-auth/authz path instead of duplicating bearer/session checks |
 | Leads / Territory / Training 100% closure plan | `Done` | Requirement-map closure plan is documented with sequenced slices `L1-L4`, `T1-T3`, `R1-R3`, cross-cutting `X1`, acceptance criteria, blocked decisions, and module regression commands; use this as the tracker integration point before marking April 28 map rows closed |
+| Dealer catalog rules and UX playbook | `Done` | Plain-English catalog-view terminology, affinity/ownership/PE/independent/hybrid guidance, flexible Super Admin rule-builder direction, and module-wide UX standards are documented in `docs/DEALER_CATALOG_RULES_AND_UX_PLAYBOOK_2026-05-02.md` |
 | Progress tracker established in repo | `Done` | This document is the tracker baseline |
 
 ## Parked Items

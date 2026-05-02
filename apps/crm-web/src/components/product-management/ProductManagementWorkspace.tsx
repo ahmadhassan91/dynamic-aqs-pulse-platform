@@ -139,7 +139,7 @@ export function ProductManagementWorkspace() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<ProductTab>('categories');
+  const [activeTab, setActiveTab] = useState<ProductTab>('visibility');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [familyFilter, setFamilyFilter] = useState<string | null>(null);
@@ -534,7 +534,7 @@ export function ProductManagementWorkspace() {
         <Metric label="Products" value={metrics.totalProducts} />
         <Metric label="Categories" value={metrics.categories} />
         <Metric label="Families" value={metrics.families} />
-        <Metric label="Catalog Views" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
+        <Metric label="Catalog Views" value={catalogViewRows.length} />
       </SimpleGrid>
 
       {error ? (
@@ -546,7 +546,7 @@ export function ProductManagementWorkspace() {
       <Tabs
         value={activeTab}
         onChange={(value) => {
-          const nextTab = (value as ProductTab | null) ?? 'categories';
+          const nextTab = (value as ProductTab | null) ?? 'visibility';
           setActiveTab(nextTab);
           const nextParams = new URLSearchParams(searchParams.toString());
           nextParams.set('tab', nextTab);
@@ -554,12 +554,12 @@ export function ProductManagementWorkspace() {
         }}
       >
         <Tabs.List>
-          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
-          <Tabs.Tab value="families">Families</Tabs.Tab>
-          <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="visibility">Dealer Catalog Views</Tabs.Tab>
+          <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
+          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
+          <Tabs.Tab value="families">Families</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="categories" pt="md">

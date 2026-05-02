@@ -159,11 +159,11 @@ export function Navigation() {
       label: 'Product Management',
       icon: IconPackage,
       links: [
-        { label: 'Catalog Setup', link: '/product-management?tab=categories' },
-        { label: 'Products', link: '/product-management?tab=products' },
         { label: 'Dealer Catalog Views', link: '/product-management?tab=visibility' },
+        { label: 'Products', link: '/product-management?tab=products' },
         { label: 'Readiness', link: '/product-management?tab=readiness' },
         { label: 'Publish Control', link: '/product-management?tab=publish' },
+        { label: 'Categories & Families', link: '/product-management?tab=categories' },
       ],
     });
   }

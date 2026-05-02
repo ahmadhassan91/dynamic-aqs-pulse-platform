@@ -31,6 +31,96 @@ Use the "passport + badges + storefront" explanation:
 
 An account can wear more than one badge. Example: a dealer can be `Nexstar` and also part of an ownership group. That is a hybrid account. Pulse should preserve both badges, then resolve the correct storefront.
 
+```mermaid
+flowchart LR
+    A["Dealer Account"] --> B["Passport: Region / Country"]
+    A --> C["Membership Badge: Affinity"]
+    A --> D["Parent Badge: Ownership / PE"]
+    A --> E["Uniform: Brand / Private Label"]
+    B --> F["Dealer Catalog View"]
+    C --> F
+    D --> F
+    E --> F
+    F --> G["Storefront: Products, files, branding"]
+    A --> H["Price Class"]
+    H --> I["Cash Register: ERP pricing"]
+```
+
+## Concept Relationship Diagram
+
+The important point is that affinity, ownership, region, and brand are inputs. They are not the final dealer-facing catalog by themselves.
+
+```mermaid
+flowchart TD
+    A["Lead / CIS / Account classification"] --> B["Affinity group selection"]
+    A --> C["Ownership / PE group selection"]
+    A --> D["Independent / none selected"]
+    A --> E["Region / country"]
+    A --> F["Brand or private-label eligibility"]
+    A --> G["Portal eligibility"]
+
+    B --> H["Catalog rule evaluation"]
+    C --> H
+    D --> H
+    E --> H
+    F --> H
+    G --> H
+
+    H --> I["Resolved Dealer Catalog View"]
+    I --> J["Product visibility"]
+    I --> K["Asset visibility"]
+    I --> L["Dealer portal presentation"]
+
+    A --> M["Acumatica price class"]
+    M --> N["Pricing display / invoice truth"]
+```
+
+## Hybrid Account Diagram
+
+Hybrid means the account carries more than one business classification. We should not flatten that into one text value.
+
+```mermaid
+flowchart LR
+    A["Example account"] --> B["Affinity: Nexstar"]
+    A --> C["Ownership / PE: Apex"]
+    A --> D["Region: US"]
+    A --> E["Brand: Service Experts"]
+
+    B --> F["Rule preview"]
+    C --> F
+    D --> F
+    E --> F
+
+    F --> G{"Conflict?"}
+    G -- "No" --> H["Assign matching catalog view"]
+    G -- "Yes" --> I["Require admin review before publish"]
+```
+
+## Super Admin Rule Builder Diagram
+
+The future rule UI should let admins change business rules without code changes.
+
+```mermaid
+flowchart TD
+    A["Super Admin opens Catalog Rules"] --> B["Create or edit rule set"]
+    B --> C["Choose conditions"]
+    C --> C1["Affinity"]
+    C --> C2["Ownership / PE"]
+    C --> C3["Region"]
+    C --> C4["Brand / private label"]
+    C --> C5["Portal eligibility"]
+    B --> D["Choose result"]
+    D --> D1["Assign Catalog View"]
+    D --> D2["Include / exclude product"]
+    D --> D3["Include / exclude asset"]
+    D --> D4["Require review"]
+    B --> E["Set precedence"]
+    E --> F["Preview matching accounts and products"]
+    F --> G{"Looks correct?"}
+    G -- "No" --> B
+    G -- "Yes" --> H["Publish rule set with audit"]
+```
+
 ## Confirmed Development Rule
 
 Do not hardcode final business precedence in hidden code.
@@ -163,4 +253,3 @@ Build after the current Product/Digital Assets UI polish:
 4. Add a preview endpoint that evaluates rules against sample accounts without publishing.
 5. Add a Super Admin UI with simple condition rows and impact preview.
 6. Add regression coverage for precedence and ambiguous-context warnings.
-

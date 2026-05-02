@@ -1,12 +1,13 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
   Badge,
   Button,
   Checkbox,
-  FileInput,
+  FileButton,
   Group,
   Loader,
   Modal,
@@ -55,7 +56,7 @@ import {
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
-type AssetTab = 'library' | 'collections' | 'migration';
+type AssetTab = 'library' | 'collections' | 'migration' | 'delivery-health';
 type LibraryViewMode = 'cards' | 'list';
 
 type CreateAssetFormState = {
@@ -205,6 +206,9 @@ const DIGITAL_ASSET_REVIEW_STATUS_OPTIONS: DigitalAssetReviewStatusKey[] = ['not
 
 export function DigitalAssetsWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
   const [viewMode, setViewMode] = useState<LibraryViewMode>('cards');
@@ -261,12 +265,11 @@ export function DigitalAssetsWorkspace() {
   const canShareAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.share') : false;
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab') as AssetTab | null;
-    if (tab && ['library', 'collections', 'migration'].includes(tab)) {
+    const tab = searchParams.get('tab') as AssetTab | null;
+    if (tab && ['library', 'collections', 'migration', 'delivery-health'].includes(tab)) {
       setActiveTab(tab);
     }
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!auth) return;
@@ -626,11 +629,21 @@ export function DigitalAssetsWorkspace() {
         </Alert>
       ) : null}
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as AssetTab) ?? 'library')}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => {
+          const nextTab = (value as AssetTab | null) ?? 'library';
+          setActiveTab(nextTab);
+          const nextParams = new URLSearchParams(searchParams.toString());
+          nextParams.set('tab', nextTab);
+          router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+        }}
+      >
         <Tabs.List>
           <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Library</Tabs.Tab>
           <Tabs.Tab value="collections">Asset Sets</Tabs.Tab>
           <Tabs.Tab value="migration" leftSection={<IconCloudUpload size={16} />}>Widen Import</Tabs.Tab>
+          <Tabs.Tab value="delivery-health">Delivery Health</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="library" pt="md">
@@ -967,6 +980,70 @@ export function DigitalAssetsWorkspace() {
                 </Table>
               </Paper>
             ) : null}
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="delivery-health" pt="md">
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+              <Metric label="Ready Assets" value={assetMetrics.ready} />
+              <Metric label="Needs Review" value={assets.items.filter((asset) => asset.reviewStatus !== 'approved').length} />
+              <Metric label="Missing Files" value={assets.items.filter((asset) => !asset.currentVersion).length} />
+              <Metric label="Active Shares" value={assetMetrics.shared} />
+            </SimpleGrid>
+            <Alert color="blue" title="Delivery health keeps Widen replacement safe">
+              Review assets that are not approved, do not have a current file/version, or are shared externally. This view is intentionally focused on operational risk, not migration internals.
+            </Alert>
+            <Paper withBorder>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Asset</Table.Th>
+                    <Table.Th>File</Table.Th>
+                    <Table.Th>Review</Table.Th>
+                    <Table.Th>Sharing</Table.Th>
+                    <Table.Th>Action</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {assets.items
+                    .filter((asset) => asset.reviewStatus !== 'approved' || !asset.currentVersion || (asset.activeShareLinkCount ?? 0) > 0)
+                    .map((asset) => (
+                      <Table.Tr key={asset.id}>
+                        <Table.Td>
+                          <Text fw={600}>{asset.title}</Text>
+                          <Text size="xs" c="dimmed">/{asset.stableSlug}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          {asset.currentVersion ? (
+                            <Badge color="green" variant="light">Current file ready</Badge>
+                          ) : (
+                            <Badge color="red" variant="light">Missing file</Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={asset.reviewStatus === 'approved' ? 'green' : 'yellow'} variant="light">
+                            {formatLabel(asset.reviewStatus)}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>{asset.activeShareLinkCount ?? 0} active links</Table.Td>
+                        <Table.Td>
+                          <Button size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)}>
+                            Review
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  {!assets.items.filter((asset) => asset.reviewStatus !== 'approved' || !asset.currentVersion || (asset.activeShareLinkCount ?? 0) > 0).length ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={5}>
+                        <Text ta="center" c="dimmed" py="lg">No delivery health items need attention.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : null}
+                </Table.Tbody>
+              </Table>
+            </Paper>
           </Stack>
         </Tabs.Panel>
       </Tabs>
@@ -1438,16 +1515,19 @@ function AssetDetailPanel({
       <form onSubmit={onSubmit}>
         <Stack gap="sm">
           <Group justify="space-between">
-            <Title order={5}>Add external URL version</Title>
+            <Title order={5}>Add or replace file version</Title>
             <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim() && !(form.ingestSourceDownload && form.sourceDownloadUrl.trim()))}>
               Add Version
             </Button>
           </Group>
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <FileInput
-              label="Upload file"
-              clearable
-              onChange={(file) => {
+          <Paper withBorder p="md">
+            <Group justify="space-between" align="center">
+              <Stack gap={2}>
+                <Text fw={600}>Upload from computer</Text>
+                <Text size="sm" c="dimmed">{form.fileBase64 ? form.fileName || 'File selected' : 'Choose a replacement file or add an external URL below.'}</Text>
+              </Stack>
+              <FileButton
+                onChange={(file) => {
                 if (!file) {
                   onFormChange({ ...form, fileBase64: '' });
                   return;
@@ -1461,7 +1541,12 @@ function AssetDetailPanel({
                 });
                 reader.readAsDataURL(file);
               }}
-            />
+              >
+                {(props) => <Button {...props} variant="light" leftSection={<IconCloudUpload size={16} />}>Choose File</Button>}
+              </FileButton>
+            </Group>
+          </Paper>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <TextInput
               label="External URL"
               value={form.externalUrl}

@@ -7,14 +7,19 @@ ensureTestDatabaseReady();
 
 const SERIAL = { concurrency: false };
 let prisma;
+let activateCatalogRuleSet;
+let createCatalogRuleSet;
 let createCatalogInclusion;
 let createDealerCatalogView;
 let createProductCategory;
 let createProductFamily;
 let getProductDetail;
 let listDealerCatalogViews;
+let listCatalogRuleSets;
 let listProductFamilies;
+let previewCatalogRuleSet;
 let runProductPublishValidation;
+let updateCatalogRuleSet;
 let updateCatalogInclusion;
 let updateDealerCatalogView;
 let updateProductCategory;
@@ -26,14 +31,19 @@ let actor;
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({
+    activateCatalogRuleSet,
+    createCatalogRuleSet,
     createCatalogInclusion,
     createDealerCatalogView,
     createProductCategory,
     createProductFamily,
     getProductDetail,
+    listCatalogRuleSets,
     listDealerCatalogViews,
     listProductFamilies,
+    previewCatalogRuleSet,
     runProductPublishValidation,
+    updateCatalogRuleSet,
     updateCatalogInclusion,
     updateDealerCatalogView,
     updateProductCategory,
@@ -297,6 +307,112 @@ test('catalog inclusion links to an explicit dealer catalog view', SERIAL, async
   assert.equal(linked.dealerCatalogView.kind, 'affinity');
 });
 
+test('catalog rule sets preview and activate simple dealer catalog rules', SERIAL, async () => {
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Nexstar Dealer Catalog',
+    kind: 'affinity',
+    resolverKey: 'nexstar',
+    resolverLabel: 'Nexstar',
+    precedence: 50,
+  });
+  await seedAccountClassificationFixture({ affinityCode: 'nexstar' });
+
+  const ruleSet = await createCatalogRuleSet(actor, {
+    name: 'Dealer Catalog Rules',
+    rules: [{
+      name: 'Nexstar dealers see Nexstar catalog',
+      priority: 10,
+      conditions: [{ field: 'affinity_group', operator: 'is', value: 'nexstar' }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: catalogView.id,
+    }],
+  });
+
+  const preview = await previewCatalogRuleSet(actor, ruleSet.id, { sampleLimit: 10 });
+  assert.equal(preview.sampleAccountCount, 1);
+  assert.equal(preview.matchedCount, 1);
+  assert.equal(preview.rows[0].dealerCatalogViewName, 'Nexstar Dealer Catalog');
+
+  const activated = await activateCatalogRuleSet(actor, ruleSet.id);
+  assert.equal(activated.activeRuleSet.status, 'active');
+  assert.equal(activated.activeRuleSet.isActive, true);
+  const listed = await listCatalogRuleSets(actor);
+  assert.equal(listed.items.filter((item) => item.isActive).length, 1);
+});
+
+test('catalog rule activation retires previous active rule set', SERIAL, async () => {
+  const independentView = await createDealerCatalogView(actor, {
+    name: 'Independent Dealer Catalog',
+    kind: 'independent',
+    precedence: 80,
+  });
+  const standardView = await createDealerCatalogView(actor, {
+    name: 'Standard Dealer Catalog',
+    kind: 'standard',
+    precedence: 100,
+  });
+
+  const first = await createCatalogRuleSet(actor, {
+    name: 'Independent first rules',
+    rules: [{
+      name: 'Independent dealers',
+      conditions: [{ field: 'independent', operator: 'is', value: true }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: independentView.id,
+    }],
+  });
+  await activateCatalogRuleSet(actor, first.id);
+
+  const second = await createCatalogRuleSet(actor, {
+    name: 'Standard rules',
+    rules: [{
+      name: 'Any account',
+      conditions: [{ field: 'affinity_group', operator: 'is_any' }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: standardView.id,
+    }],
+  });
+  const activated = await activateCatalogRuleSet(actor, second.id);
+
+  assert.deepEqual(activated.retiredRuleSetIds, [first.id]);
+  const ruleSets = await listCatalogRuleSets(actor);
+  assert.equal(ruleSets.items.find((item) => item.id === first.id).status, 'retired');
+  assert.equal(ruleSets.items.find((item) => item.id === second.id).status, 'active');
+});
+
+test('catalog rule preview surfaces review requirements instead of guessing', SERIAL, async () => {
+  await seedAccountClassificationFixture({ affinityCode: 'nexstar', ownershipCode: 'redwood' });
+  const ruleSet = await createCatalogRuleSet(actor, {
+    name: 'Hybrid review rules',
+    rules: [{
+      name: 'Hybrid ownership needs review',
+      priority: 5,
+      conditions: [{ field: 'ownership_group', operator: 'is', value: 'redwood' }],
+      resultAction: 'require_review',
+      requireReviewReason: 'Ownership and affinity both apply. Confirm catalog view.',
+    }],
+  });
+
+  const preview = await previewCatalogRuleSet(actor, ruleSet.id, { sampleLimit: 10 });
+
+  assert.equal(preview.matchedCount, 1);
+  assert.equal(preview.reviewRequiredCount, 1);
+  assert.equal(preview.rows[0].resultAction, 'require_review');
+  assert.match(preview.rows[0].warning, /Ownership and affinity/);
+
+  await updateCatalogRuleSet(actor, ruleSet.id, {
+    rules: [{
+      name: 'Incomplete rule',
+      conditions: [{ field: 'affinity_group', operator: 'is_any' }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: null,
+    }],
+  }).then(
+    () => assert.fail('Expected missing catalog view to be rejected'),
+    (error) => assert.match(error.message, /Dealer Catalog View/),
+  );
+});
+
 test('publish validation blocks missing primary image and warns on expected missing document roles', SERIAL, async () => {
   const fixture = await seedProductFixture();
   await prisma.productAssetAssignment.create({
@@ -403,6 +519,34 @@ async function seedProductFixture() {
   const installGuide = await createAsset('install-guide', 'Install guide', 'DOCUMENT');
   const brochure = await createAsset('brochure', 'Dealer brochure', 'DOCUMENT');
   return { category, product, presentation, primaryImage, specSheet, installGuide, brochure };
+}
+
+async function seedAccountClassificationFixture({ affinityCode, ownershipCode }) {
+  const affinityGroup = affinityCode ? await prisma.affinityGroupRef.create({
+    data: {
+      code: affinityCode,
+      name: affinityCode === 'nexstar' ? 'Nexstar' : affinityCode,
+      groupType: 'BUYING_GROUP',
+    },
+  }) : null;
+  const ownershipGroup = ownershipCode ? await prisma.ownershipGroupRef.create({
+    data: {
+      code: ownershipCode,
+      name: ownershipCode === 'redwood' ? 'Redwood / Apollo' : ownershipCode,
+      ownershipType: 'PRIVATE_EQUITY',
+    },
+  }) : null;
+
+  return prisma.account.create({
+    data: {
+      displayName: ownershipGroup ? 'Hybrid Dealer Account' : 'Nexstar Dealer Account',
+      affinityGroupSelection: affinityGroup ? 'GROUP' : 'NONE',
+      affinityGroupId: affinityGroup?.id,
+      ownershipGroupSelection: ownershipGroup ? 'GROUP' : 'NONE',
+      ownershipGroupId: ownershipGroup?.id,
+      groupClassification: affinityGroup && ownershipGroup ? 'HYBRID' : affinityGroup ? 'AFFINITY_ONLY' : ownershipGroup ? 'OWNERSHIP_ONLY' : 'INDEPENDENT',
+    },
+  });
 }
 
 function createAsset(slugSuffix, title, kind) {

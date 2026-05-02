@@ -237,8 +237,13 @@ import type {
   UpdateConsignmentSiteRequest,
 } from '@pulse/contracts';
 import type {
+  ActivateCatalogRuleSetResponse,
+  CatalogRulePreviewRequest,
+  CatalogRulePreviewResponse,
+  CatalogRuleSetSummary,
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
+  CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
@@ -254,6 +259,7 @@ import type {
   ProductReferenceImportPreviewRequest,
   ProductReferenceImportPreviewResponse,
   ProductPublishValidationResponse,
+  UpdateCatalogRuleSetRequest,
   UpdateProductCategoryRequest,
   UpdateDealerCatalogViewRequest,
   UpdateProductFamilyRequest,
@@ -495,6 +501,44 @@ export async function updateDealerCatalogView(apiBaseUrl: string, accessToken: s
     method: 'PATCH',
     accessToken,
     body: input,
+  });
+}
+
+export async function fetchCatalogRuleSets(apiBaseUrl: string, accessToken: string) {
+  return requestJson<{ items: CatalogRuleSetSummary[] }>(apiBaseUrl, '/api/v1/product-management/catalog-rule-sets', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createCatalogRuleSet(apiBaseUrl: string, accessToken: string, input: CreateCatalogRuleSetRequest) {
+  return requestJson<CatalogRuleSetSummary>(apiBaseUrl, '/api/v1/product-management/catalog-rule-sets', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateCatalogRuleSet(apiBaseUrl: string, accessToken: string, ruleSetId: string, input: UpdateCatalogRuleSetRequest) {
+  return requestJson<CatalogRuleSetSummary>(apiBaseUrl, `/api/v1/product-management/catalog-rule-sets/${ruleSetId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function previewCatalogRuleSet(apiBaseUrl: string, accessToken: string, ruleSetId: string, input: CatalogRulePreviewRequest = {}) {
+  return requestJson<CatalogRulePreviewResponse>(apiBaseUrl, `/api/v1/product-management/catalog-rule-sets/${ruleSetId}/preview`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function activateCatalogRuleSet(apiBaseUrl: string, accessToken: string, ruleSetId: string) {
+  return requestJson<ActivateCatalogRuleSetResponse>(apiBaseUrl, `/api/v1/product-management/catalog-rule-sets/${ruleSetId}/activate`, {
+    method: 'POST',
+    accessToken,
   });
 }
 

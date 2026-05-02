@@ -185,6 +185,17 @@ enum DealerCatalogViewKind {
   ACCOUNT_OVERRIDE
 }
 
+enum CatalogRuleSetStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum CatalogRuleResultAction {
+  ASSIGN_CATALOG_VIEW
+  REQUIRE_REVIEW
+}
+
 enum DigitalAssetKind {
   IMAGE
   DOCUMENT
@@ -1286,6 +1297,7 @@ model DealerCatalogView {
   updatedAt           DateTime              @updatedAt
 
   catalogInclusions CatalogInclusion[]
+  catalogRules      CatalogRule[]
 
   @@index([kind, isActive])
   @@index([resolverKey])
@@ -1293,6 +1305,50 @@ model DealerCatalogView {
   @@index([brandLabel])
   @@index([isDefault])
   @@index([precedence])
+}
+
+model CatalogRuleSet {
+  id                String               @id @default(uuid()) @db.Uuid
+  code              String               @unique
+  name              String
+  description       String?
+  status            CatalogRuleSetStatus @default(DRAFT)
+  isActive          Boolean              @default(false)
+  version           Int                  @default(1)
+  activatedAt       DateTime?
+  activatedByUserId String?              @db.Uuid
+  retiredAt         DateTime?
+  retiredByUserId   String?              @db.Uuid
+  createdByUserId   String?              @db.Uuid
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  rules CatalogRule[]
+
+  @@index([status, isActive])
+  @@index([createdAt])
+}
+
+model CatalogRule {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  ruleSetId           String                  @db.Uuid
+  name                String
+  description         String?
+  priority            Int                     @default(100)
+  conditions          Json
+  resultAction        CatalogRuleResultAction @default(ASSIGN_CATALOG_VIEW)
+  dealerCatalogViewId String?                 @db.Uuid
+  requireReviewReason String?
+  isEnabled           Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  ruleSet           CatalogRuleSet     @relation(fields: [ruleSetId], references: [id], onDelete: Cascade)
+  dealerCatalogView DealerCatalogView? @relation(fields: [dealerCatalogViewId], references: [id], onDelete: SetNull)
+
+  @@index([ruleSetId, priority])
+  @@index([dealerCatalogViewId])
+  @@index([isEnabled])
 }
 
 model CatalogInclusion {

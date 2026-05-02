@@ -135,6 +135,14 @@ The current schema supports flexible setup because it keeps:
 
 The next rule slice should add a super-admin rule-management layer on top, not replace the current schema.
 
+Implementation status as of May 2, 2026:
+
+- `CatalogRuleSet` and `CatalogRule` are now persisted in Pulse with draft, active, and retired states.
+- Conditions stay flexible so Dynamic can confirm final rules later without another schema redesign.
+- Rule outputs are normalized to active `DealerCatalogView` rows, or explicit `Require Review`.
+- Preview-before-publish is implemented against account affinity, ownership/PE, independent, region, and portal eligibility context.
+- Product/file include/exclude rules remain a later slice; the first shipped slice assigns catalog views and blocks ambiguous cases for review.
+
 ## Target Flexible Rule Builder
 
 Create a Super Admin screen called `Catalog Rules`.

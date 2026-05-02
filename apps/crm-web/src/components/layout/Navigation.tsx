@@ -19,7 +19,7 @@ import {
   type TablerIcon,
 } from '@tabler/icons-react';
 import classes from './Navigation.module.css';
-import { canAccessModule } from '@/lib/access';
+import { canAccessModule, canPerformAction } from '@/lib/access';
 import { getTerritoryNavigationLinks } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -199,6 +199,7 @@ export function Navigation() {
         { label: 'Admin Dashboard', link: '/admin' },
         { label: 'User Management', link: '/admin/users' },
         { label: 'Roles & Permissions', link: '/admin/roles' },
+        ...(canPerformAction(role, 'product.manage') ? [{ label: 'Catalog Rules', link: '/admin/catalog-rules' }] : []),
         { label: 'Integrations', link: '/admin/integrations' },
         { label: 'Activity Monitor', link: '/admin/activity' },
       ],

@@ -1,6 +1,8 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import {
   AuditAction,
+  CatalogRuleResultAction,
+  CatalogRuleSetStatus,
   DealerCatalogViewKind,
   DigitalAssetKind,
   DigitalAssetReviewStatus,
@@ -13,9 +15,20 @@ import {
   ProductSourceSystem,
   prisma,
 } from '@pulse/db';
+import {
+  CATALOG_RULE_CONDITION_FIELDS,
+  CATALOG_RULE_CONDITION_OPERATORS,
+  CATALOG_RULE_RESULT_ACTIONS,
+} from '@pulse/contracts/product-management';
 import type {
   BaseProductSummary,
+  CatalogRuleConditionInput,
+  CatalogRuleDraftInput,
+  CatalogRulePreviewRow,
+  CatalogRulePreviewResponse,
+  CatalogRuleSetSummary,
   CatalogInclusionSummary,
+  CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
@@ -29,6 +42,7 @@ import type {
   ProductFamilySummary,
   ProductPresentationSummary,
   ProductPublishValidationResponse,
+  UpdateCatalogRuleSetRequest,
   UpdateProductCategoryRequest,
   UpdateDealerCatalogViewRequest,
   UpdateProductFamilyRequest,
@@ -58,6 +72,13 @@ const PRODUCT_INCLUDE = {
       },
     },
     orderBy: [{ updatedAt: 'desc' as const }],
+  },
+};
+
+const CATALOG_RULE_SET_INCLUDE = {
+  rules: {
+    include: { dealerCatalogView: true },
+    orderBy: [{ priority: 'asc' as const }, { createdAt: 'asc' as const }],
   },
 };
 
@@ -215,6 +236,208 @@ export async function updateDealerCatalogView(actor: AuthenticatedActor, catalog
     }),
   });
   return mapDealerCatalogView(updated);
+}
+
+export async function listCatalogRuleSets(actor: AuthenticatedActor): Promise<{ items: CatalogRuleSetSummary[] }> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  const items = await prisma.catalogRuleSet.findMany({
+    include: CATALOG_RULE_SET_INCLUDE,
+    orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
+  });
+  return { items: items.map(mapCatalogRuleSet) };
+}
+
+export async function createCatalogRuleSet(actor: AuthenticatedActor, input: CreateCatalogRuleSetRequest): Promise<CatalogRuleSetSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  if (!input.name?.trim()) throw new Error('name is required');
+  const rules = await normalizeCatalogRuleDrafts(input.rules ?? []);
+  const code = input.code?.trim() || `catalog-rules-${slugify(input.name)}-${Date.now().toString(36)}`;
+  const created = await prisma.catalogRuleSet.create({
+    data: {
+      code,
+      name: input.name.trim(),
+      description: cleanNullable(input.description),
+      status: CatalogRuleSetStatus.DRAFT,
+      isActive: false,
+      createdByUserId: actor.userId,
+      rules: {
+        create: rules.map((rule) => ({
+          name: rule.name,
+          description: rule.description,
+          priority: rule.priority,
+          conditions: rule.conditions as any,
+          resultAction: rule.resultAction,
+          dealerCatalogViewId: rule.dealerCatalogViewId,
+          requireReviewReason: rule.requireReviewReason,
+          isEnabled: rule.isEnabled,
+        })),
+      },
+    },
+    include: CATALOG_RULE_SET_INCLUDE,
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.CREATE,
+      entityType: 'CATALOG_RULE_SET',
+      entityId: created.id,
+      afterData: created,
+      metadata: { sourceOfTruth: 'pulse_catalog_rules_admin' },
+    }),
+  });
+  return mapCatalogRuleSet(created);
+}
+
+export async function updateCatalogRuleSet(actor: AuthenticatedActor, ruleSetId: string, input: UpdateCatalogRuleSetRequest): Promise<CatalogRuleSetSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const before = await prisma.catalogRuleSet.findUnique({ where: { id: ruleSetId }, include: CATALOG_RULE_SET_INCLUDE });
+  if (!before) throw new Error('Catalog rule set not found');
+  if (before.status === CatalogRuleSetStatus.ACTIVE) throw new Error('Active catalog rules must be retired by activating a new draft');
+  const rules = input.rules !== undefined ? await normalizeCatalogRuleDrafts(input.rules) : undefined;
+  const updated = await prisma.$transaction(async (tx) => {
+    if (rules) {
+      await tx.catalogRule.deleteMany({ where: { ruleSetId } });
+    }
+    return tx.catalogRuleSet.update({
+      where: { id: ruleSetId },
+      data: {
+        ...(input.code !== undefined ? { code: input.code.trim() || before.code } : {}),
+        ...(input.name !== undefined ? { name: input.name.trim() || before.name } : {}),
+        ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
+        ...(rules ? {
+          rules: {
+            create: rules.map((rule) => ({
+              name: rule.name,
+              description: rule.description,
+              priority: rule.priority,
+              conditions: rule.conditions as any,
+              resultAction: rule.resultAction,
+              dealerCatalogViewId: rule.dealerCatalogViewId,
+              requireReviewReason: rule.requireReviewReason,
+              isEnabled: rule.isEnabled,
+            })),
+          },
+        } : {}),
+      },
+      include: CATALOG_RULE_SET_INCLUDE,
+    });
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.UPDATE,
+      entityType: 'CATALOG_RULE_SET',
+      entityId: updated.id,
+      beforeData: before,
+      afterData: updated,
+      metadata: { sourceOfTruth: 'pulse_catalog_rules_admin' },
+    }),
+  });
+  return mapCatalogRuleSet(updated);
+}
+
+export async function previewCatalogRuleSet(
+  actor: AuthenticatedActor,
+  ruleSetId: string,
+  input: { rules?: CatalogRuleDraftInput[]; sampleLimit?: number } = {},
+): Promise<CatalogRulePreviewResponse> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.manage');
+  const ruleSet = await prisma.catalogRuleSet.findUnique({ where: { id: ruleSetId }, include: CATALOG_RULE_SET_INCLUDE });
+  if (!ruleSet) throw new Error('Catalog rule set not found');
+  const draftRules = input.rules ? await normalizeCatalogRuleDrafts(input.rules) : ruleSet.rules.map((rule: any) => normalizeStoredCatalogRule(rule));
+  const rules = draftRules.filter((rule) => rule.isEnabled).sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
+  const accounts = await prisma.account.findMany({
+    where: { isActive: true },
+    include: {
+      affinityGroup: true,
+      ownershipGroup: true,
+      territory: { include: { region: true } },
+      dealerPortalAccount: true,
+    },
+    orderBy: [{ updatedAt: 'desc' }],
+    take: clampPreviewLimit(input.sampleLimit),
+  });
+  const rows = accounts.map((account: any) => {
+    const matchedRule = rules.find((rule) => catalogRuleMatchesAccount(rule.conditions, account));
+    if (!matchedRule) {
+      return buildPreviewRow(account, { warning: 'No rule matched. Account will need the default catalog or manual review.' });
+    }
+    if (matchedRule.resultAction === CatalogRuleResultAction.REQUIRE_REVIEW) {
+      return buildPreviewRow(account, {
+        matchedRule,
+        warning: matchedRule.requireReviewReason ?? 'Needs review before publishing.',
+      });
+    }
+    const dealerCatalogView = matchedRule.dealerCatalogViewId
+      ? ruleSet.rules.find((rule: any) => rule.dealerCatalogViewId === matchedRule.dealerCatalogViewId)?.dealerCatalogView
+      : null;
+    return buildPreviewRow(account, { matchedRule, dealerCatalogView });
+  });
+  const reviewRequiredCount = rows.filter((row) => row.resultAction === 'require_review' || Boolean(row.warning)).length;
+  return {
+    ruleSetId,
+    sampleAccountCount: rows.length,
+    matchedCount: rows.filter((row) => row.matchedRuleId).length,
+    reviewRequiredCount,
+    unmatchedCount: rows.filter((row) => !row.matchedRuleId).length,
+    rows,
+    warnings: buildPreviewWarnings(rules, rows),
+  };
+}
+
+export async function activateCatalogRuleSet(actor: AuthenticatedActor, ruleSetId: string) {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.publish');
+  const before = await prisma.catalogRuleSet.findUnique({ where: { id: ruleSetId }, include: CATALOG_RULE_SET_INCLUDE });
+  if (!before) throw new Error('Catalog rule set not found');
+  if (!before.rules.length) throw new Error('Add at least one catalog rule before publishing');
+  const invalidRule = before.rules.find((rule: any) => rule.isEnabled && rule.resultAction === CatalogRuleResultAction.ASSIGN_CATALOG_VIEW && (!rule.dealerCatalogView || !rule.dealerCatalogView.isActive));
+  if (invalidRule) throw new Error(`Rule "${invalidRule.name}" must point to an active Dealer Catalog View before publishing`);
+  const now = new Date();
+  const result = await prisma.$transaction(async (tx) => {
+    const retired = await tx.catalogRuleSet.findMany({ where: { isActive: true, id: { not: ruleSetId } }, select: { id: true } });
+    await tx.catalogRuleSet.updateMany({
+      where: { isActive: true, id: { not: ruleSetId } },
+      data: {
+        status: CatalogRuleSetStatus.RETIRED,
+        isActive: false,
+        retiredAt: now,
+        retiredByUserId: actor.userId,
+      },
+    });
+    const activeRuleSet = await tx.catalogRuleSet.update({
+      where: { id: ruleSetId },
+      data: {
+        status: CatalogRuleSetStatus.ACTIVE,
+        isActive: true,
+        activatedAt: now,
+        activatedByUserId: actor.userId,
+        retiredAt: null,
+        retiredByUserId: null,
+      },
+      include: CATALOG_RULE_SET_INCLUDE,
+    });
+    return { activeRuleSet, retiredRuleSetIds: retired.map((item) => item.id) };
+  });
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.APPROVE,
+      entityType: 'CATALOG_RULE_SET',
+      entityId: result.activeRuleSet.id,
+      beforeData: before,
+      afterData: result.activeRuleSet,
+      metadata: { retiredRuleSetIds: result.retiredRuleSetIds, sourceOfTruth: 'pulse_catalog_rules_admin' },
+    }),
+  });
+  return {
+    activeRuleSet: mapCatalogRuleSet(result.activeRuleSet),
+    retiredRuleSetIds: result.retiredRuleSetIds,
+  };
 }
 
 export async function createProductFamily(actor: AuthenticatedActor, input: CreateProductFamilyRequest): Promise<ProductFamilySummary> {
@@ -562,6 +785,41 @@ function mapDealerCatalogView(catalogView: any): DealerCatalogViewSummary {
   };
 }
 
+function mapCatalogRuleSet(ruleSet: any): CatalogRuleSetSummary {
+  return {
+    id: ruleSet.id,
+    code: ruleSet.code,
+    name: ruleSet.name,
+    description: ruleSet.description ?? undefined,
+    status: lower(ruleSet.status),
+    isActive: ruleSet.isActive,
+    version: ruleSet.version,
+    activatedAt: ruleSet.activatedAt?.toISOString(),
+    retiredAt: ruleSet.retiredAt?.toISOString(),
+    createdAt: ruleSet.createdAt.toISOString(),
+    updatedAt: ruleSet.updatedAt.toISOString(),
+    rules: (ruleSet.rules ?? []).map(mapCatalogRule),
+  };
+}
+
+function mapCatalogRule(rule: any) {
+  return {
+    id: rule.id,
+    ruleSetId: rule.ruleSetId,
+    name: rule.name,
+    description: rule.description ?? undefined,
+    priority: rule.priority,
+    conditions: normalizeConditionArray(rule.conditions),
+    resultAction: lower(rule.resultAction),
+    dealerCatalogViewId: rule.dealerCatalogViewId ?? undefined,
+    dealerCatalogView: rule.dealerCatalogView ? mapDealerCatalogView(rule.dealerCatalogView) : undefined,
+    requireReviewReason: rule.requireReviewReason ?? undefined,
+    isEnabled: rule.isEnabled,
+    createdAt: rule.createdAt.toISOString(),
+    updatedAt: rule.updatedAt.toISOString(),
+  };
+}
+
 function mapProductAssetLink(assignment: any): ProductAssetLinkSummary {
   const asset = assignment.asset;
   return {
@@ -701,6 +959,126 @@ function hasBrandScopedAssetMismatch(presentation: any) {
 function hasRegionScopedAssetMismatch(presentation: any) {
   if (!presentation.regionScope) return false;
   return presentation.assetAssignments.some((assignment: any) => assignment.asset?.regionScope && assignment.asset.regionScope !== presentation.regionScope);
+}
+
+async function normalizeCatalogRuleDrafts(rules: CatalogRuleDraftInput[]) {
+  if (rules.length > 50) throw new Error('Catalog rule set cannot contain more than 50 rules');
+  const normalized = rules.map((rule, index) => {
+    if (!rule.name?.trim()) throw new Error('Every catalog rule needs a name');
+    const resultAction = toCatalogRuleResultAction(rule.resultAction);
+    const dealerCatalogViewId = cleanNullable(rule.dealerCatalogViewId);
+    if (resultAction === CatalogRuleResultAction.ASSIGN_CATALOG_VIEW && !dealerCatalogViewId) {
+      throw new Error(`Rule "${rule.name}" needs a Dealer Catalog View`);
+    }
+    const conditions = normalizeConditionArray(rule.conditions);
+    if (!conditions.length) throw new Error(`Rule "${rule.name}" needs at least one condition`);
+    return {
+      id: rule.id,
+      name: rule.name.trim(),
+      description: cleanNullable(rule.description),
+      priority: Number.isFinite(rule.priority) ? Number(rule.priority) : (index + 1) * 10,
+      conditions,
+      resultAction,
+      dealerCatalogViewId,
+      requireReviewReason: cleanNullable(rule.requireReviewReason),
+      isEnabled: rule.isEnabled ?? true,
+    };
+  });
+  const catalogViewIds = [...new Set(normalized.map((rule) => rule.dealerCatalogViewId).filter(Boolean))] as string[];
+  if (catalogViewIds.length) {
+    const existingCount = await prisma.dealerCatalogView.count({ where: { id: { in: catalogViewIds }, isActive: true } });
+    if (existingCount !== catalogViewIds.length) throw new Error('Every catalog rule must point to an active Dealer Catalog View');
+  }
+  return normalized;
+}
+
+function normalizeStoredCatalogRule(rule: any) {
+  return {
+    id: rule.id,
+    name: rule.name,
+    description: rule.description ?? null,
+    priority: rule.priority,
+    conditions: normalizeConditionArray(rule.conditions),
+    resultAction: rule.resultAction as CatalogRuleResultAction,
+    dealerCatalogViewId: rule.dealerCatalogViewId ?? null,
+    requireReviewReason: rule.requireReviewReason ?? null,
+    isEnabled: rule.isEnabled,
+  };
+}
+
+function normalizeConditionArray(value: unknown): CatalogRuleConditionInput[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((condition) => {
+    const item = condition as Partial<CatalogRuleConditionInput>;
+    if (!CATALOG_RULE_CONDITION_FIELDS.includes(item.field as any)) throw new Error('Catalog rule condition has an unsupported field');
+    if (!CATALOG_RULE_CONDITION_OPERATORS.includes(item.operator as any)) throw new Error('Catalog rule condition has an unsupported operator');
+    return {
+      field: item.field as CatalogRuleConditionInput['field'],
+      operator: item.operator as CatalogRuleConditionInput['operator'],
+      ...(item.value !== undefined ? { value: item.value } : {}),
+    };
+  });
+}
+
+function catalogRuleMatchesAccount(conditions: CatalogRuleConditionInput[], account: any) {
+  return conditions.every((condition) => conditionMatchesAccount(condition, account));
+}
+
+function conditionMatchesAccount(condition: CatalogRuleConditionInput, account: any) {
+  const actualValue = readAccountConditionValue(condition.field, account);
+  if (condition.operator === 'is_empty') return actualValue === undefined || actualValue === null || actualValue === '';
+  if (condition.operator === 'is_not_empty') return actualValue !== undefined && actualValue !== null && actualValue !== '';
+  if (condition.operator === 'is_any') return true;
+  const expected = String(condition.value ?? '').trim().toLowerCase();
+  const actual = String(actualValue ?? '').trim().toLowerCase();
+  if (condition.operator === 'is_not') return actual !== expected;
+  return actual === expected;
+}
+
+function readAccountConditionValue(field: CatalogRuleConditionInput['field'], account: any) {
+  if (field === 'affinity_group') return account.affinityGroup?.code ?? account.affinityGroup?.name ?? '';
+  if (field === 'ownership_group') return account.ownershipGroup?.code ?? account.ownershipGroup?.name ?? '';
+  if (field === 'independent') return account.groupClassification === 'INDEPENDENT' || (account.affinityGroupSelection === 'NONE' && account.ownershipGroupSelection === 'NONE');
+  if (field === 'region') return account.territory?.region?.code ?? account.territory?.region?.name ?? '';
+  if (field === 'portal_eligible') return account.dealerPortalAccount?.status === 'ACTIVE' || account.dealerPortalAccount?.status === 'READY_TO_PROVISION';
+  return '';
+}
+
+function buildPreviewRow(
+  account: any,
+  options: {
+    matchedRule?: ReturnType<typeof normalizeStoredCatalogRule>;
+    dealerCatalogView?: any;
+    warning?: string;
+  },
+): CatalogRulePreviewRow {
+  return compact({
+    accountId: account.id,
+    accountName: account.displayName,
+    classification: account.groupClassification ?? undefined,
+    affinityGroup: account.affinityGroup?.name ?? account.affinityGroup?.code ?? undefined,
+    ownershipGroup: account.ownershipGroup?.name ?? account.ownershipGroup?.code ?? undefined,
+    region: account.territory?.region?.name ?? account.territory?.region?.code ?? undefined,
+    portalEligible: readAccountConditionValue('portal_eligible', account),
+    matchedRuleId: options.matchedRule?.id ?? (options.matchedRule ? 'draft' : undefined),
+    matchedRuleName: options.matchedRule?.name,
+    resultAction: options.matchedRule ? lower(options.matchedRule.resultAction) : undefined,
+    dealerCatalogViewId: options.dealerCatalogView?.id ?? options.matchedRule?.dealerCatalogViewId ?? undefined,
+    dealerCatalogViewName: options.dealerCatalogView?.name ?? undefined,
+    ...(options.warning ? { warning: options.warning } : {}),
+  }) as CatalogRulePreviewRow;
+}
+
+function buildPreviewWarnings(rules: ReturnType<typeof normalizeStoredCatalogRule>[], rows: CatalogRulePreviewResponse['rows']) {
+  const warnings: string[] = [];
+  if (!rules.length) warnings.push('Add at least one enabled rule before publishing.');
+  if (rows.some((row) => !row.matchedRuleId)) warnings.push('Some sampled accounts did not match any rule.');
+  if (rows.some((row) => row.resultAction === 'require_review')) warnings.push('Some sampled accounts require review before publish.');
+  return warnings;
+}
+
+function clampPreviewLimit(limit?: number) {
+  return Math.min(Math.max(limit ?? 25, 1), 100);
 }
 
 function clampLimit(limit?: number) {
@@ -875,4 +1253,9 @@ function toProductSourceSystem(value: string) {
 
 function toReadinessStatus(value: string) {
   return value.toUpperCase() as ProductReadinessStatus;
+}
+
+function toCatalogRuleResultAction(value: string) {
+  if (!CATALOG_RULE_RESULT_ACTIONS.includes(value as any)) throw new Error('Catalog rule result action is not supported');
+  return value.toUpperCase() as CatalogRuleResultAction;
 }

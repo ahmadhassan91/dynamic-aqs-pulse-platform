@@ -1,12 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  CatalogRulePreviewRequest,
   CommitProductReferenceImportRequest,
+  CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
   UpdateDealerCatalogViewRequest,
   ProductReferenceImportPreviewRequest,
+  UpdateCatalogRuleSetRequest,
   UpdateProductCategoryRequest,
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
@@ -30,16 +33,21 @@ import {
   requireAuthenticatedActor,
 } from '../auth/request.js';
 import {
+  activateCatalogRuleSet,
+  createCatalogRuleSet,
   createCatalogInclusion,
   createDealerCatalogView,
   createProductCategory,
   createProductFamily,
   getProductDetail,
+  listCatalogRuleSets,
   listDealerCatalogViews,
   listProductCategories,
   listProductFamilies,
   listProducts,
+  previewCatalogRuleSet,
   runProductPublishValidation,
+  updateCatalogRuleSet,
   updateCatalogInclusion,
   updateDealerCatalogView,
   updateProductCategory,
@@ -131,6 +139,45 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
       if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
       const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
       return jsonResponse(res, 200, await updateDealerCatalogView(actor, catalogViewId, (await readJsonBody(req)) as UpdateDealerCatalogViewRequest));
+    }
+
+    if (pathname === '/api/v1/product-management/catalog-rule-sets') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+        return jsonResponse(res, 200, await listCatalogRuleSets(actor));
+      }
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+        return jsonResponse(res, 201, await createCatalogRuleSet(actor, (await readJsonBody(req)) as CreateCatalogRuleSetRequest));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const catalogRulePreviewMatch = matchPath(pathname, '/api/v1/product-management/catalog-rule-sets/:ruleSetId/preview');
+    if (catalogRulePreviewMatch) {
+      const ruleSetId = catalogRulePreviewMatch.ruleSetId;
+      if (!ruleSetId) return badRequestResponse(res, 'Catalog rule set id is required');
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await previewCatalogRuleSet(actor, ruleSetId, (await readJsonBody(req)) as CatalogRulePreviewRequest));
+    }
+
+    const catalogRuleActivateMatch = matchPath(pathname, '/api/v1/product-management/catalog-rule-sets/:ruleSetId/activate');
+    if (catalogRuleActivateMatch) {
+      const ruleSetId = catalogRuleActivateMatch.ruleSetId;
+      if (!ruleSetId) return badRequestResponse(res, 'Catalog rule set id is required');
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.publish' });
+      return jsonResponse(res, 200, await activateCatalogRuleSet(actor, ruleSetId));
+    }
+
+    const catalogRuleSetMatch = matchPath(pathname, '/api/v1/product-management/catalog-rule-sets/:ruleSetId');
+    if (catalogRuleSetMatch) {
+      const ruleSetId = catalogRuleSetMatch.ruleSetId;
+      if (!ruleSetId) return badRequestResponse(res, 'Catalog rule set id is required');
+      if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
+      return jsonResponse(res, 200, await updateCatalogRuleSet(actor, ruleSetId, (await readJsonBody(req)) as UpdateCatalogRuleSetRequest));
     }
 
     const familyMatch = matchPath(pathname, '/api/v1/product-management/families/:familyId');

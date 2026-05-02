@@ -16,6 +16,18 @@ export type ProductReadinessStatusKey = (typeof PRODUCT_READINESS_STATUSES)[numb
 export const DEALER_CATALOG_VIEW_KINDS = ['standard', 'affinity', 'ownership', 'independent', 'region', 'brand', 'private_label', 'account_override'] as const;
 export type DealerCatalogViewKindKey = (typeof DEALER_CATALOG_VIEW_KINDS)[number];
 
+export const CATALOG_RULE_SET_STATUSES = ['draft', 'active', 'retired'] as const;
+export type CatalogRuleSetStatusKey = (typeof CATALOG_RULE_SET_STATUSES)[number];
+
+export const CATALOG_RULE_RESULT_ACTIONS = ['assign_catalog_view', 'require_review'] as const;
+export type CatalogRuleResultActionKey = (typeof CATALOG_RULE_RESULT_ACTIONS)[number];
+
+export const CATALOG_RULE_CONDITION_FIELDS = ['affinity_group', 'ownership_group', 'independent', 'region', 'brand_label', 'portal_eligible'] as const;
+export type CatalogRuleConditionFieldKey = (typeof CATALOG_RULE_CONDITION_FIELDS)[number];
+
+export const CATALOG_RULE_CONDITION_OPERATORS = ['is', 'is_not', 'is_any', 'is_empty', 'is_not_empty'] as const;
+export type CatalogRuleConditionOperatorKey = (typeof CATALOG_RULE_CONDITION_OPERATORS)[number];
+
 export interface ProductCategorySummary {
   id: string;
   code: string;
@@ -108,6 +120,105 @@ export interface DealerCatalogViewSummary {
   sourceOfTruthSystem: ProductSourceSystemKey;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CatalogRuleConditionInput {
+  field: CatalogRuleConditionFieldKey;
+  operator: CatalogRuleConditionOperatorKey;
+  value?: string | boolean | null;
+}
+
+export interface CatalogRuleDraftInput {
+  id?: string;
+  name: string;
+  description?: string | null;
+  priority?: number;
+  conditions: CatalogRuleConditionInput[];
+  resultAction: CatalogRuleResultActionKey;
+  dealerCatalogViewId?: string | null;
+  requireReviewReason?: string | null;
+  isEnabled?: boolean;
+}
+
+export interface CatalogRuleSummary {
+  id: string;
+  ruleSetId: string;
+  name: string;
+  description?: string;
+  priority: number;
+  conditions: CatalogRuleConditionInput[];
+  resultAction: CatalogRuleResultActionKey;
+  dealerCatalogViewId?: string;
+  dealerCatalogView?: DealerCatalogViewSummary;
+  requireReviewReason?: string;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CatalogRuleSetSummary {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  status: CatalogRuleSetStatusKey;
+  isActive: boolean;
+  version: number;
+  activatedAt?: string;
+  retiredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  rules: CatalogRuleSummary[];
+}
+
+export interface CreateCatalogRuleSetRequest {
+  code?: string;
+  name: string;
+  description?: string | null;
+  rules?: CatalogRuleDraftInput[];
+}
+
+export interface UpdateCatalogRuleSetRequest {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  rules?: CatalogRuleDraftInput[];
+}
+
+export interface CatalogRulePreviewRequest {
+  rules?: CatalogRuleDraftInput[];
+  sampleLimit?: number;
+}
+
+export interface CatalogRulePreviewRow {
+  accountId: string;
+  accountName: string;
+  classification?: string;
+  affinityGroup?: string;
+  ownershipGroup?: string;
+  region?: string;
+  portalEligible: boolean;
+  matchedRuleId?: string;
+  matchedRuleName?: string;
+  resultAction?: CatalogRuleResultActionKey;
+  dealerCatalogViewId?: string;
+  dealerCatalogViewName?: string;
+  warning?: string;
+}
+
+export interface CatalogRulePreviewResponse {
+  ruleSetId?: string;
+  sampleAccountCount: number;
+  matchedCount: number;
+  reviewRequiredCount: number;
+  unmatchedCount: number;
+  rows: CatalogRulePreviewRow[];
+  warnings: string[];
+}
+
+export interface ActivateCatalogRuleSetResponse {
+  activeRuleSet: CatalogRuleSetSummary;
+  retiredRuleSetIds: string[];
 }
 
 export interface ProductReadinessCheckSummary {

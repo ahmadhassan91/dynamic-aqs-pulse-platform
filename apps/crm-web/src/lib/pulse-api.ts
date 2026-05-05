@@ -45,8 +45,12 @@ import type {
   AccountPaymentMethodSummary,
   AccountSummary,
   AccountLocationSummary,
+  AcceptDealerPortalInviteRequest,
+  AcceptDealerPortalInviteResponse,
   ContactSummary,
+  CreateDealerPortalInviteResponse,
   DealerPortalAccountDetail,
+  DealerPortalCatalogResponse,
   DealerPortalDashboardResponse,
   ProvisionDealerPortalUserRequest,
   ProvisionDealerPortalUserResponse,
@@ -2298,8 +2302,37 @@ export async function resetDealerPortalUserPassword(
   );
 }
 
+export async function createDealerPortalInvite(apiBaseUrl: string, accessToken: string, portalUserId: string) {
+  return requestJson<CreateDealerPortalInviteResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/users/${portalUserId}/invite`,
+    {
+      method: 'POST',
+      accessToken,
+    },
+  );
+}
+
+export async function acceptDealerPortalInvite(apiBaseUrl: string, input: AcceptDealerPortalInviteRequest) {
+  return requestJson<AcceptDealerPortalInviteResponse>(
+    apiBaseUrl,
+    '/api/v1/dealer-portal/invites/accept',
+    {
+      method: 'POST',
+      body: input,
+    },
+  );
+}
+
 export async function fetchDealerPortalDashboard(apiBaseUrl: string, accessToken: string) {
   return requestJson<DealerPortalDashboardResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/dashboard', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchDealerPortalCatalog(apiBaseUrl: string, accessToken: string) {
+  return requestJson<DealerPortalCatalogResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/catalog', {
     method: 'GET',
     accessToken,
   });

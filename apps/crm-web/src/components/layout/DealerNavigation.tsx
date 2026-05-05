@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Box, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
-import { IconBuilding, IconHome, type TablerIcon } from '@tabler/icons-react';
+import { IconBuilding, IconHome, IconPackage, type TablerIcon } from '@tabler/icons-react';
 import classes from './Navigation.module.css';
 
 type DealerNavItem = {
@@ -22,6 +22,11 @@ const dealerNavItems: DealerNavItem[] = [
     label: 'Account Center',
     link: '/dealer/account',
     icon: IconBuilding,
+  },
+  {
+    label: 'Products & Files',
+    link: '/dealer/catalog',
+    icon: IconPackage,
   },
 ];
 

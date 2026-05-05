@@ -18,6 +18,16 @@ export const DEALER_PORTAL_USER_STATUSES = [
 export type DealerPortalUserStatusKey =
   (typeof DEALER_PORTAL_USER_STATUSES)[number];
 
+export const DEALER_PORTAL_ACCESS_ROLES = [
+  'admin',
+  'purchasing',
+  'accounting',
+  'viewer',
+] as const;
+
+export type DealerPortalAccessRoleKey =
+  (typeof DEALER_PORTAL_ACCESS_ROLES)[number];
+
 export interface DealerPortalUserSummary {
   id: string;
   userId: string;
@@ -27,8 +37,12 @@ export interface DealerPortalUserSummary {
   displayName: string;
   title?: string;
   status: DealerPortalUserStatusKey;
+  accessRole: DealerPortalAccessRoleKey;
   isPrimaryOwner: boolean;
   isActive: boolean;
+  inviteIssuedAt?: string;
+  inviteExpiresAt?: string;
+  inviteAcceptedAt?: string;
   lastLoginAt?: string;
   activatedAt?: string;
   suspendedAt?: string;
@@ -70,6 +84,7 @@ export interface ProvisionDealerPortalUserRequest {
   title?: string;
   email?: string;
   password?: string;
+  accessRole?: DealerPortalAccessRoleKey;
   isPrimaryOwner?: boolean;
   notes?: string;
 }
@@ -78,6 +93,8 @@ export interface ProvisionDealerPortalUserResponse {
   portalAccount: DealerPortalAccountDetail;
   user: DealerPortalUserSummary;
   temporaryPassword: string;
+  inviteToken?: string;
+  invitePath?: string;
   createdContactId?: string;
 }
 
@@ -102,6 +119,23 @@ export interface ResetDealerPortalUserPasswordResponse {
   resetAt: string;
 }
 
+export interface CreateDealerPortalInviteResponse {
+  user: DealerPortalUserSummary;
+  inviteToken: string;
+  invitePath: string;
+  expiresAt: string;
+}
+
+export interface AcceptDealerPortalInviteRequest {
+  token: string;
+  password: string;
+}
+
+export interface AcceptDealerPortalInviteResponse {
+  email: string;
+  acceptedAt: string;
+}
+
 export interface DealerPortalDashboardResponse {
   portalAccount: DealerPortalAccountSummary;
   currentUser: DealerPortalUserSummary;
@@ -122,4 +156,45 @@ export interface DealerPortalDashboardResponse {
     countryCode?: string;
     isPrimary: boolean;
   }>;
+}
+
+export interface DealerPortalCatalogAssetSummary {
+  id: string;
+  title: string;
+  role: string;
+  kind: string;
+  visibility: 'dealer_portal' | 'public';
+  stableSlug: string;
+  fileName?: string;
+  downloadUrl?: string;
+  brandScope?: string;
+  regionScope?: string;
+}
+
+export interface DealerPortalCatalogProductSummary {
+  productId: string;
+  presentationId: string;
+  sku: string;
+  displayName: string;
+  shortDescription?: string;
+  longDescription?: string;
+  specSummary?: string;
+  categoryName?: string;
+  familyName?: string;
+  brandLabel?: string;
+  regionScope?: string;
+  assets: DealerPortalCatalogAssetSummary[];
+}
+
+export interface DealerPortalCatalogResponse {
+  catalogView?: {
+    id: string;
+    name: string;
+    kind: string;
+    resolverLabel?: string;
+    regionScope?: string;
+    brandLabel?: string;
+  };
+  products: DealerPortalCatalogProductSummary[];
+  warnings: string[];
 }

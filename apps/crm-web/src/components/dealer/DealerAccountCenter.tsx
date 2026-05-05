@@ -65,6 +65,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                   <Table.Th>User</Table.Th>
                   <Table.Th>Email</Table.Th>
                   <Table.Th>Title</Table.Th>
+                  <Table.Th>Role</Table.Th>
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Primary Owner</Table.Th>
                   <Table.Th>Activated</Table.Th>
@@ -76,6 +77,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     <Table.Td>{user.displayName}</Table.Td>
                     <Table.Td>{user.email}</Table.Td>
                     <Table.Td>{user.title ?? '—'}</Table.Td>
+                    <Table.Td>{formatAccessRole(user.accessRole)}</Table.Td>
                     <Table.Td>
                       <Badge size="sm" color={statusColor(user.status)} variant="light">
                         {user.status}
@@ -171,6 +173,10 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
       </Grid>
     </Stack>
   );
+}
+
+function formatAccessRole(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function MetadataRow({

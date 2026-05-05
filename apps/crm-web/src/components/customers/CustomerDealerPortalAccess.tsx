@@ -19,12 +19,14 @@ import {
 } from '@mantine/core';
 import type {
   AccountDetail,
+  DealerPortalAccessRoleKey,
   DealerPortalAccountDetail,
   DealerPortalUserStatusKey,
 } from '@pulse/contracts';
 import { IconCheck, IconKey, IconMail, IconUserPlus } from '@tabler/icons-react';
 import { canPerformAction } from '@/lib/access';
 import {
+  createDealerPortalInvite,
   fetchDealerPortalAccountDetail,
   provisionDealerPortalUser,
   resetDealerPortalUserPassword,
@@ -51,6 +53,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
   const [lastName, setLastName] = useState('');
   const [title, setTitle] = useState('');
   const [email, setEmail] = useState('');
+  const [accessRole, setAccessRole] = useState<DealerPortalAccessRoleKey>('admin');
   const [isPrimaryOwner, setIsPrimaryOwner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -121,16 +124,20 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
         ...(!selectedContactId && lastName.trim() ? { lastName } : {}),
         ...(!selectedContactId && title.trim() ? { title } : {}),
         ...(email.trim() ? { email } : {}),
+        accessRole,
         isPrimaryOwner,
       });
 
       setPortalAccount(response.portalAccount);
-      setSuccessMessage(`Portal user created. Temporary password: ${response.temporaryPassword}`);
+      setSuccessMessage(response.invitePath
+        ? `Portal user created. Invite link: ${window.location.origin}${response.invitePath}`
+        : `Portal user created. Temporary password: ${response.temporaryPassword}`);
       setSelectedContactId(account.contacts[0]?.id ?? null);
       setFirstName('');
       setLastName('');
       setTitle('');
       setEmail('');
+      setAccessRole('admin');
       setIsPrimaryOwner(false);
       onProvisioned?.();
     } catch (error) {
@@ -168,6 +175,23 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
     try {
       const response = await resetDealerPortalUserPassword(apiBaseUrl, accessToken, userId);
       setSuccessMessage(`Temporary password reset for ${response.email}: ${response.temporaryPassword}`);
+      await reloadPortalAccount();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleCreateInvite(userId: string) {
+    if (!accessToken) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await createDealerPortalInvite(apiBaseUrl, accessToken, userId);
+      setSuccessMessage(`Invite link ready for ${response.user.email}: ${window.location.origin}${response.invitePath}`);
       await reloadPortalAccount();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -251,6 +275,18 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
             description="Leave blank to reuse the selected contact email."
           />
 
+          <Select
+            label="Portal role"
+            data={[
+              { value: 'admin', label: 'Admin - manage company access' },
+              { value: 'purchasing', label: 'Purchasing - catalog and ordering' },
+              { value: 'accounting', label: 'Accounting - invoices and payments' },
+              { value: 'viewer', label: 'Viewer - read-only access' },
+            ]}
+            value={accessRole}
+            onChange={(value) => setAccessRole((value as DealerPortalAccessRoleKey | null) ?? 'admin')}
+          />
+
           <Checkbox
             label="Primary owner / main portal contact"
             checked={isPrimaryOwner}
@@ -285,7 +321,9 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>User</Table.Th>
+                  <Table.Th>Role</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  <Table.Th>Invite</Table.Th>
                   <Table.Th>Last Login</Table.Th>
                   <Table.Th>Actions</Table.Th>
                 </Table.Tr>
@@ -303,9 +341,22 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                       </Stack>
                     </Table.Td>
                     <Table.Td>
+                      <Text size="sm">{formatProvisioningStatus(user.accessRole)}</Text>
+                    </Table.Td>
+                    <Table.Td>
                       <Badge color={statusColor(user.status)} variant="light">
                         {formatProvisioningStatus(user.status)}
                       </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Stack gap={0}>
+                        <Text size="sm">
+                          {user.inviteAcceptedAt ? 'Accepted' : user.inviteExpiresAt ? 'Pending' : 'Not issued'}
+                        </Text>
+                        {user.inviteExpiresAt && !user.inviteAcceptedAt ? (
+                          <Text size="xs" c="dimmed">Expires {formatTimestamp(user.inviteExpiresAt)}</Text>
+                        ) : null}
+                      </Stack>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm">{user.lastLoginAt ? formatTimestamp(user.lastLoginAt) : 'Never'}</Text>
@@ -328,6 +379,9 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                         ) : null}
                         <Button size="xs" variant="subtle" leftSection={<IconKey size={14} />} onClick={() => void handlePasswordReset(user.id)}>
                           Reset Password
+                        </Button>
+                        <Button size="xs" variant="subtle" leftSection={<IconMail size={14} />} onClick={() => void handleCreateInvite(user.id)}>
+                          Invite Link
                         </Button>
                       </Group>
                     </Table.Td>

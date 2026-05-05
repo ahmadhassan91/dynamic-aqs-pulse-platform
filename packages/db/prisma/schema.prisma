@@ -613,6 +613,13 @@ enum DealerPortalUserStatus {
   DEACTIVATED
 }
 
+enum DealerPortalAccessRole {
+  ADMIN
+  PURCHASING
+  ACCOUNTING
+  VIEWER
+}
+
 enum CisPackageStatus {
   NOT_SENT
   LINK_SENT
@@ -3099,7 +3106,12 @@ model DealerPortalUser {
   userId          String                 @unique @db.Uuid
   createdByUserId String?                @db.Uuid
   status          DealerPortalUserStatus @default(ACTIVE)
+  accessRole      DealerPortalAccessRole @default(ADMIN)
   isPrimaryOwner  Boolean                @default(false)
+  inviteTokenHash String?                 @unique
+  inviteIssuedAt  DateTime?
+  inviteExpiresAt DateTime?
+  inviteAcceptedAt DateTime?
   notes           String?
   activatedAt     DateTime?
   suspendedAt     DateTime?
@@ -3116,7 +3128,10 @@ model DealerPortalUser {
   @@index([contactId])
   @@index([createdByUserId])
   @@index([status])
+  @@index([accessRole])
   @@index([isPrimaryOwner])
+  @@index([inviteExpiresAt])
+  @@index([inviteAcceptedAt])
 }
 
 model TrainingCategory {

@@ -85,6 +85,7 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
                         <Table.Th>User</Table.Th>
                         <Table.Th>Email</Table.Th>
                         <Table.Th>Status</Table.Th>
+                        <Table.Th>Role</Table.Th>
                         <Table.Th>Primary Owner</Table.Th>
                         <Table.Th>Last Login</Table.Th>
                       </Table.Tr>
@@ -99,6 +100,7 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
                               {user.status}
                             </Badge>
                           </Table.Td>
+                          <Table.Td>{formatAccessRole(user.accessRole)}</Table.Td>
                           <Table.Td>{user.isPrimaryOwner ? 'Yes' : 'No'}</Table.Td>
                           <Table.Td>{formatDateTime(user.lastLoginAt)}</Table.Td>
                         </Table.Tr>
@@ -190,6 +192,10 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
       </Grid>
     </Stack>
   );
+}
+
+function formatAccessRole(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function MetricCard({

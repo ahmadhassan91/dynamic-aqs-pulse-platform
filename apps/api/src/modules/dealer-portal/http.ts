@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  AcceptDealerPortalInviteRequest,
   ProvisionDealerPortalUserRequest,
   ResetDealerPortalUserPasswordRequest,
   UpdateDealerPortalUserStatusRequest,
@@ -20,6 +21,9 @@ import {
   requireAuthenticatedActor,
 } from '../auth/request.js';
 import {
+  acceptDealerPortalInvite,
+  createDealerPortalInvite,
+  getCurrentDealerPortalCatalog,
   getCurrentDealerPortalDashboard,
   getDealerPortalAccount,
   provisionDealerPortalUser,
@@ -34,7 +38,10 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
     /^\/api\/v1\/dealer-portal\/accounts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/accounts\/[^/]+\/users$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/users\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/dealer-portal\/users\/[^/]+\/invite$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/users\/[^/]+\/reset-password$/.test(pathname)
+    || pathname === '/api/v1/dealer-portal/invites/accept'
+    || pathname === '/api/v1/dealer-portal/me/catalog'
     || pathname === '/api/v1/dealer-portal/me/dashboard';
 
   if (!isDealerPortalRoute) {
@@ -43,6 +50,29 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
 
   try {
     const dealerDashboardMatch = pathname === '/api/v1/dealer-portal/me/dashboard';
+    const dealerCatalogMatch = pathname === '/api/v1/dealer-portal/me/catalog';
+    if (pathname === '/api/v1/dealer-portal/invites/accept') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const body = (await readJsonBody(req)) as AcceptDealerPortalInviteRequest;
+      const response = await acceptDealerPortalInvite(body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (dealerCatalogMatch) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+      });
+      const response = await getCurrentDealerPortalCatalog(actor);
+      return jsonResponse(res, 200, response);
+    }
+
     if (dealerDashboardMatch) {
       if (method !== 'GET') {
         return methodNotAllowedResponse(res, method, ['GET']);
@@ -112,6 +142,24 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
       });
       const body = (await readJsonBody(req)) as ResetDealerPortalUserPasswordRequest;
       const response = await resetDealerPortalUserPassword(actor, portalUserId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const inviteMatch = pathname.match(/^\/api\/v1\/dealer-portal\/users\/([^/]+)\/invite$/);
+    if (inviteMatch) {
+      const portalUserId = inviteMatch[1];
+      if (!portalUserId) {
+        return badRequestResponse(res, 'Dealer portal user id is required');
+      }
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'lead.portal_setup',
+      });
+      const response = await createDealerPortalInvite(actor, portalUserId);
       return jsonResponse(res, 200, response);
     }
 

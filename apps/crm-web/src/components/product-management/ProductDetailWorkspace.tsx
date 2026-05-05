@@ -478,7 +478,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Catalog view</Table.Th>
-              <Table.Th>Resolver value</Table.Th>
+              <Table.Th>Match value</Table.Th>
               <Table.Th>Region</Table.Th>
               <Table.Th>Brand</Table.Th>
               <Table.Th>Status</Table.Th>
@@ -497,7 +497,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               </Table.Tr>
             ))}
             {!product.inclusions.length ? (
-              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer catalog view rules yet.</Text></Table.Td></Table.Tr>
+              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer catalog view assignments yet.</Text></Table.Td></Table.Tr>
             ) : null}
           </Table.Tbody>
         </Table>
@@ -512,17 +512,17 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 onChange={(value) => setInclusionForm((current) => ({ ...current, dealerCatalogViewId: value }))}
                 clearable
               />
-              <Select label="Catalog view type" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
-              <TextInput label="Resolver value" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+              <Select label="Catalog view" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
+              <TextInput label="Match value" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
               <Select label="Publish status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
-              <TextInput label="Region scope" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
-              <TextInput label="Brand label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
+              <TextInput label="Region" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+              <TextInput label="Brand / private label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
               <Checkbox mt="xl" label="Visible" checked={inclusionForm.isVisible} onChange={(event) => setInclusionForm((current) => ({ ...current, isVisible: event.currentTarget.checked }))} />
             </SimpleGrid>
             <Textarea label="Notes" minRows={2} value={inclusionForm.notes} onChange={(event) => setInclusionForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
             <Group justify="flex-end">
               <Button variant="subtle" onClick={handleResetInclusion}>Reset</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Catalog View Rule' : 'Add Catalog View Rule'}</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Catalog View Assignment' : 'Add To Catalog View'}</Button>
             </Group>
           </Stack>
         ) : null}

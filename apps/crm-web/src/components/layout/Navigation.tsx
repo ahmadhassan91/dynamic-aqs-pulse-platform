@@ -161,9 +161,9 @@ export function Navigation() {
       links: [
         { label: 'Dealer Catalog Views', link: '/product-management?tab=visibility' },
         { label: 'Products', link: '/product-management?tab=products' },
-        { label: 'Readiness', link: '/product-management?tab=readiness' },
-        { label: 'Publish Control', link: '/product-management?tab=publish' },
-        { label: 'Categories & Families', link: '/product-management?tab=categories' },
+        { label: 'Files & Readiness', link: '/product-management?tab=readiness' },
+        { label: 'Ready To Publish', link: '/product-management?tab=publish' },
+        { label: 'Catalog Setup', link: '/product-management?tab=categories' },
       ],
     });
   }

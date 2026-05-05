@@ -531,10 +531,10 @@ export function ProductManagementWorkspace() {
       </Group>
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-        <Metric label="Products" value={metrics.totalProducts} />
-        <Metric label="Categories" value={metrics.categories} />
-        <Metric label="Families" value={metrics.families} />
-        <Metric label="Catalog Views" value={catalogViewRows.length} />
+        <Metric label="Dealer Catalog Views" value={catalogViewRows.length} />
+        <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
+        <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
+        <Metric label="Ready To Publish" value={readinessRows.filter((row) => row.status === 'pass').length} />
       </SimpleGrid>
 
       {error ? (
@@ -554,12 +554,12 @@ export function ProductManagementWorkspace() {
         }}
       >
         <Tabs.List>
-          <Tabs.Tab value="visibility">Dealer Catalog Views</Tabs.Tab>
+          <Tabs.Tab value="visibility">Catalog Views</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
-          <Tabs.Tab value="readiness">Readiness</Tabs.Tab>
-          <Tabs.Tab value="publish">Publish Control</Tabs.Tab>
-          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Categories</Tabs.Tab>
-          <Tabs.Tab value="families">Families</Tabs.Tab>
+          <Tabs.Tab value="readiness">Files & Readiness</Tabs.Tab>
+          <Tabs.Tab value="publish">Ready To Publish</Tabs.Tab>
+          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Catalog Setup</Tabs.Tab>
+          <Tabs.Tab value="families">Families Setup</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="categories" pt="md">
@@ -772,7 +772,7 @@ export function ProductManagementWorkspace() {
         <Tabs.Panel value="visibility" pt="md">
           <Stack gap="md">
             <Alert color="blue" title="Dealer Catalog Views">
-              A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility feed the resolver. Pricing stays separate.
+              A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility decide the right view. Pricing stays separate.
             </Alert>
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
               <Metric label="Catalog Views With Products" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
@@ -797,8 +797,8 @@ export function ProductManagementWorkspace() {
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, name: event.currentTarget.value }))}
                   required
                 />
-                <Select
-                  label="Type"
+                  <Select
+                  label="Audience type"
                   data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                   value={catalogViewForm.kind}
                   onChange={(value) => {
@@ -812,26 +812,26 @@ export function ProductManagementWorkspace() {
                   allowDeselect={false}
                 />
                 <NumberInput
-                  label="Precedence"
+                  label="Rule order"
                   min={1}
                   max={999}
                   value={catalogViewForm.precedence}
                   onChange={(value) => setCatalogViewForm((current) => ({ ...current, precedence: Number(value) || 100 }))}
                 />
                 <TextInput
-                  label="Resolver key"
+                  label="Matching value"
                   placeholder="nexstar, redwood, CA, private-label-code"
                   value={catalogViewForm.resolverKey}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
                 />
                 <TextInput
-                  label="Resolver label"
+                  label="Display label"
                   placeholder="Nexstar, Redwood / Apollo, Canada"
                   value={catalogViewForm.resolverLabel}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverLabel: event.currentTarget.value }))}
                 />
                 <Select
-                  label="Region scope"
+                  label="Region"
                   placeholder="All regions"
                   data={CATEGORY_REGION_OPTIONS}
                   value={catalogViewForm.regionScope || null}
@@ -885,7 +885,7 @@ export function ProductManagementWorkspace() {
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Dealer catalog view</Table.Th>
-                      <Table.Th>Resolver input</Table.Th>
+                      <Table.Th>How this view is matched</Table.Th>
                       <Table.Th>Region / Brand</Table.Th>
                       <Table.Th>Products</Table.Th>
                       <Table.Th />
@@ -896,7 +896,7 @@ export function ProductManagementWorkspace() {
                       <Table.Tr key={row.key}>
                         <Table.Td>
                           <Text fw={600}>{row.catalogView}</Text>
-                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured catalog view' : 'Inferred from product rule'}</Text>
+                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured catalog view' : 'Needs catalog view setup'}</Text>
                         </Table.Td>
                         <Table.Td>{row.resolverInput}</Table.Td>
                         <Table.Td>
@@ -1016,14 +1016,14 @@ export function ProductManagementWorkspace() {
                 onChange={(value) => setPublishStatusFilter(value as ProductPublishStatusKey | null)}
               />
               <Button variant="light" onClick={handlePreviewImport} loading={isPreviewingImport}>
-                Preview CSV Import
+                Preview Legacy Product File
               </Button>
             </Group>
             {importPreview ? (
-              <Alert color="blue" title="Curated reference import preview">
+              <Alert color="blue" title="Legacy product file preview">
                 <Text size="sm">
                   {importPreview.uniqueSkus} unique SKUs from {importPreview.acumaticaRows} Acumatica rows and {importPreview.shopifyRows} Shopify rows.
-                  {' '}Detected {importPreview.candidateCategories} categories and {importPreview.imageAssets} image assets. Shopify remains legacy reference data.
+                  {' '}Detected {importPreview.candidateCategories} categories and {importPreview.imageAssets} image assets. Review only: final product load waits for certified Acumatica item mapping.
                 </Text>
               </Alert>
             ) : null}
@@ -1130,7 +1130,7 @@ export function ProductManagementWorkspace() {
                     <Table.Th>Product</Table.Th>
                     <Table.Th>Presentation Status</Table.Th>
                     <Table.Th>Readiness</Table.Th>
-                    <Table.Th>Catalog View Rules</Table.Th>
+                    <Table.Th>Catalog View Assignments</Table.Th>
                     <Table.Th>Assets</Table.Th>
                     <Table.Th />
                   </Table.Tr>
@@ -1218,10 +1218,10 @@ function buildCatalogViewResolverLabel(catalogView: DealerCatalogViewSummary) {
   if (catalogView.resolverKey) return catalogView.resolverKey;
   if (catalogView.kind === 'standard') return 'Default eligible dealer context';
   if (catalogView.kind === 'independent') return 'Independent classification outcome';
-  if (catalogView.kind === 'region') return catalogView.regionScope ?? 'Region resolver';
-  if (catalogView.kind === 'brand' || catalogView.kind === 'private_label') return catalogView.brandLabel ?? 'Brand/private-label resolver';
-  if (catalogView.kind === 'affinity') return 'Affinity group resolver';
-  if (catalogView.kind === 'ownership') return 'Ownership / PE resolver';
+  if (catalogView.kind === 'region') return catalogView.regionScope ?? 'Region match';
+  if (catalogView.kind === 'brand' || catalogView.kind === 'private_label') return catalogView.brandLabel ?? 'Brand/private-label match';
+  if (catalogView.kind === 'affinity') return 'Affinity group match';
+  if (catalogView.kind === 'ownership') return 'Ownership / PE match';
   return 'Account-specific override';
 }
 

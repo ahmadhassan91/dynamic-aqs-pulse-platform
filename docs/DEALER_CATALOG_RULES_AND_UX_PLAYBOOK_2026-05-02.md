@@ -141,6 +141,9 @@ Implementation status as of May 2, 2026:
 - Conditions stay flexible so Dynamic can confirm final rules later without another schema redesign.
 - Rule outputs are normalized to active `DealerCatalogView` rows, or explicit `Require Review`.
 - Preview-before-publish is implemented against account affinity, ownership/PE, independent, region, and portal eligibility context.
+- Publish now requires a clean preview: no sampled unmatched accounts and no review-required accounts.
+- Preview now summarizes affected catalog views with sampled account count, products shown, ready products, linked files, and missing setup count.
+- The Super Admin UI now offers guided rule templates for affinity, ownership/PE, independent, and review-required cases.
 - Product/file include/exclude rules remain a later slice; the first shipped slice assigns catalog views and blocks ambiguous cases for review.
 
 ## Target Flexible Rule Builder

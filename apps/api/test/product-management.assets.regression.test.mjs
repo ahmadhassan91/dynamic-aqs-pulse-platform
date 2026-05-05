@@ -316,6 +316,25 @@ test('catalog rule sets preview and activate simple dealer catalog rules', SERIA
     precedence: 50,
   });
   await seedAccountClassificationFixture({ affinityCode: 'nexstar' });
+  const fixture = await seedProductFixture();
+  await prisma.productPresentation.update({
+    where: { id: fixture.presentation.id },
+    data: { readyForDealerPortal: true },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: fixture.presentation.id,
+      assetId: fixture.primaryImage.id,
+      role: 'PRIMARY_IMAGE',
+      isRequired: true,
+    },
+  });
+  await createCatalogInclusion(actor, {
+    presentationId: fixture.presentation.id,
+    dealerCatalogViewId: catalogView.id,
+    isVisible: true,
+    publishStatus: 'ready_for_review',
+  });
 
   const ruleSet = await createCatalogRuleSet(actor, {
     name: 'Dealer Catalog Rules',
@@ -332,6 +351,9 @@ test('catalog rule sets preview and activate simple dealer catalog rules', SERIA
   assert.equal(preview.sampleAccountCount, 1);
   assert.equal(preview.matchedCount, 1);
   assert.equal(preview.rows[0].dealerCatalogViewName, 'Nexstar Dealer Catalog');
+  assert.equal(preview.catalogViewImpacts[0].visibleProductCount, 1);
+  assert.equal(preview.catalogViewImpacts[0].readyProductCount, 1);
+  assert.equal(preview.catalogViewImpacts[0].linkedFileCount, 1);
 
   const activated = await activateCatalogRuleSet(actor, ruleSet.id);
   assert.equal(activated.activeRuleSet.status, 'active');
@@ -399,6 +421,10 @@ test('catalog rule preview surfaces review requirements instead of guessing', SE
   assert.equal(preview.reviewRequiredCount, 1);
   assert.equal(preview.rows[0].resultAction, 'require_review');
   assert.match(preview.rows[0].warning, /Ownership and affinity/);
+  await activateCatalogRuleSet(actor, ruleSet.id).then(
+    () => assert.fail('Expected review-required preview to block activation'),
+    (error) => assert.match(error.message, /Preview must be clean/),
+  );
 
   await updateCatalogRuleSet(actor, ruleSet.id, {
     rules: [{

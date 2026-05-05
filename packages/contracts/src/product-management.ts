@@ -206,6 +206,16 @@ export interface CatalogRulePreviewRow {
   warning?: string;
 }
 
+export interface CatalogRuleCatalogViewImpact {
+  dealerCatalogViewId: string;
+  dealerCatalogViewName: string;
+  matchedAccountCount: number;
+  visibleProductCount: number;
+  readyProductCount: number;
+  linkedFileCount: number;
+  missingSetupCount: number;
+}
+
 export interface CatalogRulePreviewResponse {
   ruleSetId?: string;
   sampleAccountCount: number;
@@ -213,6 +223,7 @@ export interface CatalogRulePreviewResponse {
   reviewRequiredCount: number;
   unmatchedCount: number;
   rows: CatalogRulePreviewRow[];
+  catalogViewImpacts: CatalogRuleCatalogViewImpact[];
   warnings: string[];
 }
 

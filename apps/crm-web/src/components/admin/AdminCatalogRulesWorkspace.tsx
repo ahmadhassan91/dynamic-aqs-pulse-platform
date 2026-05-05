@@ -5,6 +5,7 @@ import {
   Alert,
   Badge,
   Button,
+  Divider,
   Group,
   Loader,
   NumberInput,
@@ -64,6 +65,29 @@ const operators: Array<{ value: CatalogRuleConditionOperatorKey; label: string }
   { value: 'is_any', label: 'any value' },
 ];
 
+const ruleTemplates: Array<{ label: string; description: string; rule: EditableRule }> = [
+  {
+    label: 'Affinity',
+    description: 'Buying group or coaching network gets its catalog.',
+    rule: { name: 'Affinity group gets matching catalog', field: 'affinity_group', operator: 'is', value: '', result: '', priority: 10 },
+  },
+  {
+    label: 'Ownership / PE',
+    description: 'Parent company or PE group gets reviewed or assigned.',
+    rule: { name: 'Ownership / PE group gets matching catalog', field: 'ownership_group', operator: 'is', value: '', result: '', priority: 20 },
+  },
+  {
+    label: 'Independent',
+    description: 'Dealers without affinity or ownership use the independent catalog.',
+    rule: { name: 'Independent dealers get independent catalog', field: 'independent', operator: 'is', value: 'yes', result: '', priority: 80 },
+  },
+  {
+    label: 'Needs Review',
+    description: 'Stop ambiguous accounts until an admin confirms.',
+    rule: { name: 'Needs review before catalog publish', field: 'ownership_group', operator: 'is_not_empty', value: '', result: 'review', priority: 5 },
+  },
+];
+
 export function AdminCatalogRulesWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const accessToken = auth?.tokens.accessToken;
@@ -74,6 +98,7 @@ export function AdminCatalogRulesWorkspace() {
   const [description, setDescription] = useState('Simple rules for who sees each dealer catalog view.');
   const [rules, setRules] = useState<EditableRule[]>([newBlankRule()]);
   const [preview, setPreview] = useState<CatalogRulePreviewResponse | null>(null);
+  const [lastPreviewDraft, setLastPreviewDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -83,6 +108,8 @@ export function AdminCatalogRulesWorkspace() {
   );
   const activeRuleSet = ruleSets.find((ruleSet) => ruleSet.isActive);
   const resultOptions = catalogViews.map((view) => ({ value: view.id, label: view.name }));
+  const currentDraft = useMemo(() => JSON.stringify({ name, description, rules }), [description, name, rules]);
+  const publishBlocked = !preview || lastPreviewDraft !== currentDraft || preview.unmatchedCount > 0 || preview.reviewRequiredCount > 0;
 
   useEffect(() => {
     if (!isHydrated || !accessToken) return;
@@ -125,6 +152,7 @@ export function AdminCatalogRulesWorkspace() {
       priority: rule.priority,
     })) : [newBlankRule()]);
     setPreview(null);
+    setLastPreviewDraft('');
   }
 
   async function saveDraft() {
@@ -145,13 +173,19 @@ export function AdminCatalogRulesWorkspace() {
     }
   }
 
-  async function previewImpact() {
+  async function runPreview() {
     if (!accessToken || !selectedRuleSetId) return;
+    const result = await previewCatalogRuleSet(apiBaseUrl, accessToken, selectedRuleSetId, { rules: buildRulePayload(), sampleLimit: 25 });
+    setPreview(result);
+    setLastPreviewDraft(currentDraft);
+    return result;
+  }
+
+  async function previewImpact() {
     setSaving(true);
     try {
-      const result = await previewCatalogRuleSet(apiBaseUrl, accessToken, selectedRuleSetId, { rules: buildRulePayload(), sampleLimit: 25 });
-      setPreview(result);
-      notifications.show({ color: result.warnings.length ? 'yellow' : 'green', title: 'Preview complete', message: `${result.matchedCount} sampled accounts matched.` });
+      const result = await runPreview();
+      if (result) notifications.show({ color: result.warnings.length ? 'yellow' : 'green', title: 'Preview complete', message: `${result.matchedCount} sampled accounts matched.` });
     } catch (error) {
       notifications.show({ color: 'red', title: 'Preview failed', message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -163,7 +197,15 @@ export function AdminCatalogRulesWorkspace() {
     if (!accessToken || !selectedRuleSetId) return;
     setSaving(true);
     try {
-      await previewImpact();
+      const resultPreview = await runPreview();
+      if (!resultPreview || resultPreview.unmatchedCount > 0 || resultPreview.reviewRequiredCount > 0) {
+        notifications.show({
+          color: 'yellow',
+          title: 'Preview needs cleanup',
+          message: 'Fix unmatched accounts or review-required rules before publishing.',
+        });
+        return;
+      }
       const result = await activateCatalogRuleSet(apiBaseUrl, accessToken, selectedRuleSetId);
       setRuleSets((current) => [result.activeRuleSet, ...current.filter((item) => item.id !== result.activeRuleSet.id).map((item) => result.retiredRuleSetIds.includes(item.id) ? { ...item, status: 'retired' as const, isActive: false } : item)]);
       loadRuleSetIntoForm(result.activeRuleSet);
@@ -233,6 +275,32 @@ export function AdminCatalogRulesWorkspace() {
             </Group>
             <TextInput label="Rule set name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
             <Textarea label="Notes" minRows={2} value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
+            <Paper withBorder p="md" radius="md" bg="gray.0">
+              <Stack gap="xs">
+                <Text fw={700}>Start from a simple rule</Text>
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  {ruleTemplates.map((template) => (
+                    <Paper key={template.label} withBorder p="sm" radius="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <div>
+                          <Text fw={700}>{template.label}</Text>
+                          <Text size="xs" c="dimmed">{template.description}</Text>
+                        </div>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          onClick={() => setRules((current) => [...current, { ...template.rule, priority: (current.length + 1) * 10 }])}
+                        >
+                          Add
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ))}
+                </SimpleGrid>
+                <Text size="sm" c="dimmed">Templates only fill the rule shape. Choose the actual group value and catalog view before saving.</Text>
+              </Stack>
+            </Paper>
+            <Divider />
             {rules.map((rule, index) => (
               <Paper key={index} withBorder p="md" radius="md">
                 <Stack gap="sm">
@@ -249,7 +317,7 @@ export function AdminCatalogRulesWorkspace() {
                     <TextInput label="Value" value={rule.value} disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)} onChange={(event) => updateRule(index, { value: event.currentTarget.value })} />
                   </SimpleGrid>
                   <SimpleGrid cols={{ base: 1, md: 2 }}>
-                    <Select label="Then show" data={[...resultOptions, { value: 'review', label: 'Require Review' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
+                    <Select label="Then assign Dealer Catalog View" data={[...resultOptions, { value: 'review', label: 'Require Review' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
                     <NumberInput label="Order" value={rule.priority} min={1} onChange={(value) => updateRule(index, { priority: Number(value) || 100 })} />
                   </SimpleGrid>
                 </Stack>
@@ -259,8 +327,11 @@ export function AdminCatalogRulesWorkspace() {
               <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setRules((current) => [...current, newBlankRule(current.length)])}>Add Rule</Button>
               <Button leftSection={<IconChecks size={16} />} loading={saving} onClick={saveDraft}>Save Draft</Button>
               <Button variant="outline" leftSection={<IconEye size={16} />} disabled={!selectedRuleSetId} loading={saving} onClick={previewImpact}>Preview Impact</Button>
-              <Button color="green" leftSection={<IconShieldCheck size={16} />} disabled={!selectedRuleSetId} loading={saving} onClick={publishRules}>Publish</Button>
+              <Button color="green" leftSection={<IconShieldCheck size={16} />} disabled={!selectedRuleSetId || publishBlocked} loading={saving} onClick={publishRules}>Publish</Button>
             </Group>
+            {publishBlocked ? (
+              <Text size="sm" c="dimmed">Preview must show no unmatched accounts and no review-required accounts before publishing.</Text>
+            ) : null}
           </Stack>
         </Paper>
 
@@ -297,11 +368,16 @@ export function AdminCatalogRulesWorkspace() {
         {preview?.warnings.length ? (
           <Alert color="yellow" mt="md" title="Needs review">{preview.warnings.join(' ')}</Alert>
         ) : null}
+        {preview && !preview.warnings.length ? (
+          <Alert color="green" mt="md" title="Ready to publish">All sampled accounts matched a catalog view without review warnings.</Alert>
+        ) : null}
         <Table mt="md">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Account</Table.Th>
-              <Table.Th>Group</Table.Th>
+              <Table.Th>Affinity</Table.Th>
+              <Table.Th>Ownership / PE</Table.Th>
+              <Table.Th>Classification</Table.Th>
               <Table.Th>Rule</Table.Th>
               <Table.Th>Catalog View</Table.Th>
               <Table.Th>Status</Table.Th>
@@ -311,7 +387,9 @@ export function AdminCatalogRulesWorkspace() {
             {(preview?.rows ?? []).map((row) => (
               <Table.Tr key={row.accountId}>
                 <Table.Td>{row.accountName}</Table.Td>
-                <Table.Td>{row.affinityGroup ?? row.ownershipGroup ?? row.classification ?? 'Unassigned'}</Table.Td>
+                <Table.Td>{row.affinityGroup ?? '-'}</Table.Td>
+                <Table.Td>{row.ownershipGroup ?? '-'}</Table.Td>
+                <Table.Td>{row.classification ?? '-'}</Table.Td>
                 <Table.Td>{row.matchedRuleName ?? 'No match'}</Table.Td>
                 <Table.Td>{row.dealerCatalogViewName ?? 'Review needed'}</Table.Td>
                 <Table.Td><Badge color={row.warning ? 'yellow' : 'green'}>{row.warning ? 'Needs Review' : 'Ready'}</Badge></Table.Td>
@@ -319,6 +397,39 @@ export function AdminCatalogRulesWorkspace() {
             ))}
           </Table.Tbody>
         </Table>
+        {preview?.catalogViewImpacts.length ? (
+          <>
+            <Title order={3} mt="lg">Products and Files Affected</Title>
+            <Table mt="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Catalog View</Table.Th>
+                  <Table.Th>Accounts</Table.Th>
+                  <Table.Th>Products shown</Table.Th>
+                  <Table.Th>Ready products</Table.Th>
+                  <Table.Th>Files linked</Table.Th>
+                  <Table.Th>Missing setup</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {preview.catalogViewImpacts.map((impact) => (
+                  <Table.Tr key={impact.dealerCatalogViewId}>
+                    <Table.Td>{impact.dealerCatalogViewName}</Table.Td>
+                    <Table.Td>{impact.matchedAccountCount}</Table.Td>
+                    <Table.Td>{impact.visibleProductCount}</Table.Td>
+                    <Table.Td>{impact.readyProductCount}</Table.Td>
+                    <Table.Td>{impact.linkedFileCount}</Table.Td>
+                    <Table.Td>
+                      <Badge color={impact.missingSetupCount ? 'yellow' : 'green'}>
+                        {impact.missingSetupCount}
+                      </Badge>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </>
+        ) : null}
       </Paper>
     </Stack>
   );

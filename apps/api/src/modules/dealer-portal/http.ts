@@ -2,10 +2,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   AcceptDealerPortalInviteRequest,
+  DealerPortalAccessRoleKey,
   ProvisionDealerPortalUserRequest,
   ResetDealerPortalUserPasswordRequest,
   UpdateDealerPortalUserStatusRequest,
 } from '@pulse/contracts';
+import { DEALER_PORTAL_ACCESS_ROLES } from '@pulse/contracts';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -27,6 +29,7 @@ import {
   getCurrentDealerPortalCatalog,
   getCurrentDealerPortalDashboard,
   getDealerPortalAccount,
+  getDealerPortalInternalPreview,
   provisionDealerPortalUser,
   recordCurrentDealerPortalAssetOpen,
   resetDealerPortalUserPassword,
@@ -39,6 +42,8 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
   const method = req.method ?? 'GET';
   const isDealerPortalRoute =
     /^\/api\/v1\/dealer-portal\/accounts\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/dealer-portal\/internal-preview\/accounts\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/dealer-portal\/accounts\/[^/]+\/internal-preview$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/accounts\/[^/]+\/users$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/users\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/users\/[^/]+\/invite$/.test(pathname)
@@ -148,6 +153,34 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
       return jsonResponse(res, 200, response);
     }
 
+    const internalPreviewMatch = pathname.match(/^\/api\/v1\/dealer-portal\/internal-preview\/accounts\/([^/]+)$/)
+      ?? pathname.match(/^\/api\/v1\/dealer-portal\/accounts\/([^/]+)\/internal-preview$/);
+    if (internalPreviewMatch) {
+      const accountId = internalPreviewMatch[1];
+      if (!accountId) {
+        return badRequestResponse(res, 'Account id is required');
+      }
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const role = normalizePreviewRole(url.searchParams.get('role'));
+      if (!role) {
+        return badRequestResponse(res, 'Preview role must be one of: admin, purchasing, accounting, viewer');
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'lead.portal_setup',
+      });
+      const response = await getDealerPortalInternalPreview(actor, accountId, role);
+      if (!response) {
+        return notFoundResponse(res, { entity: 'DealerPortalAccount', id: accountId });
+      }
+
+      return jsonResponse(res, 200, response);
+    }
+
     const provisionMatch = pathname.match(/^\/api\/v1\/dealer-portal\/accounts\/([^/]+)\/users$/);
     if (provisionMatch) {
       const accountId = provisionMatch[1];
@@ -241,4 +274,11 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
   }
 
   return false;
+}
+
+function normalizePreviewRole(value: string | null): DealerPortalAccessRoleKey | null {
+  const role = (value ?? 'viewer').trim().toLowerCase();
+  return DEALER_PORTAL_ACCESS_ROLES.includes(role as DealerPortalAccessRoleKey)
+    ? role as DealerPortalAccessRoleKey
+    : null;
 }

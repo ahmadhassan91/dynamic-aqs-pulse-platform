@@ -54,6 +54,8 @@ import type {
   DealerPortalCatalogResponse,
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
+  DealerPortalInternalPreviewResponse,
+  DealerPortalAccessRoleKey,
   ProvisionDealerPortalUserRequest,
   ProvisionDealerPortalUserResponse,
   ResetDealerPortalUserPasswordRequest,
@@ -382,6 +384,7 @@ export type {
   ConsignmentAuditSummary,
   ConsignmentFormSummary,
   ConsignmentReadinessItemSummary,
+  DealerPortalInternalPreviewResponse,
   ConsignmentSiteDetail,
   ConsignmentSiteSummary,
 } from '@pulse/contracts';
@@ -2338,6 +2341,24 @@ export async function fetchDealerPortalCatalog(apiBaseUrl: string, accessToken: 
     method: 'GET',
     accessToken,
   });
+}
+
+export async function fetchDealerPortalInternalPreview(
+  apiBaseUrl: string,
+  accessToken: string,
+  accountId: string,
+  role: DealerPortalAccessRoleKey,
+) {
+  const searchParams = new URLSearchParams({ role });
+
+  return requestJson<DealerPortalInternalPreviewResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/accounts/${accountId}/internal-preview?${searchParams.toString()}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
 }
 
 export async function favoriteDealerPortalProduct(apiBaseUrl: string, accessToken: string, presentationId: string) {

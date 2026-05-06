@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Card,
+  Divider,
   Checkbox,
   Grid,
   Group,
@@ -23,11 +24,14 @@ import type {
   DealerPortalAccountDetail,
   DealerPortalUserStatusKey,
 } from '@pulse/contracts';
-import { IconCheck, IconKey, IconMail, IconUserPlus } from '@tabler/icons-react';
+import { IconEye, IconKey, IconMail, IconUserPlus } from '@tabler/icons-react';
+import { DealerCatalog } from '@/components/dealer/DealerCatalog';
 import { canPerformAction } from '@/lib/access';
 import {
   createDealerPortalInvite,
+  fetchDealerPortalInternalPreview,
   fetchDealerPortalAccountDetail,
+  type DealerPortalInternalPreviewResponse,
   provisionDealerPortalUser,
   resetDealerPortalUserPassword,
   updateDealerPortalUserStatus,
@@ -56,6 +60,10 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
   const [accessRole, setAccessRole] = useState<DealerPortalAccessRoleKey>('admin');
   const [isPrimaryOwner, setIsPrimaryOwner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewRole, setPreviewRole] = useState<DealerPortalAccessRoleKey>('viewer');
+  const [dealerPreview, setDealerPreview] = useState<DealerPortalInternalPreviewResponse | null>(null);
+  const [previewErrorMessage, setPreviewErrorMessage] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   const contactOptions = useMemo(
     () => account.contacts.map((contact) => ({
@@ -198,6 +206,25 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
     }
   }
 
+  async function handleLoadDealerPreview() {
+    if (!accessToken) {
+      return;
+    }
+
+    setPreviewErrorMessage(null);
+    setDealerPreview(null);
+    setIsPreviewLoading(true);
+
+    try {
+      const response = await fetchDealerPortalInternalPreview(apiBaseUrl, accessToken, account.id, previewRole);
+      setDealerPreview(response);
+    } catch (error) {
+      setPreviewErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  }
+
   const sourceLeadStatus = portalAccount?.portalEligibilityStatus ?? 'unassessed';
 
   return (
@@ -239,6 +266,84 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
 
       <Card withBorder radius="md" p="lg">
         <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={4}>
+              <Title order={4}>Preview as Dealer</Title>
+              <Text size="sm" c="dimmed">
+                Internal-only view for checking what this account can see before dealer users sign in.
+              </Text>
+            </Stack>
+            {isPreviewLoading ? <Loader size="sm" /> : null}
+          </Group>
+
+          <Grid align="end">
+            <Grid.Col span={{ base: 12, md: 5 }}>
+              <Select
+                label="Preview role"
+                data={dealerPortalRoleOptions}
+                value={previewRole}
+                onChange={(value) => setPreviewRole((value as DealerPortalAccessRoleKey | null) ?? 'viewer')}
+                allowDeselect={false}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 7 }}>
+              <Group justify="flex-end">
+                <Button
+                  leftSection={<IconEye size={16} />}
+                  onClick={() => void handleLoadDealerPreview()}
+                  loading={isPreviewLoading}
+                  disabled={!accessToken || !canManagePortal}
+                >
+                  Preview Dealer View
+                </Button>
+              </Group>
+            </Grid.Col>
+          </Grid>
+
+          {previewErrorMessage ? (
+            <Alert color="red" variant="light">
+              {previewErrorMessage}
+            </Alert>
+          ) : null}
+
+          {dealerPreview ? (
+            <Stack gap="md">
+              <Alert color="orange" variant="light" icon={<IconEye size={16} />}>
+                Internal preview only. This is not a dealer login, does not create a dealer session, and does not change
+                account access.
+              </Alert>
+
+              <Grid>
+                <Grid.Col span={{ base: 12, md: 6 }}>
+                  <Stack gap="xs">
+                    <Title order={5}>Account Context</Title>
+                    <MetadataRow label="Account" value={dealerPreview.portalAccount.accountDisplayName} />
+                    <MetadataRow label="Account Number" value={dealerPreview.portalAccount.accountNumber ?? 'Not assigned'} />
+                    <MetadataRow label="Territory" value={dealerPreview.portalAccount.territoryName ?? 'Not assigned'} />
+                    <MetadataRow label="Shipping Center" value={dealerPreview.portalAccount.shippingCenterName ?? 'Not assigned'} />
+                  </Stack>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 6 }}>
+                  <Stack gap="xs">
+                    <Title order={5}>Preview Summary</Title>
+                    <MetadataRow label="Role" value={formatProvisioningStatus(dealerPreview.previewRole)} />
+                    <MetadataRow label="Catalog View" value={dealerPreview.catalog.catalogView?.name ?? 'No catalog view'} />
+                    <MetadataRow label="Visible Products" value={String(dealerPreview.visibleProductCount)} />
+                    <MetadataRow label="Visible Files" value={String(dealerPreview.visibleFileCount)} />
+                  </Stack>
+                </Grid.Col>
+              </Grid>
+
+              <Divider />
+
+              <DealerCatalog catalog={dealerPreview.catalog} />
+            </Stack>
+          ) : null}
+        </Stack>
+      </Card>
+
+      <Card withBorder radius="md" p="lg">
+        <Stack gap="md">
           <Group justify="space-between">
             <Title order={4}>Provision Dealer Portal User</Title>
             {isLoading ? <Loader size="sm" /> : null}
@@ -277,12 +382,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
 
           <Select
             label="Portal role"
-            data={[
-              { value: 'admin', label: 'Admin - manage company access' },
-              { value: 'purchasing', label: 'Purchasing - catalog and ordering' },
-              { value: 'accounting', label: 'Accounting - invoices and payments' },
-              { value: 'viewer', label: 'Viewer - read-only access' },
-            ]}
+            data={dealerPortalRoleOptions}
             value={accessRole}
             onChange={(value) => setAccessRole((value as DealerPortalAccessRoleKey | null) ?? 'admin')}
           />
@@ -395,6 +495,13 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
     </Stack>
   );
 }
+
+const dealerPortalRoleOptions = [
+  { value: 'admin', label: 'Admin - manage company access' },
+  { value: 'purchasing', label: 'Purchasing - catalog and ordering' },
+  { value: 'accounting', label: 'Accounting - invoices and payments' },
+  { value: 'viewer', label: 'Viewer - read-only access' },
+];
 
 function MetadataRow({ label, value }: { label: string; value: string }) {
   return (

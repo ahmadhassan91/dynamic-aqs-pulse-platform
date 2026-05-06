@@ -16,6 +16,7 @@ let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
 let getDealerPortalAccount;
+let getDealerPortalInternalPreview;
 let provisionDealerPortalUser;
 let updateDealerPortalUserStatus;
 let resetDealerPortalUserPassword;
@@ -37,6 +38,7 @@ test.before(async () => {
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({
     getDealerPortalAccount,
+    getDealerPortalInternalPreview,
     provisionDealerPortalUser,
     updateDealerPortalUserStatus,
     resetDealerPortalUserPassword,
@@ -82,6 +84,14 @@ async function createAdminActor() {
   const actor = await authenticateAccessToken(auth.tokens.accessToken);
   assert.ok(actor, 'expected a bootstrap admin actor');
   return actor;
+}
+
+function actorWithRole(actor, role, actorType = actor.actorType) {
+  return {
+    ...actor,
+    role,
+    actorType,
+  };
 }
 
 async function seedPortalReadyAccount(actor, options = {}) {
@@ -415,6 +425,141 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(unfavoritedCatalog.products[0].isFavorite, false);
   assert.equal(unfavoritedCatalog.products[0].favoriteCount, 0);
   assert.equal(unfavoritedCatalog.userFavorites.count, 0);
+});
+
+test('dealer portal internal preview returns visibility diagnostics for the selected account and role', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Preview Dealer Comfort',
+    email: 'preview-catalog@portal.test',
+  });
+
+  const catalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'preview-standard-dealer-test',
+      name: 'Preview Standard Dealer Catalog',
+      kind: 'STANDARD',
+      isDefault: true,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'PV-100',
+      productName: 'Preview Visible Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Preview Visible Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: catalogView.id,
+      dealerGroupType: 'all_dealers',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+  const asset = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: 'preview-visible-product-spec',
+      title: 'Preview Spec Sheet',
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'APPROVED',
+      audience: 'dealer',
+      versions: {
+        create: {
+          versionNumber: 1,
+          externalUrl: 'https://assets.example.test/preview-spec.pdf',
+          fileName: 'preview-spec.pdf',
+          isCurrent: true,
+        },
+      },
+    },
+    include: {
+      versions: true,
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: presentation.id,
+      assetId: asset.id,
+      assetVersionId: asset.versions[0].id,
+      role: 'SPEC_SHEET',
+      sortOrder: 10,
+    },
+  });
+
+  const preview = await getDealerPortalInternalPreview(actor, fixture.account.id, 'viewer');
+
+  assert.equal(preview.preview.mode, 'internal_preview');
+  assert.equal(preview.preview.readOnly, true);
+  assert.equal(preview.preview.selectedRole, 'viewer');
+  assert.equal(preview.preview.accountId, fixture.account.id);
+  assert.equal(preview.portalAccount.accountId, fixture.account.id);
+  assert.equal(preview.dashboard.companyUsers.length, 0);
+  assert.equal(preview.dashboard.contacts.length, 1);
+  assert.ok(!('currentUser' in preview.dashboard), 'preview must not fabricate a dealer currentUser');
+  assert.equal(preview.catalog.catalogView.name, 'Preview Standard Dealer Catalog');
+  assert.equal(preview.catalog.products.length, 1);
+  assert.equal(preview.catalog.products[0].sku, 'PV-100');
+  assert.equal(preview.catalog.products[0].assets.length, 1);
+  assert.equal(preview.catalog.userFavorites.count, 0);
+  assert.deepEqual(preview.catalog.userFavorites.presentationIds, []);
+  assert.equal(preview.previewRole, 'viewer');
+  assert.equal(preview.visibleProductCount, 1);
+  assert.equal(preview.visibleFileCount, 1);
+  assert.equal(preview.diagnostics.catalogView.id, catalogView.id);
+  assert.equal(preview.diagnostics.catalogView.resolutionSource, 'default');
+  assert.equal(preview.diagnostics.selectedPreviewRole, 'viewer');
+  assert.equal(preview.diagnostics.visibleProductCount, 1);
+  assert.equal(preview.diagnostics.visibleFileCount, 1);
+  assert.equal(preview.diagnostics.productReasons[0].dealerSafeFileCount, 1);
+  assert.equal(preview.diagnostics.blockedProductSummary.scanned, false);
+  assert.ok(!('pricing' in preview.catalog.products[0]), 'preview catalog must not include pricing data');
+  assert.ok(!('orders' in preview), 'preview must not include order data');
+  assert.ok(!('invoices' in preview), 'preview must not include invoice data');
+  assert.ok(!('payments' in preview), 'preview must not include payment data');
+  assert.ok(!('credit' in preview), 'preview must not include credit enforcement data');
+
+  const audit = await prisma.auditEntry.findFirst({
+    where: {
+      actorUserId: actor.userId,
+      action: 'EXPORT',
+      entityType: 'DEALER_PORTAL_INTERNAL_PREVIEW',
+      entityId: fixture.account.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(audit);
+  assert.equal(audit.metadata.operation, 'dealer_portal.internal_preview');
+  assert.equal(audit.metadata.selectedRole, 'viewer');
+
+  await assert.rejects(
+    () => getDealerPortalInternalPreview(actorWithRole(actor, 'DEALER_PORTAL_USER', 'dealer'), fixture.account.id, 'viewer'),
+    /cannot perform action|only available to internal staff/i,
+  );
+  await assert.rejects(
+    () => getDealerPortalInternalPreview(actorWithRole(actor, 'SALES_BD_REP'), fixture.account.id, 'viewer'),
+    /cannot access module|cannot perform action/i,
+  );
 });
 
 test('inactive accounts cannot be provisioned for dealer portal access', SERIAL, async () => {

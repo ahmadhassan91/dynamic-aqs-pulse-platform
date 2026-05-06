@@ -205,6 +205,57 @@ export interface DealerPortalCatalogResponse {
   warnings: string[];
 }
 
+export interface DealerPortalCatalogDiagnostics {
+  catalogView?: {
+    id: string;
+    name: string;
+    kind: string;
+    resolverLabel?: string;
+    regionScope?: string;
+    brandLabel?: string;
+    resolutionSource: 'rule' | 'default';
+    ruleId?: string;
+    ruleName?: string;
+  };
+  selectedPreviewRole: DealerPortalAccessRoleKey;
+  visibleProductCount: number;
+  visibleFileCount: number;
+  warnings: string[];
+  productReasons: Array<{
+    productId: string;
+    presentationId: string;
+    sku: string;
+    displayName: string;
+    dealerSafeFileCount: number;
+    reasons: string[];
+    warnings: string[];
+  }>;
+  blockedProductSummary: {
+    scanned: boolean;
+    reason: string;
+  };
+}
+
+export interface DealerPortalInternalPreviewResponse {
+  previewRole: DealerPortalAccessRoleKey;
+  preview: {
+    mode: 'internal_preview';
+    readOnly: true;
+    accountId: string;
+    selectedRole: DealerPortalAccessRoleKey;
+    actorUserId: string;
+    generatedAt: string;
+    restrictions: string[];
+  };
+  portalAccount: DealerPortalAccountSummary;
+  dashboard: Omit<DealerPortalDashboardResponse, 'portalAccount' | 'currentUser'>;
+  catalog: DealerPortalCatalogResponse;
+  visibleProductCount: number;
+  visibleFileCount: number;
+  generatedAt: string;
+  diagnostics: DealerPortalCatalogDiagnostics;
+}
+
 export interface DealerPortalFavoriteProductResponse {
   ok: true;
   presentationId: string;

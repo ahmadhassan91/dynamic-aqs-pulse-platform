@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
-import { assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
+import { AuthorizationError, assertActionAccess, assertModuleAccess, normalizeRole } from '@pulse/auth';
 import {
   AuditAction,
   CatalogRuleResultAction,
@@ -27,8 +27,10 @@ import type {
   DealerPortalAccountSummary,
   DealerPortalAssetOpenResponse,
   DealerPortalCatalogResponse,
+  DealerPortalCatalogDiagnostics,
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
+  DealerPortalInternalPreviewResponse,
   DealerPortalProvisioningStatusKey,
   DealerPortalUserStatusKey,
   DealerPortalUserSummary,
@@ -46,6 +48,7 @@ import { buildAuditEntryData } from '../../utils/audit.js';
 const DEALER_PORTAL_ACCOUNT_ENTITY = 'DEALER_PORTAL_ACCOUNT';
 const DEALER_PORTAL_USER_ENTITY = 'DEALER_PORTAL_USER';
 const DEALER_PORTAL_CATALOG_ASSET_ENTITY = 'DEALER_PORTAL_CATALOG_ASSET';
+const DEALER_PORTAL_INTERNAL_PREVIEW_ENTITY = 'DEALER_PORTAL_INTERNAL_PREVIEW';
 const DEALER_PORTAL_INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 const DEALER_PORTAL_ACCOUNT_INCLUDE = {
@@ -127,6 +130,12 @@ type DealerPortalAccountRecord = Prisma.AccountGetPayload<{
   include: typeof DEALER_PORTAL_ACCOUNT_INCLUDE;
 }>;
 
+const DEALER_PORTAL_ACCOUNT_CATALOG_CONTEXT_INCLUDE = {
+  ...DEALER_PORTAL_ACCOUNT_INCLUDE,
+  affinityGroup: true,
+  ownershipGroup: true,
+} satisfies Prisma.AccountInclude;
+
 export async function getDealerPortalAccount(
   actor: AuthenticatedActor,
   accountId: string,
@@ -140,6 +149,84 @@ export async function getDealerPortalAccount(
   }
 
   return toDealerPortalAccountDetail(account);
+}
+
+export async function getDealerPortalInternalPreview(
+  actor: AuthenticatedActor,
+  accountId: string,
+  accessRole: DealerPortalAccessRoleKey,
+): Promise<DealerPortalInternalPreviewResponse | null> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'lead.portal_setup');
+  assertInternalActor(actor);
+
+  const selectedRole = toDealerPortalAccessRoleKey(toDealerPortalAccessRoleEnum(accessRole));
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: DEALER_PORTAL_ACCOUNT_CATALOG_CONTEXT_INCLUDE,
+  });
+  if (!account) {
+    return null;
+  }
+
+  const catalogContext = await buildDealerPortalCatalogForAccount(account, {
+    includeDiagnostics: true,
+    selectedPreviewRole: selectedRole,
+  });
+  const dashboard = buildDealerPortalDashboardContext(account);
+  const generatedAt = new Date();
+
+  await prisma.auditEntry.create({
+    data: buildAuditEntryData({
+      actorUserId: actor.userId,
+      action: AuditAction.EXPORT,
+      entityType: DEALER_PORTAL_INTERNAL_PREVIEW_ENTITY,
+      entityId: accountId,
+      metadata: {
+        operation: 'dealer_portal.internal_preview',
+        sessionId: actor.sessionId,
+        actorRole: actor.role,
+        actorType: actor.actorType,
+        selectedRole,
+        catalogViewId: catalogContext.catalog.catalogView?.id ?? null,
+        productCount: catalogContext.catalog.products.length,
+      },
+      afterData: {
+        accountId,
+        selectedRole,
+        readOnly: true,
+        generatedAt: generatedAt.toISOString(),
+      },
+    }),
+  });
+
+  return {
+    previewRole: selectedRole,
+    preview: {
+      mode: 'internal_preview',
+      readOnly: true,
+      accountId,
+      selectedRole,
+      actorUserId: actor.userId,
+      generatedAt: generatedAt.toISOString(),
+      restrictions: [
+        'read_only',
+        'no_dealer_session',
+        'no_pricing',
+        'no_orders',
+        'no_invoices',
+        'no_payments',
+        'no_credit_enforcement',
+      ],
+    },
+    portalAccount: toDealerPortalAccountSummary(account),
+    dashboard,
+    catalog: catalogContext.catalog,
+    visibleProductCount: catalogContext.catalog.products.length,
+    visibleFileCount: catalogContext.catalog.products.reduce((total, product) => total + product.assets.length, 0),
+    generatedAt: generatedAt.toISOString(),
+    diagnostics: catalogContext.diagnostics,
+  };
 }
 
 export async function provisionDealerPortalUser(
@@ -793,23 +880,7 @@ export async function getCurrentDealerPortalDashboard(
   return {
     portalAccount: toDealerPortalAccountSummary(portalUser.account),
     currentUser,
-    companyUsers: detail.users,
-    contacts: portalUser.account.contacts.map((contact) => ({
-      id: contact.id,
-      displayName: `${contact.firstName} ${contact.lastName}`.trim(),
-      ...(contact.title ? { title: contact.title } : {}),
-      ...(contact.email ? { email: contact.email } : {}),
-      ...(contact.phone ? { phone: contact.phone } : {}),
-      isPrimary: contact.isPrimary,
-    })),
-    locations: portalUser.account.locations.map((location) => ({
-      id: location.id,
-      name: location.name ?? location.locationCode ?? 'Location',
-      ...(location.city ? { city: location.city } : {}),
-      ...(location.state ? { state: location.state } : {}),
-      ...(location.countryCode ? { countryCode: location.countryCode } : {}),
-      isPrimary: location.isPrimary,
-    })),
+    ...buildDealerPortalDashboardContext(portalUser.account),
   };
 }
 
@@ -819,16 +890,45 @@ export async function getCurrentDealerPortalCatalog(
   assertModuleAccess(actor.role, 'dealer_portal');
 
   const portalUser = await loadActiveDealerPortalUser(actor);
+  const { catalog } = await buildDealerPortalCatalogForAccount(portalUser.account, {
+    dealerPortalUserId: portalUser.id,
+  });
 
-  const catalogView = await resolveCatalogViewForAccount(portalUser.account);
+  return catalog;
+}
+
+async function buildDealerPortalCatalogForAccount(
+  account: Parameters<typeof resolveCatalogViewForAccount>[0],
+  options: {
+    dealerPortalUserId?: string;
+    includeDiagnostics?: boolean;
+    selectedPreviewRole?: DealerPortalAccessRoleKey;
+  } = {},
+): Promise<{
+  catalog: DealerPortalCatalogResponse;
+  diagnostics: DealerPortalCatalogDiagnostics;
+}> {
+  const catalogResolution = await resolveCatalogViewForAccount(account);
+  const catalogView = catalogResolution.catalogView;
+  const selectedPreviewRole = options.selectedPreviewRole ?? 'viewer';
+
   if (!catalogView) {
+    const warnings = ['No published catalog view is assigned to this dealer account yet.'];
     return {
-      products: [],
-      userFavorites: {
-        count: 0,
-        presentationIds: [],
+      catalog: {
+        products: [],
+        userFavorites: {
+          count: 0,
+          presentationIds: [],
+        },
+        warnings,
       },
-      warnings: ['No published catalog view is assigned to this dealer account yet.'],
+      diagnostics: buildDealerPortalVisibilityDiagnostics({
+        catalogView: null,
+        catalogResolution,
+        products: [],
+        selectedPreviewRole,
+      }),
     };
   }
 
@@ -890,28 +990,32 @@ export async function getCurrentDealerPortalCatalog(
   const presentationIds = presentations.map((presentation) => presentation.id);
   const [userFavoriteRows, favoriteCounts] = presentationIds.length > 0
     ? await Promise.all([
-        prisma.dealerPortalFavoriteProduct.findMany({
-          where: {
-            dealerPortalUserId: portalUser.id,
-            productPresentationId: {
-              in: presentationIds,
-            },
-          },
-          select: {
-            productPresentationId: true,
-          },
-        }),
-        prisma.dealerPortalFavoriteProduct.groupBy({
-          by: ['productPresentationId'],
-          where: {
-            productPresentationId: {
-              in: presentationIds,
-            },
-          },
-          _count: {
-            _all: true,
-          },
-        }),
+        options.dealerPortalUserId
+          ? prisma.dealerPortalFavoriteProduct.findMany({
+              where: {
+                dealerPortalUserId: options.dealerPortalUserId,
+                productPresentationId: {
+                  in: presentationIds,
+                },
+              },
+              select: {
+                productPresentationId: true,
+              },
+            })
+          : Promise.resolve([]),
+        options.dealerPortalUserId
+          ? prisma.dealerPortalFavoriteProduct.groupBy({
+              by: ['productPresentationId'],
+              where: {
+                productPresentationId: {
+                  in: presentationIds,
+                },
+              },
+              _count: {
+                _all: true,
+              },
+            })
+          : Promise.resolve([]),
       ])
     : [[], []];
   const userFavoritePresentationIds = new Set(userFavoriteRows.map((favorite) => favorite.productPresentationId));
@@ -919,16 +1023,26 @@ export async function getCurrentDealerPortalCatalog(
     favoriteCounts.map((favorite) => [favorite.productPresentationId, favorite._count._all]),
   );
 
-  return {
-    catalogView: compact({
-      id: catalogView.id,
-      name: catalogView.name,
-      kind: lower(catalogView.kind),
-      resolverLabel: catalogView.resolverLabel ?? undefined,
-      regionScope: catalogView.regionScope ?? undefined,
-      brandLabel: catalogView.brandLabel ?? undefined,
-    }),
-    products: presentations.map((presentation: any) => compact({
+  const products = presentations.map((presentation: any) => {
+    const assets = presentation.assetAssignments
+      .filter((assignment: any) => isDealerVisibleAsset(assignment, catalogView))
+      .map((assignment: any) => {
+        const version = assignment.assetVersion ?? assignment.asset.versions?.[0] ?? null;
+        return compact({
+          id: assignment.assetId,
+          title: assignment.asset.title,
+          role: lower(assignment.role),
+          kind: lower(assignment.asset.kind),
+          visibility: lower(assignment.asset.visibility),
+          stableSlug: assignment.asset.stableSlug,
+          fileName: version?.fileName ?? assignment.asset.legacyFileName ?? undefined,
+          downloadUrl: assignment.asset.legacyUrl ?? version?.externalUrl ?? undefined,
+          brandScope: assignment.asset.brandScope ?? undefined,
+          regionScope: assignment.asset.regionScope ?? undefined,
+        });
+      });
+
+    return compact({
       productId: presentation.baseProductId,
       presentationId: presentation.id,
       sku: presentation.baseProduct.sku,
@@ -942,29 +1056,96 @@ export async function getCurrentDealerPortalCatalog(
       regionScope: presentation.regionScope ?? undefined,
       isFavorite: userFavoritePresentationIds.has(presentation.id),
       favoriteCount: favoriteCountsByPresentationId.get(presentation.id) ?? 0,
-      assets: presentation.assetAssignments
-        .filter((assignment: any) => isDealerVisibleAsset(assignment, catalogView))
-        .map((assignment: any) => {
-          const version = assignment.assetVersion ?? assignment.asset.versions?.[0] ?? null;
-          return compact({
-            id: assignment.assetId,
-            title: assignment.asset.title,
-            role: lower(assignment.role),
-            kind: lower(assignment.asset.kind),
-            visibility: lower(assignment.asset.visibility),
-            stableSlug: assignment.asset.stableSlug,
-            fileName: version?.fileName ?? assignment.asset.legacyFileName ?? undefined,
-            downloadUrl: assignment.asset.legacyUrl ?? version?.externalUrl ?? undefined,
-            brandScope: assignment.asset.brandScope ?? undefined,
-            regionScope: assignment.asset.regionScope ?? undefined,
-          });
-        }),
-    })),
+      assets,
+    });
+  });
+  const diagnostics = buildDealerPortalVisibilityDiagnostics({
+    catalogView,
+    catalogResolution,
+    products,
+    selectedPreviewRole,
+  });
+  const catalog: DealerPortalCatalogResponse = {
+    catalogView: compact({
+      id: catalogView.id,
+      name: catalogView.name,
+      kind: lower(catalogView.kind),
+      resolverLabel: catalogView.resolverLabel ?? undefined,
+      regionScope: catalogView.regionScope ?? undefined,
+      brandLabel: catalogView.brandLabel ?? undefined,
+    }),
+    products,
     userFavorites: {
       count: userFavoriteRows.length,
       presentationIds: userFavoriteRows.map((favorite) => favorite.productPresentationId),
     },
-    warnings: [],
+    warnings: options.includeDiagnostics ? diagnostics.warnings : [],
+  };
+
+  return {
+    catalog,
+    diagnostics,
+  };
+}
+
+function buildDealerPortalVisibilityDiagnostics(input: {
+  catalogView: Awaited<ReturnType<typeof resolveCatalogViewForAccount>>['catalogView'];
+  catalogResolution: Awaited<ReturnType<typeof resolveCatalogViewForAccount>>;
+  products: DealerPortalCatalogResponse['products'];
+  selectedPreviewRole: DealerPortalAccessRoleKey;
+}): DealerPortalCatalogDiagnostics {
+  const visibleFileCount = input.products.reduce((total, product) => total + product.assets.length, 0);
+  const productsWithoutDealerSafeFiles = input.products.filter((product) => product.assets.length === 0);
+  const warnings: string[] = [];
+
+  if (!input.catalogView) {
+    warnings.push('No published catalog view is assigned to this dealer account yet.');
+  }
+  if (input.catalogView && input.products.length === 0) {
+    warnings.push('No visible products matched this dealer catalog view.');
+  }
+  if (productsWithoutDealerSafeFiles.length > 0) {
+    warnings.push(`${productsWithoutDealerSafeFiles.length} visible product${productsWithoutDealerSafeFiles.length === 1 ? '' : 's'} do not have dealer-safe files matched.`);
+  }
+
+  const catalogView = input.catalogView
+    ? compact({
+        id: input.catalogView.id,
+        name: input.catalogView.name,
+        kind: lower(input.catalogView.kind),
+        resolverLabel: input.catalogView.resolverLabel ?? undefined,
+        regionScope: input.catalogView.regionScope ?? undefined,
+        brandLabel: input.catalogView.brandLabel ?? undefined,
+        resolutionSource: (input.catalogResolution.source === 'rule' ? 'rule' : 'default') as 'rule' | 'default',
+        ruleId: input.catalogResolution.ruleId,
+        ruleName: input.catalogResolution.ruleName,
+      })
+    : undefined;
+
+  return {
+    ...(catalogView ? { catalogView } : {}),
+    selectedPreviewRole: input.selectedPreviewRole,
+    visibleProductCount: input.products.length,
+    visibleFileCount,
+    warnings,
+    productReasons: input.products.map((product) => ({
+      productId: product.productId,
+      presentationId: product.presentationId,
+      sku: product.sku,
+      displayName: product.displayName,
+      dealerSafeFileCount: product.assets.length,
+      reasons: [
+        'Published presentation',
+        'Dealer-ready presentation',
+        'Included in resolved Dealer Catalog View',
+        product.assets.length > 0 ? 'Dealer-safe files matched' : 'No dealer-safe files matched',
+      ],
+      warnings: product.assets.length === 0 ? ['Product is visible, but no dealer-safe files matched this catalog context.'] : [],
+    })),
+    blockedProductSummary: {
+      scanned: false,
+      reason: 'Blocked product deep diagnostics were not scanned in this preview to avoid an expensive full catalog scan; use Product Management readiness and catalog rule preview for blocked product detail.',
+    },
   };
 }
 
@@ -1068,6 +1249,29 @@ export async function recordCurrentDealerPortalAssetOpen(
   return response;
 }
 
+function buildDealerPortalDashboardContext(account: DealerPortalAccountRecord) {
+  const detail = toDealerPortalAccountDetail(account);
+  return {
+    companyUsers: detail.users,
+    contacts: account.contacts.map((contact) => ({
+      id: contact.id,
+      displayName: `${contact.firstName} ${contact.lastName}`.trim(),
+      ...(contact.title ? { title: contact.title } : {}),
+      ...(contact.email ? { email: contact.email } : {}),
+      ...(contact.phone ? { phone: contact.phone } : {}),
+      isPrimary: contact.isPrimary,
+    })),
+    locations: account.locations.map((location) => ({
+      id: location.id,
+      name: location.name ?? location.locationCode ?? 'Location',
+      ...(location.city ? { city: location.city } : {}),
+      ...(location.state ? { state: location.state } : {}),
+      ...(location.countryCode ? { countryCode: location.countryCode } : {}),
+      isPrimary: location.isPrimary,
+    })),
+  };
+}
+
 async function loadActiveDealerPortalUser(actor: AuthenticatedActor) {
   const portalUser = await prisma.dealerPortalUser.findFirst({
     where: {
@@ -1118,7 +1322,7 @@ async function loadVisibleDealerCatalogPresentation(
   }
 
   const portalUser = await loadActiveDealerPortalUser(actor);
-  const catalogView = await resolveCatalogViewForAccount(portalUser.account);
+  const { catalogView } = await resolveCatalogViewForAccount(portalUser.account);
   if (!catalogView) {
     throw new Error('No published catalog view is assigned to this dealer account yet');
   }
@@ -1154,7 +1358,7 @@ async function loadVisibleDealerCatalogAsset(
   }
 
   const portalUser = await loadActiveDealerPortalUser(actor);
-  const catalogView = await resolveCatalogViewForAccount(portalUser.account);
+  const { catalogView } = await resolveCatalogViewForAccount(portalUser.account);
   if (!catalogView) {
     throw new Error('No published catalog view is assigned to this dealer account yet');
   }
@@ -1502,16 +1706,32 @@ async function resolveCatalogViewForAccount(account: {
   );
 
   if (matchedRule?.dealerCatalogView) {
-    return matchedRule.dealerCatalogView;
+    return {
+      catalogView: matchedRule.dealerCatalogView,
+      source: 'rule' as const,
+      ruleId: matchedRule.id,
+      ruleName: matchedRule.name,
+    };
   }
 
-  return prisma.dealerCatalogView.findFirst({
+  const defaultCatalogView = await prisma.dealerCatalogView.findFirst({
     where: {
       isDefault: true,
       isActive: true,
     },
     orderBy: [{ precedence: 'asc' }, { name: 'asc' }],
   });
+
+  return {
+    catalogView: defaultCatalogView,
+    source: defaultCatalogView ? 'default' as const : 'none' as const,
+  };
+}
+
+function assertInternalActor(actor: AuthenticatedActor) {
+  if (actor.actorType !== 'internal') {
+    throw new AuthorizationError('Dealer portal internal preview is only available to internal staff');
+  }
 }
 
 function normalizeConditionArray(value: unknown): CatalogRuleConditionInput[] {

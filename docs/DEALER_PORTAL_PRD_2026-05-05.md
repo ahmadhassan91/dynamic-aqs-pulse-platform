@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-05  
 **Status:** Active build baseline for Pulse-owned dealer portal work  
-**External dependencies parked:** Acumatica pricing/orders/invoices/shipments/credit status, payment provider/tokenization, transaction migration
+**External dependencies parked:** Acumatica pricing/orders/invoices/shipments/credit status, payment provider/tokenization, transaction migration, true dealer impersonation controls
 
 ## Purpose
 
@@ -28,6 +28,7 @@ Replace the current Shopify dealer experience with a simple account-aware Pulse 
 | DP-REQ-014 | Dealers need simple catalog search, filters, and favorites so they can find repeat products and files without a full ecommerce build. | Sessions 7, 11 |
 | DP-REQ-015 | Dealer file opens/downloads must be audited by account, user, product/file, visibility context, and timestamp. | Session 11, Widen replacement PRD |
 | DP-REQ-016 | Account Health must exist as a shell for payment terms, credit status, billing lock notice, and support guidance, while showing explicit pending ERP-sync states until Acumatica data is live. | Session 11 |
+| DP-REQ-017 | Dynamic authorized internal staff need a read-only "Preview as Dealer Account" mode to verify account, role, catalog, and file visibility before inviting or supporting dealers. | Internal preview slice |
 
 ## Current Build Scope
 
@@ -64,6 +65,7 @@ Replace the current Shopify dealer experience with a simple account-aware Pulse 
 | Payment actions | Provider/tokenized hosted payment model |
 | Credit hold enforcement | ERP credit status sync and alert engine |
 | Historic reporting | Transaction migration and reconciliation |
+| True dealer impersonation | Stronger audit reason capture, time-limited session controls, visible identity switching, and support/compliance approval |
 
 ## Acceptance Criteria
 
@@ -95,6 +97,7 @@ Replace the current Shopify dealer experience with a simple account-aware Pulse 
 ### Dependency Boundary
 
 - No fake prices, invoices, orders, shipment statuses, credit holds, or payment actions are shown.
+- No commercial fake data is introduced to make preview, catalog, account health, or parked commerce areas appear complete.
 - Parked dependencies remain documented in this PRD and progress tracker.
 
 ### Delivered No-External-Dependency Slice
@@ -130,10 +133,24 @@ This slice keeps the dealer experience simple, as Currie repeatedly asked during
 - Values that require Acumatica show explicit `pending ERP sync` or `not available yet` states.
 - The shell does not enforce credit hold, accept payments, show invoice balances, or calculate account status until ERP/provider data is certified.
 
+### Next Slice: Dynamic Internal Dealer Preview
+
+The next Pulse-owned dealer portal slice is an internal-only **Preview as Dealer Account** mode. It lets authorized Dynamic staff verify the dealer account experience without creating commercial placeholders or entering a true impersonation session.
+
+Acceptance criteria:
+
+- Authorized internal staff can preview the dealer portal account center, role-specific navigation/states, published catalog, and dealer-safe files for a selected account.
+- Preview mode is read-only and cannot create dealer actions, mutate favorites, submit orders, change account data, or alter catalog/file state.
+- Every preview screen is visibly bannered as an internal Dynamic preview, including the selected account and role context.
+- Preview uses real account/catalog/file visibility data only; no fake prices, invoices, orders, shipment statuses, payments, credit holds, or other commercial data are introduced.
+- Audit and diagnostics capture who started the preview, selected account, selected role/context, timestamp, route/surface viewed, and denied/empty visibility outcomes.
+- True impersonation remains parked for a later support/compliance slice with stronger reason capture, time limits, explicit identity switching, and audit review controls.
+
 ## Next Pulse-Owned Slices
 
-1. Company-admin self-service invite/revoke/access-management flow.
-2. Email delivery integration for invite links once provider choice is approved.
-3. Catalog detail polish and published-catalog snapshot/rollback safety.
-4. Stable delivery URL hardening beyond the current file-open audit.
-5. Parent/child account visibility once account-hierarchy scope is approved.
+1. Email delivery integration for invite links once provider choice is approved.
+2. Catalog detail polish and published-catalog snapshot/rollback safety.
+3. Stable delivery URL hardening beyond the current file-open audit.
+4. Parent/child account visibility once account-hierarchy scope is approved.
+5. Company-admin self-service invite/revoke/access-management flow only after Dynamic confirms this belongs in dealer scope.
+6. True dealer impersonation only after reason, time-limit, identity-switching, and audit-review controls are approved.

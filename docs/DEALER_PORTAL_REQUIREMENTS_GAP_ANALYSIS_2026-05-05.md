@@ -148,6 +148,7 @@ Primary dependencies:
 | Credit hold | Show hold/past due and block ordering | Not built in portal | ERP status and alert engine dependency | Build account-health shell; enforce later |
 | Notifications | Alert dealer/admin/TM/RD on finance events | Notification framework incomplete | Needs alert rules and ERP event source | Build preference/read model after account-health shell |
 | Assets | Dealer-safe files and share links | Digital Assets backend/UI exists | Portal download/feed missing | Add dealer portal file list after catalog feed |
+| Internal preview | Dynamic staff can verify account/role/catalog/file visibility before dealer rollout or support | No governed preview mode documented yet | Need read-only preview with visible internal banner, audit, diagnostics, and no commercial fake data | Build Dynamic Internal Dealer Preview before dealer self-admin |
 
 ## What Can Be Built Next Without Waiting On Acumatica
 
@@ -249,6 +250,29 @@ Why now:
 
 - It moves the dealer portal toward the simple self-service experience Currie asked for while avoiding unsafe external dependencies.
 
+### Slice DP-8: Dynamic Internal Dealer Preview / Preview As Dealer Account
+
+Output:
+
+- Internal-only preview entry point for authorized Dynamic staff.
+- Account and role/context selection for the dealer account center, catalog, and dealer-safe file views.
+- Read-only preview state across portal surfaces.
+- Persistent visible banner identifying the session as an internal Dynamic preview.
+- Audit and diagnostics for preview start, route/surface viewed, selected account, selected role/context, timestamp, and denied/empty visibility outcomes.
+
+Acceptance criteria:
+
+- Authorized internal staff can preview account center, role-sensitive sections, catalog visibility, and dealer-safe files for a selected account.
+- Preview is read-only and cannot submit orders, change account data, mutate favorites, create dealer actions, or change catalog/file state.
+- Preview mode is visibly bannered as internal preview on every previewed surface.
+- Preview uses real account/catalog/file visibility data only; no fake prices, invoices, orders, shipment statuses, payment records, credit holds, or other commercial placeholder data are introduced.
+- Audit/diagnostics capture staff identity, account, role/context, route/surface, timestamp, and visibility outcomes.
+
+Why now:
+
+- It gives Dynamic a safe way to validate what dealers will see before wider rollout, without moving prematurely into dealer company self-admin or true impersonation.
+- True impersonation is a later support/compliance capability and requires stronger reason capture, time-limited access, explicit identity switching, and audit-review controls.
+
 ## What Must Stay Parked Until Dependencies Close
 
 | Parked Area | Dependency | Resume When |
@@ -260,6 +284,7 @@ Why now:
 | Payment collection | US/Canada payment provider and tokenization decision | Provider contract and hosted/tokenized flow approved |
 | Credit hold enforcement | ERP credit status sync and alert framework | Credit hold signal reaches Pulse with SLA |
 | Historic transaction reporting | Migration/reconciliation plan | Transaction bootstrap rehearsal passes |
+| True dealer impersonation | Reason capture, time-limited session controls, explicit identity switching, support/compliance approval, and audit review | After internal preview is stable and impersonation governance is approved |
 
 ## Recommended Next Roadmap
 
@@ -284,11 +309,17 @@ Why now:
 7. **DP-7 no-external-dependency dealer UX**
    Role-sensitive UX, catalog search/filter/favorites, dealer file-open audit, and Account Health shell are now implemented. This remains intentionally simple and avoids ERP/provider dependencies.
 
-8. **DP-8 Cart draft and quick reorder**
+8. **DP-8 Dynamic internal dealer preview / Preview as Dealer Account**
+   Implemented: authorized Dynamic staff can verify account/role/catalog/file visibility in a read-only, visibly bannered, audited mode using real data only. This is not true impersonation.
+
+9. **DP-9 Cart draft and quick reorder**
    Only after read-only catalog is stable. Keep submit disabled until pricing/order dependencies close.
 
-9. **DP-9 Pricing, checkout, order submit, invoices, payments, and tracking**
+10. **DP-10 Pricing, checkout, order submit, invoices, payments, and tracking**
    Resume after Acumatica/provider dependencies are certified.
+
+11. **Later: true dealer impersonation**
+   Revisit only after reason, time-limit, identity-switching, and audit-review controls are approved.
 
 ## Current Completion Estimate
 
@@ -308,4 +339,4 @@ Why now:
 
 Overall Dealer Portal completion: **approximately 48-55%**.
 
-The built foundation is real, but the actual Shopify replacement experience is not complete yet. The next useful work should focus on role-sensitive UX, simple catalog search/filter/favorites, file-open audit, and Account Health shell before moving into pricing, checkout/order submit, invoices, shipment tracking, payments, or credit hold enforcement.
+The built foundation is real, but the actual Shopify replacement experience is not complete yet. The next useful work should focus on Dynamic Internal Dealer Preview / Preview as Dealer Account so authorized staff can validate account, role, catalog, and file visibility before moving into dealer company self-admin, pricing, checkout/order submit, invoices, shipment tracking, payments, credit hold enforcement, or true impersonation.

@@ -9,7 +9,7 @@ import { useDealerPortalDashboard } from '@/lib/use-dealer-portal-dashboard';
 
 export default function DealerCatalogPage() {
   const { dashboard } = useDealerPortalDashboard();
-  const { catalog, errorMessage, isLoading } = useDealerPortalCatalog();
+  const { assetActions, catalog, errorMessage, favoriteActions, isLoading } = useDealerPortalCatalog();
 
   return (
     <DealerPortalProtectedWorkspace>
@@ -33,7 +33,7 @@ export default function DealerCatalogPage() {
           </Alert>
         ) : null}
 
-        {catalog ? <DealerCatalog catalog={catalog} /> : null}
+        {catalog ? <DealerCatalog catalog={catalog} assetActions={assetActions} favoriteActions={favoriteActions} /> : null}
       </BrandedDealerLayout>
     </DealerPortalProtectedWorkspace>
   );

@@ -2,13 +2,18 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
-import type { DealerPortalDashboardResponse } from '@pulse/contracts';
-import { IconBuildingStore, IconMapPin, IconShieldCheck, IconUsers } from '@tabler/icons-react';
+import { Alert, Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
+import { IconBuildingStore, IconCreditCard, IconFileText, IconMapPin, IconShieldCheck, IconUsers } from '@tabler/icons-react';
 
 export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboardResponse }) {
   const primaryContact = dashboard.contacts.find((contact) => contact.isPrimary) ?? dashboard.contacts[0] ?? null;
   const primaryLocation = dashboard.locations.find((location) => location.isPrimary) ?? dashboard.locations[0] ?? null;
+  const roleProfile = getRoleProfile(dashboard.currentUser.accessRole);
+  const canPromoteAccessDirectory = dashboard.currentUser.accessRole === 'admin';
+  const canPromoteCatalog = dashboard.currentUser.accessRole === 'purchasing';
+  const canPromoteAccountHealth = dashboard.currentUser.accessRole === 'accounting';
+  const isViewer = dashboard.currentUser.accessRole === 'viewer';
 
   return (
     <Stack gap="lg">
@@ -27,6 +32,9 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
               </Badge>
               <Badge size="lg" color="blue" variant="light">
                 {dashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'}
+              </Badge>
+              <Badge size="lg" color={roleProfile.color} variant="light">
+                {roleProfile.label}
               </Badge>
             </Group>
           </Stack>
@@ -64,6 +72,82 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
           detail={dashboard.portalAccount.assignedTmName ?? 'TM not assigned'}
         />
       </SimpleGrid>
+
+      <Grid>
+        <Grid.Col span={{ base: 12, lg: 5 }}>
+          <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+            <Stack gap="sm">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Text className="eyebrow">Portal Role</Text>
+                  <Title order={3}>{roleProfile.label}</Title>
+                </Stack>
+                <Badge color={roleProfile.color} variant="light">
+                  {roleProfile.badge}
+                </Badge>
+              </Group>
+              <Text size="sm" c="dimmed">
+                {roleProfile.description}
+              </Text>
+              <Text size="sm" fw={600}>
+                {roleProfile.priority}
+              </Text>
+            </Stack>
+          </Card>
+        </Grid.Col>
+
+        <Grid.Col span={{ base: 12, lg: 7 }}>
+          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Title order={3}>{roleProfile.sectionTitle}</Title>
+                  <Text size="sm" c="dimmed">
+                    {roleProfile.sectionDetail}
+                  </Text>
+                </Stack>
+                {roleProfile.link ? (
+                  <Button component={Link} href={roleProfile.link.href} variant={roleProfile.link.variant}>
+                    {roleProfile.link.label}
+                  </Button>
+                ) : null}
+              </Group>
+
+              {canPromoteAccessDirectory ? (
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+                  <RoleCallout label="Active users" value={String(dashboard.portalAccount.activePortalUsers)} />
+                  <RoleCallout label="Total provisioned" value={String(dashboard.portalAccount.totalPortalUsers)} />
+                  <RoleCallout
+                    label="Primary owners"
+                    value={String(dashboard.companyUsers.filter((user) => user.isPrimaryOwner).length)}
+                  />
+                </SimpleGrid>
+              ) : null}
+
+              {canPromoteCatalog ? (
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                  <RoleCallout icon={<IconFileText size={18} />} label="Product files" value="Dealer-safe catalog access" />
+                  <RoleCallout icon={<IconBuildingStore size={18} />} label="Purchasing readiness" value="ERP commerce gate pending" />
+                </SimpleGrid>
+              ) : null}
+
+              {canPromoteAccountHealth ? (
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                  <RoleCallout icon={<IconCreditCard size={18} />} label="Payment terms" value="Pending ERP sync" />
+                  <RoleCallout icon={<IconShieldCheck size={18} />} label="Credit status" value="Pending ERP sync" />
+                </SimpleGrid>
+              ) : null}
+
+              {isViewer ? (
+                <Alert color="gray" variant="light">
+                  Viewer access is read-only. You can inspect published company, location, contact, and catalog
+                  information, but portal administration and finance changes stay with Dynamic AQS.
+                </Alert>
+              ) : null}
+            </Stack>
+          </Card>
+        </Grid.Col>
+      </Grid>
 
       <Grid>
         <Grid.Col span={{ base: 12, lg: 7 }}>
@@ -194,6 +278,67 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
   );
 }
 
+type RoleProfile = {
+  label: string;
+  badge: string;
+  color: string;
+  description: string;
+  priority: string;
+  sectionTitle: string;
+  sectionDetail: string;
+  link?: {
+    href: string;
+    label: string;
+    variant: 'filled' | 'light' | 'default';
+  };
+};
+
+function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
+  const profiles: Record<DealerPortalAccessRoleKey, RoleProfile> = {
+    admin: {
+      label: 'Admin',
+      badge: 'User access',
+      color: 'blue',
+      description: 'Admins can review the company directory and understand who has portal access for this dealer account.',
+      priority: 'Start with portal users, access roles, contacts, and account context.',
+      sectionTitle: 'Account users and access',
+      sectionDetail: 'The access directory is prominent for admins so company user visibility stays clear.',
+      link: { href: '/dealer/account', label: 'Review Users', variant: 'filled' },
+    },
+    purchasing: {
+      label: 'Purchasing',
+      badge: 'Products and files',
+      color: 'green',
+      description: 'Purchasing users focus on published products, dealer-visible files, and readiness for future ordering.',
+      priority: 'Browse products and files now. Cart and order submission are intentionally not available yet.',
+      sectionTitle: 'Products, files, and purchasing readiness',
+      sectionDetail: 'Catalog access is available today; commerce actions will wait for the approved ERP-backed gate.',
+      link: { href: '/dealer/catalog', label: 'Open Products & Files', variant: 'filled' },
+    },
+    accounting: {
+      label: 'Accounting',
+      badge: 'Account health',
+      color: 'orange',
+      description: 'Accounting users can review account-health readiness while finance records wait for Acumatica sync.',
+      priority: 'Account Health shows ERP sync status without displaying unverified finance values.',
+      sectionTitle: 'Account Health shell',
+      sectionDetail: 'Payment terms, credit status, billing address changes, and transaction history are sync-gated.',
+      link: { href: '/dealer/account#account-health', label: 'Open Account Health', variant: 'filled' },
+    },
+    viewer: {
+      label: 'Viewer',
+      badge: 'Read-only',
+      color: 'gray',
+      description: 'Viewers can inspect published dealer portal information without managing users, finance, or orders.',
+      priority: 'Use the portal as a read-only reference for company, location, contact, product, and file details.',
+      sectionTitle: 'Read-only portal view',
+      sectionDetail: 'This role keeps the portal navigable while making the read-only boundary explicit.',
+    },
+  };
+
+  return profiles[role];
+}
+
 function formatAccessRole(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -224,6 +369,38 @@ function MetricCard({
         </Text>
       </Stack>
     </Card>
+  );
+}
+
+function RoleCallout({
+  icon,
+  label,
+  value,
+}: {
+  icon?: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Box
+      p="md"
+      style={{
+        border: '1px solid var(--mantine-color-gray-3)',
+        borderRadius: 8,
+      }}
+    >
+      <Stack gap={4}>
+        <Group gap={6}>
+          {icon ? <Text c="blue">{icon}</Text> : null}
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+            {label}
+          </Text>
+        </Group>
+        <Text size="sm" fw={600}>
+          {value}
+        </Text>
+      </Stack>
+    </Box>
   );
 }
 

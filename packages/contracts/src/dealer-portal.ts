@@ -183,6 +183,8 @@ export interface DealerPortalCatalogProductSummary {
   familyName?: string;
   brandLabel?: string;
   regionScope?: string;
+  isFavorite: boolean;
+  favoriteCount: number;
   assets: DealerPortalCatalogAssetSummary[];
 }
 
@@ -196,5 +198,24 @@ export interface DealerPortalCatalogResponse {
     brandLabel?: string;
   };
   products: DealerPortalCatalogProductSummary[];
+  userFavorites: {
+    count: number;
+    presentationIds: string[];
+  };
   warnings: string[];
+}
+
+export interface DealerPortalFavoriteProductResponse {
+  ok: true;
+  presentationId: string;
+  isFavorite: boolean;
+  favoriteCount: number;
+}
+
+export interface DealerPortalAssetOpenResponse {
+  ok: true;
+  assetId: string;
+  presentationId: string;
+  targetUrl?: string;
+  downloadUrl?: string;
 }

@@ -23,11 +23,14 @@ import {
 import {
   acceptDealerPortalInvite,
   createDealerPortalInvite,
+  favoriteCurrentDealerPortalProduct,
   getCurrentDealerPortalCatalog,
   getCurrentDealerPortalDashboard,
   getDealerPortalAccount,
   provisionDealerPortalUser,
+  recordCurrentDealerPortalAssetOpen,
   resetDealerPortalUserPassword,
+  unfavoriteCurrentDealerPortalProduct,
   updateDealerPortalUserStatus,
 } from './service.js';
 
@@ -42,7 +45,9 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
     || /^\/api\/v1\/dealer-portal\/users\/[^/]+\/reset-password$/.test(pathname)
     || pathname === '/api/v1/dealer-portal/invites/accept'
     || pathname === '/api/v1/dealer-portal/me/catalog'
-    || pathname === '/api/v1/dealer-portal/me/dashboard';
+    || pathname === '/api/v1/dealer-portal/me/dashboard'
+    || /^\/api\/v1\/dealer-portal\/me\/favorites\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/dealer-portal\/me\/assets\/[^/]+\/open$/.test(pathname);
 
   if (!isDealerPortalRoute) {
     return false;
@@ -82,6 +87,42 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
         module: 'dealer_portal',
       });
       const response = await getCurrentDealerPortalDashboard(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    const favoriteMatch = pathname.match(/^\/api\/v1\/dealer-portal\/me\/favorites\/([^/]+)$/);
+    if (favoriteMatch) {
+      const presentationId = favoriteMatch[1];
+      if (!presentationId) {
+        return badRequestResponse(res, 'Product presentation id is required');
+      }
+      if (method !== 'POST' && method !== 'DELETE') {
+        return methodNotAllowedResponse(res, method, ['POST', 'DELETE']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+      });
+      const response = method === 'POST'
+        ? await favoriteCurrentDealerPortalProduct(actor, decodeURIComponent(presentationId))
+        : await unfavoriteCurrentDealerPortalProduct(actor, decodeURIComponent(presentationId));
+      return jsonResponse(res, 200, response);
+    }
+
+    const assetOpenMatch = pathname.match(/^\/api\/v1\/dealer-portal\/me\/assets\/([^/]+)\/open$/);
+    if (assetOpenMatch) {
+      const assetId = assetOpenMatch[1];
+      if (!assetId) {
+        return badRequestResponse(res, 'Asset id is required');
+      }
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+      });
+      const response = await recordCurrentDealerPortalAssetOpen(actor, decodeURIComponent(assetId));
       return jsonResponse(res, 200, response);
     }
 

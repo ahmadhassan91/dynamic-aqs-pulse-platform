@@ -21,6 +21,9 @@ let updateDealerPortalUserStatus;
 let resetDealerPortalUserPassword;
 let getCurrentDealerPortalDashboard;
 let getCurrentDealerPortalCatalog;
+let favoriteCurrentDealerPortalProduct;
+let unfavoriteCurrentDealerPortalProduct;
+let recordCurrentDealerPortalAssetOpen;
 let createDealerPortalInvite;
 let acceptDealerPortalInvite;
 
@@ -39,6 +42,9 @@ test.before(async () => {
     resetDealerPortalUserPassword,
     getCurrentDealerPortalDashboard,
     getCurrentDealerPortalCatalog,
+    favoriteCurrentDealerPortalProduct,
+    unfavoriteCurrentDealerPortalProduct,
+    recordCurrentDealerPortalAssetOpen,
     createDealerPortalInvite,
     acceptDealerPortalInvite,
   } = await import('../dist/modules/dealer-portal/service.js'));
@@ -360,9 +366,55 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(catalog.products.length, 1);
   assert.equal(catalog.products[0].sku, 'FM1-112');
   assert.equal(catalog.products[0].categoryName, 'Air Cleaners');
+  assert.equal(catalog.products[0].isFavorite, false);
+  assert.equal(catalog.products[0].favoriteCount, 0);
+  assert.equal(catalog.userFavorites.count, 0);
   assert.equal(catalog.products[0].assets.length, 1);
   assert.equal(catalog.products[0].assets[0].title, 'Fixed Mount Spec Sheet');
   assert.equal(catalog.products[0].assets[0].downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+
+  const favorite = await favoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
+  assert.equal(favorite.ok, true);
+  assert.equal(favorite.presentationId, presentation.id);
+  assert.equal(favorite.isFavorite, true);
+  assert.equal(favorite.favoriteCount, 1);
+
+  const favoritedCatalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(favoritedCatalog.products[0].isFavorite, true);
+  assert.equal(favoritedCatalog.products[0].favoriteCount, 1);
+  assert.deepEqual(favoritedCatalog.userFavorites.presentationIds, [presentation.id]);
+
+  const assetOpen = await recordCurrentDealerPortalAssetOpen(dealerActor, asset.id);
+  assert.equal(assetOpen.ok, true);
+  assert.equal(assetOpen.assetId, asset.id);
+  assert.equal(assetOpen.presentationId, presentation.id);
+  assert.equal(assetOpen.targetUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+  assert.equal(assetOpen.downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+
+  const assetAudit = await prisma.auditEntry.findFirst({
+    where: {
+      actorUserId: dealerActor.userId,
+      action: 'EXPORT',
+      entityType: 'DEALER_PORTAL_CATALOG_ASSET',
+      entityId: asset.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(assetAudit);
+  assert.equal(assetAudit.metadata.operation, 'dealer_portal.asset_open');
+  assert.equal(assetAudit.metadata.presentationId, presentation.id);
+
+  const unfavorite = await unfavoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
+  assert.equal(unfavorite.ok, true);
+  assert.equal(unfavorite.isFavorite, false);
+  assert.equal(unfavorite.favoriteCount, 0);
+
+  const unfavoritedCatalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(unfavoritedCatalog.products[0].isFavorite, false);
+  assert.equal(unfavoritedCatalog.products[0].favoriteCount, 0);
+  assert.equal(unfavoritedCatalog.userFavorites.count, 0);
 });
 
 test('inactive accounts cannot be provisioned for dealer portal access', SERIAL, async () => {

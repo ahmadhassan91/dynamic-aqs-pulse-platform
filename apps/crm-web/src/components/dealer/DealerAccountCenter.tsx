@@ -1,10 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Badge, Button, Card, Grid, Group, Stack, Table, Text, Title } from '@mantine/core';
-import type { DealerPortalDashboardResponse } from '@pulse/contracts';
+import { Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
 
 export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDashboardResponse }) {
+  const roleProfile = getRoleProfile(dashboard.currentUser.accessRole);
+  const isViewer = dashboard.currentUser.accessRole === 'viewer';
+
   return (
     <Stack gap="lg">
       <Card withBorder radius="xl" p="lg" className="premium-hero-panel">
@@ -16,11 +19,41 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
               Review the live company profile, portal users, contacts, and locations that Dynamic AQS has provisioned
               from the CRM account record.
             </Text>
+            <Group gap="xs">
+              <Badge size="lg" color={roleProfile.color} variant="light">
+                {roleProfile.label}
+              </Badge>
+              {isViewer ? (
+                <Badge size="lg" color="gray" variant="outline">
+                  Read-only
+                </Badge>
+              ) : null}
+            </Group>
           </Stack>
           <Button component={Link} href="/dealer/dashboard" variant="default">
             Back To Dashboard
           </Button>
         </Group>
+      </Card>
+
+      <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+        <Stack gap="sm">
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={4}>
+              <Text className="eyebrow">Portal Role</Text>
+              <Title order={3}>{roleProfile.label}</Title>
+            </Stack>
+            <Badge color={roleProfile.color} variant="light">
+              {roleProfile.badge}
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            {roleProfile.description}
+          </Text>
+          <Text size="sm" fw={600}>
+            {roleProfile.accountCenterFocus}
+          </Text>
+        </Stack>
       </Card>
 
       <Grid>
@@ -49,6 +82,30 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           </Card>
         </Grid.Col>
       </Grid>
+
+      <Card id="account-health" withBorder radius="xl" p="lg" className="premium-detail-card">
+        <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={4}>
+              <Text className="eyebrow">Account Health</Text>
+              <Title order={3}>ERP sync status</Title>
+            </Stack>
+            <Badge size="lg" color="orange" variant="light">
+              Acumatica pending
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed" maw={760}>
+            Account Health is a finance-readiness shell until Acumatica data is synchronized. Pulse is not showing
+            unverified balances, limits, invoices, orders, or payment values here.
+          </Text>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+            <AccountHealthRow label="Payment terms" value="Pending ERP sync" />
+            <AccountHealthRow label="Credit status" value="Pending ERP sync" />
+            <AccountHealthRow label="Billing address changes" value="Locked, contact Dynamic AQS" />
+            <AccountHealthRow label="Orders, invoices, and payments" value="Coming after Acumatica sync" />
+          </SimpleGrid>
+        </Stack>
+      </Card>
 
       <Card withBorder radius="xl" p="lg" className="premium-detail-card">
         <Stack gap="md">
@@ -175,8 +232,72 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
   );
 }
 
+type RoleProfile = {
+  label: string;
+  badge: string;
+  color: string;
+  description: string;
+  accountCenterFocus: string;
+};
+
+function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
+  const profiles: Record<DealerPortalAccessRoleKey, RoleProfile> = {
+    admin: {
+      label: 'Admin',
+      badge: 'User access',
+      color: 'blue',
+      description: 'Admins use the Account Center to review who can access the dealer portal and how each user is provisioned.',
+      accountCenterFocus: 'The portal user access directory is the primary admin surface on this page.',
+    },
+    purchasing: {
+      label: 'Purchasing',
+      badge: 'Products and files',
+      color: 'green',
+      description: 'Purchasing users can review company context here and move back to Products & Files for published catalog materials.',
+      accountCenterFocus: 'Future purchasing readiness is visible, but cart and order workflows are not active.',
+    },
+    accounting: {
+      label: 'Accounting',
+      badge: 'Account health',
+      color: 'orange',
+      description: 'Accounting users can inspect Account Health sync status without seeing placeholder finance values.',
+      accountCenterFocus: 'Account Health stays explicit about pending ERP states until Acumatica data is available.',
+    },
+    viewer: {
+      label: 'Viewer',
+      badge: 'Read-only',
+      color: 'gray',
+      description: 'Viewers can review company, access, contact, and location details as a read-only reference.',
+      accountCenterFocus: 'This role cannot manage users, billing changes, orders, invoices, or payments in the portal.',
+    },
+  };
+
+  return profiles[role];
+}
+
 function formatAccessRole(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function AccountHealthRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Box
+      p="md"
+      style={{
+        border: '1px solid var(--mantine-color-gray-3)',
+        borderRadius: 8,
+      }}
+    >
+      <Group justify="space-between" align="flex-start" gap="md">
+        <Text size="sm" c="dimmed">
+          {label}
+        </Text>
+        <Text size="sm" fw={700} ta="right" maw={280}>
+          {value}
+        </Text>
+      </Group>
+    </Box>
+  );
 }
 
 function MetadataRow({

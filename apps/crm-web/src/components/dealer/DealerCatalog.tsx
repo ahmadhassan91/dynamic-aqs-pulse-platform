@@ -1,10 +1,107 @@
 'use client';
 
-import { Alert, Badge, Button, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import type { DealerPortalCatalogResponse, DealerPortalCatalogProductSummary } from '@pulse/contracts';
-import { IconDownload, IconPackage, IconTag } from '@tabler/icons-react';
+import { useMemo, useState } from 'react';
+import { ActionIcon, Alert, Badge, Button, Card, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import type { DealerPortalCatalogAssetSummary, DealerPortalCatalogResponse, DealerPortalCatalogProductSummary } from '@pulse/contracts';
+import { IconDownload, IconFile, IconFilterOff, IconPackage, IconSearch, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
 
-export function DealerCatalog({ catalog }: { catalog: DealerPortalCatalogResponse }) {
+type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
+  isFavorite?: boolean;
+};
+
+type DealerCatalogResponseWithFavorites = Omit<DealerPortalCatalogResponse, 'products'> & {
+  products: DealerCatalogProductWithFavorites[];
+};
+
+type FileAvailabilityFilter = 'all' | 'with_files' | 'without_files';
+
+export interface DealerCatalogFavoriteActions {
+  isAvailable: boolean;
+  updatingPresentationId?: string | undefined;
+  toggleFavorite?: (product: DealerCatalogProductWithFavorites) => void | Promise<void>;
+}
+
+export interface DealerCatalogAssetActions {
+  openingAssetId?: string | undefined;
+  openAsset?: (asset: DealerPortalCatalogAssetSummary, product: DealerCatalogProductWithFavorites) => void | Promise<void>;
+}
+
+const uncategorizedFilterValue = '__uncategorized__';
+
+export function DealerCatalog({
+  catalog,
+  assetActions,
+  favoriteActions,
+}: {
+  catalog: DealerPortalCatalogResponse;
+  assetActions?: DealerCatalogAssetActions | undefined;
+  favoriteActions?: DealerCatalogFavoriteActions | undefined;
+}) {
+  const catalogWithFavorites = catalog as DealerCatalogResponseWithFavorites;
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [fileFilter, setFileFilter] = useState<FileAvailabilityFilter>('all');
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<string>();
+    let hasUncategorized = false;
+
+    for (const product of catalogWithFavorites.products) {
+      if (product.categoryName) {
+        categories.add(product.categoryName);
+      } else {
+        hasUncategorized = true;
+      }
+    }
+
+    return [
+      { value: 'all', label: 'All categories' },
+      ...Array.from(categories)
+        .sort((first, second) => first.localeCompare(second))
+        .map((category) => ({ value: category, label: category })),
+      ...(hasUncategorized ? [{ value: uncategorizedFilterValue, label: 'Uncategorized' }] : []),
+    ];
+  }, [catalogWithFavorites.products]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+
+    return catalogWithFavorites.products.filter((product) => {
+      const matchesSearch = normalizedSearch
+        ? [
+            product.sku,
+            product.displayName,
+            product.shortDescription,
+            product.longDescription,
+            product.categoryName,
+            product.familyName,
+            ...product.assets.flatMap((asset) => [asset.title, asset.fileName, asset.role]),
+          ]
+            .filter(Boolean)
+            .some((value) => value?.toLowerCase().includes(normalizedSearch))
+        : true;
+
+      const matchesCategory = categoryFilter === 'all'
+        || (categoryFilter === uncategorizedFilterValue ? !product.categoryName : product.categoryName === categoryFilter);
+
+      const hasFiles = product.assets.length > 0;
+      const matchesFileAvailability =
+        fileFilter === 'all'
+        || (fileFilter === 'with_files' && hasFiles)
+        || (fileFilter === 'without_files' && !hasFiles);
+
+      return matchesSearch && matchesCategory && matchesFileAvailability;
+    });
+  }, [catalogWithFavorites.products, categoryFilter, fileFilter, searchQuery]);
+
+  const hasActiveFilters = searchQuery.trim() !== '' || categoryFilter !== 'all' || fileFilter !== 'all';
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setCategoryFilter('all');
+    setFileFilter('all');
+  };
+
   return (
     <Stack gap="lg">
       <Card withBorder radius="xl" p="lg" className="premium-hero-panel">
@@ -41,7 +138,7 @@ export function DealerCatalog({ catalog }: { catalog: DealerPortalCatalogRespons
         </Alert>
       ))}
 
-      {catalog.products.length === 0 ? (
+      {catalogWithFavorites.products.length === 0 ? (
         <Card withBorder radius="xl" p="xl" className="premium-detail-card">
           <Stack gap="xs" align="center">
             <IconPackage size={36} />
@@ -53,18 +150,95 @@ export function DealerCatalog({ catalog }: { catalog: DealerPortalCatalogRespons
           </Stack>
         </Card>
       ) : (
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
-          {catalog.products.map((product) => (
-            <ProductCard key={product.presentationId} product={product} />
-          ))}
-        </SimpleGrid>
+        <>
+          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+            <Stack gap="md">
+              <Group align="end" grow>
+                <TextInput
+                  label="Search catalog"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                  placeholder="Search SKU, name, or description"
+                  leftSection={<IconSearch size={16} />}
+                />
+                <Select
+                  label="Category"
+                  value={categoryFilter}
+                  onChange={(value) => setCategoryFilter(value ?? 'all')}
+                  data={categoryOptions}
+                  allowDeselect={false}
+                />
+              </Group>
+              <Group justify="space-between" align="center">
+                <SegmentedControl
+                  value={fileFilter}
+                  onChange={(value) => setFileFilter(value as FileAvailabilityFilter)}
+                  data={[
+                    { value: 'all', label: 'All files' },
+                    { value: 'with_files', label: 'Has files' },
+                    { value: 'without_files', label: 'No files' },
+                  ]}
+                />
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  leftSection={<IconFilterOff size={16} />}
+                  onClick={clearFilters}
+                  disabled={!hasActiveFilters}
+                >
+                  Clear filters
+                </Button>
+              </Group>
+              <Text size="sm" c="dimmed">
+                Showing {filteredProducts.length} of {catalogWithFavorites.products.length} published products.
+              </Text>
+            </Stack>
+          </Card>
+
+          {filteredProducts.length === 0 ? (
+            <Card withBorder radius="xl" p="xl" className="premium-detail-card">
+              <Stack gap="xs" align="center">
+                <IconFile size={36} />
+                <Title order={3}>No catalog products match these filters</Title>
+                <Text c="dimmed" ta="center" maw={620}>
+                  Try a different SKU, product name, category, or file availability filter.
+                </Text>
+                <Button variant="light" color="blue" onClick={clearFilters} disabled={!hasActiveFilters}>
+                  Clear filters
+                </Button>
+              </Stack>
+            </Card>
+          ) : (
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+              {filteredProducts.map((product) => (
+                <ProductCard
+                  key={product.presentationId}
+                  product={product}
+                  assetActions={assetActions}
+                  favoriteActions={favoriteActions}
+                />
+              ))}
+            </SimpleGrid>
+          )}
+        </>
       )}
     </Stack>
   );
 }
 
-function ProductCard({ product }: { product: DealerPortalCatalogProductSummary }) {
+function ProductCard({
+  product,
+  assetActions,
+  favoriteActions,
+}: {
+  product: DealerCatalogProductWithFavorites;
+  assetActions?: DealerCatalogAssetActions | undefined;
+  favoriteActions?: DealerCatalogFavoriteActions | undefined;
+}) {
   const primaryFiles = product.assets.slice(0, 4);
+  const exposesFavoriteState = Object.prototype.hasOwnProperty.call(product, 'isFavorite');
+  const isFavorite = Boolean(product.isFavorite);
+  const canToggleFavorite = Boolean(favoriteActions?.isAvailable && favoriteActions.toggleFavorite);
 
   return (
     <Card withBorder radius="xl" p="lg" className="premium-detail-card">
@@ -80,17 +254,46 @@ function ProductCard({ product }: { product: DealerPortalCatalogProductSummary }
                   {product.categoryName}
                 </Badge>
               ) : null}
+              {product.familyName ? (
+                <Badge color="cyan" variant="light">
+                  {product.familyName}
+                </Badge>
+              ) : null}
             </Group>
             <Title order={3}>{product.displayName}</Title>
             {product.shortDescription ? (
               <Text c="dimmed">{product.shortDescription}</Text>
             ) : null}
           </Stack>
-          {product.brandLabel ? (
-            <Badge color="green" variant="light" leftSection={<IconTag size={12} />}>
-              {product.brandLabel}
-            </Badge>
-          ) : null}
+          <Group gap="xs">
+            {exposesFavoriteState ? (
+              <Tooltip label={canToggleFavorite ? (isFavorite ? 'Remove favorite' : 'Save favorite') : 'Favorite status'}>
+                <ActionIcon
+                  variant={isFavorite ? 'light' : 'subtle'}
+                  color={isFavorite ? 'yellow' : 'gray'}
+                  aria-label={isFavorite ? 'Favorite product' : 'Product is not a favorite'}
+                  onClick={() => {
+                    if (favoriteActions?.toggleFavorite) {
+                      void favoriteActions.toggleFavorite(product);
+                    }
+                  }}
+                  disabled={!canToggleFavorite || favoriteActions?.updatingPresentationId === product.presentationId}
+                >
+                  {isFavorite ? <IconStarFilled size={18} /> : <IconStar size={18} />}
+                </ActionIcon>
+              </Tooltip>
+            ) : null}
+            {product.favoriteCount > 0 ? (
+              <Badge color="yellow" variant="light">
+                {product.favoriteCount} saved
+              </Badge>
+            ) : null}
+            {product.brandLabel ? (
+              <Badge color="green" variant="light" leftSection={<IconTag size={12} />}>
+                {product.brandLabel}
+              </Badge>
+            ) : null}
+          </Group>
         </Group>
 
         {product.specSummary ? (
@@ -117,14 +320,20 @@ function ProductCard({ product }: { product: DealerPortalCatalogProductSummary }
                   </Text>
                 </Stack>
                 <Button
-                  component="a"
-                  href={asset.downloadUrl ?? '#'}
-                  target={asset.downloadUrl ? '_blank' : undefined}
-                  rel={asset.downloadUrl ? 'noreferrer' : undefined}
                   size="xs"
                   variant="light"
                   leftSection={<IconDownload size={14} />}
                   disabled={!asset.downloadUrl}
+                  loading={assetActions?.openingAssetId === asset.id}
+                  onClick={() => {
+                    if (assetActions?.openAsset) {
+                      void assetActions.openAsset(asset, product);
+                      return;
+                    }
+                    if (asset.downloadUrl) {
+                      window.open(asset.downloadUrl, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
                 >
                   Open
                 </Button>

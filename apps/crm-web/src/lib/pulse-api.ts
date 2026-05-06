@@ -50,8 +50,10 @@ import type {
   ContactSummary,
   CreateDealerPortalInviteResponse,
   DealerPortalAccountDetail,
+  DealerPortalAssetOpenResponse,
   DealerPortalCatalogResponse,
   DealerPortalDashboardResponse,
+  DealerPortalFavoriteProductResponse,
   ProvisionDealerPortalUserRequest,
   ProvisionDealerPortalUserResponse,
   ResetDealerPortalUserPasswordRequest,
@@ -2336,6 +2338,39 @@ export async function fetchDealerPortalCatalog(apiBaseUrl: string, accessToken: 
     method: 'GET',
     accessToken,
   });
+}
+
+export async function favoriteDealerPortalProduct(apiBaseUrl: string, accessToken: string, presentationId: string) {
+  return requestJson<DealerPortalFavoriteProductResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/favorites/${encodeURIComponent(presentationId)}`,
+    {
+      method: 'POST',
+      accessToken,
+    },
+  );
+}
+
+export async function unfavoriteDealerPortalProduct(apiBaseUrl: string, accessToken: string, presentationId: string) {
+  return requestJson<DealerPortalFavoriteProductResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/favorites/${encodeURIComponent(presentationId)}`,
+    {
+      method: 'DELETE',
+      accessToken,
+    },
+  );
+}
+
+export async function recordDealerPortalAssetOpen(apiBaseUrl: string, accessToken: string, assetId: string) {
+  return requestJson<DealerPortalAssetOpenResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/assets/${encodeURIComponent(assetId)}/open`,
+    {
+      method: 'POST',
+      accessToken,
+    },
+  );
 }
 
 export async function fetchWebsiteFormLeads(

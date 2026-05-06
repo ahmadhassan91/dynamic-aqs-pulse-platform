@@ -832,6 +832,7 @@ model User {
   groupRosterImportRunsCreated       GroupRosterImportRun[]        @relation("GroupRosterImportRunCreatedBy")
   dealerPortalMembership             DealerPortalUser?
   dealerPortalUsersCreated           DealerPortalUser[]            @relation("DealerPortalUserCreatedBy")
+  dealerPortalFavoriteProducts       DealerPortalFavoriteProduct[]
   trainingTrainerProfile             TrainingTrainerProfile?
   trainingProgramsCreated            AccountTrainingProgram[]      @relation("TrainingProgramCreatedBy")
   trainingProgramsOwnedTm            AccountTrainingProgram[]      @relation("TrainingProgramOwnerTm")
@@ -1236,9 +1237,10 @@ model BaseProduct {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
-  category      ProductCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  family        ProductFamily?        @relation(fields: [familyId], references: [id], onDelete: SetNull)
-  presentations ProductPresentation[]
+  category              ProductCategory?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  family                ProductFamily?                @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  presentations         ProductPresentation[]
+  dealerPortalFavorites DealerPortalFavoriteProduct[]
 
   @@index([acumaticaInventoryId])
   @@index([acumaticaItemClass])
@@ -1270,10 +1272,11 @@ model ProductPresentation {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
-  baseProduct      BaseProduct              @relation(fields: [baseProductId], references: [id], onDelete: Cascade)
-  inclusions       CatalogInclusion[]
-  readinessChecks  ProductPublishCheck[]
-  assetAssignments ProductAssetAssignment[]
+  baseProduct           BaseProduct                   @relation(fields: [baseProductId], references: [id], onDelete: Cascade)
+  inclusions            CatalogInclusion[]
+  readinessChecks       ProductPublishCheck[]
+  assetAssignments      ProductAssetAssignment[]
+  dealerPortalFavorites DealerPortalFavoriteProduct[]
 
   @@index([baseProductId])
   @@index([publishStatus])
@@ -1374,8 +1377,8 @@ model CatalogInclusion {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
-  presentation       ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
-  dealerCatalogView DealerCatalogView?   @relation(fields: [dealerCatalogViewId], references: [id], onDelete: SetNull)
+  presentation      ProductPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  dealerCatalogView DealerCatalogView?  @relation(fields: [dealerCatalogViewId], references: [id], onDelete: SetNull)
 
   @@index([presentationId])
   @@index([dealerCatalogViewId])
@@ -2795,6 +2798,7 @@ model Account {
   contacts                 Contact[]
   dealerPortalAccount      DealerPortalAccount?
   dealerPortalUsers        DealerPortalUser[]
+  dealerPortalFavorites    DealerPortalFavoriteProduct[]
   extension                AccountExtension?
   segmentAssignments       AccountSegmentAssignment[]
   classificationExceptions ClassificationException[]
@@ -3100,29 +3104,30 @@ model DealerPortalAccount {
 }
 
 model DealerPortalUser {
-  id              String                 @id @default(uuid()) @db.Uuid
-  accountId       String                 @db.Uuid
-  contactId       String?                @db.Uuid
-  userId          String                 @unique @db.Uuid
-  createdByUserId String?                @db.Uuid
-  status          DealerPortalUserStatus @default(ACTIVE)
-  accessRole      DealerPortalAccessRole @default(ADMIN)
-  isPrimaryOwner  Boolean                @default(false)
-  inviteTokenHash String?                 @unique
-  inviteIssuedAt  DateTime?
-  inviteExpiresAt DateTime?
+  id               String                 @id @default(uuid()) @db.Uuid
+  accountId        String                 @db.Uuid
+  contactId        String?                @db.Uuid
+  userId           String                 @unique @db.Uuid
+  createdByUserId  String?                @db.Uuid
+  status           DealerPortalUserStatus @default(ACTIVE)
+  accessRole       DealerPortalAccessRole @default(ADMIN)
+  isPrimaryOwner   Boolean                @default(false)
+  inviteTokenHash  String?                @unique
+  inviteIssuedAt   DateTime?
+  inviteExpiresAt  DateTime?
   inviteAcceptedAt DateTime?
-  notes           String?
-  activatedAt     DateTime?
-  suspendedAt     DateTime?
-  deactivatedAt   DateTime?
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  notes            String?
+  activatedAt      DateTime?
+  suspendedAt      DateTime?
+  deactivatedAt    DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
-  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  contact       Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdByUser User?    @relation("DealerPortalUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  account          Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact          Contact?                      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser    User?                         @relation("DealerPortalUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  favoriteProducts DealerPortalFavoriteProduct[]
 
   @@index([accountId])
   @@index([contactId])
@@ -3132,6 +3137,29 @@ model DealerPortalUser {
   @@index([isPrimaryOwner])
   @@index([inviteExpiresAt])
   @@index([inviteAcceptedAt])
+}
+
+model DealerPortalFavoriteProduct {
+  id                    String   @id @default(uuid()) @db.Uuid
+  dealerPortalUserId    String   @db.Uuid
+  accountId             String   @db.Uuid
+  userId                String   @db.Uuid
+  productPresentationId String   @db.Uuid
+  baseProductId         String   @db.Uuid
+  createdAt             DateTime @default(now())
+
+  dealerPortalUser    DealerPortalUser    @relation(fields: [dealerPortalUserId], references: [id], onDelete: Cascade)
+  account             Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productPresentation ProductPresentation @relation(fields: [productPresentationId], references: [id], onDelete: Cascade)
+  baseProduct         BaseProduct         @relation(fields: [baseProductId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerPortalUserId, productPresentationId], map: "DealerPortalFavoriteProduct_user_presentation_key")
+  @@index([accountId])
+  @@index([userId])
+  @@index([productPresentationId])
+  @@index([baseProductId])
+  @@index([createdAt])
 }
 
 model TrainingCategory {

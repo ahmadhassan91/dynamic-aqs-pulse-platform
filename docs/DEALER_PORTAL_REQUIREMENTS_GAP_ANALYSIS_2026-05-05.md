@@ -28,6 +28,7 @@ The Dealer Portal replaces Shopify for residential dealer self-service. The busi
 Key discovery themes:
 
 - Shopify is contact-centric and siloed; Pulse must be company/account-centric.
+- Currie repeatedly asked to keep the dealer experience simple; Pulse should expose clear account, catalog, and file actions before adding heavier commerce flows.
 - Dealers should see company-wide orders, not only the orders placed by the signed-in person.
 - Billing address should not be freely editable by dealers.
 - Product identity comes from Acumatica; dealer-facing names, descriptions, images, files, and branded variants are managed in Pulse.
@@ -49,24 +50,26 @@ Current implementation:
 - Dealer portal user provisioning.
 - Suspend, deactivate, and reset password flows.
 - Dealer user membership linked to a Pulse account.
+- Dealer portal role tiers: Admin, Purchasing, Accounting, Viewer.
 - Audit entries for provisioning and status/password changes.
 - Dealer-facing protected routes:
   - `/dealer`
   - `/dealer/login`
+  - `/dealer/accept-invite`
   - `/dealer/dashboard`
   - `/dealer/account`
+  - `/dealer/catalog`
 - Backend route:
   - `/api/v1/dealer-portal/me/dashboard`
 
-Status: **partially built and real**, approximately **70%** for provisioning baseline.
+Status: **baseline built and real**, approximately **80%** for provisioning and identity baseline.
 
 Remaining:
 
 - Invitation email delivery.
-- First-login enrollment / forced password reset.
 - Company-admin self-service invite/revoke flow.
-- Dealer portal role tiers: Admin, Purchasing, Accounting, Viewer.
-- More explicit customer-account access rules for multi-company or parent-child accounts.
+- Role-sensitive UX across visible portal sections.
+- More explicit customer-account access rules for multi-company or parent-child accounts when hierarchy scope is approved.
 
 ### Dealer Account Center
 
@@ -92,15 +95,16 @@ Current implementation:
 - Dealer Catalog Views / Catalog Rules support group-first thinking.
 - Product readiness tracks display content and file requirements.
 - Digital Assets has internal/dealer/public visibility, external share links, product assignments, and S3/CloudFront adapter direction.
+- Dealer-facing catalog route/API exists for published catalog and dealer-safe files.
 
-Status: **internal foundation is progressing**, but **dealer-facing catalog is not built yet**.
+Status: **read-only dealer catalog baseline is built**, approximately **45%** for the full discovery catalog experience.
 
 Remaining:
 
-- Dealer-facing catalog API that resolves the signed-in dealer account into a catalog view.
-- Dealer-facing catalog UI for search, filters, categories, product detail, favorites, and quick reorder.
+- Role-sensitive catalog actions.
+- Search, filters, categories, product detail, favorites, and later quick reorder.
 - Branded/private-label presentation per dealer group.
-- Product asset/file downloads from the portal.
+- File-open/download audit from the portal.
 - Published catalog snapshot/rollback behavior for pilot safety.
 
 ### Orders, Pricing, Invoices, Shipments, Payments
@@ -126,13 +130,14 @@ Primary dependencies:
 
 | Area | Discovery Requirement | Current State | Gap | Next Action |
 |---|---|---|---|---|
-| Account access | Company-level dealer account visibility | Dealer users link to account | Need portal roles, company admin, parent-child visibility | Build dealer role tiers and access policy |
+| Account access | Company-level dealer account visibility | Dealer users link to account with role tiers | Need role-sensitive section behavior, company admin, parent-child visibility | Build role-sensitive portal sections; park hierarchy depth until approved |
 | Provisioning | Governed access after onboarding | CRM admin can provision user | No invite email / first-login enrollment | Build invitation workflow and tokenized first login |
 | Account center | Contacts, locations, company context | Read-only contacts/locations exist | No financial/account health widgets | Add account-health read model placeholders and parked ERP source notes |
 | Billing governance | Dealers cannot freely edit billing | Not exposed | Need locked billing view and change request path | Build read-only billing section with internal change workflow later |
-| Catalog | Branded catalog by dealer group | Product Management internal only | No dealer catalog route/API | Build read-only dealer catalog from published catalog views |
-| Product content | Descriptions/images/files managed outside ERP | Product and asset foundations exist | No portal consumption | Expose only published dealer-safe product presentations/assets |
-| Favorites/quick order | Dealers can favorite and quickly reorder | Not built | Need account/user saved items | Build favorites after read-only catalog |
+| Role-sensitive UX | Simple dealer experience by business role | Role tiers exist | Need role-aware portal sections and locked states | Build role-sensitive dashboard/account/catalog sections |
+| Catalog | Branded catalog by dealer group | Read-only dealer catalog baseline exists | Need simple search, filters, product detail, and favorites | Build search/filter/favorites without pricing/cart |
+| Product content | Descriptions/images/files managed outside ERP | Published dealer-safe feed exists | Need file-open/download audit and better delivery hardening | Audit every dealer file open/download |
+| Favorites/quick order | Dealers can favorite and quickly reorder | Favorites not built | Need account/user saved items | Build favorites now; keep quick reorder parked until pricing/order boundary |
 | Cart/order | Add to cart, PO, quantity, checkout | Not built | Depends on pricing/order boundary | Park submit; build cart draft only after pricing read model |
 | Delivery date | Do not expose requested delivery date | Not built | Ensure it stays out | Keep excluded from checkout design |
 | Inventory | Do not block on real-time stock | Not built | Need non-blocking validation policy | Park until order validation slice |
@@ -221,6 +226,29 @@ Why now:
 
 - It prepares the exact UI area where credit hold/past due/payment failure will land later.
 
+### Slice DP-7: Delivered No-External-Dependency Dealer UX
+
+Output:
+
+- Role-sensitive portal sections for Admin, Purchasing, Accounting, and Viewer.
+- Simple catalog search, filters, and favorites.
+- Dealer file-open/download audit.
+- Account Health shell with explicit pending ERP-sync states.
+
+Acceptance criteria:
+
+- Users only see actions and account sections allowed by their dealer role.
+- Role-locked or dependency-locked states use simple wording and do not show fake data.
+- Catalog search and filters operate only on the already-published dealer-visible catalog feed.
+- Favorites are saved without implying price, stock, cart, checkout, or reorder readiness.
+- File opens/downloads are audited with account, user, product/file, catalog view, visibility source, timestamp, and outcome.
+- Account Health displays payment terms, credit status, billing lock notice, and support guidance as shell fields.
+- Any value requiring Acumatica, payment-provider, invoice, shipment, order, or credit-hold data displays `pending ERP sync` or `not available yet`.
+
+Why now:
+
+- It moves the dealer portal toward the simple self-service experience Currie asked for while avoiding unsafe external dependencies.
+
 ## What Must Stay Parked Until Dependencies Close
 
 | Parked Area | Dependency | Resume When |
@@ -253,10 +281,13 @@ Why now:
 6. **DP-6 Account health shell**  
    Prepares for credit hold, past due, and payment failure without pretending ERP sync is done.
 
-7. **DP-7 Cart draft and quick reorder**  
+7. **DP-7 no-external-dependency dealer UX**
+   Role-sensitive UX, catalog search/filter/favorites, dealer file-open audit, and Account Health shell are now implemented. This remains intentionally simple and avoids ERP/provider dependencies.
+
+8. **DP-8 Cart draft and quick reorder**
    Only after read-only catalog is stable. Keep submit disabled until pricing/order dependencies close.
 
-8. **DP-8 Pricing, checkout, order submit, invoices, payments, and tracking**  
+9. **DP-9 Pricing, checkout, order submit, invoices, payments, and tracking**
    Resume after Acumatica/provider dependencies are certified.
 
 ## Current Completion Estimate
@@ -275,6 +306,6 @@ Why now:
 | Order/invoice/shipment history | 0% |
 | Payments and credit hold enforcement | 5% |
 
-Overall Dealer Portal completion: **approximately 42-48%**.
+Overall Dealer Portal completion: **approximately 48-55%**.
 
-The built foundation is real, but the actual Shopify replacement experience is not complete yet. The next useful work should focus on dealer roles, invitation polish, and read-only catalog/assets before moving into pricing and order submission.
+The built foundation is real, but the actual Shopify replacement experience is not complete yet. The next useful work should focus on role-sensitive UX, simple catalog search/filter/favorites, file-open audit, and Account Health shell before moving into pricing, checkout/order submit, invoices, shipment tracking, payments, or credit hold enforcement.

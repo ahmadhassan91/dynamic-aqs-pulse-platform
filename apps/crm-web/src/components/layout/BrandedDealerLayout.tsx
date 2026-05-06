@@ -8,7 +8,7 @@ import { IconBell, IconChevronDown, IconLogout, IconUser } from '@tabler/icons-r
 import { DealerNavigation } from './DealerNavigation';
 import { PulseLogo } from '@/components/ui/PulseLogo';
 import { usePulseSession } from '@/lib/pulse-session';
-import type { DealerPortalDashboardResponse } from '@pulse/contracts';
+import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
 
 export function BrandedDealerLayout({
   children,
@@ -22,6 +22,7 @@ export function BrandedDealerLayout({
   const currentUser = dashboard?.currentUser;
   const portalAccount = dashboard?.portalAccount;
   const companyName = portalAccount?.accountDisplayName ?? currentUser?.displayName ?? auth?.identity.displayName ?? 'Dealer Portal';
+  const roleProfile = currentUser ? getRoleProfile(currentUser.accessRole) : null;
 
   return (
     <AppShell
@@ -77,6 +78,11 @@ export function BrandedDealerLayout({
                             {portalAccount.status.replace(/_/g, ' ')}
                           </Badge>
                         ) : null}
+                        {roleProfile ? (
+                          <Badge size="xs" color={roleProfile.color} variant="light">
+                            {roleProfile.label}
+                          </Badge>
+                        ) : null}
                       </Group>
                     </Stack>
                     <IconChevronDown style={{ width: rem(12), height: rem(12) }} stroke={1.5} />
@@ -88,6 +94,18 @@ export function BrandedDealerLayout({
                 <Menu.Item leftSection={<IconUser style={{ width: rem(16), height: rem(16) }} />}>
                   {auth?.identity.email ?? 'Signed in'}
                 </Menu.Item>
+                {roleProfile ? (
+                  <Menu.Item>
+                    <Stack gap={2}>
+                      <Text size="sm" fw={600}>
+                        {roleProfile.label}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {roleProfile.description}
+                      </Text>
+                    </Stack>
+                  </Menu.Item>
+                ) : null}
                 <Menu.Item component={Link} href="/dealer/account">
                   Account Center
                 </Menu.Item>
@@ -112,7 +130,22 @@ export function BrandedDealerLayout({
           <Button component={Link} href="/dealer/dashboard" variant="light" fullWidth justify="flex-start">
             Back to Dashboard
           </Button>
-          <DealerNavigation />
+          {roleProfile ? (
+            <Stack gap={4}>
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+                Portal Role
+              </Text>
+              <Group gap="xs">
+                <Badge color={roleProfile.color} variant="light">
+                  {roleProfile.label}
+                </Badge>
+                <Text size="xs" c="dimmed">
+                  {roleProfile.shortDescription}
+                </Text>
+              </Group>
+            </Stack>
+          ) : null}
+          <DealerNavigation accessRole={currentUser?.accessRole} />
         </Stack>
       </AppShell.Navbar>
 
@@ -123,6 +156,42 @@ export function BrandedDealerLayout({
       </AppShell.Main>
     </AppShell>
   );
+}
+
+function getRoleProfile(role: DealerPortalAccessRoleKey) {
+  const profiles: Record<DealerPortalAccessRoleKey, {
+    label: string;
+    color: string;
+    shortDescription: string;
+    description: string;
+  }> = {
+    admin: {
+      label: 'Admin',
+      color: 'blue',
+      shortDescription: 'Users and access',
+      description: 'Admin access highlights the account user directory and portal provisioning context.',
+    },
+    purchasing: {
+      label: 'Purchasing',
+      color: 'green',
+      shortDescription: 'Products and files',
+      description: 'Purchasing access highlights published products, files, and future purchasing readiness.',
+    },
+    accounting: {
+      label: 'Accounting',
+      color: 'orange',
+      shortDescription: 'Account health',
+      description: 'Accounting access highlights Account Health while ERP finance sync is pending.',
+    },
+    viewer: {
+      label: 'Viewer',
+      color: 'gray',
+      shortDescription: 'Read-only',
+      description: 'Viewer access is read-only across dealer portal company, catalog, and account-health surfaces.',
+    },
+  };
+
+  return profiles[role];
 }
 
 function statusColor(status: string) {

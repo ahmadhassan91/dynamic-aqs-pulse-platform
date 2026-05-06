@@ -149,7 +149,7 @@ Acceptance criteria:
 ## Next Pulse-Owned Slices
 
 1. Email delivery integration for invite links once provider choice is approved.
-2. Catalog detail polish and published-catalog snapshot/rollback safety.
+2. Published-catalog snapshot/rollback safety.
 3. Stable delivery URL hardening beyond the current file-open audit.
 4. Parent/child account visibility once account-hierarchy scope is approved.
 5. Company-admin self-service invite/revoke/access-management flow only after Dynamic confirms this belongs in dealer scope.

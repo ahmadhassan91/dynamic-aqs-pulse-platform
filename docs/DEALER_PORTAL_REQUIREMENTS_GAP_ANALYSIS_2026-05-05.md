@@ -102,7 +102,7 @@ Status: **read-only dealer catalog baseline is built**, approximately **45%** fo
 Remaining:
 
 - Role-sensitive catalog actions.
-- Search, filters, categories, product detail, favorites, and later quick reorder.
+- Search, filters, categories, product detail, favorites, and later quick reorder. Product detail and file-pack view are now implemented; quick reorder remains parked.
 - Branded/private-label presentation per dealer group.
 - File-open/download audit from the portal.
 - Published catalog snapshot/rollback behavior for pilot safety.
@@ -135,7 +135,7 @@ Primary dependencies:
 | Account center | Contacts, locations, company context | Read-only contacts/locations exist | No financial/account health widgets | Add account-health read model placeholders and parked ERP source notes |
 | Billing governance | Dealers cannot freely edit billing | Not exposed | Need locked billing view and change request path | Build read-only billing section with internal change workflow later |
 | Role-sensitive UX | Simple dealer experience by business role | Role tiers exist | Need role-aware portal sections and locked states | Build role-sensitive dashboard/account/catalog sections |
-| Catalog | Branded catalog by dealer group | Read-only dealer catalog baseline exists | Need simple search, filters, product detail, and favorites | Build search/filter/favorites without pricing/cart |
+| Catalog | Branded catalog by dealer group | Read-only dealer catalog, search/filter/favorites, product detail, and file-pack view exist | Need published-catalog snapshot/rollback safety and later quick reorder | Build snapshot/rollback safety next; keep quick reorder parked until pricing/order boundary |
 | Product content | Descriptions/images/files managed outside ERP | Published dealer-safe feed exists | Need file-open/download audit and better delivery hardening | Audit every dealer file open/download |
 | Favorites/quick order | Dealers can favorite and quickly reorder | Favorites not built | Need account/user saved items | Build favorites now; keep quick reorder parked until pricing/order boundary |
 | Cart/order | Add to cart, PO, quantity, checkout | Not built | Depends on pricing/order boundary | Park submit; build cart draft only after pricing read model |

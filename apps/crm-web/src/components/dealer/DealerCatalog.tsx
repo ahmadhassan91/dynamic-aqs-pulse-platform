@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { ActionIcon, Alert, Badge, Button, Card, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title, Tooltip } from '@mantine/core';
 import type { DealerPortalCatalogAssetSummary, DealerPortalCatalogResponse, DealerPortalCatalogProductSummary } from '@pulse/contracts';
-import { IconDownload, IconFile, IconFilterOff, IconPackage, IconSearch, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
+import { IconArrowRight, IconDownload, IconFile, IconFilterOff, IconPackage, IconSearch, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
 
 type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
   isFavorite?: boolean;
@@ -299,6 +300,21 @@ function ProductCard({
         {product.specSummary ? (
           <Text size="sm">{product.specSummary}</Text>
         ) : null}
+
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            {product.assets.length} dealer-visible file{product.assets.length === 1 ? '' : 's'}
+          </Text>
+          <Button
+            component={Link}
+            href={`/dealer/catalog/${encodeURIComponent(product.presentationId)}`}
+            size="xs"
+            variant="default"
+            rightSection={<IconArrowRight size={14} />}
+          >
+            View Details
+          </Button>
+        </Group>
 
         <Stack gap="xs">
           <Text size="sm" fw={700}>

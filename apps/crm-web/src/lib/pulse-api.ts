@@ -253,9 +253,11 @@ import type {
   CommitProductReferenceImportResponse,
   CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
+  CreateDealerCatalogSnapshotRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
   DealerCatalogViewSummary,
+  DealerCatalogSnapshotSummary,
   ListDealerCatalogViewsRequest,
   ListProductsRequest,
   ListProductsResponse,
@@ -273,6 +275,7 @@ import type {
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
+  RollbackDealerCatalogSnapshotRequest,
 } from '@pulse/contracts/product-management';
 import type {
   CreateDigitalAssetCollectionRequest,
@@ -508,6 +511,29 @@ export async function createDealerCatalogView(apiBaseUrl: string, accessToken: s
 export async function updateDealerCatalogView(apiBaseUrl: string, accessToken: string, catalogViewId: string, input: UpdateDealerCatalogViewRequest) {
   return requestJson<DealerCatalogViewSummary>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}`, {
     method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchDealerCatalogSnapshots(apiBaseUrl: string, accessToken: string, catalogViewId: string) {
+  return requestJson<{ items: DealerCatalogSnapshotSummary[] }>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}/snapshots`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function publishDealerCatalogSnapshot(apiBaseUrl: string, accessToken: string, catalogViewId: string, input: CreateDealerCatalogSnapshotRequest = {}) {
+  return requestJson<DealerCatalogSnapshotSummary>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}/snapshots`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function rollbackDealerCatalogSnapshot(apiBaseUrl: string, accessToken: string, catalogViewId: string, snapshotId: string, input: RollbackDealerCatalogSnapshotRequest = {}) {
+  return requestJson<DealerCatalogSnapshotSummary>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}/snapshots/${snapshotId}/rollback`, {
+    method: 'POST',
     accessToken,
     body: input,
   });

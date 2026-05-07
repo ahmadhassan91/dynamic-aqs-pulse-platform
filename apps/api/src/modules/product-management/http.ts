@@ -5,6 +5,7 @@ import type {
   CommitProductReferenceImportRequest,
   CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
+  CreateDealerCatalogSnapshotRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
   UpdateDealerCatalogViewRequest,
@@ -14,6 +15,7 @@ import type {
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
+  RollbackDealerCatalogSnapshotRequest,
 } from '@pulse/contracts/product-management';
 import {
   badRequestResponse,
@@ -37,16 +39,19 @@ import {
   createCatalogRuleSet,
   createCatalogInclusion,
   createDealerCatalogView,
+  publishDealerCatalogSnapshot,
   createProductCategory,
   createProductFamily,
   getProductDetail,
   listCatalogRuleSets,
   listDealerCatalogViews,
+  listDealerCatalogSnapshots,
   listProductCategories,
   listProductFamilies,
   listProducts,
   previewCatalogRuleSet,
   runProductPublishValidation,
+  rollbackDealerCatalogSnapshot,
   updateCatalogRuleSet,
   updateCatalogInclusion,
   updateDealerCatalogView,
@@ -139,6 +144,30 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
       if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
       const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
       return jsonResponse(res, 200, await updateDealerCatalogView(actor, catalogViewId, (await readJsonBody(req)) as UpdateDealerCatalogViewRequest));
+    }
+
+    const catalogSnapshotCollectionMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId/snapshots');
+    if (catalogSnapshotCollectionMatch) {
+      const catalogViewId = catalogSnapshotCollectionMatch.catalogViewId;
+      if (!catalogViewId) return badRequestResponse(res, 'Dealer catalog view id is required');
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+        return jsonResponse(res, 200, await listDealerCatalogSnapshots(actor, catalogViewId));
+      }
+      if (method === 'POST') {
+        const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.publish' });
+        return jsonResponse(res, 201, await publishDealerCatalogSnapshot(actor, catalogViewId, (await readJsonBody(req)) as CreateDealerCatalogSnapshotRequest));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const catalogSnapshotRollbackMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId/snapshots/:snapshotId/rollback');
+    if (catalogSnapshotRollbackMatch) {
+      const { catalogViewId, snapshotId } = catalogSnapshotRollbackMatch;
+      if (!catalogViewId || !snapshotId) return badRequestResponse(res, 'Dealer catalog view id and snapshot id are required');
+      if (method !== 'POST') return methodNotAllowedResponse(res, method, ['POST']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.publish' });
+      return jsonResponse(res, 201, await rollbackDealerCatalogSnapshot(actor, catalogViewId, snapshotId, (await readJsonBody(req)) as RollbackDealerCatalogSnapshotRequest));
     }
 
     if (pathname === '/api/v1/product-management/catalog-rule-sets') {

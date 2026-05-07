@@ -3,6 +3,7 @@ import {
   AuditAction,
   CatalogRuleResultAction,
   CatalogRuleSetStatus,
+  DealerCatalogSnapshotStatus,
   DealerCatalogViewKind,
   DigitalAssetKind,
   DigitalAssetReviewStatus,
@@ -31,9 +32,11 @@ import type {
   CatalogInclusionSummary,
   CreateCatalogRuleSetRequest,
   CreateDealerCatalogViewRequest,
+  CreateDealerCatalogSnapshotRequest,
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
   DealerCatalogViewSummary,
+  DealerCatalogSnapshotSummary,
   ListDealerCatalogViewsRequest,
   ListProductsRequest,
   ListProductsResponse,
@@ -49,6 +52,7 @@ import type {
   UpdateProductFamilyRequest,
   UpdateProductPresentationRequest,
   UpsertCatalogInclusionRequest,
+  RollbackDealerCatalogSnapshotRequest,
 } from '@pulse/contracts/product-management';
 import { PRODUCT_ASSET_ROLES } from '@pulse/contracts/digital-assets';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -171,6 +175,14 @@ export async function listDealerCatalogViews(actor: AuthenticatedActor, input: L
   }
   const items = await prisma.dealerCatalogView.findMany({
     where,
+    include: {
+      catalogSnapshots: {
+        where: { isActive: true },
+        include: { items: true },
+        orderBy: [{ version: 'desc' }],
+        take: 1,
+      },
+    },
     orderBy: [{ precedence: 'asc' }, { name: 'asc' }],
   });
   return { items: items.map(mapDealerCatalogView) };
@@ -237,6 +249,159 @@ export async function updateDealerCatalogView(actor: AuthenticatedActor, catalog
     }),
   });
   return mapDealerCatalogView(updated);
+}
+
+export async function listDealerCatalogSnapshots(actor: AuthenticatedActor, catalogViewId: string): Promise<{ items: DealerCatalogSnapshotSummary[] }> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  await assertDealerCatalogViewExists(catalogViewId);
+  const items = await prisma.dealerCatalogSnapshot.findMany({
+    where: { dealerCatalogViewId: catalogViewId },
+    include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+    orderBy: [{ version: 'desc' }],
+  });
+  return { items: items.map((snapshot) => mapDealerCatalogSnapshot(snapshot, { includeItems: true })) };
+}
+
+export async function publishDealerCatalogSnapshot(
+  actor: AuthenticatedActor,
+  catalogViewId: string,
+  input: CreateDealerCatalogSnapshotRequest = {},
+): Promise<DealerCatalogSnapshotSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.publish');
+  const catalogView = await assertDealerCatalogViewExists(catalogViewId);
+  const snapshotItems = await buildCatalogSnapshotItems(catalogView);
+  const fileCount = snapshotItems.reduce((total, item) => total + item.assetCount, 0);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const latest = await tx.dealerCatalogSnapshot.findFirst({
+      where: { dealerCatalogViewId: catalogView.id },
+      orderBy: [{ version: 'desc' }],
+      select: { version: true },
+    });
+    const version = (latest?.version ?? 0) + 1;
+    await tx.dealerCatalogSnapshot.updateMany({
+      where: { dealerCatalogViewId: catalogView.id, isActive: true },
+      data: { isActive: false, status: DealerCatalogSnapshotStatus.ARCHIVED },
+    });
+    const snapshot = await tx.dealerCatalogSnapshot.create({
+      data: {
+        dealerCatalogViewId: catalogView.id,
+        version,
+        status: DealerCatalogSnapshotStatus.ACTIVE,
+        isActive: true,
+        productCount: snapshotItems.length,
+        fileCount,
+        publishedByUserId: actor.userId,
+        notes: cleanNullable(input.notes),
+        items: {
+          create: snapshotItems.map((item, index) => ({
+            dealerCatalogViewId: catalogView.id,
+            presentationId: item.presentationId,
+            baseProductId: item.baseProductId,
+            sku: item.sku,
+            displayName: item.displayName,
+            assetCount: item.assetCount,
+            assetVersionPayload: item.assetVersionPayload,
+            sortOrder: index + 1,
+          })),
+        },
+      },
+      include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.APPROVE,
+        entityType: 'DEALER_CATALOG_SNAPSHOT',
+        entityId: snapshot.id,
+        afterData: snapshot,
+        metadata: {
+          dealerCatalogViewId: catalogView.id,
+          version,
+          productCount: snapshot.productCount,
+          fileCount: snapshot.fileCount,
+        },
+      }),
+    });
+    return snapshot;
+  });
+
+  return mapDealerCatalogSnapshot(created, { includeItems: true });
+}
+
+export async function rollbackDealerCatalogSnapshot(
+  actor: AuthenticatedActor,
+  catalogViewId: string,
+  snapshotId: string,
+  input: RollbackDealerCatalogSnapshotRequest = {},
+): Promise<DealerCatalogSnapshotSummary> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.publish');
+  const catalogView = await assertDealerCatalogViewExists(catalogViewId);
+  const source = await prisma.dealerCatalogSnapshot.findFirst({
+    where: { id: snapshotId, dealerCatalogViewId: catalogView.id },
+    include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+  });
+  if (!source) throw new Error('Dealer catalog snapshot not found');
+
+  const created = await prisma.$transaction(async (tx) => {
+    const latest = await tx.dealerCatalogSnapshot.findFirst({
+      where: { dealerCatalogViewId: catalogView.id },
+      orderBy: [{ version: 'desc' }],
+      select: { version: true },
+    });
+    const version = (latest?.version ?? 0) + 1;
+    await tx.dealerCatalogSnapshot.updateMany({
+      where: { dealerCatalogViewId: catalogView.id, isActive: true },
+      data: { isActive: false, status: DealerCatalogSnapshotStatus.ARCHIVED },
+    });
+    const snapshot = await tx.dealerCatalogSnapshot.create({
+      data: {
+        dealerCatalogViewId: catalogView.id,
+        version,
+        status: DealerCatalogSnapshotStatus.ACTIVE,
+        isActive: true,
+        productCount: source.productCount,
+        fileCount: source.fileCount,
+        publishedByUserId: actor.userId,
+        rollbackOfSnapshotId: source.id,
+        notes: cleanNullable(input.notes) ?? `Rollback to v${source.version}`,
+        items: {
+          create: source.items.map((item) => ({
+            dealerCatalogViewId: catalogView.id,
+            presentationId: item.presentationId,
+            baseProductId: item.baseProductId,
+            sku: item.sku,
+            displayName: item.displayName,
+            assetCount: item.assetCount,
+            assetVersionPayload: item.assetVersionPayload as any,
+            sortOrder: item.sortOrder,
+          })),
+        },
+      },
+      include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'DEALER_CATALOG_SNAPSHOT',
+        entityId: snapshot.id,
+        beforeData: source,
+        afterData: snapshot,
+        metadata: {
+          dealerCatalogViewId: catalogView.id,
+          rollbackOfSnapshotId: source.id,
+          version,
+        },
+      }),
+    });
+    return snapshot;
+  });
+
+  return mapDealerCatalogSnapshot(created, { includeItems: true });
 }
 
 export async function listCatalogRuleSets(actor: AuthenticatedActor): Promise<{ items: CatalogRuleSetSummary[] }> {
@@ -672,6 +837,90 @@ export async function runProductPublishValidation(actor: AuthenticatedActor, pre
   };
 }
 
+async function assertDealerCatalogViewExists(catalogViewId: string) {
+  const catalogView = await prisma.dealerCatalogView.findUnique({ where: { id: catalogViewId } });
+  if (!catalogView) throw new Error('Dealer catalog view not found');
+  return catalogView;
+}
+
+async function buildCatalogSnapshotItems(catalogView: { id: string; brandLabel?: string | null; regionScope?: string | null }) {
+  const now = new Date();
+  const presentations = await prisma.productPresentation.findMany({
+    where: {
+      publishStatus: ProductPublishStatus.PUBLISHED,
+      readyForDealerPortal: true,
+      baseProduct: {
+        lifecycleStatus: ProductLifecycleStatus.ACTIVE,
+        isSellable: true,
+        isDealerVisible: true,
+      },
+      inclusions: {
+        some: {
+          dealerCatalogViewId: catalogView.id,
+          isVisible: true,
+          publishStatus: ProductPublishStatus.PUBLISHED,
+          OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: now } }],
+          AND: [{ OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] }],
+        },
+      },
+    },
+    include: {
+      baseProduct: true,
+      assetAssignments: {
+        include: {
+          asset: {
+            include: {
+              versions: {
+                where: { isCurrent: true },
+                take: 1,
+              },
+            },
+          },
+          assetVersion: true,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      },
+    },
+    orderBy: [{ displayName: 'asc' }],
+  });
+
+  return presentations.map((presentation: any) => {
+    const assets = presentation.assetAssignments
+      .filter((assignment: any) => isDealerVisibleSnapshotAsset(assignment, catalogView))
+      .map((assignment: any) => {
+        const version = assignment.assetVersion ?? assignment.asset.versions?.[0] ?? null;
+        return compact({
+          assignmentId: assignment.id,
+          assetId: assignment.assetId,
+          assetVersionId: version?.id ?? assignment.assetVersionId ?? undefined,
+          role: lower(assignment.role),
+          title: assignment.asset.title,
+          stableSlug: assignment.asset.stableSlug,
+          kind: lower(assignment.asset.kind),
+          fileName: version?.fileName ?? assignment.asset.legacyFileName ?? undefined,
+        });
+      });
+    return {
+      presentationId: presentation.id,
+      baseProductId: presentation.baseProductId,
+      sku: presentation.baseProduct.sku,
+      displayName: presentation.displayName,
+      assetCount: assets.length,
+      assetVersionPayload: assets,
+    };
+  });
+}
+
+function isDealerVisibleSnapshotAsset(assignment: any, catalogView: { brandLabel?: string | null; regionScope?: string | null }) {
+  const asset = assignment.asset;
+  if (!asset || asset.status !== DigitalAssetStatus.ACTIVE) return false;
+  if (asset.visibility !== DigitalAssetVisibility.DEALER_PORTAL && asset.visibility !== DigitalAssetVisibility.PUBLIC) return false;
+  if (asset.reviewStatus !== DigitalAssetReviewStatus.APPROVED && asset.reviewStatus !== DigitalAssetReviewStatus.NOT_REQUIRED) return false;
+  if (asset.brandScope && catalogView.brandLabel && asset.brandScope !== catalogView.brandLabel) return false;
+  if (asset.regionScope && catalogView.regionScope && asset.regionScope !== catalogView.regionScope) return false;
+  return true;
+}
+
 function buildProductWhere(input: ListProductsRequest) {
   const where: any = {};
   if (input.search?.trim()) {
@@ -747,9 +996,40 @@ function mapDealerCatalogView(catalogView: any): DealerCatalogViewSummary {
     precedence: catalogView.precedence,
     sourceSystem: lower(catalogView.sourceSystem),
     sourceOfTruthSystem: lower(catalogView.sourceOfTruthSystem),
+    activeSnapshot: catalogView.catalogSnapshots?.[0] ? mapDealerCatalogSnapshot(catalogView.catalogSnapshots[0]) : undefined,
     createdAt: catalogView.createdAt.toISOString(),
     updatedAt: catalogView.updatedAt.toISOString(),
   };
+}
+
+function mapDealerCatalogSnapshot(snapshot: any, options: { includeItems?: boolean } = {}): DealerCatalogSnapshotSummary {
+  return compact({
+    id: snapshot.id,
+    dealerCatalogViewId: snapshot.dealerCatalogViewId,
+    version: snapshot.version,
+    status: lower(snapshot.status),
+    isActive: snapshot.isActive,
+    productCount: snapshot.productCount,
+    fileCount: snapshot.fileCount,
+    publishedByUserId: snapshot.publishedByUserId ?? undefined,
+    publishedAt: snapshot.publishedAt.toISOString(),
+    rollbackOfSnapshotId: snapshot.rollbackOfSnapshotId ?? undefined,
+    notes: snapshot.notes ?? undefined,
+    createdAt: snapshot.createdAt.toISOString(),
+    updatedAt: snapshot.updatedAt.toISOString(),
+    items: options.includeItems ? (snapshot.items ?? []).map((item: any) => {
+      const assets = Array.isArray(item.assetVersionPayload) ? item.assetVersionPayload : [];
+      return {
+        id: item.id,
+        presentationId: item.presentationId,
+        baseProductId: item.baseProductId,
+        sku: item.sku,
+        displayName: item.displayName,
+        assetCount: item.assetCount,
+        assets,
+      };
+    }) : undefined,
+  }) as DealerCatalogSnapshotSummary;
 }
 
 function mapCatalogRuleSet(ruleSet: any): CatalogRuleSetSummary {

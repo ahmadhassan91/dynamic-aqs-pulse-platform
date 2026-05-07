@@ -933,8 +933,16 @@ async function buildDealerPortalCatalogForAccount(
   }
 
   const now = new Date();
+  const activeSnapshot = await prisma.dealerCatalogSnapshot.findFirst({
+    where: { dealerCatalogViewId: catalogView.id, isActive: true },
+    include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+    orderBy: [{ version: 'desc' }],
+  });
+  const snapshotItemsByPresentationId = new Map((activeSnapshot?.items ?? []).map((item) => [item.presentationId, item]));
+  const snapshotPresentationIds = activeSnapshot?.items.map((item) => item.presentationId) ?? [];
   const presentations = await prisma.productPresentation.findMany({
     where: {
+      ...(activeSnapshot ? { id: { in: snapshotPresentationIds } } : {}),
       publishStatus: ProductPublishStatus.PUBLISHED,
       readyForDealerPortal: true,
       baseProduct: {
@@ -942,25 +950,27 @@ async function buildDealerPortalCatalogForAccount(
         isSellable: true,
         isDealerVisible: true,
       },
-      inclusions: {
-        some: {
-          dealerCatalogViewId: catalogView.id,
-          isVisible: true,
-          publishStatus: ProductPublishStatus.PUBLISHED,
-          OR: [
-            { effectiveFrom: null },
-            { effectiveFrom: { lte: now } },
-          ],
-          AND: [
-            {
-              OR: [
-                { effectiveTo: null },
-                { effectiveTo: { gte: now } },
-              ],
-            },
-          ],
+      ...(activeSnapshot ? {} : {
+        inclusions: {
+          some: {
+            dealerCatalogViewId: catalogView.id,
+            isVisible: true,
+            publishStatus: ProductPublishStatus.PUBLISHED,
+            OR: [
+              { effectiveFrom: null },
+              { effectiveFrom: { lte: now } },
+            ],
+            AND: [
+              {
+                OR: [
+                  { effectiveTo: null },
+                  { effectiveTo: { gte: now } },
+                ],
+              },
+            ],
+          },
         },
-      },
+      }),
     },
     include: {
       baseProduct: {
@@ -986,6 +996,9 @@ async function buildDealerPortalCatalogForAccount(
     },
     orderBy: [{ displayName: 'asc' }],
   });
+  if (activeSnapshot) {
+    presentations.sort((left, right) => (snapshotItemsByPresentationId.get(left.id)?.sortOrder ?? 9999) - (snapshotItemsByPresentationId.get(right.id)?.sortOrder ?? 9999));
+  }
 
   const presentationIds = presentations.map((presentation) => presentation.id);
   const [userFavoriteRows, favoriteCounts] = presentationIds.length > 0
@@ -1024,8 +1037,11 @@ async function buildDealerPortalCatalogForAccount(
   );
 
   const products = presentations.map((presentation: any) => {
+    const snapshotItem = snapshotItemsByPresentationId.get(presentation.id);
+    const snapshotAssetIds = new Set(readSnapshotAssetPayload(snapshotItem).map((asset) => asset.assetId));
     const assets = presentation.assetAssignments
       .filter((assignment: any) => isDealerVisibleAsset(assignment, catalogView))
+      .filter((assignment: any) => !activeSnapshot || snapshotAssetIds.has(assignment.assetId))
       .map((assignment: any) => {
         const version = assignment.assetVersion ?? assignment.asset.versions?.[0] ?? null;
         return compact({
@@ -1045,8 +1061,8 @@ async function buildDealerPortalCatalogForAccount(
     return compact({
       productId: presentation.baseProductId,
       presentationId: presentation.id,
-      sku: presentation.baseProduct.sku,
-      displayName: presentation.displayName,
+      sku: snapshotItem?.sku ?? presentation.baseProduct.sku,
+      displayName: snapshotItem?.displayName ?? presentation.displayName,
       shortDescription: presentation.shortDescription ?? undefined,
       longDescription: presentation.longDescription ?? undefined,
       specSummary: presentation.specSummary ?? undefined,
@@ -1073,6 +1089,9 @@ async function buildDealerPortalCatalogForAccount(
       resolverLabel: catalogView.resolverLabel ?? undefined,
       regionScope: catalogView.regionScope ?? undefined,
       brandLabel: catalogView.brandLabel ?? undefined,
+      snapshotId: activeSnapshot?.id,
+      snapshotVersion: activeSnapshot?.version,
+      snapshotPublishedAt: activeSnapshot?.publishedAt.toISOString(),
     }),
     products,
     userFavorites: {
@@ -1794,6 +1813,15 @@ function isDealerVisibleAsset(assignment: any, catalogView: { brandLabel?: strin
   }
 
   return true;
+}
+
+function readSnapshotAssetPayload(snapshotItem: { assetVersionPayload?: unknown } | undefined) {
+  if (!snapshotItem || !Array.isArray(snapshotItem.assetVersionPayload)) {
+    return [];
+  }
+  return snapshotItem.assetVersionPayload.filter((item): item is { assetId: string } => {
+    return typeof item === 'object' && item !== null && typeof (item as { assetId?: unknown }).assetId === 'string';
+  });
 }
 
 function lower(value: string) {

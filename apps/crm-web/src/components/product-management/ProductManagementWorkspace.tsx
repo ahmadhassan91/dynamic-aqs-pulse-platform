@@ -7,6 +7,7 @@ import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, Simple
 import {
   type ProductDetail,
   type DealerCatalogViewSummary,
+  type DealerCatalogSnapshotSummary,
   type ProductPublishStatusKey,
   type ProductReferenceImportPreviewResponse,
 } from '@pulse/contracts/product-management';
@@ -17,10 +18,13 @@ import {
   createProductManagementFamily,
   fetchProductManagementCategories,
   fetchDealerCatalogViews,
+  fetchDealerCatalogSnapshots,
   fetchProductManagementFamilies,
   fetchProductManagementProductDetail,
   fetchProductManagementProducts,
   previewProductReferenceImport,
+  publishDealerCatalogSnapshot,
+  rollbackDealerCatalogSnapshot,
   updateDealerCatalogView,
   updateProductManagementCategory,
   updateProductManagementFamily,
@@ -43,6 +47,7 @@ type CatalogViewRow = {
   publishedCount: number;
   blockedCount: number;
   isConfigured: boolean;
+  activeSnapshot?: DealerCatalogSnapshotSummary | undefined;
 };
 type CategoryFormState = {
   code: string;
@@ -152,6 +157,8 @@ export function ProductManagementWorkspace() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [isSavingCatalogView, setIsSavingCatalogView] = useState(false);
+  const [publishingCatalogViewId, setPublishingCatalogViewId] = useState<string | null>(null);
+  const [rollbackSnapshotId, setRollbackSnapshotId] = useState<string | null>(null);
   const [isSavingFamily, setIsSavingFamily] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +169,8 @@ export function ProductManagementWorkspace() {
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
   const [catalogViewForm, setCatalogViewForm] = useState<CatalogViewFormState>(emptyCatalogViewForm);
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
+  const [selectedSnapshotCatalogView, setSelectedSnapshotCatalogView] = useState<DealerCatalogViewSummary | null>(null);
+  const [catalogSnapshots, setCatalogSnapshots] = useState<DealerCatalogSnapshotSummary[]>([]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -313,6 +322,7 @@ export function ProductManagementWorkspace() {
         publishedCount: 0,
         blockedCount: 0,
         isConfigured: true,
+        activeSnapshot: catalogView.activeSnapshot,
       });
     }
     for (const row of visibilityRows) {
@@ -473,6 +483,52 @@ export function ProductManagementWorkspace() {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
     } finally {
       setIsSavingCatalogView(false);
+    }
+  };
+
+  const loadCatalogSnapshots = async (catalogView: DealerCatalogViewSummary) => {
+    if (!auth) return;
+    setSelectedSnapshotCatalogView(catalogView);
+    setError(null);
+    try {
+      const response = await fetchDealerCatalogSnapshots(apiBaseUrl, auth.tokens.accessToken, catalogView.id);
+      setCatalogSnapshots(response.items);
+    } catch (snapshotError) {
+      setError(snapshotError instanceof Error ? snapshotError.message : String(snapshotError));
+    }
+  };
+
+  const handlePublishCatalogSnapshot = async (catalogView: DealerCatalogViewSummary) => {
+    if (!auth) return;
+    setPublishingCatalogViewId(catalogView.id);
+    setError(null);
+    try {
+      await publishDealerCatalogSnapshot(apiBaseUrl, auth.tokens.accessToken, catalogView.id, {
+        notes: 'Published from Product Management catalog view screen',
+      });
+      await reloadCatalog();
+      await loadCatalogSnapshots(catalogView);
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : String(publishError));
+    } finally {
+      setPublishingCatalogViewId(null);
+    }
+  };
+
+  const handleRollbackCatalogSnapshot = async (snapshot: DealerCatalogSnapshotSummary) => {
+    if (!auth || !selectedSnapshotCatalogView) return;
+    setRollbackSnapshotId(snapshot.id);
+    setError(null);
+    try {
+      await rollbackDealerCatalogSnapshot(apiBaseUrl, auth.tokens.accessToken, selectedSnapshotCatalogView.id, snapshot.id, {
+        notes: `Rollback to published v${snapshot.version}`,
+      });
+      await reloadCatalog();
+      await loadCatalogSnapshots(selectedSnapshotCatalogView);
+    } catch (rollbackError) {
+      setError(rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
+    } finally {
+      setRollbackSnapshotId(null);
     }
   };
 
@@ -888,6 +944,7 @@ export function ProductManagementWorkspace() {
                       <Table.Th>How this view is matched</Table.Th>
                       <Table.Th>Region / Brand</Table.Th>
                       <Table.Th>Products</Table.Th>
+                      <Table.Th>Published version</Table.Th>
                       <Table.Th />
                     </Table.Tr>
                   </Table.Thead>
@@ -910,18 +967,53 @@ export function ProductManagementWorkspace() {
                           <Text size="xs" c="dimmed">{row.publishedCount} published / {row.blockedCount} missing rules</Text>
                         </Table.Td>
                         <Table.Td>
+                          {row.activeSnapshot ? (
+                            <Stack gap={2}>
+                              <Badge color="green" variant="light">v{row.activeSnapshot.version} live</Badge>
+                              <Text size="xs" c="dimmed">
+                                {row.activeSnapshot.productCount} products / {row.activeSnapshot.fileCount} files
+                              </Text>
+                            </Stack>
+                          ) : (
+                            <Badge color="yellow" variant="light">Not published</Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
                           <Group gap="xs" justify="flex-end">
                             {row.catalogViewId ? (
-                              <Button
-                                size="xs"
-                                variant="light"
-                                onClick={() => {
-                                  const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
-                                  if (catalogView) handleEditCatalogView(catalogView);
-                                }}
-                              >
-                                Edit View
-                              </Button>
+                              <>
+                                <Button
+                                  size="xs"
+                                  variant="filled"
+                                  loading={publishingCatalogViewId === row.catalogViewId}
+                                  onClick={() => {
+                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
+                                    if (catalogView) void handlePublishCatalogSnapshot(catalogView);
+                                  }}
+                                >
+                                  Publish Snapshot
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="light"
+                                  onClick={() => {
+                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
+                                    if (catalogView) void loadCatalogSnapshots(catalogView);
+                                  }}
+                                >
+                                  Versions
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={() => {
+                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
+                                    if (catalogView) handleEditCatalogView(catalogView);
+                                  }}
+                                >
+                                  Edit View
+                                </Button>
+                              </>
                             ) : null}
                             <Button component={Link} href="/product-management?tab=products" size="xs" variant="subtle">Review Products</Button>
                           </Group>
@@ -929,12 +1021,69 @@ export function ProductManagementWorkspace() {
                       </Table.Tr>
                     ))}
                     {!catalogViewRows.length ? (
-                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No dealer catalog views have product rules yet.</Text></Table.Td></Table.Tr>
+                      <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No dealer catalog views have product rules yet.</Text></Table.Td></Table.Tr>
                     ) : null}
                   </Table.Tbody>
                 </Table>
               )}
             </Paper>
+            {selectedSnapshotCatalogView ? (
+              <Paper withBorder p="md">
+                <Group justify="space-between" mb="sm">
+                  <Stack gap={2}>
+                    <Title order={4}>Published versions</Title>
+                    <Text size="sm" c="dimmed">{selectedSnapshotCatalogView.name}</Text>
+                  </Stack>
+                  <Button variant="subtle" onClick={() => {
+                    setSelectedSnapshotCatalogView(null);
+                    setCatalogSnapshots([]);
+                  }}>
+                    Close
+                  </Button>
+                </Group>
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Version</Table.Th>
+                      <Table.Th>Catalog contents</Table.Th>
+                      <Table.Th>Published</Table.Th>
+                      <Table.Th>Notes</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {catalogSnapshots.map((snapshot) => (
+                      <Table.Tr key={snapshot.id}>
+                        <Table.Td>
+                          <Group gap="xs">
+                            <Text fw={700}>v{snapshot.version}</Text>
+                            <Badge color={snapshot.isActive ? 'green' : 'gray'} variant="light">{snapshot.isActive ? 'Live' : 'Archived'}</Badge>
+                            {snapshot.rollbackOfSnapshotId ? <Badge color="blue" variant="light">Rollback</Badge> : null}
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>{snapshot.productCount} products / {snapshot.fileCount} files</Table.Td>
+                        <Table.Td>{new Date(snapshot.publishedAt).toLocaleString()}</Table.Td>
+                        <Table.Td>{snapshot.notes ?? 'No notes'}</Table.Td>
+                        <Table.Td>
+                          <Button
+                            size="xs"
+                            variant="light"
+                            disabled={snapshot.isActive}
+                            loading={rollbackSnapshotId === snapshot.id}
+                            onClick={() => void handleRollbackCatalogSnapshot(snapshot)}
+                          >
+                            Roll Back To This
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {!catalogSnapshots.length ? (
+                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No published versions yet. Publish a snapshot when this catalog view is ready for dealers.</Text></Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              </Paper>
+            ) : null}
             <Paper withBorder>
               <Table striped highlightOnHover>
                 <Table.Thead>

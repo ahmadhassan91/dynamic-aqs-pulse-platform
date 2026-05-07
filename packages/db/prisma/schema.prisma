@@ -191,6 +191,11 @@ enum CatalogRuleSetStatus {
   RETIRED
 }
 
+enum DealerCatalogSnapshotStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 enum CatalogRuleResultAction {
   ASSIGN_CATALOG_VIEW
   REQUIRE_REVIEW
@@ -1241,6 +1246,7 @@ model BaseProduct {
   family                ProductFamily?                @relation(fields: [familyId], references: [id], onDelete: SetNull)
   presentations         ProductPresentation[]
   dealerPortalFavorites DealerPortalFavoriteProduct[]
+  catalogSnapshotItems  DealerCatalogSnapshotItem[]
 
   @@index([acumaticaInventoryId])
   @@index([acumaticaItemClass])
@@ -1277,6 +1283,7 @@ model ProductPresentation {
   readinessChecks       ProductPublishCheck[]
   assetAssignments      ProductAssetAssignment[]
   dealerPortalFavorites DealerPortalFavoriteProduct[]
+  catalogSnapshotItems  DealerCatalogSnapshotItem[]
 
   @@index([baseProductId])
   @@index([publishStatus])
@@ -1308,6 +1315,8 @@ model DealerCatalogView {
 
   catalogInclusions CatalogInclusion[]
   catalogRules      CatalogRule[]
+  catalogSnapshots  DealerCatalogSnapshot[]
+  snapshotItems     DealerCatalogSnapshotItem[]
 
   @@index([kind, isActive])
   @@index([resolverKey])
@@ -1315,6 +1324,57 @@ model DealerCatalogView {
   @@index([brandLabel])
   @@index([isDefault])
   @@index([precedence])
+}
+
+model DealerCatalogSnapshot {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  dealerCatalogViewId  String                      @db.Uuid
+  version              Int
+  status               DealerCatalogSnapshotStatus @default(ACTIVE)
+  isActive             Boolean                     @default(true)
+  productCount         Int                         @default(0)
+  fileCount            Int                         @default(0)
+  publishedByUserId    String?                     @db.Uuid
+  publishedAt          DateTime                    @default(now())
+  rollbackOfSnapshotId String?                     @db.Uuid
+  notes                String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  dealerCatalogView DealerCatalogView           @relation(fields: [dealerCatalogViewId], references: [id], onDelete: Cascade)
+  rollbackOf        DealerCatalogSnapshot?      @relation("DealerCatalogSnapshotRollback", fields: [rollbackOfSnapshotId], references: [id], onDelete: SetNull)
+  rollbackChildren  DealerCatalogSnapshot[]     @relation("DealerCatalogSnapshotRollback")
+  items             DealerCatalogSnapshotItem[]
+
+  @@unique([dealerCatalogViewId, version])
+  @@index([dealerCatalogViewId, isActive])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([rollbackOfSnapshotId])
+}
+
+model DealerCatalogSnapshotItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  snapshotId          String   @db.Uuid
+  dealerCatalogViewId String   @db.Uuid
+  presentationId      String   @db.Uuid
+  baseProductId       String   @db.Uuid
+  sku                 String
+  displayName         String
+  assetCount          Int      @default(0)
+  assetVersionPayload Json?
+  sortOrder           Int      @default(100)
+  createdAt           DateTime @default(now())
+
+  snapshot          DealerCatalogSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  dealerCatalogView DealerCatalogView     @relation(fields: [dealerCatalogViewId], references: [id], onDelete: Cascade)
+  presentation      ProductPresentation   @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  baseProduct       BaseProduct           @relation(fields: [baseProductId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, presentationId])
+  @@index([dealerCatalogViewId])
+  @@index([presentationId])
+  @@index([baseProductId])
 }
 
 model CatalogRuleSet {

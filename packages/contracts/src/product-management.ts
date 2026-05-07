@@ -118,8 +118,55 @@ export interface DealerCatalogViewSummary {
   precedence: number;
   sourceSystem: ProductSourceSystemKey;
   sourceOfTruthSystem: ProductSourceSystemKey;
+  activeSnapshot?: DealerCatalogSnapshotSummary | undefined;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DealerCatalogSnapshotAssetSummary {
+  assignmentId: string;
+  assetId: string;
+  assetVersionId?: string;
+  role: ProductAssetRoleKey;
+  title: string;
+  stableSlug: string;
+  kind: string;
+  fileName?: string;
+}
+
+export interface DealerCatalogSnapshotItemSummary {
+  id: string;
+  presentationId: string;
+  baseProductId: string;
+  sku: string;
+  displayName: string;
+  assetCount: number;
+  assets: DealerCatalogSnapshotAssetSummary[];
+}
+
+export interface DealerCatalogSnapshotSummary {
+  id: string;
+  dealerCatalogViewId: string;
+  version: number;
+  status: 'active' | 'archived';
+  isActive: boolean;
+  productCount: number;
+  fileCount: number;
+  publishedByUserId?: string;
+  publishedAt: string;
+  rollbackOfSnapshotId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  items?: DealerCatalogSnapshotItemSummary[];
+}
+
+export interface CreateDealerCatalogSnapshotRequest {
+  notes?: string | null;
+}
+
+export interface RollbackDealerCatalogSnapshotRequest {
+  notes?: string | null;
 }
 
 export interface CatalogRuleConditionInput {

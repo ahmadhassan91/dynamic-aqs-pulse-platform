@@ -196,6 +196,9 @@ export interface DealerPortalCatalogResponse {
     resolverLabel?: string;
     regionScope?: string;
     brandLabel?: string;
+    snapshotId?: string;
+    snapshotVersion?: number;
+    snapshotPublishedAt?: string;
   };
   products: DealerPortalCatalogProductSummary[];
   userFavorites: {

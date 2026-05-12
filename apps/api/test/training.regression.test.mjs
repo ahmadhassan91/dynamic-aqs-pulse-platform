@@ -36,7 +36,14 @@ let resolveTrainingCertificationDecision;
 let revokeTrainingCertification;
 let listTrainingComplianceReport;
 const SERIAL = { concurrency: false };
+const DAY_MS = 24 * 60 * 60 * 1000;
 let uniqueFixtureCounter = 0;
+
+function daysFromNow(days) {
+  const date = new Date(Date.now() + days * DAY_MS);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
 
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
@@ -726,7 +733,7 @@ test('centralized training ops queue surfaces expiring and expired certification
         title: 'Soon to expire',
         status: 'ACTIVE',
         awardedAt: new Date('2025-10-01T00:00:00.000Z'),
-        expiresAt: new Date('2026-05-05T00:00:00.000Z'),
+        expiresAt: daysFromNow(15),
       },
       {
         accountId: fixture.account.id,
@@ -830,7 +837,7 @@ test('centralized training ops queue scopes records for TM and RD actors and sup
         title: `Certification ${fixture.account.displayName}`,
         status: 'ACTIVE',
         awardedAt: new Date('2025-10-01T00:00:00.000Z'),
-        expiresAt: new Date('2026-05-01T00:00:00.000Z'),
+        expiresAt: daysFromNow(15),
       },
     });
   }
@@ -980,7 +987,7 @@ test('training compliance reporting summarizes certification and cadence risk by
         title: 'West active cert',
         status: 'ACTIVE',
         awardedAt: new Date('2025-12-01T00:00:00.000Z'),
-        expiresAt: new Date('2026-05-05T00:00:00.000Z'),
+        expiresAt: daysFromNow(15),
       },
       {
         accountId: westFixture.account.id,

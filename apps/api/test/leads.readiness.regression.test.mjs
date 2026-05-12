@@ -174,11 +174,14 @@ function buildCompleteCisFormData(overrides = {}) {
 }
 
 async function createFinanceReviewedLead(actor, decision = 'approved') {
+  const uniqueSuffix = `${decision}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const email = `jordan.mills+${uniqueSuffix}@example.com`;
+  const phone = `555-${decision === 'approved' ? '200' : '300'}-${Math.floor(Math.random() * 9000 + 1000)}`;
   const lead = await createLead(actor, {
-    companyName: 'Evergreen Comfort',
+    companyName: `Evergreen Comfort ${decision}`,
     contactDisplayName: 'Jordan Mills',
-    email: 'jordan.mills@example.com',
-    phone: '555-000-1111',
+    email,
+    phone,
     state: 'TX',
     serviceTechCount: 7,
     affinityGroupSelection: 'group',
@@ -187,7 +190,7 @@ async function createFinanceReviewedLead(actor, decision = 'approved') {
   });
 
   const issued = await issueCisLink(actor, lead.id, {
-    recipientEmail: 'jordan.mills@example.com',
+    recipientEmail: email,
     note: 'Regression issue',
   }, config);
   const token = extractPublicToken(issued.publicUrl);

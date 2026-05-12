@@ -7,6 +7,7 @@ import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, Simple
 import {
   type ProductDetail,
   type DealerCatalogViewSummary,
+  type DealerCatalogSnapshotCompareResponse,
   type DealerCatalogSnapshotSummary,
   type ProductPublishStatusKey,
   type ProductReferenceImportPreviewResponse,
@@ -18,6 +19,7 @@ import {
   createProductManagementFamily,
   fetchProductManagementCategories,
   fetchDealerCatalogViews,
+  fetchDealerCatalogSnapshotCompare,
   fetchDealerCatalogSnapshots,
   fetchProductManagementFamilies,
   fetchProductManagementProductDetail,
@@ -159,6 +161,7 @@ export function ProductManagementWorkspace() {
   const [isSavingCatalogView, setIsSavingCatalogView] = useState(false);
   const [publishingCatalogViewId, setPublishingCatalogViewId] = useState<string | null>(null);
   const [rollbackSnapshotId, setRollbackSnapshotId] = useState<string | null>(null);
+  const [isLoadingSnapshotCompare, setIsLoadingSnapshotCompare] = useState(false);
   const [isSavingFamily, setIsSavingFamily] = useState(false);
   const [isPreviewingImport, setIsPreviewingImport] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +174,7 @@ export function ProductManagementWorkspace() {
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
   const [selectedSnapshotCatalogView, setSelectedSnapshotCatalogView] = useState<DealerCatalogViewSummary | null>(null);
   const [catalogSnapshots, setCatalogSnapshots] = useState<DealerCatalogSnapshotSummary[]>([]);
+  const [snapshotCompare, setSnapshotCompare] = useState<DealerCatalogSnapshotCompareResponse | null>(null);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -490,11 +494,18 @@ export function ProductManagementWorkspace() {
     if (!auth) return;
     setSelectedSnapshotCatalogView(catalogView);
     setError(null);
+    setIsLoadingSnapshotCompare(true);
     try {
-      const response = await fetchDealerCatalogSnapshots(apiBaseUrl, auth.tokens.accessToken, catalogView.id);
+      const [response, compareResponse] = await Promise.all([
+        fetchDealerCatalogSnapshots(apiBaseUrl, auth.tokens.accessToken, catalogView.id),
+        fetchDealerCatalogSnapshotCompare(apiBaseUrl, auth.tokens.accessToken, catalogView.id),
+      ]);
       setCatalogSnapshots(response.items);
+      setSnapshotCompare(compareResponse);
     } catch (snapshotError) {
       setError(snapshotError instanceof Error ? snapshotError.message : String(snapshotError));
+    } finally {
+      setIsLoadingSnapshotCompare(false);
     }
   };
 
@@ -1001,7 +1012,7 @@ export function ProductManagementWorkspace() {
                                     if (catalogView) void loadCatalogSnapshots(catalogView);
                                   }}
                                 >
-                                  Versions
+                                  Preview Changes
                                 </Button>
                                 <Button
                                   size="xs"
@@ -1037,10 +1048,47 @@ export function ProductManagementWorkspace() {
                   <Button variant="subtle" onClick={() => {
                     setSelectedSnapshotCatalogView(null);
                     setCatalogSnapshots([]);
+                    setSnapshotCompare(null);
                   }}>
                     Close
                   </Button>
                 </Group>
+                <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
+                  <Metric label="Current Products" value={snapshotCompare?.currentProductCount ?? 0} />
+                  <Metric label="Current Files" value={snapshotCompare?.currentFileCount ?? 0} />
+                  <Metric label="Changed Products" value={(snapshotCompare?.added.length ?? 0) + (snapshotCompare?.removed.length ?? 0) + (snapshotCompare?.changed.length ?? 0)} />
+                  <Metric label="Unchanged" value={snapshotCompare?.unchangedCount ?? 0} />
+                </SimpleGrid>
+                {isLoadingSnapshotCompare ? (
+                  <Group justify="center" p="md"><Loader size="sm" /></Group>
+                ) : null}
+                {snapshotCompare?.warnings.length ? (
+                  <Alert color="yellow" mb="md" title="Publish check">
+                    {snapshotCompare.warnings.join(' ')}
+                  </Alert>
+                ) : null}
+                {snapshotCompare ? (
+                  <Paper withBorder p="sm" mb="md">
+                    <Stack gap="xs">
+                      <Text fw={700}>Current draft vs published version</Text>
+                      <Text size="sm" c="dimmed">
+                        Published v{snapshotCompare.activeSnapshot?.version ?? 'none'} has {snapshotCompare.publishedProductCount} products and {snapshotCompare.publishedFileCount} files.
+                        Current draft has {snapshotCompare.currentProductCount} products and {snapshotCompare.currentFileCount} files.
+                      </Text>
+                      <Group gap="xs">
+                        <Badge color="green" variant="light">{snapshotCompare.added.length} added</Badge>
+                        <Badge color="red" variant="light">{snapshotCompare.removed.length} removed</Badge>
+                        <Badge color="yellow" variant="light">{snapshotCompare.changed.length} changed</Badge>
+                      </Group>
+                      {[...snapshotCompare.added, ...snapshotCompare.removed, ...snapshotCompare.changed].slice(0, 8).map((item) => (
+                        <Text key={`${item.presentationId}-${item.changes.join('-')}`} size="sm">
+                          <Text span fw={600}>{item.displayName}</Text>
+                          {' '}({item.sku}) - {item.changes.length ? item.changes.join(', ') : item.publishedFileCount === 0 ? 'Added to current draft' : 'Removed from current draft'}
+                        </Text>
+                      ))}
+                    </Stack>
+                  </Paper>
+                ) : null}
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>

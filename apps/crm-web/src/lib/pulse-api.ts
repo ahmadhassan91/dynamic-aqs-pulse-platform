@@ -257,6 +257,7 @@ import type {
   CreateProductCategoryRequest,
   CreateProductFamilyRequest,
   DealerCatalogViewSummary,
+  DealerCatalogSnapshotCompareResponse,
   DealerCatalogSnapshotSummary,
   ListDealerCatalogViewsRequest,
   ListProductsRequest,
@@ -518,6 +519,13 @@ export async function updateDealerCatalogView(apiBaseUrl: string, accessToken: s
 
 export async function fetchDealerCatalogSnapshots(apiBaseUrl: string, accessToken: string, catalogViewId: string) {
   return requestJson<{ items: DealerCatalogSnapshotSummary[] }>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}/snapshots`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchDealerCatalogSnapshotCompare(apiBaseUrl: string, accessToken: string, catalogViewId: string) {
+  return requestJson<DealerCatalogSnapshotCompareResponse>(apiBaseUrl, `/api/v1/product-management/catalog-views/${catalogViewId}/snapshot-compare`, {
     method: 'GET',
     accessToken,
   });

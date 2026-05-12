@@ -169,6 +169,31 @@ export interface RollbackDealerCatalogSnapshotRequest {
   notes?: string | null;
 }
 
+export interface DealerCatalogSnapshotCompareItem {
+  presentationId: string;
+  sku: string;
+  displayName: string;
+  publishedSku?: string | undefined;
+  publishedDisplayName?: string | undefined;
+  currentFileCount: number;
+  publishedFileCount: number;
+  changes: string[];
+}
+
+export interface DealerCatalogSnapshotCompareResponse {
+  catalogViewId: string;
+  activeSnapshot?: DealerCatalogSnapshotSummary | undefined;
+  currentProductCount: number;
+  currentFileCount: number;
+  publishedProductCount: number;
+  publishedFileCount: number;
+  added: DealerCatalogSnapshotCompareItem[];
+  removed: DealerCatalogSnapshotCompareItem[];
+  changed: DealerCatalogSnapshotCompareItem[];
+  unchangedCount: number;
+  warnings: string[];
+}
+
 export interface CatalogRuleConditionInput {
   field: CatalogRuleConditionFieldKey;
   operator: CatalogRuleConditionOperatorKey;

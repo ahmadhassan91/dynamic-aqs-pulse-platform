@@ -37,6 +37,7 @@ import type {
   CreateProductFamilyRequest,
   DealerCatalogViewSummary,
   DealerCatalogSnapshotSummary,
+  DealerCatalogSnapshotCompareResponse,
   ListDealerCatalogViewsRequest,
   ListProductsRequest,
   ListProductsResponse,
@@ -261,6 +262,64 @@ export async function listDealerCatalogSnapshots(actor: AuthenticatedActor, cata
     orderBy: [{ version: 'desc' }],
   });
   return { items: items.map((snapshot) => mapDealerCatalogSnapshot(snapshot, { includeItems: true })) };
+}
+
+export async function compareDealerCatalogSnapshot(actor: AuthenticatedActor, catalogViewId: string): Promise<DealerCatalogSnapshotCompareResponse> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  const catalogView = await assertDealerCatalogViewExists(catalogViewId);
+  const [currentItems, activeSnapshot] = await Promise.all([
+    buildCatalogSnapshotItems(catalogView),
+    prisma.dealerCatalogSnapshot.findFirst({
+      where: { dealerCatalogViewId: catalogView.id, isActive: true },
+      include: { items: { orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }] } },
+      orderBy: [{ version: 'desc' }],
+    }),
+  ]);
+
+  const currentByPresentationId = new Map(currentItems.map((item) => [item.presentationId, item]));
+  const publishedItems = activeSnapshot?.items ?? [];
+  const publishedByPresentationId = new Map(publishedItems.map((item) => [item.presentationId, item]));
+  const added = currentItems
+    .filter((item) => !publishedByPresentationId.has(item.presentationId))
+    .map((item) => mapSnapshotCompareItem(item));
+  const removed = publishedItems
+    .filter((item) => !currentByPresentationId.has(item.presentationId))
+    .map((item) => mapSnapshotCompareItem(undefined, item));
+  const changed: DealerCatalogSnapshotCompareResponse['changed'] = [];
+  let unchangedCount = 0;
+
+  for (const current of currentItems) {
+    const published = publishedByPresentationId.get(current.presentationId);
+    if (!published) continue;
+    const changes = listSnapshotItemChanges(current, published);
+    if (changes.length) {
+      changed.push(mapSnapshotCompareItem(current, published, changes));
+    } else {
+      unchangedCount += 1;
+    }
+  }
+
+  const currentFileCount = currentItems.reduce((total, item) => total + item.assetCount, 0);
+  const publishedFileCount = publishedItems.reduce((total, item) => total + item.assetCount, 0);
+  const warnings: string[] = [];
+  if (!activeSnapshot) warnings.push('No published version exists yet. Publishing will create the first dealer-visible catalog version.');
+  if (currentItems.length === 0) warnings.push('Current catalog view has no ready published products. Review product readiness and visibility before publishing.');
+  if (currentItems.some((item) => item.assetCount === 0)) warnings.push('One or more current products has no dealer-safe files.');
+
+  return {
+    catalogViewId: catalogView.id,
+    activeSnapshot: activeSnapshot ? mapDealerCatalogSnapshot(activeSnapshot, { includeItems: true }) : undefined,
+    currentProductCount: currentItems.length,
+    currentFileCount,
+    publishedProductCount: publishedItems.length,
+    publishedFileCount,
+    added,
+    removed,
+    changed,
+    unchangedCount,
+    warnings,
+  };
 }
 
 export async function publishDealerCatalogSnapshot(
@@ -1030,6 +1089,39 @@ function mapDealerCatalogSnapshot(snapshot: any, options: { includeItems?: boole
       };
     }) : undefined,
   }) as DealerCatalogSnapshotSummary;
+}
+
+function mapSnapshotCompareItem(
+  current?: Awaited<ReturnType<typeof buildCatalogSnapshotItems>>[number],
+  published?: { presentationId: string; sku: string; displayName: string; assetCount: number; assetVersionPayload?: unknown },
+  changes: string[] = [],
+) {
+  return {
+    presentationId: current?.presentationId ?? published?.presentationId ?? '',
+    sku: current?.sku ?? published?.sku ?? '',
+    displayName: current?.displayName ?? published?.displayName ?? '',
+    publishedSku: published?.sku,
+    publishedDisplayName: published?.displayName,
+    currentFileCount: current?.assetCount ?? 0,
+    publishedFileCount: published?.assetCount ?? 0,
+    changes,
+  };
+}
+
+function listSnapshotItemChanges(
+  current: Awaited<ReturnType<typeof buildCatalogSnapshotItems>>[number],
+  published: { sku: string; displayName: string; assetCount: number; assetVersionPayload?: unknown },
+) {
+  const changes: string[] = [];
+  if (current.sku !== published.sku) changes.push('SKU changed');
+  if (current.displayName !== published.displayName) changes.push('Display name changed');
+  if (current.assetCount !== published.assetCount) changes.push('File count changed');
+  const currentAssetIds = new Set((Array.isArray(current.assetVersionPayload) ? current.assetVersionPayload : []).map((asset: any) => asset.assetId).filter(Boolean));
+  const publishedAssetIds = new Set((Array.isArray(published.assetVersionPayload) ? published.assetVersionPayload : []).map((asset: any) => asset.assetId).filter(Boolean));
+  if (currentAssetIds.size !== publishedAssetIds.size || [...currentAssetIds].some((assetId) => !publishedAssetIds.has(assetId))) {
+    changes.push('Dealer-safe files changed');
+  }
+  return changes;
 }
 
 function mapCatalogRuleSet(ruleSet: any): CatalogRuleSetSummary {

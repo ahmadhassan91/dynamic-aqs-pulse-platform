@@ -39,6 +39,7 @@ import {
   createCatalogRuleSet,
   createCatalogInclusion,
   createDealerCatalogView,
+  compareDealerCatalogSnapshot,
   publishDealerCatalogSnapshot,
   createProductCategory,
   createProductFamily,
@@ -159,6 +160,15 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
         return jsonResponse(res, 201, await publishDealerCatalogSnapshot(actor, catalogViewId, (await readJsonBody(req)) as CreateDealerCatalogSnapshotRequest));
       }
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const catalogSnapshotCompareMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId/snapshot-compare');
+    if (catalogSnapshotCompareMatch) {
+      const catalogViewId = catalogSnapshotCompareMatch.catalogViewId;
+      if (!catalogViewId) return badRequestResponse(res, 'Dealer catalog view id is required');
+      if (method !== 'GET') return methodNotAllowedResponse(res, method, ['GET']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+      return jsonResponse(res, 200, await compareDealerCatalogSnapshot(actor, catalogViewId));
     }
 
     const catalogSnapshotRollbackMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId/snapshots/:snapshotId/rollback');

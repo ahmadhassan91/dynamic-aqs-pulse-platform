@@ -726,7 +726,7 @@ export function DigitalAssetsWorkspace() {
                           </SimpleGrid>
                           <Group justify="space-between">
                             <Text size="xs" c="dimmed">{[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Text>
-                            <Button size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
+                            <Button data-testid={`asset-open-${asset.stableSlug}`} size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
                               Open
                             </Button>
                           </Group>
@@ -1050,11 +1050,12 @@ export function DigitalAssetsWorkspace() {
 
       <Modal opened={isAddLinkOpen} onClose={() => setIsAddLinkOpen(false)} title="Add Asset Link" size="lg" centered>
         <form onSubmit={handleCreateAsset}>
-          <Stack gap="sm">
+          <Stack gap="sm" data-testid="asset-share-panel">
             <Text c="dimmed" size="sm">Paste a file link for one asset. Use Bulk Upload when you have files from your computer.</Text>
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
               <TextInput
                 label="Asset name"
+                data-testid="asset-link-name"
                 value={assetForm.title}
                 onChange={(event) => setAssetForm((current) => ({ ...current, title: event.currentTarget.value }))}
                 required
@@ -1068,6 +1069,8 @@ export function DigitalAssetsWorkspace() {
               />
               <Select
                 label="Who can access"
+                aria-label="Asset link access"
+                data-testid="asset-link-access"
                 value={assetForm.visibility}
                 data={visibilityOptions}
                 onChange={(value) => setAssetForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey) ?? 'internal_only' }))}
@@ -1075,24 +1078,28 @@ export function DigitalAssetsWorkspace() {
               />
               <TextInput
                 label="Paste file link"
+                data-testid="asset-link-url"
                 value={assetForm.externalUrl}
                 onChange={(event) => setAssetForm((current) => ({ ...current, externalUrl: event.currentTarget.value }))}
                 placeholder="https://..."
               />
               <TextInput
                 label="File name"
+                data-testid="asset-link-file-name"
                 value={assetForm.fileName}
                 onChange={(event) => setAssetForm((current) => ({ ...current, fileName: event.currentTarget.value }))}
                 placeholder="Required when link is provided"
               />
               <TextInput
                 label="Use for"
+                data-testid="asset-link-audience"
                 value={assetForm.audience}
                 onChange={(event) => setAssetForm((current) => ({ ...current, audience: event.currentTarget.value }))}
               />
             </SimpleGrid>
             <Textarea
               label="Notes"
+              data-testid="asset-link-notes"
               value={assetForm.description}
               onChange={(event) => setAssetForm((current) => ({ ...current, description: event.currentTarget.value }))}
               minRows={2}
@@ -1329,6 +1336,7 @@ function AssetDetailPanel({
             <Group justify="space-between">
               <Title order={5}>Share With Prospect Or Customer</Title>
               <Button
+                data-testid="asset-share-create-link"
                 leftSection={<IconShare size={16} />}
                 onClick={onCreateShareLink}
                 loading={isCreatingShareLink}
@@ -1352,17 +1360,18 @@ function AssetDetailPanel({
               />
               <NumberInput
                 label="Expires in days"
+                aria-label="Share expires in days"
                 min={1}
                 max={365}
                 value={shareForm.expiresInDays}
                 onChange={(value) => onShareFormChange({ ...shareForm, expiresInDays: typeof value === 'number' ? value : 30 })}
               />
-              <TextInput label="Recipient name" value={shareForm.recipientName} onChange={(event) => onShareFormChange({ ...shareForm, recipientName: event.currentTarget.value })} />
-              <TextInput label="Recipient email" value={shareForm.recipientEmail} onChange={(event) => onShareFormChange({ ...shareForm, recipientEmail: event.currentTarget.value })} />
+              <TextInput data-testid="asset-share-recipient-name" label="Recipient name" value={shareForm.recipientName} onChange={(event) => onShareFormChange({ ...shareForm, recipientName: event.currentTarget.value })} />
+              <TextInput data-testid="asset-share-recipient-email" label="Recipient email" value={shareForm.recipientEmail} onChange={(event) => onShareFormChange({ ...shareForm, recipientEmail: event.currentTarget.value })} />
               <TextInput label="Context type" value={shareForm.contextType} onChange={(event) => onShareFormChange({ ...shareForm, contextType: event.currentTarget.value })} />
               <TextInput label="Context ID" value={shareForm.contextId} onChange={(event) => onShareFormChange({ ...shareForm, contextId: event.currentTarget.value })} />
             </SimpleGrid>
-            <Textarea label="Note" minRows={2} value={shareForm.note} onChange={(event) => onShareFormChange({ ...shareForm, note: event.currentTarget.value })} />
+            <Textarea data-testid="asset-share-note" label="Note" minRows={2} value={shareForm.note} onChange={(event) => onShareFormChange({ ...shareForm, note: event.currentTarget.value })} />
 
             <Table striped>
               <Table.Thead>

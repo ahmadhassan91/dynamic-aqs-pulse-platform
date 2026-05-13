@@ -1204,6 +1204,7 @@ export function LeadWorkspace({
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <TextInput
               label="Company name"
+              data-testid="lead-company-name"
               value={createLeadForm.companyName ?? ''}
               onChange={(event) => {
                 const value = event.currentTarget.value;
@@ -1213,6 +1214,7 @@ export function LeadWorkspace({
             />
             <TextInput
               label="Contact name"
+              data-testid="lead-contact-name"
               value={createLeadForm.contactDisplayName ?? ''}
               onChange={(event) => {
                 const value = event.currentTarget.value;
@@ -1222,6 +1224,7 @@ export function LeadWorkspace({
             <TextInput
               label="Email"
               type="email"
+              data-testid="lead-email"
               value={createLeadForm.email ?? ''}
               onChange={(event) => {
                 const value = event.currentTarget.value;
@@ -1231,6 +1234,7 @@ export function LeadWorkspace({
             />
             <TextInput
               label="Phone"
+              data-testid="lead-phone"
               value={createLeadForm.phone ?? ''}
               onChange={(event) => {
                 const value = event.currentTarget.value;
@@ -1269,9 +1273,18 @@ export function LeadWorkspace({
               onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadRating: value ?? '' }))}
               data={leadRatingOptions}
             />
+          </SimpleGrid>
+          <Paper withBorder radius="md" p="md" data-testid="lead-routing-section">
+            <Stack gap="sm">
+              <Alert color="blue" variant="light" title="Routing required">
+                Pick the dealer relationship here so Pulse can route the lead. Use Independent / No group when the dealer is not part of an affinity, PE, or ownership group.
+              </Alert>
+              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <Select
               label="Affinity group status"
               placeholder="Select affinity status..."
+                  aria-label="Affinity group status"
+                  data-testid="lead-affinity-group-status"
               value={createLeadForm.affinityGroupSelection || null}
               onChange={(value) =>
                 setCreateLeadForm((current) => ({
@@ -1280,10 +1293,13 @@ export function LeadWorkspace({
                   affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
                 }))}
               data={manualGroupAxisSelectionOptions}
+                  required
             />
             <Select
               label="Ownership group status"
               placeholder="Select ownership status..."
+                  aria-label="Ownership group status"
+                  data-testid="lead-ownership-group-status"
               value={createLeadForm.ownershipGroupSelection || null}
               onChange={(value) =>
                 setCreateLeadForm((current) => ({
@@ -1292,12 +1308,14 @@ export function LeadWorkspace({
                   ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
                 }))}
               data={manualGroupAxisSelectionOptions}
+                  required
             />
             {createLeadForm.affinityGroupSelection === 'group' ? (
               <Select
                 searchable
                 label="Affinity group"
                 placeholder="Choose affinity group..."
+                    data-testid="lead-affinity-group"
                 value={createLeadForm.affinityGroupCode || null}
                 onChange={(value) => setCreateLeadForm((current) => ({ ...current, affinityGroupCode: value ?? '' }))}
                 data={affinityGroups.map((group) => ({
@@ -1311,6 +1329,7 @@ export function LeadWorkspace({
                 searchable
                 label="Ownership group"
                 placeholder="Choose ownership group..."
+                    data-testid="lead-ownership-group"
                 value={createLeadForm.ownershipGroupCode || null}
                 onChange={(value) => setCreateLeadForm((current) => ({ ...current, ownershipGroupCode: value ?? '' }))}
                 data={ownershipGroups.map((group) => ({
@@ -1319,8 +1338,13 @@ export function LeadWorkspace({
                 }))}
               />
             ) : null}
+              </SimpleGrid>
+            </Stack>
+          </Paper>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <NumberInput
               label="Service tech count"
+              data-testid="lead-service-tech-count"
               value={createLeadForm.serviceTechCount ?? 0}
               onChange={(value) => setCreateLeadForm((current) => ({ ...current, serviceTechCount: Number(value) || 0 }))}
               min={0}
@@ -1328,6 +1352,7 @@ export function LeadWorkspace({
             />
             <NumberInput
               label="Install tech count"
+              data-testid="lead-install-tech-count"
               value={createLeadForm.installTechCount}
               onChange={(value) => setCreateLeadForm((current) => ({ ...current, installTechCount: Number(value) || 0 }))}
               min={0}
@@ -1335,6 +1360,7 @@ export function LeadWorkspace({
           </SimpleGrid>
           <Textarea
             label="Notes"
+            data-testid="lead-notes"
             value={createLeadForm.notes ?? ''}
             onChange={(event) => {
               const value = event.currentTarget.value;

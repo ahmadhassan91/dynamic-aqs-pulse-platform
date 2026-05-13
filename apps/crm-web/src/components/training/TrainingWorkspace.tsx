@@ -700,7 +700,7 @@ export function TrainingWorkspace() {
               <Tabs.Tab value="catalog">Catalog</Tabs.Tab>
             </Tabs.List>
 
-            <Tabs.Panel value="overview" pt="lg">
+            <Tabs.Panel value="overview" pt="lg" data-testid="training-overview-panel">
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Paper withBorder radius="md" p="lg">
                   <Stack gap="sm">
@@ -735,7 +735,7 @@ export function TrainingWorkspace() {
               </SimpleGrid>
             </Tabs.Panel>
 
-            <Tabs.Panel value="accounts" pt="lg">
+            <Tabs.Panel value="accounts" pt="lg" data-testid="training-accounts-panel">
               <Stack gap="md">
                 <Group justify="space-between" align="flex-end">
                   <TextInput
@@ -823,7 +823,7 @@ export function TrainingWorkspace() {
               </Stack>
             </Tabs.Panel>
 
-            <Tabs.Panel value="sessions" pt="lg">
+            <Tabs.Panel value="sessions" pt="lg" data-testid="training-sessions-panel">
               <Stack gap="md">
                 <Group justify="space-between" align="flex-end">
                   <Group align="flex-end">
@@ -976,7 +976,7 @@ export function TrainingWorkspace() {
               </Stack>
             </Tabs.Panel>
 
-            <Tabs.Panel value="ops" pt="lg">
+            <Tabs.Panel value="ops" pt="lg" data-testid="training-ops-panel">
               <Stack gap="md">
                 <Group justify="space-between" align="flex-end">
                   <Group align="flex-end">
@@ -1578,10 +1578,10 @@ export function TrainingWorkspace() {
               </Stack>
             </Tabs.Panel>
 
-            <Tabs.Panel value="catalog" pt="lg">
+            <Tabs.Panel value="catalog" pt="lg" data-testid="training-catalog-panel">
               <Stack gap="md">
                 <SimpleGrid cols={{ base: 1, lg: 3 }}>
-                  <Paper withBorder radius="md" p="lg">
+                  <Paper withBorder radius="md" p="lg" data-testid="training-category-form">
                     <Stack gap="sm">
                       <Title order={4}>Add category</Title>
                       <Select
@@ -1608,6 +1608,8 @@ export function TrainingWorkspace() {
                       />
                       <TextInput
                         label="Code"
+                        aria-label="Training category code"
+                        data-testid="training-category-code"
                         value={forms.category.code}
                         disabled={!canManageCatalog}
                         onChange={(event) => setForms((current) => ({
@@ -1620,6 +1622,8 @@ export function TrainingWorkspace() {
                       />
                       <TextInput
                         label="Name"
+                        aria-label="Training category name"
+                        data-testid="training-category-name"
                         value={forms.category.name}
                         disabled={!canManageCatalog}
                         onChange={(event) => setForms((current) => ({
@@ -1632,6 +1636,8 @@ export function TrainingWorkspace() {
                       />
                       <Textarea
                         label="Description"
+                        aria-label="Training category description"
+                        data-testid="training-category-description"
                         minRows={2}
                         value={forms.category.description ?? ''}
                         disabled={!canManageCatalog}
@@ -1643,7 +1649,7 @@ export function TrainingWorkspace() {
                           },
                         }))}
                       />
-                      <Button onClick={() => void handleCategoryCreate()} disabled={!canManageCatalog} loading={isSaving}>
+                      <Button data-testid="training-category-save" onClick={() => void handleCategoryCreate()} disabled={!canManageCatalog} loading={isSaving}>
                         Save Category
                       </Button>
                     </Stack>

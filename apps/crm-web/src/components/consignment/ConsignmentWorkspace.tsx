@@ -261,6 +261,8 @@ export function ConsignmentWorkspace() {
         <Stack gap="md">
           <Select
             label="Account"
+            aria-label="Consignment account"
+            data-testid="consignment-account-select"
             placeholder="Search or choose an account"
             data={accountOptions}
             value={createForm.accountId}
@@ -270,25 +272,36 @@ export function ConsignmentWorkspace() {
           />
           <TextInput
             label="Site name"
+            aria-label="Consignment site name"
+            data-testid="consignment-site-name"
             value={createForm.name}
             onChange={(event) => setCreateForm((current) => ({ ...current, name: event.currentTarget.value }))}
             placeholder="Defaults to account name"
           />
           <TextInput
             label="Manual warehouse reference"
+            aria-label="Manual warehouse reference"
+            data-testid="consignment-warehouse-reference"
             value={createForm.warehouseCode}
             onChange={(event) => setCreateForm((current) => ({ ...current, warehouseCode: event.currentTarget.value }))}
             placeholder="Pulse reference while Acumatica creation is parked"
           />
           <SimpleGrid cols={{ base: 1, sm: 3 }}>
-            <TextInput label="Contact name" value={createForm.primaryContactName} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactName: event.currentTarget.value }))} />
-            <TextInput label="Contact email" value={createForm.primaryContactEmail} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactEmail: event.currentTarget.value }))} />
-            <TextInput label="Contact phone" value={createForm.primaryContactPhone} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactPhone: event.currentTarget.value }))} />
+            <TextInput data-testid="consignment-contact-name" label="Contact name" value={createForm.primaryContactName} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactName: event.currentTarget.value }))} />
+            <TextInput data-testid="consignment-contact-email" label="Contact email" value={createForm.primaryContactEmail} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactEmail: event.currentTarget.value }))} />
+            <TextInput data-testid="consignment-contact-phone" label="Contact phone" value={createForm.primaryContactPhone} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactPhone: event.currentTarget.value }))} />
           </SimpleGrid>
-          <Textarea label="Notes" value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.currentTarget.value }))} minRows={3} />
+          <Textarea data-testid="consignment-notes" label="Notes" value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.currentTarget.value }))} minRows={3} />
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateSite} loading={isSavingSite}>Create Site</Button>
+            <Button
+              data-testid="consignment-create-site-save"
+              onClick={handleCreateSite}
+              loading={isSavingSite}
+              disabled={!createForm.accountId}
+            >
+              Create Site
+            </Button>
           </Group>
         </Stack>
       </Modal>

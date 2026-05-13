@@ -634,18 +634,22 @@ export function ProductManagementWorkspace() {
             Categories organize navigation and reporting. Families group related SKUs. Dealer-specific visibility belongs in Dealer Catalog Views.
           </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <Paper withBorder p="md">
+            <Paper withBorder p="md" data-testid="product-category-form">
               <Stack gap="sm">
                 <Title order={4}>{editingCategoryId ? 'Edit Category' : 'Create Category'}</Title>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label="Code"
+                    aria-label="Category code"
+                    data-testid="product-category-code"
                     value={categoryForm.code}
                     onChange={(event) => setCategoryForm((current) => ({ ...current, code: event.currentTarget.value }))}
                     required
                   />
                   <TextInput
                     label="Name"
+                    aria-label="Category name"
+                    data-testid="product-category-name"
                     value={categoryForm.name}
                     onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.currentTarget.value }))}
                     required
@@ -653,6 +657,7 @@ export function ProductManagementWorkspace() {
                 </SimpleGrid>
                 <Select
                   label="Parent category"
+                  aria-label="Parent category"
                   clearable
                   data={categoryParentOptions}
                   value={categoryForm.parentId}
@@ -661,6 +666,7 @@ export function ProductManagementWorkspace() {
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <Select
                     label="Type"
+                    aria-label="Category type"
                     placeholder="Choose category purpose"
                     clearable
                     searchable
@@ -670,6 +676,7 @@ export function ProductManagementWorkspace() {
                   />
                   <Select
                     label="Region scope"
+                    aria-label="Category region scope"
                     placeholder="All regions"
                     clearable
                     searchable
@@ -680,6 +687,8 @@ export function ProductManagementWorkspace() {
                 </SimpleGrid>
                 <Textarea
                   label="Description"
+                  aria-label="Category description"
+                  data-testid="product-category-description"
                   minRows={3}
                   value={categoryForm.description}
                   onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.currentTarget.value }))}
@@ -687,6 +696,7 @@ export function ProductManagementWorkspace() {
                 <Group align="flex-end">
                   <NumberInput
                     label="Sort order"
+                    aria-label="Category sort order"
                     min={0}
                     value={categoryForm.sortOrder}
                     onChange={(value) => setCategoryForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
@@ -699,7 +709,7 @@ export function ProductManagementWorkspace() {
                 </Group>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetCategoryForm}>Reset</Button>
-                  <Button onClick={handleSaveCategory} loading={isSavingCategory}>
+                  <Button data-testid="product-category-save" onClick={handleSaveCategory} loading={isSavingCategory}>
                     {editingCategoryId ? 'Save Category' : 'Create Category'}
                   </Button>
                 </Group>
@@ -758,18 +768,22 @@ export function ProductManagementWorkspace() {
             Families group sibling or variant-like SKUs. They do not decide which dealer can see a product.
           </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <Paper withBorder p="md">
+            <Paper withBorder p="md" data-testid="product-family-form">
               <Stack gap="sm">
                 <Title order={4}>{editingFamilyId ? 'Edit Family' : 'Create Family'}</Title>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label="Code"
+                    aria-label="Family code"
+                    data-testid="product-family-code"
                     value={familyForm.code}
                     onChange={(event) => setFamilyForm((current) => ({ ...current, code: event.currentTarget.value }))}
                     required
                   />
                   <TextInput
                     label="Name"
+                    aria-label="Family name"
+                    data-testid="product-family-name"
                     value={familyForm.name}
                     onChange={(event) => setFamilyForm((current) => ({ ...current, name: event.currentTarget.value }))}
                     required
@@ -777,6 +791,8 @@ export function ProductManagementWorkspace() {
                 </SimpleGrid>
                 <Textarea
                   label="Description"
+                  aria-label="Family description"
+                  data-testid="product-family-description"
                   minRows={3}
                   value={familyForm.description}
                   onChange={(event) => setFamilyForm((current) => ({ ...current, description: event.currentTarget.value }))}
@@ -796,7 +812,7 @@ export function ProductManagementWorkspace() {
                 </Group>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetFamilyForm}>Reset</Button>
-                  <Button onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save Family' : 'Create Family'}</Button>
+                  <Button data-testid="product-family-save" onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save Family' : 'Create Family'}</Button>
                 </Group>
               </Stack>
             </Paper>
@@ -846,7 +862,7 @@ export function ProductManagementWorkspace() {
               <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
               <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
             </SimpleGrid>
-            <Paper withBorder p="md">
+            <Paper withBorder p="md" data-testid="dealer-catalog-view-form">
               <Group justify="space-between" align="flex-start" mb="sm">
                 <Stack gap={2}>
                   <Title order={4}>{editingCatalogViewId ? 'Edit Dealer Catalog View' : 'Create Dealer Catalog View'}</Title>
@@ -859,6 +875,8 @@ export function ProductManagementWorkspace() {
               <SimpleGrid cols={{ base: 1, md: 3 }}>
                 <TextInput
                   label="Catalog view name"
+                  aria-label="Catalog view name"
+                  data-testid="dealer-catalog-view-name"
                   placeholder="Standard US Dealer Catalog"
                   value={catalogViewForm.name}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, name: event.currentTarget.value }))}
@@ -866,6 +884,7 @@ export function ProductManagementWorkspace() {
                 />
                   <Select
                   label="Audience type"
+                  aria-label="Catalog audience type"
                   data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                   value={catalogViewForm.kind}
                   onChange={(value) => {
@@ -880,6 +899,7 @@ export function ProductManagementWorkspace() {
                 />
                 <NumberInput
                   label="Rule order"
+                  aria-label="Catalog rule order"
                   min={1}
                   max={999}
                   value={catalogViewForm.precedence}
@@ -887,18 +907,23 @@ export function ProductManagementWorkspace() {
                 />
                 <TextInput
                   label="Matching value"
+                  aria-label="Catalog matching value"
+                  data-testid="dealer-catalog-matching-value"
                   placeholder="nexstar, redwood, CA, private-label-code"
                   value={catalogViewForm.resolverKey}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
                 />
                 <TextInput
                   label="Display label"
+                  aria-label="Catalog display label"
+                  data-testid="dealer-catalog-display-label"
                   placeholder="Nexstar, Redwood / Apollo, Canada"
                   value={catalogViewForm.resolverLabel}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverLabel: event.currentTarget.value }))}
                 />
                 <Select
                   label="Region"
+                  aria-label="Catalog region"
                   placeholder="All regions"
                   data={CATEGORY_REGION_OPTIONS}
                   value={catalogViewForm.regionScope || null}
@@ -908,6 +933,8 @@ export function ProductManagementWorkspace() {
                 />
                 <TextInput
                   label="Brand / private label"
+                  aria-label="Catalog brand or private label"
+                  data-testid="dealer-catalog-brand-label"
                   placeholder="Dynamic, dealer brand, private label"
                   value={catalogViewForm.brandLabel}
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))}
@@ -928,6 +955,8 @@ export function ProductManagementWorkspace() {
               <Textarea
                 mt="sm"
                 label="Notes"
+                aria-label="Catalog notes"
+                data-testid="dealer-catalog-notes"
                 minRows={2}
                 value={catalogViewForm.description}
                 onChange={(event) => setCatalogViewForm((current) => ({ ...current, description: event.currentTarget.value }))}
@@ -938,7 +967,7 @@ export function ProductManagementWorkspace() {
                 </Text>
                 <Group>
                   <Button variant="subtle" onClick={resetCatalogViewForm}>Reset</Button>
-                  <Button onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
+                  <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
                     {editingCatalogViewId ? 'Save Catalog View' : 'Create Catalog View'}
                   </Button>
                 </Group>

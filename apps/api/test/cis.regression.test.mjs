@@ -175,14 +175,21 @@ function buildValidSubmissionForm(overrides = {}) {
 
 async function createLeadWithCis(adminActor, companyName) {
   await ensureTerritoryPolicySeeded();
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
   const lead = await createLead(adminActor, {
     companyName,
     contactDisplayName: `${companyName} Contact`,
-    email: `${companyName.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@example.com`,
-    phone: '555-900-1000',
+    email: `${companyName.toLowerCase().replace(/[^a-z0-9]+/g, '.')}.${uniqueSuffix}@example.com`,
+    phone: `555-${String(Date.now()).slice(-7)}`,
     serviceTechCount: 4,
     state: 'TX',
+    affinityGroupSelection: 'NONE',
+    ownershipGroupSelection: 'NONE',
+    duplicateResolution: {
+      decision: 'create_new',
+      reason: 'CIS regression fixture creates an isolated package for this test case.',
+    },
   });
 
   const issued = await issueCisLink(adminActor, lead.id, {}, config);

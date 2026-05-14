@@ -75,6 +75,7 @@ type TerritoryCardSummary = {
 const EMPTY_PINS: TerritoryMapPinSummary[] = [];
 const EMPTY_SHIPPING_CENTERS: TerritoryMapShippingCenterSummary[] = [];
 const EMPTY_COVERAGE_ENTRIES: TerritoryMapCoverageEntrySummary[] = [];
+const EMPTY_ROUTE_PLANS: TerritoryMapWorkspaceResponse['routePlans'] = [];
 
 function getStageWeight(stage?: string) {
   switch (stage) {
@@ -272,7 +273,7 @@ export function TerritoryCoverageMapPage() {
   const leadPins = workspace?.leadPins ?? EMPTY_PINS;
   const shippingCenters = workspace?.shippingCenters ?? EMPTY_SHIPPING_CENTERS;
   const coverageEntries = workspace?.coverageEntries ?? EMPTY_COVERAGE_ENTRIES;
-  const routePlans = workspace?.routePlans ?? [];
+  const routePlans = workspace?.routePlans ?? EMPTY_ROUTE_PLANS;
 
   const territorySummaries = useMemo<TerritoryCardSummary[]>(() => {
     const byTerritory = new Map<string, TerritoryCardSummary>();

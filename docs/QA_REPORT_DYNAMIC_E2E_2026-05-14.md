@@ -61,6 +61,16 @@ Latest deployed release:
 - Broad API suite reached CIS and then failed on an existing duplicate-fixture issue in `apps/api/test/cis.regression.test.mjs`; not caused by this slice.
 - `pnpm --filter @pulse/crm-web lint` remains blocked by missing local package `eslint-module-utils/resolve`.
 
+## Follow-Up Internal Blocker Closure
+
+After the first May 14 cycle, the remaining non-external blockers were closed:
+
+- CIS regression fixture now creates isolated test leads and no longer trips the intentional duplicate guard.
+- CRM web lint now runs locally by pinning the missing `eslint-module-utils` helper.
+- Territory map hook dependency warning was fixed without weakening lint rules.
+- Full API regression now passes.
+- CRM web lint and typecheck now pass.
+
 ## Remaining Gaps
 
 - Acumatica-owned product import/apply, SKU truth, inventory/pricing, consignment warehouse/transfer/receipt, and financial posting remain parked until sandbox access, sample records, certified endpoints, and signed mappings are available.

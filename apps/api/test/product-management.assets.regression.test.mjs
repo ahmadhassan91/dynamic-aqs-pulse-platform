@@ -18,6 +18,7 @@ let listDealerCatalogViews;
 let listCatalogRuleSets;
 let listProductFamilies;
 let previewCatalogRuleSet;
+let publishDealerCatalogSnapshot;
 let runProductPublishValidation;
 let updateCatalogRuleSet;
 let updateCatalogInclusion;
@@ -26,6 +27,7 @@ let updateProductCategory;
 let updateProductFamily;
 let updateProductPresentation;
 let unlinkProductAsset;
+let commitProductReferenceImport;
 let actor;
 
 test.before(async () => {
@@ -42,6 +44,7 @@ test.before(async () => {
     listDealerCatalogViews,
     listProductFamilies,
     previewCatalogRuleSet,
+    publishDealerCatalogSnapshot,
     runProductPublishValidation,
     updateCatalogRuleSet,
     updateCatalogInclusion,
@@ -50,6 +53,7 @@ test.before(async () => {
     updateProductFamily,
     updateProductPresentation,
   } = await import('../dist/modules/product-management/service.js'));
+  ({ commitProductReferenceImport } = await import('../dist/modules/product-management/legacy-import.js'));
   ({ unlinkProductAsset } = await import('../dist/modules/digital-assets/service.js'));
   await prisma.$connect();
 });
@@ -479,6 +483,53 @@ test('publish validation accepts matching active dealer-visible assets for expec
   assert.equal(statusByCode.spec_sheet, 'pass');
   assert.equal(statusByCode.install_guide, 'pass');
   assert.equal(statusByCode.brochure, 'pass');
+});
+
+test('catalog publish is blocked until products have dealer-safe files', SERIAL, async () => {
+  const fixture = await seedProductFixture();
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Safe Publish Catalog',
+    kind: 'standard',
+    isDefault: true,
+  });
+  const inclusion = await prisma.catalogInclusion.findFirst({ where: { presentationId: fixture.presentation.id } });
+  await updateCatalogInclusion(actor, inclusion.id, {
+    dealerCatalogViewId: catalogView.id,
+    isVisible: true,
+    publishStatus: 'published',
+  });
+  await prisma.productPresentation.update({
+    where: { id: fixture.presentation.id },
+    data: { publishStatus: 'PUBLISHED', readyForDealerPortal: true },
+  });
+
+  await assert.rejects(
+    () => publishDealerCatalogSnapshot(actor, catalogView.id, { notes: 'should block missing files' }),
+    /at least one approved dealer-safe file/i,
+  );
+
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: fixture.presentation.id,
+      assetId: fixture.primaryImage.id,
+      role: 'PRIMARY_IMAGE',
+      isRequired: true,
+    },
+  });
+  const snapshot = await publishDealerCatalogSnapshot(actor, catalogView.id, { notes: 'ready after image' });
+  assert.equal(snapshot.productCount, 1);
+  assert.equal(snapshot.fileCount, 1);
+});
+
+test('product reference import cannot commit before Acumatica/catalog signoff', SERIAL, async () => {
+  const dryRun = await commitProductReferenceImport(actor, { dryRun: true, limit: 5 });
+  assert.equal(dryRun.dryRun, true);
+  assert.equal(dryRun.productsCreated, 0);
+
+  await assert.rejects(
+    () => commitProductReferenceImport(actor, { dryRun: false, limit: 5 }),
+    /preview-only until Acumatica field mappings/i,
+  );
 });
 
 test('product asset assignments can be unlinked with audit trail', SERIAL, async () => {

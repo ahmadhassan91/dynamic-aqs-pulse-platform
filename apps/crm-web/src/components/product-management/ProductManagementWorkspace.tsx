@@ -663,28 +663,6 @@ export function ProductManagementWorkspace() {
                   value={categoryForm.parentId}
                   onChange={(value) => setCategoryForm((current) => ({ ...current, parentId: value }))}
                 />
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <Select
-                    label="Type"
-                    aria-label="Category type"
-                    placeholder="Choose category purpose"
-                    clearable
-                    searchable
-                    data={CATEGORY_TYPE_OPTIONS}
-                    value={categoryForm.categoryType || null}
-                    onChange={(value) => setCategoryForm((current) => ({ ...current, categoryType: value ?? '' }))}
-                  />
-                  <Select
-                    label="Region scope"
-                    aria-label="Category region scope"
-                    placeholder="All regions"
-                    clearable
-                    searchable
-                    data={CATEGORY_REGION_OPTIONS}
-                    value={categoryForm.regionScope || null}
-                    onChange={(value) => setCategoryForm((current) => ({ ...current, regionScope: value ?? '' }))}
-                  />
-                </SimpleGrid>
                 <Textarea
                   label="Description"
                   aria-label="Category description"
@@ -693,20 +671,47 @@ export function ProductManagementWorkspace() {
                   value={categoryForm.description}
                   onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.currentTarget.value }))}
                 />
-                <Group align="flex-end">
-                  <NumberInput
-                    label="Sort order"
-                    aria-label="Category sort order"
-                    min={0}
-                    value={categoryForm.sortOrder}
-                    onChange={(value) => setCategoryForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
-                  />
-                  <Switch
-                    label="Active"
-                    checked={categoryForm.isActive}
-                    onChange={(event) => setCategoryForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
-                  />
-                </Group>
+                <details>
+                  <summary>Advanced category options</summary>
+                  <Stack gap="sm" mt="sm">
+                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                      <Select
+                        label="Category purpose"
+                        aria-label="Category purpose"
+                        placeholder="Choose only when needed"
+                        clearable
+                        searchable
+                        data={CATEGORY_TYPE_OPTIONS}
+                        value={categoryForm.categoryType || null}
+                        onChange={(value) => setCategoryForm((current) => ({ ...current, categoryType: value ?? '' }))}
+                      />
+                      <Select
+                        label="Show this category for"
+                        aria-label="Category region"
+                        placeholder="All regions"
+                        clearable
+                        searchable
+                        data={CATEGORY_REGION_OPTIONS}
+                        value={categoryForm.regionScope || null}
+                        onChange={(value) => setCategoryForm((current) => ({ ...current, regionScope: value ?? '' }))}
+                      />
+                    </SimpleGrid>
+                    <Group align="flex-end">
+                      <NumberInput
+                        label="Sort order"
+                        aria-label="Category sort order"
+                        min={0}
+                        value={categoryForm.sortOrder}
+                        onChange={(value) => setCategoryForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
+                      />
+                      <Switch
+                        label="Active"
+                        checked={categoryForm.isActive}
+                        onChange={(event) => setCategoryForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                      />
+                    </Group>
+                  </Stack>
+                </details>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetCategoryForm}>Reset</Button>
                   <Button data-testid="product-category-save" onClick={handleSaveCategory} loading={isSavingCategory}>

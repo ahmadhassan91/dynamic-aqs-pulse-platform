@@ -332,6 +332,12 @@ export async function publishDealerCatalogSnapshot(
   const catalogView = await assertDealerCatalogViewExists(catalogViewId);
   const snapshotItems = await buildCatalogSnapshotItems(catalogView);
   const fileCount = snapshotItems.reduce((total, item) => total + item.assetCount, 0);
+  if (!snapshotItems.length) {
+    throw new Error('This catalog view has no ready dealer products. Review product readiness and visibility before publishing.');
+  }
+  if (snapshotItems.some((item) => item.assetCount === 0)) {
+    throw new Error('Every dealer-visible product needs at least one approved dealer-safe file before publishing.');
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     const latest = await tx.dealerCatalogSnapshot.findFirst({

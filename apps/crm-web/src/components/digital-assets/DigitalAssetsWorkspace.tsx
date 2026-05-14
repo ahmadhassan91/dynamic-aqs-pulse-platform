@@ -1286,6 +1286,8 @@ function AssetDetailPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const currentUrl = asset.currentVersion?.publicUrl ?? asset.currentVersion?.externalUrl;
+  const isShareable = asset.visibility === 'dealer_portal' || asset.visibility === 'public';
+  const hasCurrentFile = Boolean(asset.currentVersion);
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-start">
@@ -1340,11 +1342,39 @@ function AssetDetailPanel({
                 leftSection={<IconShare size={16} />}
                 onClick={onCreateShareLink}
                 loading={isCreatingShareLink}
-                disabled={!asset.currentVersion}
+                disabled={!hasCurrentFile || !isShareable}
               >
                 Create Link
               </Button>
             </Group>
+            {!hasCurrentFile ? (
+              <Alert color="yellow" icon={<IconAlertTriangle size={18} />}>
+                Add or upload a current file before creating a customer link.
+              </Alert>
+            ) : null}
+            {hasCurrentFile && !isShareable ? (
+              <Alert color="blue" title="Make this asset shareable first">
+                <Stack gap="xs">
+                  <Text size="sm">
+                    This asset is internal-only. Change access to Dealer Portal or Public, then create a customer or prospect link.
+                  </Text>
+                  {canEdit ? (
+                    <Group>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={() => onEditFormChange({ ...editForm, visibility: 'dealer_portal' })}
+                      >
+                        Set to Dealer Portal
+                      </Button>
+                      <Button size="xs" onClick={onUpdateAsset} loading={isUpdatingAsset}>
+                        Save Access
+                      </Button>
+                    </Group>
+                  ) : null}
+                </Stack>
+              </Alert>
+            ) : null}
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
               <Select
                 label="Recipient type"

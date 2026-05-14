@@ -641,7 +641,7 @@ export function TerritoryCoverageMapPage() {
               </Group>
               <Text c="dimmed" maw={920}>
                 Dedicated TM coverage view with color-coded state ownership, shipping hubs, and live account or
-                pipeline overlays. This is the approved coverage-map route brought onto the production territory kernel.
+                pipeline overlays so managers can review coverage without switching tools.
               </Text>
               <Group gap="xs" wrap="wrap">
                 <Badge color="blue" variant="light">

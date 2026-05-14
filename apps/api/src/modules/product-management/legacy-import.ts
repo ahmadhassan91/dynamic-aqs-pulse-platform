@@ -1,16 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import {
-  DigitalAssetKind,
-  DigitalAssetReviewStatus,
-  DigitalAssetStatus,
-  DigitalAssetVisibility,
-  ProductAssetRole,
-  ProductLifecycleStatus,
-  ProductPublishStatus,
-  ProductSourceSystem,
-  prisma,
-} from '@pulse/db';
 import type {
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
@@ -58,26 +46,17 @@ export async function previewProductReferenceImport(input: ProductReferenceImpor
 }
 
 export async function commitProductReferenceImport(
-  actor: AuthenticatedActor,
+  _actor: AuthenticatedActor,
   input: CommitProductReferenceImportRequest = {},
 ): Promise<CommitProductReferenceImportResponse> {
+  if (!input.dryRun) {
+    throw new Error('Product reference import is preview-only until Acumatica field mappings and Dynamic catalog rules are signed off.');
+  }
   const context = await loadProductReferenceCandidates(input.limit);
   const summary = summarizeCandidates(context);
-  if (input.dryRun) {
-    return {
-      ...summary,
-      dryRun: true,
-      productsCreated: 0,
-      productsUpdated: 0,
-      presentationsCreated: 0,
-      presentationsUpdated: 0,
-      categoriesUpserted: 0,
-      imageAssetsUpserted: 0,
-      assetAssignmentsUpserted: 0,
-    };
-  }
-
-  const counters = {
+  return {
+    ...summary,
+    dryRun: true,
     productsCreated: 0,
     productsUpdated: 0,
     presentationsCreated: 0,
@@ -87,162 +66,36 @@ export async function commitProductReferenceImport(
     assetAssignmentsUpserted: 0,
   };
 
-  await prisma.$transaction(async (tx) => {
-    for (const candidate of context.candidates.values()) {
-      const category = candidate.categoryName
-        ? await tx.productCategory.upsert({
-            where: { code: categoryCode(candidate.categoryName) },
-            create: {
-              code: categoryCode(candidate.categoryName),
-              name: candidate.categoryName,
-              categoryType: candidate.productType ?? null,
-              regionScope: candidate.regionScope ?? null,
-            },
-            update: {
-              name: candidate.categoryName,
-              categoryType: candidate.productType ?? null,
-            },
-          })
-        : null;
-      if (category) counters.categoriesUpserted += 1;
-
-      const existingProduct = await tx.baseProduct.findUnique({ where: { sku: candidate.sku } });
-      const productUpdate = compact({
-        productName: candidate.name,
-        acumaticaInventoryId: candidate.acumaticaInventoryId,
-        acumaticaItemClass: candidate.acumaticaItemClass,
-        uom: candidate.uom,
-        itemStatus: candidate.itemStatus,
-        sourceSystem: candidate.sourceSystems.has('acumatica') ? ProductSourceSystem.ACUMATICA : ProductSourceSystem.SHOPIFY,
-        sourceOfTruthSystem: ProductSourceSystem.ACUMATICA,
-        categoryId: category?.id,
-      });
-      const product = await tx.baseProduct.upsert({
-        where: { sku: candidate.sku },
-        create: {
-          sku: candidate.sku,
-          productName: candidate.name,
-          acumaticaInventoryId: candidate.acumaticaInventoryId ?? null,
-          acumaticaItemClass: candidate.acumaticaItemClass ?? null,
-          uom: candidate.uom ?? null,
-          itemStatus: candidate.itemStatus ?? null,
-          lifecycleStatus: candidate.itemStatus === 'AC' || candidate.sourceSystems.has('shopify') ? ProductLifecycleStatus.ACTIVE : ProductLifecycleStatus.DRAFT,
-          sourceSystem: candidate.sourceSystems.has('acumatica') ? ProductSourceSystem.ACUMATICA : ProductSourceSystem.SHOPIFY,
-          sourceOfTruthSystem: ProductSourceSystem.ACUMATICA,
-          categoryId: category?.id ?? null,
-          isDealerVisible: false,
-          createdByUserId: actor.userId,
-        },
-        update: productUpdate as any,
-      });
-      if (existingProduct) counters.productsUpdated += 1;
-      else counters.productsCreated += 1;
-
-      const existingPresentation = await tx.productPresentation.findFirst({
-        where: {
-          baseProductId: product.id,
-          regionScope: candidate.regionScope ?? null,
-          brandLabel: null,
-        },
-      });
-      const presentationData = {
-        displayName: candidate.name,
-        shortDescription: plainText(candidate.description)?.slice(0, 500) ?? null,
-        longDescription: plainText(candidate.description) ?? null,
-        regionScope: candidate.regionScope ?? null,
-        brandLabel: null,
-        publishStatus: ProductPublishStatus.DRAFT,
-      };
-      const presentation = existingPresentation
-        ? await tx.productPresentation.update({ where: { id: existingPresentation.id }, data: presentationData })
-        : await tx.productPresentation.create({ data: { baseProductId: product.id, ...presentationData } });
-      if (existingPresentation) counters.presentationsUpdated += 1;
-      else counters.presentationsCreated += 1;
-
-      if (candidate.imageUrl) {
-        const stableSlug = `shopify-${candidate.regionScope?.toLowerCase() ?? 'legacy'}-${slugify(candidate.sku)}`;
-        const asset = await tx.digitalAsset.upsert({
-          where: { stableSlug },
-          create: {
-            stableSlug,
-            title: `${candidate.name} image`,
-            kind: DigitalAssetKind.IMAGE,
-            status: DigitalAssetStatus.NEEDS_REVIEW,
-            visibility: DigitalAssetVisibility.INTERNAL_ONLY,
-            reviewStatus: DigitalAssetReviewStatus.PENDING_REVIEW,
-            sourceSystem: ProductSourceSystem.SHOPIFY,
-            sourceOfTruthSystem: ProductSourceSystem.PULSE,
-            audience: 'internal',
-            regionScope: candidate.regionScope ?? null,
-            legacyUrl: candidate.imageUrl,
-            createdByUserId: actor.userId,
-          },
-          update: {
-            title: `${candidate.name} image`,
-            legacyUrl: candidate.imageUrl,
-            regionScope: candidate.regionScope ?? null,
-          },
-        });
-        counters.imageAssetsUpserted += 1;
-
-        const existingVersion = await tx.digitalAssetVersion.findFirst({ where: { assetId: asset.id, externalUrl: candidate.imageUrl } });
-        const version = existingVersion ?? await tx.digitalAssetVersion.create({
-          data: {
-            assetId: asset.id,
-            versionNumber: 1,
-            externalUrl: candidate.imageUrl,
-            fileName: imageFileName(candidate.imageUrl, candidate.sku),
-            mimeType: inferImageMimeType(candidate.imageUrl),
-            sha256: legacyUrlHash(candidate.imageUrl),
-            isCurrent: true,
-            createdByUserId: actor.userId,
-          },
-        });
-        await tx.digitalAsset.update({ where: { id: asset.id }, data: { currentVersionId: version.id } });
-
-        const existingAssignment = await tx.productAssetAssignment.findFirst({
-          where: {
-            presentationId: presentation.id,
-            assetId: asset.id,
-            role: ProductAssetRole.PRIMARY_IMAGE,
-          },
-        });
-        if (!existingAssignment) {
-          await tx.productAssetAssignment.create({
-            data: {
-              presentationId: presentation.id,
-              assetId: asset.id,
-              assetVersionId: version.id,
-              role: ProductAssetRole.PRIMARY_IMAGE,
-              regionScope: candidate.regionScope ?? null,
-              isRequired: true,
-            },
-          });
-        }
-        counters.assetAssignmentsUpserted += 1;
-      }
-    }
-  }, { timeout: 60_000 });
-
-  return { ...summary, dryRun: false, ...counters };
 }
 
 async function loadProductReferenceCandidates(limitInput?: number) {
   const limit = Math.min(Math.max(limitInput ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const [acumaticaCsv, shopifyUsCsv, shopifyCaCsv] = await Promise.all([
-    readFile(ACUMATICA_STOCK_ITEMS_PATH, 'utf8'),
-    readFile(SHOPIFY_US_PRODUCTS_PATH, 'utf8'),
-    readFile(SHOPIFY_CA_PRODUCTS_PATH, 'utf8'),
+    readOptionalReferenceFile(ACUMATICA_STOCK_ITEMS_PATH),
+    readOptionalReferenceFile(SHOPIFY_US_PRODUCTS_PATH),
+    readOptionalReferenceFile(SHOPIFY_CA_PRODUCTS_PATH),
   ]);
   const candidates = new Map<string, CandidateProduct>();
   const warnings: string[] = [];
   let acumaticaRows = 0;
   let shopifyRows = 0;
   let skippedRows = 0;
-  ingestAcumatica(acumaticaCsv, candidates, limit, warnings, (count) => { acumaticaRows = count; }, () => { skippedRows += 1; });
-  ingestShopify(shopifyUsCsv, 'US', candidates, limit, warnings, (count) => { shopifyRows += count; }, () => { skippedRows += 1; });
-  ingestShopify(shopifyCaCsv, 'CA', candidates, limit, warnings, (count) => { shopifyRows += count; }, () => { skippedRows += 1; });
+  if (acumaticaCsv) ingestAcumatica(acumaticaCsv, candidates, limit, warnings, (count) => { acumaticaRows = count; }, () => { skippedRows += 1; });
+  else warnings.push('Acumatica reference CSV is not available in this environment; import remains parked until source files and mappings are approved.');
+  if (shopifyUsCsv) ingestShopify(shopifyUsCsv, 'US', candidates, limit, warnings, (count) => { shopifyRows += count; }, () => { skippedRows += 1; });
+  else warnings.push('Shopify US reference CSV is not available in this environment; preview can resume when approved migration files are staged.');
+  if (shopifyCaCsv) ingestShopify(shopifyCaCsv, 'CA', candidates, limit, warnings, (count) => { shopifyRows += count; }, () => { skippedRows += 1; });
+  else warnings.push('Shopify Canada reference CSV is not available in this environment; preview can resume when approved migration files are staged.');
   return { candidates, acumaticaRows, shopifyRows, skippedRows, warnings };
+}
+
+async function readOptionalReferenceFile(path: string) {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw error;
+  }
 }
 
 function ingestAcumatica(
@@ -416,49 +269,8 @@ function assignIfPresent<TKey extends keyof CandidateProduct>(
   }
 }
 
-function compact<T extends Record<string, unknown>>(value: T) {
-  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined));
-}
-
-function categoryCode(value: string) {
-  return `legacy-${slugify(value)}`.slice(0, 120);
-}
-
 function normalizeCategoryName(value: string | undefined) {
   if (!value) return undefined;
   const parts = value.split('>').map((part) => part.trim()).filter(Boolean);
   return parts.at(-1) ?? value.trim();
-}
-
-function slugify(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'uncategorized';
-}
-
-function plainText(value: string | undefined) {
-  return value
-    ?.replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function imageFileName(url: string, sku: string) {
-  try {
-    const pathname = new URL(url).pathname;
-    return pathname.split('/').pop() || `${sku}.image`;
-  } catch {
-    return `${sku}.image`;
-  }
-}
-
-function inferImageMimeType(url: string) {
-  const lowered = url.toLowerCase();
-  if (lowered.includes('.png')) return 'image/png';
-  if (lowered.includes('.webp')) return 'image/webp';
-  return 'image/jpeg';
-}
-
-function legacyUrlHash(value: string) {
-  return createHash('sha256').update(value).digest('hex');
 }

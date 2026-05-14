@@ -628,7 +628,7 @@ export function LeadWorkspace({
               <Group gap="xs">
                 <Badge color="blue" variant="light">Residential Program</Badge>
                 <Badge color="cyan" variant="light">Pulse Website Intake</Badge>
-                <Badge color="grape" variant="light">Live Backend Wiring</Badge>
+                <Badge color="blue" variant="light">Ready for daily intake</Badge>
               </Group>
             </Stack>
             <Group gap="sm">

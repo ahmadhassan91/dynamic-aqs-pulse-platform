@@ -205,7 +205,7 @@ export function TrainingSessionSchedulerModal({
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Use the real Pulse training backend to schedule or reschedule account training without leaving the approved prototype shell.
+          Schedule or reschedule account training from the same place the team reviews training history.
         </Text>
 
         {!existingSession ? (

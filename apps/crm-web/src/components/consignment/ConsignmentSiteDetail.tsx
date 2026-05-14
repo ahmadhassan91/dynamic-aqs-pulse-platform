@@ -209,7 +209,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
           <Stack gap={4}>
             <Title order={1}>{site?.accountName ?? 'Consignment Site'}</Title>
             <Text size="sm" c="dimmed">
-              Site readiness, ROSE cadence, documents, manual variance handling, and the parked Acumatica handoff boundary.
+              Site readiness, ROSE cadence, documents, manual variance review, and ERP handoff items that are waiting on Acumatica access.
             </Text>
             {site ? (
               <Group gap="xs">

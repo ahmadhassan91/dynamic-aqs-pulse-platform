@@ -111,10 +111,10 @@ export function TrainingCertificationOpsModal({
                   placeholder="IAQ-CERT"
                 />
                 <TextInput
-                  label="Expires at (ISO)"
+                  label="Expiration date"
                   value={certificationExpiresAt}
                   onChange={(event) => setCertificationExpiresAt(event.currentTarget.value)}
-                  placeholder="2027-12-31T00:00:00.000Z"
+                  placeholder="2027-12-31"
                 />
               </>
             ) : null}

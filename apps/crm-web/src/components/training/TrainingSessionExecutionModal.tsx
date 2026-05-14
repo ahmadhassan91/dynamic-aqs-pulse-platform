@@ -416,7 +416,7 @@ export function TrainingSessionExecutionModal({
 
             <Textarea
               label="Checkout notes"
-              description="Required for mobile-ready execution and audit history."
+              description="Required for the training record and follow-up review."
               minRows={2}
               value={checkoutNotes}
               onChange={(event) => setCheckoutNotes(event.currentTarget.value)}

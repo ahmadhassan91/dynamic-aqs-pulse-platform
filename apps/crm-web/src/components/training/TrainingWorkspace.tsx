@@ -722,7 +722,7 @@ export function TrainingWorkspace() {
                   <Stack gap="sm">
                     <Title order={4}>Session execution snapshot</Title>
                     <Text size="sm" c="dimmed">
-                      Slice B adds real scheduling, rescheduling, completion, no-show handling, and follow-up tasks while keeping Outlook/provider sync parked.
+                      Scheduling, rescheduling, completion, no-show handling, and follow-up tasks are managed in Pulse. Outlook reflection is policy-gated.
                     </Text>
                     <Divider />
                     <Text size="sm">Scheduled sessions: {sessions?.total ?? 0}</Text>

@@ -15,6 +15,7 @@ type DealerCatalogResponseWithFavorites = Omit<DealerPortalCatalogResponse, 'pro
 };
 
 type FileAvailabilityFilter = 'all' | 'with_files' | 'without_files';
+type FavoriteFilter = 'all' | 'favorites';
 
 export interface DealerCatalogFavoriteActions {
   isAvailable: boolean;
@@ -41,7 +42,11 @@ export function DealerCatalog({
   const catalogWithFavorites = catalog as DealerCatalogResponseWithFavorites;
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [brandFilter, setBrandFilter] = useState('all');
+  const [familyFilter, setFamilyFilter] = useState('all');
   const [fileFilter, setFileFilter] = useState<FileAvailabilityFilter>('all');
+  const [fileTypeFilter, setFileTypeFilter] = useState('all');
+  const [favoriteFilter, setFavoriteFilter] = useState<FavoriteFilter>('all');
 
   const categoryOptions = useMemo(() => {
     const categories = new Set<string>();
@@ -61,6 +66,18 @@ export function DealerCatalog({
         .sort((first, second) => first.localeCompare(second))
         .map((category) => ({ value: category, label: category })),
       ...(hasUncategorized ? [{ value: uncategorizedFilterValue, label: 'Uncategorized' }] : []),
+    ];
+  }, [catalogWithFavorites.products]);
+
+  const brandOptions = useMemo(() => buildProductOptionList(catalogWithFavorites.products, (product) => product.brandLabel, 'All brands'), [catalogWithFavorites.products]);
+  const familyOptions = useMemo(() => buildProductOptionList(catalogWithFavorites.products, (product) => product.familyName, 'All families'), [catalogWithFavorites.products]);
+  const fileTypeOptions = useMemo(() => {
+    const kinds = new Set(catalogWithFavorites.products.flatMap((product) => product.assets.map((asset) => asset.kind)));
+    return [
+      { value: 'all', label: 'All file types' },
+      ...Array.from(kinds)
+        .sort((first, second) => first.localeCompare(second))
+        .map((kind) => ({ value: kind, label: kind.replace(/_/g, ' ') })),
     ];
   }, [catalogWithFavorites.products]);
 
@@ -84,23 +101,31 @@ export function DealerCatalog({
 
       const matchesCategory = categoryFilter === 'all'
         || (categoryFilter === uncategorizedFilterValue ? !product.categoryName : product.categoryName === categoryFilter);
+      const matchesBrand = brandFilter === 'all' || product.brandLabel === brandFilter;
+      const matchesFamily = familyFilter === 'all' || product.familyName === familyFilter;
 
       const hasFiles = product.assets.length > 0;
       const matchesFileAvailability =
         fileFilter === 'all'
         || (fileFilter === 'with_files' && hasFiles)
         || (fileFilter === 'without_files' && !hasFiles);
+      const matchesFileType = fileTypeFilter === 'all' || product.assets.some((asset) => asset.kind === fileTypeFilter);
+      const matchesFavorite = favoriteFilter === 'all' || Boolean(product.isFavorite);
 
-      return matchesSearch && matchesCategory && matchesFileAvailability;
+      return matchesSearch && matchesCategory && matchesBrand && matchesFamily && matchesFileAvailability && matchesFileType && matchesFavorite;
     });
-  }, [catalogWithFavorites.products, categoryFilter, fileFilter, searchQuery]);
+  }, [brandFilter, catalogWithFavorites.products, categoryFilter, familyFilter, favoriteFilter, fileFilter, fileTypeFilter, searchQuery]);
 
-  const hasActiveFilters = searchQuery.trim() !== '' || categoryFilter !== 'all' || fileFilter !== 'all';
+  const hasActiveFilters = searchQuery.trim() !== '' || categoryFilter !== 'all' || brandFilter !== 'all' || familyFilter !== 'all' || fileFilter !== 'all' || fileTypeFilter !== 'all' || favoriteFilter !== 'all';
 
   const clearFilters = () => {
     setSearchQuery('');
     setCategoryFilter('all');
+    setBrandFilter('all');
+    setFamilyFilter('all');
     setFileFilter('all');
+    setFileTypeFilter('all');
+    setFavoriteFilter('all');
   };
 
   return (
@@ -111,8 +136,8 @@ export function DealerCatalog({
             <Text className="eyebrow">Dealer Catalog</Text>
             <Title order={1}>Products and Files</Title>
             <Text c="dimmed" maw={760}>
-              Browse the products and dealer-safe files Dynamic AQS has published for your company.
-              Pricing and order submission will appear here after the ERP-backed commerce gate is approved.
+              Browse the products and files Dynamic AQS has published for your company.
+              Pricing and order submission will appear here after the order connection is approved.
             </Text>
             {catalog.catalogView ? (
               <Group gap="xs">
@@ -169,17 +194,50 @@ export function DealerCatalog({
                   data={categoryOptions}
                   allowDeselect={false}
                 />
+                <Select
+                  label="Brand"
+                  value={brandFilter}
+                  onChange={(value) => setBrandFilter(value ?? 'all')}
+                  data={brandOptions}
+                  allowDeselect={false}
+                />
+              </Group>
+              <Group align="end" grow>
+                <Select
+                  label="Family"
+                  value={familyFilter}
+                  onChange={(value) => setFamilyFilter(value ?? 'all')}
+                  data={familyOptions}
+                  allowDeselect={false}
+                />
+                <Select
+                  label="File type"
+                  value={fileTypeFilter}
+                  onChange={(value) => setFileTypeFilter(value ?? 'all')}
+                  data={fileTypeOptions}
+                  allowDeselect={false}
+                />
               </Group>
               <Group justify="space-between" align="center">
-                <SegmentedControl
-                  value={fileFilter}
-                  onChange={(value) => setFileFilter(value as FileAvailabilityFilter)}
-                  data={[
-                    { value: 'all', label: 'All files' },
-                    { value: 'with_files', label: 'Has files' },
-                    { value: 'without_files', label: 'No files' },
-                  ]}
-                />
+                <Group gap="sm">
+                  <SegmentedControl
+                    value={fileFilter}
+                    onChange={(value) => setFileFilter(value as FileAvailabilityFilter)}
+                    data={[
+                      { value: 'all', label: 'All files' },
+                      { value: 'with_files', label: 'Has files' },
+                      { value: 'without_files', label: 'No files' },
+                    ]}
+                  />
+                  <SegmentedControl
+                    value={favoriteFilter}
+                    onChange={(value) => setFavoriteFilter(value as FavoriteFilter)}
+                    data={[
+                      { value: 'all', label: 'All products' },
+                      { value: 'favorites', label: 'Saved' },
+                    ]}
+                  />
+                </Group>
                 <Button
                   variant="subtle"
                   color="gray"
@@ -225,6 +283,20 @@ export function DealerCatalog({
       )}
     </Stack>
   );
+}
+
+function buildProductOptionList(
+  products: DealerCatalogProductWithFavorites[],
+  readValue: (product: DealerCatalogProductWithFavorites) => string | undefined,
+  allLabel: string,
+) {
+  const values = new Set(products.map(readValue).filter((value): value is string => Boolean(value)));
+  return [
+    { value: 'all', label: allLabel },
+    ...Array.from(values)
+      .sort((first, second) => first.localeCompare(second))
+      .map((value) => ({ value, label: value })),
+  ];
 }
 
 function ProductCard({
@@ -303,7 +375,7 @@ function ProductCard({
 
         <Group justify="space-between" align="center">
           <Text size="sm" c="dimmed">
-            {product.assets.length} dealer-visible file{product.assets.length === 1 ? '' : 's'}
+            {product.assets.length} published file{product.assets.length === 1 ? '' : 's'}
           </Text>
           <Button
             component={Link}
@@ -322,7 +394,7 @@ function ProductCard({
           </Text>
           {primaryFiles.length === 0 ? (
             <Text size="sm" c="dimmed">
-              No dealer-visible files are attached yet.
+              No files are attached yet.
             </Text>
           ) : (
             primaryFiles.map((asset) => (

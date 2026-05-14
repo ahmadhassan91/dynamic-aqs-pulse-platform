@@ -19,6 +19,7 @@ type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
 export function useDealerPortalCatalog() {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
+  const isDealerPortalUser = auth?.identity.role === 'DEALER_PORTAL_USER';
   const [catalog, setCatalog] = useState<DealerPortalCatalogResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,7 +27,7 @@ export function useDealerPortalCatalog() {
   const [openingAssetId, setOpeningAssetId] = useState<string | undefined>();
 
   const toggleFavorite = useCallback(async (product: DealerCatalogProductWithFavorites) => {
-    if (!accessToken || updatingPresentationId) {
+    if (!accessToken || !isDealerPortalUser || updatingPresentationId) {
       return;
     }
 
@@ -69,10 +70,10 @@ export function useDealerPortalCatalog() {
     } finally {
       setUpdatingPresentationId(undefined);
     }
-  }, [accessToken, apiBaseUrl, updatingPresentationId]);
+  }, [accessToken, apiBaseUrl, isDealerPortalUser, updatingPresentationId]);
 
   const openAsset = useCallback(async (asset: DealerPortalCatalogAssetSummary) => {
-    if (!accessToken || openingAssetId) {
+    if (!accessToken || !isDealerPortalUser || openingAssetId) {
       return;
     }
 
@@ -90,15 +91,15 @@ export function useDealerPortalCatalog() {
     } finally {
       setOpeningAssetId(undefined);
     }
-  }, [accessToken, apiBaseUrl, openingAssetId]);
+  }, [accessToken, apiBaseUrl, isDealerPortalUser, openingAssetId]);
 
   const favoriteActions = useMemo<DealerCatalogFavoriteActions>(
     () => ({
-      isAvailable: Boolean(accessToken),
+      isAvailable: Boolean(accessToken && isDealerPortalUser),
       updatingPresentationId,
       toggleFavorite,
     }),
-    [accessToken, toggleFavorite, updatingPresentationId],
+    [accessToken, isDealerPortalUser, toggleFavorite, updatingPresentationId],
   );
 
   const assetActions = useMemo<DealerCatalogAssetActions>(
@@ -110,7 +111,7 @@ export function useDealerPortalCatalog() {
   );
 
   useEffect(() => {
-    if (!isHydrated || !accessToken) {
+    if (!isHydrated || !accessToken || !isDealerPortalUser) {
       setCatalog(null);
       return;
     }
@@ -141,7 +142,7 @@ export function useDealerPortalCatalog() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, apiBaseUrl, isHydrated]);
+  }, [accessToken, apiBaseUrl, isDealerPortalUser, isHydrated]);
 
   return {
     assetActions,

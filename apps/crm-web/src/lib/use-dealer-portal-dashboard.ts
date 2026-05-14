@@ -8,12 +8,13 @@ import { usePulseSession } from '@/lib/pulse-session';
 export function useDealerPortalDashboard() {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
+  const isDealerPortalUser = auth?.identity.role === 'DEALER_PORTAL_USER';
   const [dashboard, setDashboard] = useState<DealerPortalDashboardResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const reload = useCallback(async () => {
-    if (!accessToken) {
+    if (!accessToken || !isDealerPortalUser) {
       setDashboard(null);
       return null;
     }
@@ -32,10 +33,10 @@ export function useDealerPortalDashboard() {
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, apiBaseUrl]);
+  }, [accessToken, apiBaseUrl, isDealerPortalUser]);
 
   useEffect(() => {
-    if (!isHydrated || !accessToken) {
+    if (!isHydrated || !accessToken || !isDealerPortalUser) {
       setDashboard(null);
       return;
     }
@@ -66,7 +67,7 @@ export function useDealerPortalDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, apiBaseUrl, isHydrated]);
+  }, [accessToken, apiBaseUrl, isDealerPortalUser, isHydrated]);
 
   return {
     dashboard,

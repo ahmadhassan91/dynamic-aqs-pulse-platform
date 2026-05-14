@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ActionIcon, AppShell, Badge, Box, Burger, Button, Group, Menu, Stack, Text, ThemeIcon, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconBell, IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
@@ -19,10 +20,12 @@ export function BrandedDealerLayout({
 }) {
   const [opened, { toggle }] = useDisclosure();
   const { auth, logout } = usePulseSession();
+  const pathname = usePathname();
   const currentUser = dashboard?.currentUser;
   const portalAccount = dashboard?.portalAccount;
   const companyName = portalAccount?.accountDisplayName ?? currentUser?.displayName ?? auth?.identity.displayName ?? 'Dealer Portal';
   const roleProfile = currentUser ? getRoleProfile(currentUser.accessRole) : null;
+  const isDashboard = pathname === '/dealer/dashboard';
 
   return (
     <AppShell
@@ -127,9 +130,11 @@ export function BrandedDealerLayout({
 
       <AppShell.Navbar p="md" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 72px)' }}>
         <Stack gap="md">
-          <Button component={Link} href="/dealer/dashboard" variant="light" fullWidth justify="flex-start">
-            Back to Dashboard
-          </Button>
+          {!isDashboard ? (
+            <Button component={Link} href="/dealer/dashboard" variant="light" fullWidth justify="flex-start">
+              Dashboard
+            </Button>
+          ) : null}
           {roleProfile ? (
             <Stack gap={4}>
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
@@ -169,19 +174,19 @@ function getRoleProfile(role: DealerPortalAccessRoleKey) {
       label: 'Admin',
       color: 'blue',
       shortDescription: 'Users and access',
-      description: 'Admin access highlights the account user directory and portal provisioning context.',
+      description: 'Admin access highlights who can use this dealer account.',
     },
     purchasing: {
       label: 'Purchasing',
       color: 'green',
       shortDescription: 'Products and files',
-      description: 'Purchasing access highlights published products, files, and future purchasing readiness.',
+      description: 'Purchasing access highlights products and files published for this account.',
     },
     accounting: {
       label: 'Accounting',
       color: 'orange',
       shortDescription: 'Account health',
-      description: 'Accounting access highlights Account Health while ERP finance sync is pending.',
+      description: 'Accounting access highlights account health once finance data is connected.',
     },
     viewer: {
       label: 'Viewer',

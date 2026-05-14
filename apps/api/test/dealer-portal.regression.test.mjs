@@ -359,7 +359,7 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
 
   const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
     contactId: fixture.contact.id,
-    accessRole: 'viewer',
+    accessRole: 'purchasing',
   });
   const dealerAuth = await loginWithPassword(
     config,
@@ -415,6 +415,12 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.ok(assetAudit);
   assert.equal(assetAudit.metadata.operation, 'dealer_portal.asset_open');
   assert.equal(assetAudit.metadata.presentationId, presentation.id);
+  assert.equal(assetAudit.metadata.dealerPortalAccessRole, 'purchasing');
+  assert.equal(assetAudit.metadata.catalogViewId, catalogView.id);
+  assert.equal(assetAudit.metadata.catalogViewName, 'Standard Dealer Catalog');
+  assert.equal(assetAudit.metadata.assetVisibility, 'dealer_portal');
+  assert.equal(assetAudit.metadata.deliveryOutcome, 'url_opened');
+  assert.equal(assetAudit.metadata.visibilitySource.source, 'dealer_catalog_view_assignment');
 
   const unfavorite = await unfavoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
   assert.equal(unfavorite.ok, true);
@@ -425,6 +431,75 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(unfavoritedCatalog.products[0].isFavorite, false);
   assert.equal(unfavoritedCatalog.products[0].favoriteCount, 0);
   assert.equal(unfavoritedCatalog.userFavorites.count, 0);
+});
+
+test('read-only dealer portal roles cannot mutate product favorites', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Read Only Dealer Comfort',
+    email: 'readonly@portal.test',
+  });
+
+  const catalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'readonly-standard-dealer-test',
+      name: 'Read Only Standard Dealer Catalog',
+      kind: 'STANDARD',
+      isDefault: true,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'RO-100',
+      productName: 'Read Only Visible Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Read Only Visible Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: catalogView.id,
+      dealerGroupType: 'all_dealers',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'viewer',
+  });
+  const dealerAuth = await loginWithPassword(
+    config,
+    {
+      email: fixture.contact.email,
+      password: provisioned.temporaryPassword,
+    },
+    {},
+  );
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(catalog.products.length, 1);
+  await assert.rejects(
+    () => favoriteCurrentDealerPortalProduct(dealerActor, presentation.id),
+    /cannot save catalog favorites/i,
+  );
 });
 
 test('dealer portal internal preview returns visibility diagnostics for the selected account and role', SERIAL, async () => {

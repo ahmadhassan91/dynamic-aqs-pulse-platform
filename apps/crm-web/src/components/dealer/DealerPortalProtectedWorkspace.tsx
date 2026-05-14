@@ -55,7 +55,7 @@ export function DealerPortalProtectedWorkspace({ children }: { children: ReactNo
         <Stack gap="md">
           <Text fw={600}>This signed-in account does not have dealer portal access.</Text>
           <Text size="sm" c="dimmed">
-            Use a provisioned dealer portal user to continue here, or return to the internal Pulse workspace.
+            Use a dealer portal user set up for this company to continue here, or return to the internal Pulse workspace.
           </Text>
           <Group gap="sm">
             <Button component={Link} href={internalPath} variant="filled">

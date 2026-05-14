@@ -23,8 +23,8 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
             <Text className="eyebrow">Dealer Portal</Text>
             <Title order={1}>Dealer dashboard</Title>
             <Text c="dimmed" maw={760}>
-              Work from the same Pulse dealer experience the team approved, but with real portal provisioning,
-              company user access, contact visibility, and territory context from the production backend.
+              See your company profile, account contacts, locations, and the products and files Dynamic AQS has
+              made available for your team.
             </Text>
             <Group gap="xs">
               <Badge size="lg" color={statusColor(dashboard.portalAccount.status)} variant="light">
@@ -51,7 +51,7 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
           icon={<IconUsers size={22} />}
           label="Portal Users"
           value={String(dashboard.portalAccount.activePortalUsers)}
-          detail={`${dashboard.portalAccount.totalPortalUsers} total provisioned users`}
+          detail={`${dashboard.portalAccount.totalPortalUsers} total users set up`}
         />
         <MetricCard
           icon={<IconBuildingStore size={22} />}
@@ -116,7 +116,7 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
               {canPromoteAccessDirectory ? (
                 <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
                   <RoleCallout label="Active users" value={String(dashboard.portalAccount.activePortalUsers)} />
-                  <RoleCallout label="Total provisioned" value={String(dashboard.portalAccount.totalPortalUsers)} />
+                  <RoleCallout label="Total users" value={String(dashboard.portalAccount.totalPortalUsers)} />
                   <RoleCallout
                     label="Primary owners"
                     value={String(dashboard.companyUsers.filter((user) => user.isPrimaryOwner).length)}
@@ -127,14 +127,14 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
               {canPromoteCatalog ? (
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
                   <RoleCallout icon={<IconFileText size={18} />} label="Product files" value="Dealer-safe catalog access" />
-                  <RoleCallout icon={<IconBuildingStore size={18} />} label="Purchasing readiness" value="ERP commerce gate pending" />
+                  <RoleCallout icon={<IconBuildingStore size={18} />} label="Ordering" value="Coming after order sync is approved" />
                 </SimpleGrid>
               ) : null}
 
               {canPromoteAccountHealth ? (
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                  <RoleCallout icon={<IconCreditCard size={18} />} label="Payment terms" value="Pending ERP sync" />
-                  <RoleCallout icon={<IconShieldCheck size={18} />} label="Credit status" value="Pending ERP sync" />
+                  <RoleCallout icon={<IconCreditCard size={18} />} label="Payment terms" value="Not connected yet" />
+                  <RoleCallout icon={<IconShieldCheck size={18} />} label="Credit status" value="Not connected yet" />
                 </SimpleGrid>
               ) : null}
 
@@ -155,11 +155,11 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
             <Stack gap="md">
               <Title order={3}>Company Access Directory</Title>
               <Text size="sm" c="dimmed">
-                These are the live dealer portal users provisioned from the Pulse CRM account record.
+                These are the people who can sign in for this company.
               </Text>
               {dashboard.companyUsers.length === 0 ? (
                 <Alert color="blue" variant="light">
-                  Dynamic AQS has not provisioned any active dealer portal users yet.
+                  Dynamic AQS has not set up any active dealer portal users yet.
                 </Alert>
               ) : (
                 <Table.ScrollContainer minWidth={640}>
@@ -218,28 +218,34 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Contact Directory</Title>
-              <Table.ScrollContainer minWidth={520}>
-                <Table verticalSpacing="sm">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Contact</Table.Th>
-                      <Table.Th>Title</Table.Th>
-                      <Table.Th>Email</Table.Th>
-                      <Table.Th>Primary</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {dashboard.contacts.map((contact) => (
-                      <Table.Tr key={contact.id}>
-                        <Table.Td>{contact.displayName}</Table.Td>
-                        <Table.Td>{contact.title ?? '—'}</Table.Td>
-                        <Table.Td>{contact.email ?? '—'}</Table.Td>
-                        <Table.Td>{contact.isPrimary ? 'Yes' : 'No'}</Table.Td>
+              {dashboard.contacts.length === 0 ? (
+                <Alert color="blue" variant="light">
+                  No contacts have been published for this account yet.
+                </Alert>
+              ) : (
+                <Table.ScrollContainer minWidth={520}>
+                  <Table verticalSpacing="sm">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Contact</Table.Th>
+                        <Table.Th>Title</Table.Th>
+                        <Table.Th>Email</Table.Th>
+                        <Table.Th>Primary</Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {dashboard.contacts.map((contact) => (
+                        <Table.Tr key={contact.id}>
+                          <Table.Td>{contact.displayName}</Table.Td>
+                          <Table.Td>{contact.title ?? '—'}</Table.Td>
+                          <Table.Td>{contact.email ?? '—'}</Table.Td>
+                          <Table.Td>{contact.isPrimary ? 'Yes' : 'No'}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
             </Stack>
           </Card>
         </Grid.Col>
@@ -248,28 +254,34 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Location Directory</Title>
-              <Table.ScrollContainer minWidth={520}>
-                <Table verticalSpacing="sm">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Location</Table.Th>
-                      <Table.Th>City</Table.Th>
-                      <Table.Th>State</Table.Th>
-                      <Table.Th>Primary</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {dashboard.locations.map((location) => (
-                      <Table.Tr key={location.id}>
-                        <Table.Td>{location.name}</Table.Td>
-                        <Table.Td>{location.city ?? '—'}</Table.Td>
-                        <Table.Td>{location.state ?? '—'}</Table.Td>
-                        <Table.Td>{location.isPrimary ? 'Yes' : 'No'}</Table.Td>
+              {dashboard.locations.length === 0 ? (
+                <Alert color="blue" variant="light">
+                  No locations have been published for this account yet.
+                </Alert>
+              ) : (
+                <Table.ScrollContainer minWidth={520}>
+                  <Table verticalSpacing="sm">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Location</Table.Th>
+                        <Table.Th>City</Table.Th>
+                        <Table.Th>State</Table.Th>
+                        <Table.Th>Primary</Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {dashboard.locations.map((location) => (
+                        <Table.Tr key={location.id}>
+                          <Table.Td>{location.name}</Table.Td>
+                          <Table.Td>{location.city ?? '—'}</Table.Td>
+                          <Table.Td>{location.state ?? '—'}</Table.Td>
+                          <Table.Td>{location.isPrimary ? 'Yes' : 'No'}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
             </Stack>
           </Card>
         </Grid.Col>
@@ -299,7 +311,7 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
       label: 'Admin',
       badge: 'User access',
       color: 'blue',
-      description: 'Admins can review the company directory and understand who has portal access for this dealer account.',
+      description: 'Admins can review the company directory and see who has portal access for this dealer account.',
       priority: 'Start with portal users, access roles, contacts, and account context.',
       sectionTitle: 'Account users and access',
       sectionDetail: 'The access directory is prominent for admins so company user visibility stays clear.',
@@ -309,20 +321,20 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
       label: 'Purchasing',
       badge: 'Products and files',
       color: 'green',
-      description: 'Purchasing users focus on published products, dealer-visible files, and readiness for future ordering.',
-      priority: 'Browse products and files now. Cart and order submission are intentionally not available yet.',
+      description: 'Purchasing users focus on published products and files.',
+      priority: 'Browse products and files now. Cart and order submission will come after order sync is approved.',
       sectionTitle: 'Products, files, and purchasing readiness',
-      sectionDetail: 'Catalog access is available today; commerce actions will wait for the approved ERP-backed gate.',
+      sectionDetail: 'Catalog access is available today; ordering actions will wait for the approved order connection.',
       link: { href: '/dealer/catalog', label: 'Open Products & Files', variant: 'filled' },
     },
     accounting: {
       label: 'Accounting',
       badge: 'Account health',
       color: 'orange',
-      description: 'Accounting users can review account-health readiness while finance records wait for Acumatica sync.',
-      priority: 'Account Health shows ERP sync status without displaying unverified finance values.',
-      sectionTitle: 'Account Health shell',
-      sectionDetail: 'Payment terms, credit status, billing address changes, and transaction history are sync-gated.',
+      description: 'Accounting users can review account health once finance records are connected.',
+      priority: 'Account Health avoids showing unverified balances, invoices, or payment values.',
+      sectionTitle: 'Account Health',
+      sectionDetail: 'Payment terms, credit status, billing address changes, and transaction history are waiting on finance data.',
       link: { href: '/dealer/account#account-health', label: 'Open Account Health', variant: 'filled' },
     },
     viewer: {

@@ -1175,6 +1175,7 @@ export async function favoriteCurrentDealerPortalProduct(
   assertModuleAccess(actor.role, 'dealer_portal');
 
   const context = await loadVisibleDealerCatalogPresentation(actor, presentationId);
+  assertDealerPortalCanManageFavorites(context.portalUser.accessRole);
 
   await prisma.dealerPortalFavoriteProduct.upsert({
     where: {
@@ -1203,6 +1204,7 @@ export async function unfavoriteCurrentDealerPortalProduct(
   assertModuleAccess(actor.role, 'dealer_portal');
 
   const context = await loadVisibleDealerCatalogPresentation(actor, presentationId);
+  assertDealerPortalCanManageFavorites(context.portalUser.accessRole);
 
   await prisma.dealerPortalFavoriteProduct.deleteMany({
     where: {
@@ -1240,8 +1242,16 @@ export async function recordCurrentDealerPortalAssetOpen(
         actorRole: actor.role,
         accountId: context.portalUser.accountId,
         dealerPortalUserId: context.portalUser.id,
+        dealerPortalAccessRole: lower(context.portalUser.accessRole),
         catalogViewId: context.catalogView.id,
+        catalogViewName: context.catalogView.name,
+        catalogViewKind: lower(context.catalogView.kind),
         presentationId: context.assignment.presentationId,
+        assetVersionId: version?.id ?? null,
+        assetVisibility: lower(context.assignment.asset.visibility),
+        assetReviewStatus: lower(context.assignment.asset.reviewStatus),
+        visibilitySource: buildAssetVisibilitySource(context.assignment, context.catalogView),
+        deliveryOutcome: targetUrl ? 'url_opened' : 'missing_delivery_url',
       },
       afterData: {
         assetId: context.assignment.assetId,
@@ -1416,6 +1426,14 @@ async function loadVisibleDealerCatalogAsset(
     catalogView,
     assignment,
   };
+}
+
+function assertDealerPortalCanManageFavorites(accessRole: DealerPortalAccessRole) {
+  if (accessRole === DealerPortalAccessRole.ADMIN || accessRole === DealerPortalAccessRole.PURCHASING) {
+    return;
+  }
+
+  throw new AuthorizationError('This dealer portal role cannot save catalog favorites');
 }
 
 function visibleDealerCatalogPresentationWhere(catalogViewId: string): Prisma.ProductPresentationWhereInput {
@@ -1813,6 +1831,37 @@ function isDealerVisibleAsset(assignment: any, catalogView: { brandLabel?: strin
   }
 
   return true;
+}
+
+function buildAssetVisibilitySource(
+  assignment: {
+    role?: string | null;
+    dealerGroupType?: string | null;
+    dealerGroupId?: string | null;
+    brandLabel?: string | null;
+    regionScope?: string | null;
+    asset: {
+      visibility: DigitalAssetVisibility;
+      brandScope?: string | null;
+      regionScope?: string | null;
+    };
+  },
+  catalogView: { id: string; brandLabel?: string | null; regionScope?: string | null },
+) {
+  return compact({
+    source: 'dealer_catalog_view_assignment',
+    catalogViewId: catalogView.id,
+    assetVisibility: lower(assignment.asset.visibility),
+    assignmentRole: assignment.role ?? undefined,
+    assignmentDealerGroupType: assignment.dealerGroupType ?? undefined,
+    assignmentDealerGroupId: assignment.dealerGroupId ?? undefined,
+    assignmentBrandLabel: assignment.brandLabel ?? undefined,
+    assignmentRegionScope: assignment.regionScope ?? undefined,
+    assetBrandScope: assignment.asset.brandScope ?? undefined,
+    assetRegionScope: assignment.asset.regionScope ?? undefined,
+    catalogBrandLabel: catalogView.brandLabel ?? undefined,
+    catalogRegionScope: catalogView.regionScope ?? undefined,
+  });
 }
 
 function readSnapshotAssetPayload(snapshotItem: { assetVersionPayload?: unknown } | undefined) {

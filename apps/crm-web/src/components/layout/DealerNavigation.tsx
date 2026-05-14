@@ -46,8 +46,7 @@ export function DealerNavigation({ accessRole }: { accessRole?: DealerPortalAcce
     <Stack gap={4}>
       {dealerNavItems.map((item) => {
         const linkPath = item.link.split('#')[0] ?? item.link;
-        const isAnchorLink = item.link.includes('#');
-        const isActive = !isAnchorLink && (pathname === linkPath || pathname.startsWith(`${linkPath}/`));
+        const isActive = pathname === linkPath || pathname.startsWith(`${linkPath}/`);
         const badge = accessRole ? item.badgeForRole?.[accessRole] : null;
 
         return (

@@ -1,13 +1,13 @@
 'use client';
 
-import { Alert, Card, Center, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Button, Card, Center, Loader, Stack, Text } from '@mantine/core';
 import { DealerDashboard } from '@/components/dealer/DealerDashboard';
 import { DealerPortalProtectedWorkspace } from '@/components/dealer/DealerPortalProtectedWorkspace';
 import { BrandedDealerLayout } from '@/components/layout/BrandedDealerLayout';
 import { useDealerPortalDashboard } from '@/lib/use-dealer-portal-dashboard';
 
 export default function DealerDashboardPage() {
-  const { dashboard, errorMessage, isLoading } = useDealerPortalDashboard();
+  const { dashboard, errorMessage, isLoading, reload } = useDealerPortalDashboard();
 
   return (
     <DealerPortalProtectedWorkspace>
@@ -27,7 +27,12 @@ export default function DealerDashboardPage() {
 
         {errorMessage ? (
           <Alert color="red" variant="light">
-            {errorMessage}
+            <Stack gap="sm">
+              <Text>{errorMessage}</Text>
+              <Button size="xs" variant="light" onClick={() => void reload()}>
+                Try Again
+              </Button>
+            </Stack>
           </Alert>
         ) : null}
 

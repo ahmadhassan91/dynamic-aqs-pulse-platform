@@ -32,7 +32,7 @@ export default function DealerLoginPage() {
     }
 
     const candidate = new URLSearchParams(window.location.search).get('next');
-    if (candidate) {
+    if (candidate?.startsWith('/dealer')) {
       setNextPath(candidate);
     }
   }, []);
@@ -54,7 +54,7 @@ export default function DealerLoginPage() {
           <Stack gap="md">
             <Title order={2}>You&apos;re signed in with an internal Pulse account</Title>
             <Text c="dimmed">
-              Dealer portal access requires a provisioned dealer user. You can return to the internal workspace
+              Dealer portal access requires a dealer user set up for this company. You can return to the internal workspace
               or sign out first and continue with a dealer portal login.
             </Text>
             <Button component={Link} href={getDefaultWorkspacePath(auth.identity.role)}>
@@ -82,7 +82,7 @@ export default function DealerLoginPage() {
             <IconBuildingStore size={44} color="var(--mantine-color-blue-6)" />
             <Title order={1}>Dealer Portal Sign In</Title>
             <Text c="dimmed" ta="center">
-              Sign in with the dealer portal account provisioned from your Dynamic AQS customer record.
+              Sign in with the dealer portal account Dynamic AQS set up for your company.
             </Text>
           </Stack>
         </Card>
@@ -144,7 +144,7 @@ export default function DealerLoginPage() {
               </Stack>
             </form>
             <Text size="sm" c="dimmed">
-              Access is provisioned by Dynamic AQS operations. If you need a portal login, contact your
+              Access is set up by Dynamic AQS operations. If you need a portal login, contact your
               territory manager or the Dynamic AQS support team.
             </Text>
           </Stack>

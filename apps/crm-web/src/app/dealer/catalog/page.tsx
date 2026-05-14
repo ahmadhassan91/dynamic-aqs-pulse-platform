@@ -1,6 +1,6 @@
 'use client';
 
-import { Alert, Card, Center, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Button, Card, Center, Loader, Stack, Text } from '@mantine/core';
 import { DealerCatalog } from '@/components/dealer/DealerCatalog';
 import { DealerPortalProtectedWorkspace } from '@/components/dealer/DealerPortalProtectedWorkspace';
 import { BrandedDealerLayout } from '@/components/layout/BrandedDealerLayout';
@@ -29,7 +29,12 @@ export default function DealerCatalogPage() {
 
         {errorMessage ? (
           <Alert color="red" variant="light">
-            {errorMessage}
+            <Stack gap="sm">
+              <Text>{errorMessage}</Text>
+              <Button size="xs" variant="light" onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+            </Stack>
           </Alert>
         ) : null}
 

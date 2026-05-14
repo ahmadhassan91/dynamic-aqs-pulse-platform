@@ -134,7 +134,7 @@ export function DealerCatalogProductDetail({
                     <Text className="eyebrow">File Pack</Text>
                     <Title order={3}>Product files</Title>
                     <Text size="sm" c="dimmed">
-                      These are the dealer-safe files Dynamic AQS has published for this product.
+                      These are the files Dynamic AQS has published for this product.
                     </Text>
                   </Stack>
                   <Badge color="blue" variant="light">
@@ -144,7 +144,7 @@ export function DealerCatalogProductDetail({
 
                 {product.assets.length === 0 ? (
                   <Alert color="yellow" variant="light">
-                    No dealer-visible files are attached yet.
+                    No files are attached yet.
                   </Alert>
                 ) : (
                   <Stack gap="md">
@@ -191,8 +191,8 @@ export function DealerCatalogProductDetail({
             </Card>
 
             <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
-              Prices, stock, cart, order submit, invoices, payments, and credit status will only appear after the
-              approved ERP and provider sources are live.
+              Prices, stock, cart, order submit, invoices, payments, and credit status will appear after the approved
+              order and finance connections are live.
             </Alert>
           </Stack>
         </Grid.Col>

@@ -31,8 +31,7 @@ export default function DealerPortalLandingPage() {
               <Title order={1}>Pulse Dealer Portal</Title>
             </Group>
             <Text size="lg" c="dimmed">
-              This is the live dealer-facing shell for account access, contact visibility, location context,
-              and portal-user management. It is backed by the same production portal provisioning records used in Pulse CRM.
+              Sign in to review your company profile, contacts, locations, products, and files published by Dynamic AQS.
             </Text>
             <Group gap="xs">
               <Badge size="lg" color="blue" variant="light">Dealer Account Center</Badge>
@@ -68,7 +67,7 @@ export default function DealerPortalLandingPage() {
                 <IconArrowRight size={28} color="var(--mantine-color-blue-6)" />
                 <Title order={3}>How access works</Title>
                 <Text c="dimmed">
-                  Portal accounts are provisioned from the CRM customer record by Dynamic AQS operations.
+                  Portal accounts are set up from the CRM customer record by Dynamic AQS operations.
                   There is no self-registration path in the live build yet.
                 </Text>
               </Stack>

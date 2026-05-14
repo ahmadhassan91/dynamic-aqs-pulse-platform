@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
 import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
 
 export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDashboardResponse }) {
@@ -16,8 +16,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             <Text className="eyebrow">Dealer Portal</Text>
             <Title order={1}>Account center</Title>
             <Text c="dimmed" maw={760}>
-              Review the live company profile, portal users, contacts, and locations that Dynamic AQS has provisioned
-              from the CRM account record.
+              Review your company profile, portal users, contacts, and locations.
             </Text>
             <Group gap="xs">
               <Badge size="lg" color={roleProfile.color} variant="light">
@@ -60,11 +59,10 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="sm">
-              <Title order={3}>Portal Provisioning</Title>
+              <Title order={3}>Portal Access</Title>
               <MetadataRow label="Status" value={dashboard.portalAccount.status.replace(/_/g, ' ')} badgeColor={statusColor(dashboard.portalAccount.status)} />
               <MetadataRow label="Eligibility" value={dashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'} />
-              <MetadataRow label="Provisioned At" value={formatDateTime(dashboard.portalAccount.provisionedAt)} />
-              <MetadataRow label="Source Lead" value={dashboard.portalAccount.sourceLeadId ?? 'Not linked'} />
+              <MetadataRow label="Set Up At" value={formatDateTime(dashboard.portalAccount.provisionedAt)} />
               <MetadataRow label="Notes" value={dashboard.portalAccount.notes ?? 'No setup notes added yet'} />
             </Stack>
           </Card>
@@ -88,21 +86,21 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Group justify="space-between" align="flex-start">
             <Stack gap={4}>
               <Text className="eyebrow">Account Health</Text>
-              <Title order={3}>ERP sync status</Title>
+              <Title order={3}>Connection status</Title>
             </Stack>
             <Badge size="lg" color="orange" variant="light">
-              Acumatica pending
+              Not connected yet
             </Badge>
           </Group>
           <Text size="sm" c="dimmed" maw={760}>
-            Account Health is a finance-readiness shell until Acumatica data is synchronized. Pulse is not showing
-            unverified balances, limits, invoices, orders, or payment values here.
+            Account Health will show payment terms, credit status, invoices, orders, and payment values after the
+            approved finance connection is live.
           </Text>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <AccountHealthRow label="Payment terms" value="Pending ERP sync" />
-            <AccountHealthRow label="Credit status" value="Pending ERP sync" />
+            <AccountHealthRow label="Payment terms" value="Not connected yet" />
+            <AccountHealthRow label="Credit status" value="Not connected yet" />
             <AccountHealthRow label="Billing address changes" value="Locked, contact Dynamic AQS" />
-            <AccountHealthRow label="Orders, invoices, and payments" value="Coming after Acumatica sync" />
+            <AccountHealthRow label="Orders, invoices, and payments" value="Coming after finance connection" />
           </SimpleGrid>
         </Stack>
       </Card>
@@ -115,8 +113,13 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
               {dashboard.companyUsers.length} user{dashboard.companyUsers.length === 1 ? '' : 's'}
             </Badge>
           </Group>
-          <Table.ScrollContainer minWidth={700}>
-            <Table verticalSpacing="sm">
+          {dashboard.companyUsers.length === 0 ? (
+            <Alert color="blue" variant="light">
+              No portal users have been set up for this account yet.
+            </Alert>
+          ) : (
+            <Table.ScrollContainer minWidth={700}>
+              <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>User</Table.Th>
@@ -145,8 +148,9 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                   </Table.Tr>
                 ))}
               </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+              </Table>
+            </Table.ScrollContainer>
+          )}
         </Stack>
       </Card>
 
@@ -155,8 +159,13 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Company Contacts</Title>
-              <Table.ScrollContainer minWidth={520}>
-                <Table verticalSpacing="sm">
+              {dashboard.contacts.length === 0 ? (
+                <Alert color="blue" variant="light">
+                  No contacts have been published for this account yet.
+                </Alert>
+              ) : (
+                <Table.ScrollContainer minWidth={520}>
+                  <Table verticalSpacing="sm">
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Name</Table.Th>
@@ -184,8 +193,9 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                       </Table.Tr>
                     ))}
                   </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
             </Stack>
           </Card>
         </Grid.Col>
@@ -193,8 +203,13 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Company Locations</Title>
-              <Table.ScrollContainer minWidth={520}>
-                <Table verticalSpacing="sm">
+              {dashboard.locations.length === 0 ? (
+                <Alert color="blue" variant="light">
+                  No locations have been published for this account yet.
+                </Alert>
+              ) : (
+                <Table.ScrollContainer minWidth={520}>
+                  <Table verticalSpacing="sm">
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Location</Table.Th>
@@ -222,8 +237,9 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                       </Table.Tr>
                     ))}
                   </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
             </Stack>
           </Card>
         </Grid.Col>
@@ -246,7 +262,7 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
       label: 'Admin',
       badge: 'User access',
       color: 'blue',
-      description: 'Admins use the Account Center to review who can access the dealer portal and how each user is provisioned.',
+      description: 'Admins use the Account Center to review who can access the dealer portal.',
       accountCenterFocus: 'The portal user access directory is the primary admin surface on this page.',
     },
     purchasing: {
@@ -261,7 +277,7 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
       badge: 'Account health',
       color: 'orange',
       description: 'Accounting users can inspect Account Health sync status without seeing placeholder finance values.',
-      accountCenterFocus: 'Account Health stays explicit about pending ERP states until Acumatica data is available.',
+      accountCenterFocus: 'Account Health stays clear about which finance details are not connected yet.',
     },
     viewer: {
       label: 'Viewer',

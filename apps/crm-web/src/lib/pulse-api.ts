@@ -248,6 +248,7 @@ import type {
   ActivateCatalogRuleSetResponse,
   CatalogRulePreviewRequest,
   CatalogRulePreviewResponse,
+  CatalogRuleConditionOptionsResponse,
   CatalogRuleSetSummary,
   CommitProductReferenceImportRequest,
   CommitProductReferenceImportResponse,
@@ -549,6 +550,13 @@ export async function rollbackDealerCatalogSnapshot(apiBaseUrl: string, accessTo
 
 export async function fetchCatalogRuleSets(apiBaseUrl: string, accessToken: string) {
   return requestJson<{ items: CatalogRuleSetSummary[] }>(apiBaseUrl, '/api/v1/product-management/catalog-rule-sets', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchCatalogRuleConditionOptions(apiBaseUrl: string, accessToken: string) {
+  return requestJson<CatalogRuleConditionOptionsResponse>(apiBaseUrl, '/api/v1/product-management/catalog-rule-options', {
     method: 'GET',
     accessToken,
   });

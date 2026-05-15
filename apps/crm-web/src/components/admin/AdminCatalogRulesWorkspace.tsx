@@ -23,6 +23,7 @@ import { notifications } from '@mantine/notifications';
 import { IconChecks, IconEye, IconPlus, IconShieldCheck } from '@tabler/icons-react';
 import type {
   CatalogRuleConditionFieldKey,
+  CatalogRuleConditionOption,
   CatalogRuleConditionOperatorKey,
   CatalogRuleDraftInput,
   CatalogRulePreviewResponse,
@@ -32,6 +33,7 @@ import type {
 import {
   activateCatalogRuleSet,
   createCatalogRuleSet,
+  fetchCatalogRuleConditionOptions,
   fetchCatalogRuleSets,
   fetchDealerCatalogViews,
   previewCatalogRuleSet,
@@ -52,7 +54,6 @@ const conditionFields: Array<{ value: CatalogRuleConditionFieldKey; label: strin
   { value: 'affinity_group', label: 'Affinity Group' },
   { value: 'ownership_group', label: 'Ownership / PE Group' },
   { value: 'region', label: 'Region / Country' },
-  { value: 'brand_label', label: 'Brand / Private Label' },
   { value: 'portal_eligible', label: 'Portal Eligible' },
   { value: 'independent', label: 'Independent' },
 ];
@@ -93,6 +94,12 @@ export function AdminCatalogRulesWorkspace() {
   const accessToken = auth?.tokens.accessToken;
   const [ruleSets, setRuleSets] = useState<CatalogRuleSetSummary[]>([]);
   const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
+  const [conditionOptions, setConditionOptions] = useState<{
+    affinityGroups: CatalogRuleConditionOption[];
+    ownershipGroups: CatalogRuleConditionOption[];
+    regions: CatalogRuleConditionOption[];
+    dealerCatalogViews: CatalogRuleConditionOption[];
+  }>({ affinityGroups: [], ownershipGroups: [], regions: [], dealerCatalogViews: [] });
   const [selectedRuleSetId, setSelectedRuleSetId] = useState<string>('');
   const [name, setName] = useState('Dealer Catalog Rules');
   const [description, setDescription] = useState('Simple rules for who sees each dealer catalog view.');
@@ -107,7 +114,9 @@ export function AdminCatalogRulesWorkspace() {
     [ruleSets, selectedRuleSetId],
   );
   const activeRuleSet = ruleSets.find((ruleSet) => ruleSet.isActive);
-  const resultOptions = catalogViews.map((view) => ({ value: view.id, label: view.name }));
+  const resultOptions = conditionOptions.dealerCatalogViews.length
+    ? conditionOptions.dealerCatalogViews.map((view) => ({ value: view.value, label: view.helper ? `${view.label} (${view.helper})` : view.label }))
+    : catalogViews.map((view) => ({ value: view.id, label: view.name }));
   const currentDraft = useMemo(() => JSON.stringify({ name, description, rules }), [description, name, rules]);
   const publishBlocked = !preview || lastPreviewDraft !== currentDraft || preview.unmatchedCount > 0 || preview.reviewRequiredCount > 0;
 
@@ -118,13 +127,15 @@ export function AdminCatalogRulesWorkspace() {
     async function load() {
       setLoading(true);
       try {
-        const [nextRuleSets, nextViews] = await Promise.all([
+        const [nextRuleSets, nextViews, nextOptions] = await Promise.all([
           fetchCatalogRuleSets(apiBaseUrl, token),
           fetchDealerCatalogViews(apiBaseUrl, token, { isActive: true }),
+          fetchCatalogRuleConditionOptions(apiBaseUrl, token),
         ]);
         if (cancelled) return;
         setRuleSets(nextRuleSets.items);
         setCatalogViews(nextViews.items);
+        setConditionOptions(nextOptions);
         const firstDraft = nextRuleSets.items.find((item) => item.status !== 'active') ?? nextRuleSets.items[0];
         if (firstDraft) loadRuleSetIntoForm(firstDraft);
       } catch (error) {
@@ -228,7 +239,7 @@ export function AdminCatalogRulesWorkspace() {
       }],
       resultAction: rule.result === 'review' ? 'require_review' : 'assign_catalog_view',
       dealerCatalogViewId: rule.result === 'review' ? null : rule.result,
-      requireReviewReason: rule.result === 'review' ? 'Admin review required before the catalog view is assigned.' : null,
+      requireReviewReason: rule.result === 'review' ? 'Independent or hybrid account needs admin review before catalog view assignment.' : null,
       isEnabled: true,
     }));
   }
@@ -256,10 +267,13 @@ export function AdminCatalogRulesWorkspace() {
       </Group>
 
       <Alert color="blue" title="Keep it simple">
-        Rules use the same inputs Dynamic discussed: affinity group, ownership/PE group, independent, region, brand, and portal eligibility. Price class is not used for catalog or file visibility.
+        Rules use the same inputs Dynamic discussed: affinity group, ownership/PE group, independent, region, and portal eligibility. Price class is not used for catalog or file visibility.
       </Alert>
       <Alert color="gray" title="How to think about it">
-        Affinity and ownership/PE are account labels. Independent means neither label applies. The rule outcome is the Dealer Catalog View that controls products and files.
+        Choose from approved reference lists. Independent is the fallback only when neither affinity/franchise nor ownership/PE is confirmed; hybrid accounts should go to review unless a higher-priority rule handles them.
+      </Alert>
+      <Alert color="yellow" title="Brand/private-label rule conditions are parked">
+        Brand and private-label presentation is still handled on Dealer Catalog Views, products, and assets. We will add it as a rule condition after Dynamic confirms the account-level matching source.
       </Alert>
 
       <SimpleGrid cols={{ base: 1, md: 4 }}>
@@ -315,26 +329,17 @@ export function AdminCatalogRulesWorkspace() {
                   </Group>
                   <TextInput label="Rule name" value={rule.name} onChange={(event) => updateRule(index, { name: event.currentTarget.value })} />
                   <SimpleGrid cols={{ base: 1, md: 3 }}>
-                    <Select label="When" data={conditionFields} value={rule.field} onChange={(value) => updateRule(index, { field: (value as CatalogRuleConditionFieldKey) ?? 'affinity_group' })} />
+                    <Select label="When" data={conditionFields} value={rule.field} onChange={(value) => changeRuleField(index, (value as CatalogRuleConditionFieldKey) ?? 'affinity_group')} />
                     <Select label="Match" data={operators} value={rule.operator} onChange={(value) => updateRule(index, { operator: (value as CatalogRuleConditionOperatorKey) ?? 'is' })} />
-                    {isBooleanConditionField(rule.field) ? (
-                      <Select
-                        label="Value"
-                        data={[
-                          { value: 'yes', label: 'Yes' },
-                          { value: 'no', label: 'No' },
-                        ]}
-                        value={rule.value || 'yes'}
-                        disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)}
-                        onChange={(value) => updateRule(index, { value: value ?? 'yes' })}
-                        allowDeselect={false}
-                      />
-                    ) : (
-                      <TextInput label="Value" value={rule.value} disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)} onChange={(event) => updateRule(index, { value: event.currentTarget.value })} />
-                    )}
+                    {renderConditionValueControl(rule, index)}
                   </SimpleGrid>
+                  <Text size="xs" c="dimmed">
+                    {rule.field === 'independent'
+                      ? 'Independent means no confirmed affinity/franchise and no confirmed ownership/PE.'
+                      : 'Values come from approved reference lists so catalog matching does not depend on spelling.'}
+                  </Text>
                   <SimpleGrid cols={{ base: 1, md: 2 }}>
-                    <Select label="Then assign Dealer Catalog View" data={[...resultOptions, { value: 'review', label: 'Require Review' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
+                    <Select label="Then assign Dealer Catalog View" data={[...resultOptions, { value: 'review', label: 'Require Review - independent or hybrid check' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
                     <NumberInput label="Order" value={rule.priority} min={1} onChange={(value) => updateRule(index, { priority: Number(value) || 100 })} />
                   </SimpleGrid>
                 </Stack>
@@ -456,6 +461,53 @@ export function AdminCatalogRulesWorkspace() {
   function updateRule(index: number, patch: Partial<EditableRule>) {
     setRules((current) => current.map((rule, currentIndex) => currentIndex === index ? { ...rule, ...patch } : rule));
   }
+
+  function changeRuleField(index: number, field: CatalogRuleConditionFieldKey) {
+    updateRule(index, {
+      field,
+      operator: 'is',
+      value: isBooleanConditionField(field) ? 'yes' : '',
+    });
+  }
+
+  function renderConditionValueControl(rule: EditableRule, index: number) {
+    const disabled = ['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator);
+    if (isBooleanConditionField(rule.field)) {
+      return (
+        <Select
+          label="Value"
+          data={[
+            { value: 'yes', label: 'Yes' },
+            { value: 'no', label: 'No' },
+          ]}
+          value={rule.value || 'yes'}
+          disabled={disabled}
+          onChange={(value) => updateRule(index, { value: value ?? 'yes' })}
+          allowDeselect={false}
+        />
+      );
+    }
+
+    const options = getConditionValueOptions(rule.field);
+    return (
+      <Select
+        label={getConditionValueLabel(rule.field)}
+        searchable
+        data={options.map((option) => ({ value: option.value, label: option.helper ? `${option.label} (${option.helper})` : option.label }))}
+        value={rule.value || null}
+        disabled={disabled || !options.length}
+        placeholder={options.length ? 'Choose from approved list' : 'No approved options available'}
+        onChange={(value) => updateRule(index, { value: value ?? '' })}
+      />
+    );
+  }
+
+  function getConditionValueOptions(field: CatalogRuleConditionFieldKey) {
+    if (field === 'affinity_group') return conditionOptions.affinityGroups;
+    if (field === 'ownership_group') return conditionOptions.ownershipGroups;
+    if (field === 'region') return conditionOptions.regions;
+    return [];
+  }
 }
 
 function Metric({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
@@ -488,4 +540,11 @@ function normalizeRuleValue(rule: EditableRule) {
 
 function isBooleanConditionField(field: CatalogRuleConditionFieldKey) {
   return field === 'independent' || field === 'portal_eligible';
+}
+
+function getConditionValueLabel(field: CatalogRuleConditionFieldKey) {
+  if (field === 'affinity_group') return 'Choose affinity group';
+  if (field === 'ownership_group') return 'Choose ownership / PE group';
+  if (field === 'region') return 'Choose region';
+  return 'Value';
 }

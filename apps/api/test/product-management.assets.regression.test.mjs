@@ -14,6 +14,7 @@ let createDealerCatalogView;
 let createProductCategory;
 let createProductFamily;
 let getProductDetail;
+let listCatalogRuleConditionOptions;
 let listDealerCatalogViews;
 let listCatalogRuleSets;
 let listProductFamilies;
@@ -40,6 +41,7 @@ test.before(async () => {
     createProductCategory,
     createProductFamily,
     getProductDetail,
+    listCatalogRuleConditionOptions,
     listCatalogRuleSets,
     listDealerCatalogViews,
     listProductFamilies,
@@ -440,6 +442,53 @@ test('catalog rule preview surfaces review requirements instead of guessing', SE
   }).then(
     () => assert.fail('Expected missing catalog view to be rejected'),
     (error) => assert.match(error.message, /Dealer Catalog View/),
+  );
+});
+
+test('catalog rule options are active approved values and brand-label conditions stay parked', SERIAL, async () => {
+  await prisma.affinityGroupRef.createMany({
+    data: [
+      { code: 'nexstar', name: 'Nexstar', groupType: 'BUYING_GROUP', isActive: true },
+      { code: 'retired_affinity', name: 'Retired Affinity', groupType: 'OTHER', isActive: false },
+    ],
+  });
+  await prisma.ownershipGroupRef.createMany({
+    data: [
+      { code: 'redwood', name: 'Redwood / Apollo', ownershipType: 'PRIVATE_EQUITY', isActive: true },
+      { code: 'old_owner', name: 'Old Owner', ownershipType: 'OTHER', isActive: false },
+    ],
+  });
+  await prisma.region.createMany({
+    data: [
+      { code: 'south', name: 'South', isActive: true },
+      { code: 'retired_region', name: 'Retired Region', isActive: false },
+    ],
+  });
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Nexstar Dealer Catalog',
+    kind: 'affinity',
+    resolverKey: 'nexstar',
+    resolverLabel: 'Nexstar',
+  });
+
+  const options = await listCatalogRuleConditionOptions(actor);
+
+  assert.deepEqual(options.affinityGroups.map((item) => item.value), ['nexstar']);
+  assert.deepEqual(options.ownershipGroups.map((item) => item.value), ['redwood']);
+  assert.deepEqual(options.regions.map((item) => item.value), ['south']);
+  assert.equal(options.dealerCatalogViews[0].value, catalogView.id);
+
+  await assert.rejects(
+    () => createCatalogRuleSet(actor, {
+      name: 'Parked brand rules',
+      rules: [{
+        name: 'Brand match is not active yet',
+        conditions: [{ field: 'brand_label', operator: 'is', value: 'Dynamic' }],
+        resultAction: 'assign_catalog_view',
+        dealerCatalogViewId: catalogView.id,
+      }],
+    }),
+    /Brand\/private-label rule conditions are parked/,
   );
 });
 

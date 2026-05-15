@@ -7,6 +7,7 @@ import {
   DealerPortalAccessRole,
   DealerPortalProvisioningStatus,
   DealerPortalUserStatus,
+  DigitalAssetReviewStatus,
   DigitalAssetStatus,
   DigitalAssetVisibility,
   IdentityProvider,
@@ -1826,6 +1827,7 @@ function doesAccountMatchCondition(
   account: Parameters<typeof resolveCatalogViewForAccount>[0],
   condition: CatalogRuleConditionInput,
 ) {
+  if (condition.field === 'brand_label') return false;
   const rawValue = readAccountConditionValue(account, condition.field);
   const expected = condition.value;
   if (condition.operator === 'is_empty') return rawValue === '' || rawValue === false;
@@ -1857,6 +1859,10 @@ function isDealerVisibleAsset(assignment: any, catalogView: { brandLabel?: strin
   }
 
   if (asset.visibility !== DigitalAssetVisibility.DEALER_PORTAL && asset.visibility !== DigitalAssetVisibility.PUBLIC) {
+    return false;
+  }
+
+  if (asset.reviewStatus !== DigitalAssetReviewStatus.APPROVED && asset.reviewStatus !== DigitalAssetReviewStatus.NOT_REQUIRED) {
     return false;
   }
 

@@ -44,6 +44,7 @@ import {
   createProductCategory,
   createProductFamily,
   getProductDetail,
+  listCatalogRuleConditionOptions,
   listCatalogRuleSets,
   listDealerCatalogViews,
   listDealerCatalogSnapshots,
@@ -145,6 +146,12 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
       if (method !== 'PATCH') return methodNotAllowedResponse(res, method, ['PATCH']);
       const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.manage' });
       return jsonResponse(res, 200, await updateDealerCatalogView(actor, catalogViewId, (await readJsonBody(req)) as UpdateDealerCatalogViewRequest));
+    }
+
+    if (pathname === '/api/v1/product-management/catalog-rule-options') {
+      if (method !== 'GET') return methodNotAllowedResponse(res, method, ['GET']);
+      const actor = await requireAuthenticatedActor(req, { module: 'product_management', action: 'product.view' });
+      return jsonResponse(res, 200, await listCatalogRuleConditionOptions(actor));
     }
 
     const catalogSnapshotCollectionMatch = matchPath(pathname, '/api/v1/product-management/catalog-views/:catalogViewId/snapshots');

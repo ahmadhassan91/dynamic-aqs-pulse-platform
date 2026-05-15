@@ -200,6 +200,19 @@ export interface CatalogRuleConditionInput {
   value?: string | boolean | null;
 }
 
+export interface CatalogRuleConditionOption {
+  value: string;
+  label: string;
+  helper?: string;
+}
+
+export interface CatalogRuleConditionOptionsResponse {
+  affinityGroups: CatalogRuleConditionOption[];
+  ownershipGroups: CatalogRuleConditionOption[];
+  regions: CatalogRuleConditionOption[];
+  dealerCatalogViews: CatalogRuleConditionOption[];
+}
+
 export interface CatalogRuleDraftInput {
   id?: string;
   name: string;

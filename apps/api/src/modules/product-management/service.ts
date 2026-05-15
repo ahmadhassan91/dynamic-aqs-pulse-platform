@@ -25,6 +25,7 @@ import type {
   BaseProductSummary,
   CatalogRuleConditionInput,
   CatalogRuleCatalogViewImpact,
+  CatalogRuleConditionOptionsResponse,
   CatalogRuleDraftInput,
   CatalogRulePreviewRow,
   CatalogRulePreviewResponse,
@@ -477,6 +478,52 @@ export async function listCatalogRuleSets(actor: AuthenticatedActor): Promise<{ 
     orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
   });
   return { items: items.map(mapCatalogRuleSet) };
+}
+
+export async function listCatalogRuleConditionOptions(actor: AuthenticatedActor): Promise<CatalogRuleConditionOptionsResponse> {
+  assertModuleAccess(actor.role, 'product_management');
+  assertActionAccess(actor.role, 'product.view');
+  const [affinityGroups, ownershipGroups, regions, dealerCatalogViews] = await Promise.all([
+    prisma.affinityGroupRef.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.ownershipGroupRef.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.region.findMany({
+      where: { isActive: true },
+      orderBy: [{ name: 'asc' }],
+    }),
+    prisma.dealerCatalogView.findMany({
+      where: { isActive: true },
+      orderBy: [{ precedence: 'asc' }, { name: 'asc' }],
+    }),
+  ]);
+
+  return {
+    affinityGroups: affinityGroups.map((item) => ({
+      value: item.code,
+      label: item.name,
+      helper: item.shortName ?? item.code,
+    })),
+    ownershipGroups: ownershipGroups.map((item) => ({
+      value: item.code,
+      label: item.name,
+      helper: item.shortName ?? item.code,
+    })),
+    regions: regions.map((item) => ({
+      value: item.code,
+      label: item.name,
+      helper: item.code,
+    })),
+    dealerCatalogViews: dealerCatalogViews.map((item) => ({
+      value: item.id,
+      label: item.name,
+      helper: item.kind.toLowerCase().replace(/_/g, ' '),
+    })),
+  };
 }
 
 export async function createCatalogRuleSet(actor: AuthenticatedActor, input: CreateCatalogRuleSetRequest): Promise<CatalogRuleSetSummary> {
@@ -1343,6 +1390,11 @@ async function evaluateCatalogRuleSetPreview(
 ): Promise<CatalogRulePreviewResponse> {
   const draftRules = (input.rules ? await normalizeCatalogRuleDrafts(input.rules) : ruleSet.rules.map((rule: any) => normalizeStoredCatalogRule(rule))) as Array<ReturnType<typeof normalizeStoredCatalogRule>>;
   const rules = draftRules.filter((rule) => rule.isEnabled).sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
+  const catalogViewsById = new Map(
+    (await prisma.dealerCatalogView.findMany({
+      where: { id: { in: [...new Set(rules.map((rule) => rule.dealerCatalogViewId).filter(Boolean))] as string[] } },
+    })).map((view) => [view.id, view]),
+  );
   const accounts = await prisma.account.findMany({
     where: { isActive: true },
     include: {
@@ -1350,6 +1402,7 @@ async function evaluateCatalogRuleSetPreview(
       ownershipGroup: true,
       territory: { include: { region: true } },
       dealerPortalAccount: true,
+      sourceLead: { include: { conversionPreparation: true } },
     },
     orderBy: [{ updatedAt: 'desc' }],
     take: clampPreviewLimit(input.sampleLimit),
@@ -1366,7 +1419,7 @@ async function evaluateCatalogRuleSetPreview(
       });
     }
     const dealerCatalogView = matchedRule.dealerCatalogViewId
-      ? ruleSet.rules.find((rule: any) => rule.dealerCatalogViewId === matchedRule.dealerCatalogViewId)?.dealerCatalogView
+      ? (ruleSet.rules.find((rule: any) => rule.dealerCatalogViewId === matchedRule.dealerCatalogViewId)?.dealerCatalogView ?? catalogViewsById.get(matchedRule.dealerCatalogViewId))
       : null;
     return buildPreviewRow(account, { matchedRule, dealerCatalogView });
   });
@@ -1438,7 +1491,13 @@ function normalizeConditionArray(value: unknown): CatalogRuleConditionInput[] {
   return value.map((condition) => {
     const item = condition as Partial<CatalogRuleConditionInput>;
     if (!CATALOG_RULE_CONDITION_FIELDS.includes(item.field as any)) throw new Error('Catalog rule condition has an unsupported field');
+    if (item.field === 'brand_label') {
+      throw new Error('Brand/private-label rule conditions are parked until Dynamic confirms the account-level matching source. Use Dealer Catalog View brand labels and product/asset scoping for now.');
+    }
     if (!CATALOG_RULE_CONDITION_OPERATORS.includes(item.operator as any)) throw new Error('Catalog rule condition has an unsupported operator');
+    if (!['is_any', 'is_empty', 'is_not_empty'].includes(String(item.operator)) && (item.value === undefined || item.value === null || String(item.value).trim() === '')) {
+      throw new Error('Catalog rule conditions using "is" or "is not" need a selected value');
+    }
     return {
       field: item.field as CatalogRuleConditionInput['field'],
       operator: item.operator as CatalogRuleConditionInput['operator'],
@@ -1452,6 +1511,7 @@ function catalogRuleMatchesAccount(conditions: CatalogRuleConditionInput[], acco
 }
 
 function conditionMatchesAccount(condition: CatalogRuleConditionInput, account: any) {
+  if (condition.field === 'brand_label') return false;
   const actualValue = readAccountConditionValue(condition.field, account);
   if (condition.operator === 'is_empty') return actualValue === undefined || actualValue === null || actualValue === '';
   if (condition.operator === 'is_not_empty') return actualValue !== undefined && actualValue !== null && actualValue !== '';
@@ -1467,7 +1527,14 @@ function readAccountConditionValue(field: CatalogRuleConditionInput['field'], ac
   if (field === 'ownership_group') return account.ownershipGroup?.code ?? account.ownershipGroup?.name ?? '';
   if (field === 'independent') return account.groupClassification === 'INDEPENDENT' || (account.affinityGroupSelection === 'NONE' && account.ownershipGroupSelection === 'NONE');
   if (field === 'region') return account.territory?.region?.code ?? account.territory?.region?.name ?? '';
-  if (field === 'portal_eligible') return account.dealerPortalAccount?.status === 'ACTIVE' || account.dealerPortalAccount?.status === 'READY_TO_PROVISION';
+  if (field === 'portal_eligible') {
+    const sourceStatus = account.sourceLead?.conversionPreparation?.portalEligibilityStatus;
+    const persistedStatus = account.dealerPortalAccount?.status;
+    return sourceStatus === 'READY'
+      || sourceStatus === 'PROVISIONED'
+      || persistedStatus === 'ACTIVE'
+      || persistedStatus === 'READY_TO_PROVISION';
+  }
   return '';
 }
 

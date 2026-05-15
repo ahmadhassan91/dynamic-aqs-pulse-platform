@@ -356,6 +356,38 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
       sortOrder: 10,
     },
   });
+  const pendingAsset = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: 'dealer-fixed-mount-air-cleaner-pending',
+      title: 'Pending Dealer Spec Sheet',
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'PENDING_REVIEW',
+      audience: 'dealer',
+      legacyFileName: 'pending-spec.pdf',
+      versions: {
+        create: {
+          versionNumber: 1,
+          externalUrl: 'https://assets.example.test/pending-spec.pdf',
+          fileName: 'pending-spec.pdf',
+          isCurrent: true,
+        },
+      },
+    },
+    include: {
+      versions: true,
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: presentation.id,
+      assetId: pendingAsset.id,
+      assetVersionId: pendingAsset.versions[0].id,
+      role: 'SPEC_SHEET',
+      sortOrder: 20,
+    },
+  });
 
   const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
     contactId: fixture.contact.id,
@@ -382,6 +414,7 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(catalog.products[0].assets.length, 1);
   assert.equal(catalog.products[0].assets[0].title, 'Fixed Mount Spec Sheet');
   assert.equal(catalog.products[0].assets[0].downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+  assert.equal(catalog.products[0].assets.some((item) => item.title === 'Pending Dealer Spec Sheet'), false);
 
   const favorite = await favoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
   assert.equal(favorite.ok, true);
@@ -400,6 +433,11 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(assetOpen.presentationId, presentation.id);
   assert.equal(assetOpen.targetUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
   assert.equal(assetOpen.downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+
+  await assert.rejects(
+    () => recordCurrentDealerPortalAssetOpen(dealerActor, pendingAsset.id),
+    /not visible in the current dealer catalog/i,
+  );
 
   const assetAudit = await prisma.auditEntry.findFirst({
     where: {

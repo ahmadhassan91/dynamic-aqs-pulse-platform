@@ -637,7 +637,7 @@ export async function activateCatalogRuleSet(actor: AuthenticatedActor, ruleSetI
   if (!before.rules.length) throw new Error('Add at least one catalog rule before publishing');
   const invalidRule = before.rules.find((rule: any) => rule.isEnabled && rule.resultAction === CatalogRuleResultAction.ASSIGN_CATALOG_VIEW && (!rule.dealerCatalogView || !rule.dealerCatalogView.isActive));
   if (invalidRule) throw new Error(`Rule "${invalidRule.name}" must point to an active Dealer Catalog View before publishing`);
-  const preview = await evaluateCatalogRuleSetPreview(before, { sampleLimit: 100 });
+  const preview = await evaluateCatalogRuleSetPreview(before, { includeAllAccounts: true });
   if (preview.unmatchedCount > 0 || preview.reviewRequiredCount > 0) {
     throw new Error(`Preview must be clean before publishing: ${preview.unmatchedCount} unmatched and ${preview.reviewRequiredCount} need review.`);
   }
@@ -1386,7 +1386,7 @@ async function normalizeCatalogRuleDrafts(rules: CatalogRuleDraftInput[]) {
 
 async function evaluateCatalogRuleSetPreview(
   ruleSet: any,
-  input: { rules?: CatalogRuleDraftInput[]; sampleLimit?: number } = {},
+  input: { rules?: CatalogRuleDraftInput[]; sampleLimit?: number; includeAllAccounts?: boolean } = {},
 ): Promise<CatalogRulePreviewResponse> {
   const draftRules = (input.rules ? await normalizeCatalogRuleDrafts(input.rules) : ruleSet.rules.map((rule: any) => normalizeStoredCatalogRule(rule))) as Array<ReturnType<typeof normalizeStoredCatalogRule>>;
   const rules = draftRules.filter((rule) => rule.isEnabled).sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
@@ -1405,7 +1405,7 @@ async function evaluateCatalogRuleSetPreview(
       sourceLead: { include: { conversionPreparation: true } },
     },
     orderBy: [{ updatedAt: 'desc' }],
-    take: clampPreviewLimit(input.sampleLimit),
+    ...(input.includeAllAccounts ? {} : { take: clampPreviewLimit(input.sampleLimit) }),
   });
   const rows = accounts.map((account: any) => {
     const matchedRule = rules.find((rule) => catalogRuleMatchesAccount(rule.conditions, account));

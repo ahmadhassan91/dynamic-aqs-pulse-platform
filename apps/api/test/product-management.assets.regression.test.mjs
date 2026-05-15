@@ -408,6 +408,61 @@ test('catalog rule activation retires previous active rule set', SERIAL, async (
   assert.equal(ruleSets.items.find((item) => item.id === second.id).status, 'active');
 });
 
+test('catalog rule activation validates every active account, not only preview sample', SERIAL, async () => {
+  const affinityGroup = await prisma.affinityGroupRef.create({
+    data: {
+      code: 'nexstar',
+      name: 'Nexstar',
+      groupType: 'BUYING_GROUP',
+    },
+  });
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Nexstar Dealer Catalog',
+    kind: 'affinity',
+    resolverKey: 'nexstar',
+    resolverLabel: 'Nexstar',
+    precedence: 50,
+  });
+
+  await prisma.account.createMany({
+    data: Array.from({ length: 100 }, (_, index) => ({
+      displayName: `Matched Nexstar Account ${index + 1}`,
+      affinityGroupSelection: 'GROUP',
+      affinityGroupId: affinityGroup.id,
+      ownershipGroupSelection: 'NONE',
+      groupClassification: 'AFFINITY_ONLY',
+      isActive: true,
+    })),
+  });
+  await prisma.account.create({
+    data: {
+      displayName: 'Unmatched Independent Account',
+      affinityGroupSelection: 'NONE',
+      ownershipGroupSelection: 'NONE',
+      groupClassification: 'INDEPENDENT',
+      isActive: true,
+    },
+  });
+
+  const ruleSet = await createCatalogRuleSet(actor, {
+    name: 'Nexstar only rules',
+    rules: [{
+      name: 'Nexstar dealers',
+      conditions: [{ field: 'affinity_group', operator: 'is', value: 'nexstar' }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: catalogView.id,
+    }],
+  });
+
+  const preview = await previewCatalogRuleSet(actor, ruleSet.id, { sampleLimit: 100 });
+  assert.equal(preview.sampleAccountCount, 100);
+
+  await assert.rejects(
+    () => activateCatalogRuleSet(actor, ruleSet.id),
+    /Preview must be clean before publishing: 1 unmatched/,
+  );
+});
+
 test('catalog rule preview surfaces review requirements instead of guessing', SERIAL, async () => {
   await seedAccountClassificationFixture({ affinityCode: 'nexstar', ownershipCode: 'redwood' });
   const ruleSet = await createCatalogRuleSet(actor, {

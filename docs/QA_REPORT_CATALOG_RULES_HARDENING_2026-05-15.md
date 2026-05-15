@@ -33,4 +33,4 @@ Report: `/tmp/codex-security-scans/dynamic-aqs-pulse-platform/7f51a52_2026051516
 ## Notes
 
 - Brand/private-label rule conditions remain explicitly parked until Dynamic confirms the account-level matching source.
-- Existing activation preview coverage beyond sampled accounts remains a separate product-hardening follow-up, not introduced by this slice.
+- Activation now validates the full active account population before publishing a rule set, even though the admin preview remains sampled for usability.

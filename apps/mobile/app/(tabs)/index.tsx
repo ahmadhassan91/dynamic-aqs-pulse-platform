@@ -10,9 +10,8 @@ import { colors, radius, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut } = useSession();
-  const { accounts, errorMessage, isLoading, leads, reload } = useFieldData(8);
+  const { accounts, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
 
-  const urgentLeads = leads.filter((lead) => lead.initialContactDueAt).length;
   const activeAccounts = accounts.filter((account) => account.lifecycleStatus === 'active').length;
 
   return (
@@ -37,7 +36,8 @@ export default function FieldHomeScreen() {
       {isLoading ? <LoadingState label="Loading field data..." /> : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
-        <MetricCard label="Open leads" value={String(leads.length)} detail={`${urgentLeads} with contact due dates`} />
+        <MetricCard label="Open actions" value={String(queueSummary?.openActionCount ?? leads.length)} detail={`${queueSummary?.urgentCount ?? 0} urgent`} />
+        <MetricCard label="SLA risk" value={String(queueSummary?.slaRiskCount ?? 0)} detail={`${queueSummary?.stagnantCount ?? 0} stagnant`} />
         <MetricCard label="Accounts" value={String(accounts.length)} detail={`${activeAccounts} active in this view`} />
       </View>
 
@@ -54,6 +54,7 @@ export default function FieldHomeScreen() {
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <QuickAction label="Refresh" onPress={() => void reload()} />
+        <QuickAction label="Scan card" onPress={() => router.push('/ocr-capture')} />
         <QuickAction label="Lead inbox" onPress={() => router.push('/(tabs)/leads')} />
       </View>
     </Screen>

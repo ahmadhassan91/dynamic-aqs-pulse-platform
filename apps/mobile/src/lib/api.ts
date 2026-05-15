@@ -1,6 +1,14 @@
 import type { AccountDetail, ListAccountsResponse } from '@pulse/contracts/accounts';
 import type { AuthIdentity, AuthSession, LoginRequest, TokenPair } from '@pulse/contracts/auth';
-import type { LeadDetail, ListLeadsRequest, ListLeadsResponse } from '@pulse/contracts/leads';
+import type {
+  LeadDetail,
+  ListLeadsRequest,
+  ListLeadsResponse,
+  ListLeadWorkflowQueueRequest,
+  ListLeadWorkflowQueueResponse,
+  PreviewLeadOcrCaptureRequest,
+  PreviewLeadOcrCaptureResponse,
+} from '@pulse/contracts/leads';
 
 export type AuthBundle = {
   identity: AuthIdentity;
@@ -59,6 +67,24 @@ export async function fetchLeads(apiBaseUrl: string, accessToken: string, query:
 
 export async function fetchLeadDetail(apiBaseUrl: string, accessToken: string, leadId: string) {
   return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${encodeURIComponent(leadId)}`, { accessToken });
+}
+
+export async function fetchLeadWorkflowQueue(apiBaseUrl: string, accessToken: string, query: ListLeadWorkflowQueueRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'search', query.search);
+  append(searchParams, 'routingTeam', query.routingTeam);
+  append(searchParams, 'view', query.view);
+  append(searchParams, 'limit', query.limit);
+  const path = `/api/v1/leads/workflow-queue${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListLeadWorkflowQueueResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function previewLeadOcrCapture(apiBaseUrl: string, accessToken: string, input: PreviewLeadOcrCaptureRequest) {
+  return requestJson<PreviewLeadOcrCaptureResponse>(apiBaseUrl, '/api/v1/leads/ocr/preview', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
 }
 
 export async function fetchAccounts(apiBaseUrl: string, accessToken: string, query: { search?: string; limit?: number } = {}) {

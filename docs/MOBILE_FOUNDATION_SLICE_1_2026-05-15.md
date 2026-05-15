@@ -50,12 +50,21 @@ Visual smoke:
 
 Next useful slice:
 
-1. Add mobile field dashboard counts from `lead workflow queue` and today calendar/training/consignment APIs.
-2. Add native OCR capture shell using camera/image picker and existing OCR preview endpoint.
-3. Add route/map/check-in slice with provider-neutral route plan and GPS capture.
-4. Add consignment ROSE audit mobile flow.
-5. Add durable offline queue and conflict UI.
-6. Add push notification and deep-link handling after provider/governance approval.
+1. Add today calendar/training/consignment APIs to the mobile dashboard.
+2. Add route/map/check-in slice with provider-neutral route plan and GPS capture.
+3. Add consignment ROSE audit mobile flow.
+4. Add durable offline queue and conflict UI.
+5. Add push notification and deep-link handling after provider/governance approval.
+
+## Slice 2 Update
+
+Added after the foundation checkpoint:
+
+- Home dashboard now uses `lead workflow queue` summary counts for open actions, urgent items, SLA risk, and stagnant leads.
+- Added `Scan Business Card` route.
+- Added camera/gallery/manual-text OCR preview flow.
+- OCR preview calls the existing `/api/v1/leads/ocr/preview` endpoint.
+- OCR remains review-first and does not auto-create a lead.
 
 ## Parked Decisions
 

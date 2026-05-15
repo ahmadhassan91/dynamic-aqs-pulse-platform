@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Pulse Field",
+    "slug": "pulse-field",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "pulsefield",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dynamicAqs.pulsefield"
+    },
+    "android": {
+      "package": "com.dynamicAqs.pulsefield",
+      "adaptiveIcon": {
+        "backgroundColor": "#2563EB"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

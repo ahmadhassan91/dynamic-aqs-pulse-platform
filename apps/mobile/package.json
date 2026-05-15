@@ -2,13 +2,35 @@
   "name": "@pulse/mobile",
   "private": true,
   "version": "0.1.0",
+  "main": "expo-router/entry",
   "scripts": {
-    "dev": "echo \"Mobile scaffold pending\"",
-    "build": "echo \"Mobile build scaffold pending\"",
-    "lint": "echo \"Mobile lint scaffold pending\"",
-    "test": "echo \"Mobile test scaffold pending\"",
-    "typecheck": "echo \"Mobile typecheck scaffold pending\"",
-    "clean": "rm -rf dist"
+    "dev": "expo start",
+    "build": "expo export --platform web --output-dir dist",
+    "lint": "tsc --noEmit",
+    "test": "echo \"Mobile automated tests pending\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .expo"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "^6.1.2",
+    "@pulse/contracts": "workspace:*",
+    "@types/react-dom": "~19.1.0",
+    "expo": "^54.0.0",
+    "expo-constants": "~18.0.10",
+    "expo-haptics": "~15.0.8",
+    "expo-linking": "~8.0.8",
+    "expo-router": "~6.0.14",
+    "expo-secure-store": "~15.0.7",
+    "expo-status-bar": "~3.0.8",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-web": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "^5.8.3"
   }
 }
-

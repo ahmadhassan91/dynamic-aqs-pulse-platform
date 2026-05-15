@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "baseUrl": ".",
+    "types": ["react", "react-native"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@pulse/contracts": ["../../packages/contracts/src/index.ts"],
+      "@pulse/contracts/*": ["../../packages/contracts/src/*"]
+    }
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "expo-env.d.ts"
+  ]
+}

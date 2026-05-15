@@ -259,6 +259,10 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
               <MetadataRow label="TM" value={portalAccount?.assignedTmName ?? account.assignedTmName ?? 'Not assigned'} />
               <MetadataRow label="RD" value={portalAccount?.assignedRdName ?? account.assignedRdName ?? 'Not assigned'} />
               <MetadataRow label="Shipping Center" value={portalAccount?.shippingCenterName ?? account.shippingCenterName ?? 'Not assigned'} />
+              <Divider my="xs" />
+              <MetadataRow label="Affinity" value={formatGroupAxis(account.affinityGroupSelection, account.affinityGroupName ?? account.affinityGroupCode)} />
+              <MetadataRow label="Ownership / PE" value={formatGroupAxis(account.ownershipGroupSelection, account.ownershipGroupName ?? account.ownershipGroupCode)} />
+              <MetadataRow label="Dealer type" value={formatDisplayValue(account.groupClassification ?? 'unknown')} />
             </Stack>
           </Card>
         </Grid.Col>
@@ -316,23 +320,33 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
               <Grid>
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Stack gap="xs">
-                    <Title order={5}>Account Context</Title>
+                    <Title order={5}>Dealer Classification</Title>
                     <MetadataRow label="Account" value={dealerPreview.portalAccount.accountDisplayName} />
                     <MetadataRow label="Account Number" value={dealerPreview.portalAccount.accountNumber ?? 'Not assigned'} />
-                    <MetadataRow label="Territory" value={dealerPreview.portalAccount.territoryName ?? 'Not assigned'} />
-                    <MetadataRow label="Shipping Center" value={dealerPreview.portalAccount.shippingCenterName ?? 'Not assigned'} />
+                    <MetadataRow label="Affinity" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.affinityGroupSelection, dealerPreview.diagnostics.membershipContext?.affinityGroupName ?? dealerPreview.diagnostics.membershipContext?.affinityGroupCode)} />
+                    <MetadataRow label="Ownership / PE" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.ownershipGroupSelection, dealerPreview.diagnostics.membershipContext?.ownershipGroupName ?? dealerPreview.diagnostics.membershipContext?.ownershipGroupCode)} />
+                    <MetadataRow label="Dealer type" value={formatDisplayValue(dealerPreview.diagnostics.membershipContext?.groupClassification ?? 'unknown')} />
+                    <MetadataRow label="Region" value={dealerPreview.diagnostics.membershipContext?.regionName ?? dealerPreview.diagnostics.membershipContext?.regionCode ?? 'Not assigned'} />
                   </Stack>
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Stack gap="xs">
-                    <Title order={5}>Preview Summary</Title>
+                    <Title order={5}>Catalog Decision</Title>
                     <MetadataRow label="Role" value={formatProvisioningStatus(dealerPreview.previewRole)} />
-                    <MetadataRow label="Catalog View" value={dealerPreview.catalog.catalogView?.name ?? 'No catalog view'} />
+                    <MetadataRow label="Resolved by" value={formatDisplayValue(dealerPreview.diagnostics.catalogResolution.source)} />
+                    <MetadataRow label="Rule" value={dealerPreview.diagnostics.catalogResolution.ruleName ?? 'Default eligible catalog'} />
+                    <MetadataRow label="Catalog View" value={dealerPreview.catalog.catalogView?.name ?? 'Needs review'} />
                     <MetadataRow label="Visible Products" value={String(dealerPreview.visibleProductCount)} />
                     <MetadataRow label="Visible Files" value={String(dealerPreview.visibleFileCount)} />
                   </Stack>
                 </Grid.Col>
               </Grid>
+
+              {dealerPreview.diagnostics.warnings.length ? (
+                <Alert color="yellow" variant="light">
+                  {dealerPreview.diagnostics.warnings.join(' ')}
+                </Alert>
+              ) : null}
 
               <Divider />
 
@@ -517,6 +531,24 @@ function formatProvisioningStatus(value: string) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function formatDisplayValue(value: string) {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatGroupAxis(selection: string | undefined, label: string | undefined) {
+  if (selection === 'group' || selection === 'GROUP') {
+    return label ?? 'Selected group';
+  }
+  if (selection === 'none' || selection === 'NONE') {
+    return 'None / Independent';
+  }
+  return 'Unknown';
 }
 
 function statusColor(status: DealerPortalUserStatusKey) {

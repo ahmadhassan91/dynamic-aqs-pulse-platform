@@ -70,7 +70,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
             <Stack gap="sm">
-              <Title order={3}>Ownership Context</Title>
+              <Title order={3}>Dynamic AQS Account Team</Title>
               <MetadataRow label="Territory" value={dashboard.portalAccount.territoryName ?? 'Not assigned'} />
               <MetadataRow label="Region" value={dashboard.portalAccount.regionName ?? 'Not assigned'} />
               <MetadataRow label="Shipping Center" value={dashboard.portalAccount.shippingCenterName ?? 'Not assigned'} />

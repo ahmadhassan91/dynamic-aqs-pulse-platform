@@ -142,7 +142,7 @@ export function DealerCatalog({
             {catalog.catalogView ? (
               <Group gap="xs">
                 <Badge size="lg" color="blue" variant="light">
-                  {catalog.catalogView.name}
+                  Your product catalog
                 </Badge>
                 {catalog.catalogView.brandLabel ? (
                   <Badge size="lg" color="gray" variant="light">

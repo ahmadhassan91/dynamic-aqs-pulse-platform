@@ -926,6 +926,7 @@ async function buildDealerPortalCatalogForAccount(
       diagnostics: buildDealerPortalVisibilityDiagnostics({
         catalogView: null,
         catalogResolution,
+        membershipContext: buildDealerPortalMembershipContext(account),
         products: [],
         selectedPreviewRole,
       }),
@@ -1078,6 +1079,7 @@ async function buildDealerPortalCatalogForAccount(
   const diagnostics = buildDealerPortalVisibilityDiagnostics({
     catalogView,
     catalogResolution,
+    membershipContext: buildDealerPortalMembershipContext(account),
     products,
     selectedPreviewRole,
   });
@@ -1110,6 +1112,7 @@ async function buildDealerPortalCatalogForAccount(
 function buildDealerPortalVisibilityDiagnostics(input: {
   catalogView: Awaited<ReturnType<typeof resolveCatalogViewForAccount>>['catalogView'];
   catalogResolution: Awaited<ReturnType<typeof resolveCatalogViewForAccount>>;
+  membershipContext?: DealerPortalCatalogDiagnostics['membershipContext'];
   products: DealerPortalCatalogResponse['products'];
   selectedPreviewRole: DealerPortalAccessRoleKey;
 }): DealerPortalCatalogDiagnostics {
@@ -1118,7 +1121,7 @@ function buildDealerPortalVisibilityDiagnostics(input: {
   const warnings: string[] = [];
 
   if (!input.catalogView) {
-    warnings.push('No published catalog view is assigned to this dealer account yet.');
+    warnings.push(input.catalogResolution.reviewReason ?? 'No published catalog view is assigned to this dealer account yet.');
   }
   if (input.catalogView && input.products.length === 0) {
     warnings.push('No visible products matched this dealer catalog view.');
@@ -1135,13 +1138,20 @@ function buildDealerPortalVisibilityDiagnostics(input: {
         resolverLabel: input.catalogView.resolverLabel ?? undefined,
         regionScope: input.catalogView.regionScope ?? undefined,
         brandLabel: input.catalogView.brandLabel ?? undefined,
-        resolutionSource: (input.catalogResolution.source === 'rule' ? 'rule' : 'default') as 'rule' | 'default',
+        resolutionSource: input.catalogResolution.source,
         ruleId: input.catalogResolution.ruleId,
         ruleName: input.catalogResolution.ruleName,
       })
     : undefined;
 
   return {
+    catalogResolution: compact({
+      source: input.catalogResolution.source,
+      ruleId: input.catalogResolution.ruleId,
+      ruleName: input.catalogResolution.ruleName,
+      reviewReason: input.catalogResolution.reviewReason,
+    }),
+    ...(input.membershipContext ? { membershipContext: input.membershipContext } : {}),
     ...(catalogView ? { catalogView } : {}),
     selectedPreviewRole: input.selectedPreviewRole,
     visibleProductCount: input.products.length,
@@ -1166,6 +1176,26 @@ function buildDealerPortalVisibilityDiagnostics(input: {
       reason: 'Blocked product deep diagnostics were not scanned in this preview to avoid an expensive full catalog scan; use Product Management readiness and catalog rule preview for blocked product detail.',
     },
   };
+}
+
+function buildDealerPortalMembershipContext(account: Parameters<typeof resolveCatalogViewForAccount>[0]): DealerPortalCatalogDiagnostics['membershipContext'] {
+  const portalStatus = account.sourceLead?.conversionPreparation?.portalEligibilityStatus;
+  const affinitySelection = account.affinityGroupSelection;
+  const ownershipSelection = account.ownershipGroupSelection;
+
+  return compact({
+    affinityGroupSelection: affinitySelection,
+    affinityGroupCode: account.affinityGroup?.code,
+    affinityGroupName: account.affinityGroup?.name,
+    ownershipGroupSelection: ownershipSelection,
+    ownershipGroupCode: account.ownershipGroup?.code,
+    ownershipGroupName: account.ownershipGroup?.name,
+    groupClassification: account.groupClassification ?? undefined,
+    regionCode: account.territory?.region?.code,
+    regionName: account.territory?.region?.name,
+    portalEligible: portalStatus === PortalEligibilityStatus.READY || portalStatus === PortalEligibilityStatus.PROVISIONED,
+    independent: account.groupClassification === 'INDEPENDENT' || (affinitySelection === 'NONE' && ownershipSelection === 'NONE'),
+  });
 }
 
 export async function favoriteCurrentDealerPortalProduct(
@@ -1737,12 +1767,20 @@ async function resolveCatalogViewForAccount(account: {
   });
 
   const matchedRule = ruleSet?.rules.find((rule: any) =>
-    rule.resultAction === CatalogRuleResultAction.ASSIGN_CATALOG_VIEW
-    && rule.dealerCatalogView?.isActive
-    && normalizeConditionArray(rule.conditions).every((condition) => doesAccountMatchCondition(account, condition)),
+    normalizeConditionArray(rule.conditions).every((condition) => doesAccountMatchCondition(account, condition)),
   );
 
-  if (matchedRule?.dealerCatalogView) {
+  if (matchedRule?.resultAction === CatalogRuleResultAction.REQUIRE_REVIEW) {
+    return {
+      catalogView: null,
+      source: 'review' as const,
+      ruleId: matchedRule.id,
+      ruleName: matchedRule.name,
+      reviewReason: matchedRule.requireReviewReason ?? 'This dealer account needs catalog review before products and files are shown.',
+    };
+  }
+
+  if (matchedRule?.dealerCatalogView?.isActive) {
     return {
       catalogView: matchedRule.dealerCatalogView,
       source: 'rule' as const,

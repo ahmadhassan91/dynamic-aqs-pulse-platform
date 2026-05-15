@@ -433,6 +433,265 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(unfavoritedCatalog.userFavorites.count, 0);
 });
 
+test('dealer portal catalog resolves active membership rules before default catalog', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Affinity Dealer Comfort',
+    email: 'affinity-catalog@portal.test',
+  });
+  const affinityGroup = await prisma.affinityGroupRef.create({
+    data: {
+      code: 'nexstar',
+      name: 'Nexstar',
+      groupType: 'BUYING_GROUP',
+      isActive: true,
+    },
+  });
+  await prisma.account.update({
+    where: { id: fixture.account.id },
+    data: {
+      affinityGroupSelection: 'GROUP',
+      affinityGroupId: affinityGroup.id,
+      ownershipGroupSelection: 'NONE',
+      groupClassification: 'AFFINITY_ONLY',
+    },
+  });
+
+  const defaultCatalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'membership-default-test',
+      name: 'Default Dealer Catalog',
+      kind: 'STANDARD',
+      isDefault: true,
+      isActive: true,
+      precedence: 90,
+    },
+  });
+  const affinityCatalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'membership-nexstar-test',
+      name: 'Nexstar Dealer Catalog',
+      kind: 'AFFINITY',
+      resolverKey: 'nexstar',
+      resolverLabel: 'Nexstar',
+      isDefault: false,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+  await prisma.catalogRuleSet.create({
+    data: {
+      code: 'membership-rule-set-test',
+      name: 'Membership Rule Set',
+      status: 'ACTIVE',
+      isActive: true,
+      activatedAt: new Date(),
+      rules: {
+        create: [{
+          name: 'Nexstar dealers see Nexstar catalog',
+          priority: 10,
+          conditions: [{ field: 'affinity_group', operator: 'is', value: 'nexstar' }],
+          resultAction: 'ASSIGN_CATALOG_VIEW',
+          dealerCatalogViewId: affinityCatalogView.id,
+          isEnabled: true,
+        }],
+      },
+    },
+  });
+
+  const defaultProduct = await prisma.baseProduct.create({
+    data: {
+      sku: 'DEF-100',
+      productName: 'Default Only Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const defaultPresentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: defaultProduct.id,
+      displayName: 'Default Only Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: defaultPresentation.id,
+      dealerCatalogViewId: defaultCatalogView.id,
+      dealerGroupType: 'standard',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+  const affinityProduct = await prisma.baseProduct.create({
+    data: {
+      sku: 'NEX-100',
+      productName: 'Nexstar Visible Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const affinityPresentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: affinityProduct.id,
+      displayName: 'Nexstar Visible Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: affinityPresentation.id,
+      dealerCatalogViewId: affinityCatalogView.id,
+      dealerGroupType: 'affinity',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'purchasing',
+  });
+  const dealerAuth = await loginWithPassword(config, {
+    email: fixture.contact.email,
+    password: provisioned.temporaryPassword,
+  }, {});
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(catalog.catalogView.name, 'Nexstar Dealer Catalog');
+  assert.equal(catalog.catalogView.kind, 'affinity');
+  assert.deepEqual(catalog.products.map((product) => product.sku), ['NEX-100']);
+
+  const preview = await getDealerPortalInternalPreview(actor, fixture.account.id, 'viewer');
+  assert.equal(preview.diagnostics.catalogResolution.source, 'rule');
+  assert.equal(preview.diagnostics.catalogResolution.ruleName, 'Nexstar dealers see Nexstar catalog');
+  assert.equal(preview.diagnostics.membershipContext.affinityGroupName, 'Nexstar');
+  assert.equal(preview.diagnostics.membershipContext.independent, false);
+});
+
+test('dealer portal review rules block default catalog fallback for ambiguous memberships', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Hybrid Review Dealer Comfort',
+    email: 'hybrid-review@portal.test',
+  });
+  const affinityGroup = await prisma.affinityGroupRef.create({
+    data: {
+      code: 'nexstar-hybrid',
+      name: 'Nexstar Hybrid',
+      groupType: 'BUYING_GROUP',
+      isActive: true,
+    },
+  });
+  const ownershipGroup = await prisma.ownershipGroupRef.create({
+    data: {
+      code: 'redwood',
+      name: 'Redwood / Apollo',
+      ownershipType: 'PRIVATE_EQUITY',
+      isActive: true,
+    },
+  });
+  await prisma.account.update({
+    where: { id: fixture.account.id },
+    data: {
+      affinityGroupSelection: 'GROUP',
+      affinityGroupId: affinityGroup.id,
+      ownershipGroupSelection: 'GROUP',
+      ownershipGroupId: ownershipGroup.id,
+      groupClassification: 'HYBRID',
+    },
+  });
+  const defaultCatalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'hybrid-default-test',
+      name: 'Default Dealer Catalog',
+      kind: 'STANDARD',
+      isDefault: true,
+      isActive: true,
+      precedence: 90,
+    },
+  });
+  await prisma.catalogRuleSet.create({
+    data: {
+      code: 'hybrid-review-rule-set-test',
+      name: 'Hybrid Review Rule Set',
+      status: 'ACTIVE',
+      isActive: true,
+      activatedAt: new Date(),
+      rules: {
+        create: [{
+          name: 'Ownership group needs catalog review',
+          priority: 5,
+          conditions: [{ field: 'ownership_group', operator: 'is', value: 'redwood' }],
+          resultAction: 'REQUIRE_REVIEW',
+          requireReviewReason: 'Ownership and affinity both apply. Confirm the dealer catalog before publishing.',
+          isEnabled: true,
+        }],
+      },
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'FALLBACK-100',
+      productName: 'Fallback Product Must Not Leak',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Fallback Product Must Not Leak',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: defaultCatalogView.id,
+      dealerGroupType: 'standard',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'purchasing',
+  });
+  const dealerAuth = await loginWithPassword(config, {
+    email: fixture.contact.email,
+    password: provisioned.temporaryPassword,
+  }, {});
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(catalog.catalogView, undefined);
+  assert.equal(catalog.products.length, 0);
+
+  const preview = await getDealerPortalInternalPreview(actor, fixture.account.id, 'viewer');
+  assert.equal(preview.diagnostics.catalogResolution.source, 'review');
+  assert.equal(preview.diagnostics.catalogResolution.ruleName, 'Ownership group needs catalog review');
+  assert.match(preview.diagnostics.warnings.join(' '), /Confirm the dealer catalog/);
+  assert.equal(preview.visibleProductCount, 0);
+});
+
 test('read-only dealer portal roles cannot mutate product favorites', SERIAL, async () => {
   const actor = await createAdminActor();
   const fixture = await seedPortalReadyAccount(actor, {

@@ -209,6 +209,25 @@ export interface DealerPortalCatalogResponse {
 }
 
 export interface DealerPortalCatalogDiagnostics {
+  catalogResolution: {
+    source: 'rule' | 'default' | 'review' | 'none';
+    ruleId?: string;
+    ruleName?: string;
+    reviewReason?: string;
+  };
+  membershipContext?: {
+    affinityGroupSelection?: string;
+    affinityGroupCode?: string;
+    affinityGroupName?: string;
+    ownershipGroupSelection?: string;
+    ownershipGroupCode?: string;
+    ownershipGroupName?: string;
+    groupClassification?: string;
+    regionCode?: string;
+    regionName?: string;
+    portalEligible: boolean;
+    independent: boolean;
+  };
   catalogView?: {
     id: string;
     name: string;
@@ -216,7 +235,7 @@ export interface DealerPortalCatalogDiagnostics {
     resolverLabel?: string;
     regionScope?: string;
     brandLabel?: string;
-    resolutionSource: 'rule' | 'default';
+    resolutionSource: 'rule' | 'default' | 'review' | 'none';
     ruleId?: string;
     ruleName?: string;
   };

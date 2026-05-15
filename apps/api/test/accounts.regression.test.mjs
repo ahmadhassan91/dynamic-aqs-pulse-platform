@@ -566,6 +566,48 @@ test('account summary updates are editable through the governed maintenance path
   assert.equal(detail?.legalName, undefined);
 });
 
+test('partial account membership updates preserve the opposite axis before deriving classification', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const affinityGroup = await prisma.affinityGroupRef.create({
+    data: {
+      code: 'ACCT_NEXSTAR',
+      name: 'Account Nexstar',
+      groupType: 'BUYING_GROUP',
+      isActive: true,
+    },
+  });
+  const ownershipGroup = await prisma.ownershipGroupRef.create({
+    data: {
+      code: 'ACCT_REDWOOD',
+      name: 'Account Redwood',
+      ownershipType: 'PRIVATE_EQUITY',
+      isActive: true,
+    },
+  });
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Hybrid Editable Account',
+      legalName: 'Hybrid Editable Account LLC',
+      accountType: 'Dealer',
+      affinityGroupSelection: 'GROUP',
+      affinityGroupId: affinityGroup.id,
+      ownershipGroupSelection: 'GROUP',
+      ownershipGroupId: ownershipGroup.id,
+      groupClassification: 'HYBRID',
+      isActive: true,
+    },
+  });
+
+  const updated = await updateAccount(actor, account.id, {
+    affinityGroupSelection: 'none',
+  });
+
+  assert.equal(updated.affinityGroupSelection, 'none');
+  assert.equal(updated.ownershipGroupSelection, 'group');
+  assert.equal(updated.ownershipGroupName, 'Account Redwood');
+  assert.equal(updated.groupClassification, 'ownership_only');
+});
+
 test('account lifecycle states are filterable and governed with transition rules', SERIAL, async () => {
   const actor = await createAdminActor();
 

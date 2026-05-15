@@ -862,6 +862,9 @@ export function ProductManagementWorkspace() {
             <Alert color="blue" title="Dealer Catalog Views">
               A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility decide the right view. Pricing stays separate.
             </Alert>
+            <Alert color="gray" title="Inputs become one dealer catalog">
+              Staff choose the account labels first: affinity, ownership/PE, independent, region, brand/private label, and portal eligibility. Pulse resolves those labels into one catalog view before products and files are shown.
+            </Alert>
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
               <Metric label="Catalog Views With Products" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
               <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
@@ -888,7 +891,7 @@ export function ProductManagementWorkspace() {
                   required
                 />
                   <Select
-                  label="Audience type"
+                  label="Primary matching input"
                   aria-label="Catalog audience type"
                   data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                   value={catalogViewForm.kind}
@@ -911,7 +914,7 @@ export function ProductManagementWorkspace() {
                   onChange={(value) => setCatalogViewForm((current) => ({ ...current, precedence: Number(value) || 100 }))}
                 />
                 <TextInput
-                  label="Matching value"
+                  label="Input code/value"
                   aria-label="Catalog matching value"
                   data-testid="dealer-catalog-matching-value"
                   placeholder="nexstar, redwood, CA, private-label-code"
@@ -919,7 +922,7 @@ export function ProductManagementWorkspace() {
                   onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
                 />
                 <TextInput
-                  label="Display label"
+                  label="Staff-facing label"
                   aria-label="Catalog display label"
                   data-testid="dealer-catalog-display-label"
                   placeholder="Nexstar, Redwood / Apollo, Canada"

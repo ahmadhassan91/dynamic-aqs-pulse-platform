@@ -258,6 +258,9 @@ export function AdminCatalogRulesWorkspace() {
       <Alert color="blue" title="Keep it simple">
         Rules use the same inputs Dynamic discussed: affinity group, ownership/PE group, independent, region, brand, and portal eligibility. Price class is not used for catalog or file visibility.
       </Alert>
+      <Alert color="gray" title="How to think about it">
+        Affinity and ownership/PE are account labels. Independent means neither label applies. The rule outcome is the Dealer Catalog View that controls products and files.
+      </Alert>
 
       <SimpleGrid cols={{ base: 1, md: 4 }}>
         <Metric label="Rule Sets" value={ruleSets.length} />
@@ -314,7 +317,21 @@ export function AdminCatalogRulesWorkspace() {
                   <SimpleGrid cols={{ base: 1, md: 3 }}>
                     <Select label="When" data={conditionFields} value={rule.field} onChange={(value) => updateRule(index, { field: (value as CatalogRuleConditionFieldKey) ?? 'affinity_group' })} />
                     <Select label="Match" data={operators} value={rule.operator} onChange={(value) => updateRule(index, { operator: (value as CatalogRuleConditionOperatorKey) ?? 'is' })} />
-                    <TextInput label="Value" value={rule.value} disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)} onChange={(event) => updateRule(index, { value: event.currentTarget.value })} />
+                    {isBooleanConditionField(rule.field) ? (
+                      <Select
+                        label="Value"
+                        data={[
+                          { value: 'yes', label: 'Yes' },
+                          { value: 'no', label: 'No' },
+                        ]}
+                        value={rule.value || 'yes'}
+                        disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)}
+                        onChange={(value) => updateRule(index, { value: value ?? 'yes' })}
+                        allowDeselect={false}
+                      />
+                    ) : (
+                      <TextInput label="Value" value={rule.value} disabled={['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator)} onChange={(event) => updateRule(index, { value: event.currentTarget.value })} />
+                    )}
                   </SimpleGrid>
                   <SimpleGrid cols={{ base: 1, md: 2 }}>
                     <Select label="Then assign Dealer Catalog View" data={[...resultOptions, { value: 'review', label: 'Require Review' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
@@ -380,6 +397,7 @@ export function AdminCatalogRulesWorkspace() {
               <Table.Th>Classification</Table.Th>
               <Table.Th>Rule</Table.Th>
               <Table.Th>Catalog View</Table.Th>
+              <Table.Th>Decision</Table.Th>
               <Table.Th>Status</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -392,6 +410,7 @@ export function AdminCatalogRulesWorkspace() {
                 <Table.Td>{row.classification ?? '-'}</Table.Td>
                 <Table.Td>{row.matchedRuleName ?? 'No match'}</Table.Td>
                 <Table.Td>{row.dealerCatalogViewName ?? 'Review needed'}</Table.Td>
+                <Table.Td>{row.warning ?? 'Catalog view assigned'}</Table.Td>
                 <Table.Td><Badge color={row.warning ? 'yellow' : 'green'}>{row.warning ? 'Needs Review' : 'Ready'}</Badge></Table.Td>
               </Table.Tr>
             ))}
@@ -465,4 +484,8 @@ function normalizeRuleValue(rule: EditableRule) {
     return ['true', 'yes', '1'].includes(rule.value.trim().toLowerCase());
   }
   return rule.value.trim();
+}
+
+function isBooleanConditionField(field: CatalogRuleConditionFieldKey) {
+  return field === 'independent' || field === 'portal_eligible';
 }

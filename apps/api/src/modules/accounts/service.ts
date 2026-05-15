@@ -219,25 +219,44 @@ export async function updateAccount(
     data.isActive = input.isActive;
   }
 
-  const classification = await resolveAccountClassificationInput(prisma, input);
-  if (input.affinityGroupSelection !== undefined || input.affinityGroupId !== undefined || input.affinityGroupCode !== undefined || input.affinityGroupName !== undefined) {
+  const isAffinityInputPresent = input.affinityGroupSelection !== undefined || input.affinityGroupId !== undefined || input.affinityGroupCode !== undefined || input.affinityGroupName !== undefined;
+  const isOwnershipInputPresent = input.ownershipGroupSelection !== undefined || input.ownershipGroupId !== undefined || input.ownershipGroupCode !== undefined || input.ownershipGroupName !== undefined;
+  const affinityGroupSelection = input.affinityGroupSelection ?? toGroupAxisSelectionKey(account.affinityGroupSelection);
+  const ownershipGroupSelection = input.ownershipGroupSelection ?? toGroupAxisSelectionKey(account.ownershipGroupSelection);
+  const nextAffinityAllowsGroupRef = affinityGroupSelection === 'group';
+  const nextOwnershipAllowsGroupRef = ownershipGroupSelection === 'group';
+  const affinityGroupId = nextAffinityAllowsGroupRef
+    ? (input.affinityGroupId !== undefined ? input.affinityGroupId : account.affinityGroupId)
+    : undefined;
+  const affinityGroupCode = nextAffinityAllowsGroupRef ? input.affinityGroupCode ?? account.affinityGroup?.code : undefined;
+  const affinityGroupName = nextAffinityAllowsGroupRef ? input.affinityGroupName ?? account.affinityGroup?.name : undefined;
+  const ownershipGroupId = nextOwnershipAllowsGroupRef
+    ? (input.ownershipGroupId !== undefined ? input.ownershipGroupId : account.ownershipGroupId)
+    : undefined;
+  const ownershipGroupCode = nextOwnershipAllowsGroupRef ? input.ownershipGroupCode ?? account.ownershipGroup?.code : undefined;
+  const ownershipGroupName = nextOwnershipAllowsGroupRef ? input.ownershipGroupName ?? account.ownershipGroup?.name : undefined;
+  const classification = isAffinityInputPresent || isOwnershipInputPresent
+    ? await resolveAccountClassificationInput(prisma, {
+        affinityGroupSelection,
+        ...(affinityGroupId !== undefined ? { affinityGroupId } : {}),
+        ...(affinityGroupCode ? { affinityGroupCode } : {}),
+        ...(affinityGroupName ? { affinityGroupName } : {}),
+        ownershipGroupSelection,
+        ...(ownershipGroupId !== undefined ? { ownershipGroupId } : {}),
+        ...(ownershipGroupCode ? { ownershipGroupCode } : {}),
+        ...(ownershipGroupName ? { ownershipGroupName } : {}),
+      })
+    : null;
+
+  if (isAffinityInputPresent && classification) {
     data.affinityGroupSelection = classification.affinity.selection;
     data.affinityGroup = classification.affinity.id ? { connect: { id: classification.affinity.id } } : { disconnect: true };
   }
-  if (input.ownershipGroupSelection !== undefined || input.ownershipGroupId !== undefined || input.ownershipGroupCode !== undefined || input.ownershipGroupName !== undefined) {
+  if (isOwnershipInputPresent && classification) {
     data.ownershipGroupSelection = classification.ownership.selection;
     data.ownershipGroup = classification.ownership.id ? { connect: { id: classification.ownership.id } } : { disconnect: true };
   }
-  if (
-    input.affinityGroupSelection !== undefined
-    || input.affinityGroupId !== undefined
-    || input.affinityGroupCode !== undefined
-    || input.affinityGroupName !== undefined
-    || input.ownershipGroupSelection !== undefined
-    || input.ownershipGroupId !== undefined
-    || input.ownershipGroupCode !== undefined
-    || input.ownershipGroupName !== undefined
-  ) {
+  if (classification) {
     data.groupClassification = classification.groupClassification;
   }
 

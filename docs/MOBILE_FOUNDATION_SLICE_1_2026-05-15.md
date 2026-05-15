@@ -50,9 +50,9 @@ Visual smoke:
 
 Next useful slice:
 
-1. Add today calendar/training/consignment APIs to the mobile dashboard.
+1. Add today calendar/training APIs to the mobile dashboard.
 2. Persist route/check-in visits through backend APIs once the territory field-execution contract is approved.
-3. Add consignment ROSE audit mobile flow.
+3. Add consignment readiness/documents/detail routes beyond the first audit queue.
 4. Add durable offline queue and conflict UI.
 5. Add push notification and deep-link handling after provider/governance approval.
 
@@ -91,6 +91,48 @@ Validation:
 - `pnpm --filter @pulse/mobile build`
 - Playwright smoke for dashboard to route tab with mocked account data.
 - Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-premium-route-slice.png`
+
+## Slice 4 Update
+
+Added after the route/check-in checkpoint:
+
+- Added mobile bell/status area from Field Home.
+- Added `Notifications` route with live CRM pull signals for:
+  - urgent lead workflow
+  - SLA risk
+  - due ROSE audits
+  - consignment work/discrepancy items
+  - sync boundary messaging
+- Replaced the bottom-tab `Sync` workflow with `Consignment`; Sync remains accessible from the notification/status area.
+- Added mobile consignment CRM helpers for:
+  - site list
+  - operational queue
+  - site detail
+  - ROSE audit update
+- Added `Consignment` tab:
+  - due/active site queue
+  - Acumatica availability warning
+  - scheduled ROSE audit load from CRM
+  - manual count + notes capture
+  - submit ROSE completion back to CRM
+- Kept Acumatica warehouse creation, authoritative expected inventory, PO posting, and final financial reconciliation explicitly parked.
+
+Consignment mobile flow clarity:
+
+1. CRM/Pulse owns mobile-visible site, due date, audit, document, and work queue context.
+2. TM opens the Consignment tab or bell alert and selects a due ROSE site.
+3. App loads the scheduled audit from CRM.
+4. TM reviews expected-source freshness. If Acumatica is parked/stale, the app warns and requires manual verification.
+5. TM enters counts/notes and submits the ROSE audit to CRM.
+6. CRM creates/updates discrepancy and PO follow-up workflow; Acumatica posting remains a back-office parked dependency until access/mappings are approved.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright smoke for Consignment tab ROSE submission and notification bell/status route.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-consignment-notifications-slice.png`
 
 ## Parked Decisions
 

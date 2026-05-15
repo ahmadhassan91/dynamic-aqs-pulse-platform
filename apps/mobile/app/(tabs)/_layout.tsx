@@ -8,6 +8,7 @@ const icons: Record<string, { name: string; fallback: string }> = {
   leads: { name: 'person.crop.circle.badge.plus', fallback: 'L' },
   accounts: { name: 'building.2.fill', fallback: 'A' },
   route: { name: 'map.fill', fallback: 'R' },
+  consignment: { name: 'shippingbox.fill', fallback: 'C' },
   sync: { name: 'arrow.triangle.2.circlepath', fallback: 'S' },
 };
 
@@ -47,7 +48,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="leads" options={{ title: 'Lead Inbox', tabBarLabel: 'Leads' }} />
       <Tabs.Screen name="accounts" options={{ title: 'Accounts', tabBarLabel: 'Accounts' }} />
       <Tabs.Screen name="route" options={{ title: 'Route Plan', tabBarLabel: 'Route' }} />
-      <Tabs.Screen name="sync" options={{ title: 'Sync Status', tabBarLabel: 'Sync' }} />
+      <Tabs.Screen name="consignment" options={{ title: 'Consignment', tabBarLabel: 'Consign' }} />
+      <Tabs.Screen name="sync" options={{ href: null, title: 'Sync Status', tabBarLabel: 'Sync' }} />
     </Tabs>
   );
 }

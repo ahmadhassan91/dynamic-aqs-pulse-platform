@@ -277,7 +277,7 @@ export function SearchField(props: TextInputProps) {
         ...softShadow,
       }}
     >
-      <NativeIcon name="magnifyingglass" fallback="/" color={colors.subtle} />
+      <NativeIcon name="magnifyingglass" fallback="S" color={colors.subtle} />
       <TextInput
         {...props}
         placeholderTextColor={colors.subtle}

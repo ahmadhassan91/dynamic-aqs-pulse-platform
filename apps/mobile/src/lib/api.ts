@@ -1,6 +1,15 @@
 import type { AccountDetail, ListAccountsResponse } from '@pulse/contracts/accounts';
 import type { AuthIdentity, AuthSession, LoginRequest, TokenPair } from '@pulse/contracts/auth';
 import type {
+  ConsignmentOperationalQueueRequest,
+  ConsignmentOperationalQueueResponse,
+  ConsignmentSiteDetail,
+  ListConsignmentSitesRequest,
+  ListConsignmentSitesResponse,
+  UpdateConsignmentAuditRequest,
+  ConsignmentAuditSummary,
+} from '@pulse/contracts/consignment';
+import type {
   LeadDetail,
   ListLeadsRequest,
   ListLeadsResponse,
@@ -97,6 +106,43 @@ export async function fetchAccounts(apiBaseUrl: string, accessToken: string, que
 
 export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string, accountId: string) {
   return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${encodeURIComponent(accountId)}`, { accessToken });
+}
+
+export async function fetchConsignmentSites(apiBaseUrl: string, accessToken: string, query: ListConsignmentSitesRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'search', query.search);
+  append(searchParams, 'status', query.status);
+  append(searchParams, 'readinessState', query.readinessState);
+  append(searchParams, 'assignedTmUserId', query.assignedTmUserId);
+  append(searchParams, 'assignedRdUserId', query.assignedRdUserId);
+  append(searchParams, 'dueWithinDays', query.dueWithinDays);
+  append(searchParams, 'limit', query.limit);
+  if (query.includeExited !== undefined) searchParams.set('includeExited', String(query.includeExited));
+  if (query.includeClosed !== undefined) searchParams.set('includeClosed', String(query.includeClosed));
+  const path = `/api/v1/consignment/sites${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListConsignmentSitesResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function fetchConsignmentOperationalQueue(apiBaseUrl: string, accessToken: string, query: ConsignmentOperationalQueueRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'status', query.status);
+  append(searchParams, 'readinessState', query.readinessState);
+  append(searchParams, 'auditStatus', query.auditStatus);
+  append(searchParams, 'limit', query.limit);
+  const path = `/api/v1/consignment/ops${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ConsignmentOperationalQueueResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function fetchConsignmentSiteDetail(apiBaseUrl: string, accessToken: string, siteId: string) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${encodeURIComponent(siteId)}`, { accessToken });
+}
+
+export async function updateConsignmentAudit(apiBaseUrl: string, accessToken: string, auditId: string, input: UpdateConsignmentAuditRequest) {
+  return requestJson<ConsignmentAuditSummary>(apiBaseUrl, `/api/v1/consignment/audits/${encodeURIComponent(auditId)}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
 }
 
 async function requestJson<T>(apiBaseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {

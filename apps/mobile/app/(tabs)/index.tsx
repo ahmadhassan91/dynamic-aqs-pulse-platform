@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { AccountCard } from '@/components/account-card';
 import { LeadCard } from '@/components/lead-card';
-import { EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, NativeIcon, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
@@ -10,7 +10,7 @@ import { colors, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut } = useSession();
-  const { accounts, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
+  const { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
 
   const activeAccounts = accounts.filter((account) => account.lifecycleStatus === 'active').length;
 
@@ -18,8 +18,11 @@ export default function FieldHomeScreen() {
     <Screen>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
         <PulseLogo compact />
-        <View style={{ width: 110 }}>
-          <SecondaryButton label="Sign out" icon={{ name: 'rectangle.portrait.and.arrow.right', fallback: 'Out' }} onPress={() => void signOut()} />
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          <BellButton count={(queueSummary?.urgentCount ?? 0) + consignmentWorkItems.length} />
+          <View style={{ width: 110 }}>
+            <SecondaryButton label="Sign out" icon={{ name: 'rectangle.portrait.and.arrow.right', fallback: 'Out' }} onPress={() => void signOut()} />
+          </View>
         </View>
       </View>
 
@@ -35,6 +38,7 @@ export default function FieldHomeScreen() {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
         <MetricCard label="Open actions" value={String(queueSummary?.openActionCount ?? leads.length)} detail={`${queueSummary?.urgentCount ?? 0} urgent`} />
         <MetricCard label="SLA risk" value={String(queueSummary?.slaRiskCount ?? 0)} detail={`${queueSummary?.stagnantCount ?? 0} stagnant`} />
+        <MetricCard label="Consign" value={String(consignmentSites.length)} detail={`${consignmentWorkItems.length} work items`} />
         <MetricCard label="Accounts" value={String(accounts.length)} detail={`${activeAccounts} active in this view`} />
       </View>
 
@@ -52,9 +56,35 @@ export default function FieldHomeScreen() {
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <QuickAction label="Refresh" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
         <QuickAction label="Scan card" icon={{ name: 'camera.viewfinder', fallback: 'S' }} onPress={() => router.push('/ocr-capture')} />
-        <QuickAction label="Route" icon={{ name: 'map.fill', fallback: 'M' }} onPress={() => router.push('/(tabs)/route')} />
+        <QuickAction label="Consign" icon={{ name: 'shippingbox.fill', fallback: 'C' }} onPress={() => router.push('/(tabs)/consignment')} />
       </View>
     </Screen>
+  );
+}
+
+function BellButton({ count }: { count: number }) {
+  return (
+    <Pressable
+      onPress={() => router.push('/notifications')}
+      style={({ pressed }) => ({
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: pressed ? 0.78 : 1,
+      })}
+    >
+      <NativeIcon name="bell.fill" fallback="!" color={colors.primary} size={18} />
+      {count > 0 ? (
+        <View style={{ position: 'absolute', right: 6, top: 5, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+          <Text style={{ color: colors.white, fontSize: 10, lineHeight: 12, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{Math.min(count, 9)}</Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 

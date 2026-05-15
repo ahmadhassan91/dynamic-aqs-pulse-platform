@@ -193,7 +193,12 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
       })}
     >
       {icon ? <NativeIcon name={icon.name} fallback={icon.fallback} color={disabled ? colors.subtle : colors.primary} /> : null}
-      <Text style={{ ...typography.callout, color: disabled ? colors.subtle : colors.primary, fontWeight: '800', textAlign: 'center' }}>{label}</Text>
+      <Text
+        onPress={disabled ? undefined : onPress}
+        style={{ ...typography.callout, color: disabled ? colors.subtle : colors.primary, fontWeight: '800', textAlign: 'center' }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }

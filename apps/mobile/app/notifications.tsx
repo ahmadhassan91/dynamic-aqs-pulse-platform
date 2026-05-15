@@ -1,16 +1,19 @@
-import { Stack, router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Link, Stack, router } from 'expo-router';
+import { Pressable, Text, View } from 'react-native';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate } from '@/lib/format';
 import { useFieldData } from '@/hooks/use-mobile-data';
+import { useMobileDraftQueue } from '@/lib/mobile-draft-queue';
 import { colors, radius, spacing, typography } from '@/theme';
 
 export default function NotificationsScreen() {
   const { consignmentSites, consignmentWorkItems, errorMessage, isLoading, queueSummary, reload } = useFieldData(20);
+  const drafts = useMobileDraftQueue();
+  const unsyncedDrafts = drafts.filter((draft) => draft.status !== 'synced');
   const leadAlerts = queueSummary?.urgentCount ?? 0;
   const slaAlerts = queueSummary?.slaRiskCount ?? 0;
   const dueConsignmentSites = consignmentSites.filter((site) => site.nextAuditDueAt);
-  const hasAlerts = leadAlerts > 0 || slaAlerts > 0 || dueConsignmentSites.length > 0 || consignmentWorkItems.length > 0;
+  const hasAlerts = leadAlerts > 0 || slaAlerts > 0 || dueConsignmentSites.length > 0 || consignmentWorkItems.length > 0 || unsyncedDrafts.length > 0;
 
   return (
     <>
@@ -27,6 +30,15 @@ export default function NotificationsScreen() {
 
         {hasAlerts ? (
           <View style={{ gap: spacing.md }}>
+            {unsyncedDrafts.length > 0 ? (
+              <NotificationCard
+                title={`${unsyncedDrafts.length} draft${unsyncedDrafts.length === 1 ? '' : 's'} on this phone`}
+                detail="These field updates are not visible in CRM yet. Retry them when the connection is stable."
+                tone="warning"
+                action="Open sync status"
+                onPress={() => router.push('/sync-status')}
+              />
+            ) : null}
             {leadAlerts > 0 ? <NotificationCard title="Urgent lead actions" detail={`${leadAlerts} lead workflow item${leadAlerts === 1 ? '' : 's'} need attention.`} tone="danger" action="Open leads" onPress={() => router.push('/(tabs)/leads')} /> : null}
             {slaAlerts > 0 ? <NotificationCard title="SLA risk" detail={`${slaAlerts} lead follow-up item${slaAlerts === 1 ? ' is' : 's are'} at risk.`} tone="warning" action="Review leads" onPress={() => router.push('/(tabs)/leads')} /> : null}
             {dueConsignmentSites.slice(0, 4).map((site) => (
@@ -54,9 +66,27 @@ export default function NotificationsScreen() {
           <EmptyState title="No urgent CRM alerts" detail="Lead, consignment, and sync signals are clear for this mobile session." />
         )}
 
-        <SectionTitle title="Sync status" detail="Push notifications and offline conflict resolution are still parked; this screen reflects live CRM pulls from the current session." />
+        <SectionTitle title="Sync status" detail="Push notifications and conflict merge are still parked; local drafts and live CRM pulls are visible here." />
         <SecondaryButton label="Refresh signals" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
-        <SecondaryButton label="Open sync detail" icon={{ name: 'arrow.triangle.2.circlepath', fallback: 'S' }} onPress={() => router.push('/(tabs)/sync')} />
+        <Link href="/sync-status" asChild>
+          <Pressable
+            style={({ pressed }) => ({
+              minHeight: 48,
+              borderRadius: radius.lg,
+              borderCurve: 'continuous',
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Text style={{ ...typography.callout, color: colors.primary, fontWeight: '800', textAlign: 'center' }}>
+              Open sync status
+            </Text>
+          </Pressable>
+        </Link>
       </Screen>
     </>
   );

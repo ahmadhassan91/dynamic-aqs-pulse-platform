@@ -134,6 +134,55 @@ Validation:
 - Playwright smoke for Consignment tab ROSE submission and notification bell/status route.
 - Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-consignment-notifications-slice.png`
 
+## Slice 5 Update
+
+Added after the consignment/bell checkpoint:
+
+- Added a durable mobile draft queue utility for small field-work drafts.
+- ROSE audit submission now protects the TM when CRM is unreachable:
+  - first tries the live CRM audit update
+  - saves the completed audit request as `Draft on phone` if the request fails
+  - lets the user retry from Sync Status when signal returns
+- Route visit checkout now creates a local `Draft on phone` record instead of only living in component memory.
+- Moved Sync Status out of the bottom tab and into a plain notification/status route.
+- Home and Notifications now surface local unsynced drafts in user language:
+  - `Draft on phone`
+  - `CRM saved`
+  - `Offline drafts`
+- Fixed a React snapshot stability issue in the draft queue hook that caused the exported web build to crash during Sync Status QA.
+
+Field-user clarity:
+
+1. `CRM saved` means Pulse accepted the work and office users can see it.
+2. `Draft on phone` means the TM did the work, but it is not in CRM yet.
+3. `Preview only` remains the OCR/business-card state until a lead-create flow is approved.
+
+QA as Dynamic field team:
+
+- Simulated a TM opening a due ROSE audit for `AQS Dealer Dallas`.
+- Entered a manual count and field notes.
+- Forced the first CRM audit update to fail with a weak-signal `503`.
+- Confirmed the app did not lose the ROSE work and showed `Saved as a draft on this device`.
+- Opened Sync Status and confirmed the draft appeared as `Draft on phone`.
+- Retried the draft after restoring the mocked CRM response.
+- Confirmed the retry updated the same audit and showed `CRM saved`.
+- Confirmed Notifications can open Sync Status for local draft visibility.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright route-level field QA with mocked CRM outage/recovery.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-offline-draft-queue-slice.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-notification-sync-link.png`
+
+Still parked:
+
+- Route visit backend sync remains parked until the field visit API contract is approved.
+- ROSE photos/signature/background media sync remain parked; current browser QA stores count/notes/request payload only.
+- Conflict merge rules remain parked until the backend conflict policy is approved.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

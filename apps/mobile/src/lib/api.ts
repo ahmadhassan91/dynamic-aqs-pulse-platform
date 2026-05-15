@@ -25,7 +25,7 @@ export type AuthBundle = {
   tokens: TokenPair;
 };
 
-export const defaultApiBaseUrl = process.env.EXPO_PUBLIC_PULSE_API_URL?.trim() || 'https://pulse-crm.theclustox.com/api';
+export const defaultApiBaseUrl = process.env.EXPO_PUBLIC_PULSE_API_URL?.trim() || 'https://pulse-crm.theclustox.com';
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';

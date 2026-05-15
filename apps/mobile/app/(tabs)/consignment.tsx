@@ -4,6 +4,7 @@ import type { ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/con
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SearchField, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { fetchConsignmentSiteDetail, updateConsignmentAudit } from '@/lib/api';
 import { formatDate, formatDateTime, humanize } from '@/lib/format';
+import { enqueueDraft } from '@/lib/mobile-draft-queue';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -65,8 +66,7 @@ export default function ConsignmentScreen() {
     setIsSubmitting(true);
     setAuditError(null);
     setAuditMessage(null);
-    try {
-      await updateConsignmentAudit(apiBaseUrl, auth.tokens.accessToken, activeAudit.id, {
+    const request = {
         status: 'completed',
         completedAt: new Date().toISOString(),
         reconciliationStatus: quantityIsValid ? 'true_up_confirmed' : 'open',
@@ -78,7 +78,10 @@ export default function ConsignmentScreen() {
             notes: notes.trim(),
           }),
         ],
-      });
+      } satisfies Parameters<typeof updateConsignmentAudit>[3];
+
+    try {
+      await updateConsignmentAudit(apiBaseUrl, auth.tokens.accessToken, activeAudit.id, request);
       setAuditMessage('ROSE audit submitted to CRM. Any variance/PO follow-up remains in the consignment work queue.');
       setSelectedSite(null);
       setActiveAudit(null);
@@ -86,7 +89,23 @@ export default function ConsignmentScreen() {
       setActualQuantity('');
       await reload();
     } catch (error) {
-      setAuditError(error instanceof Error ? error.message : 'Unable to submit ROSE audit.');
+      enqueueDraft({
+        kind: 'consignment_rose_audit',
+        title: `ROSE audit: ${selectedSite?.accountName ?? 'Consignment site'}`,
+        detail: 'Saved as a draft on this device because CRM sync was unavailable.',
+        payload: {
+          kind: 'consignment_rose_audit',
+          auditId: activeAudit.id,
+          siteId: activeAudit.siteId,
+          accountName: selectedSite?.accountName ?? 'Consignment site',
+          request,
+        },
+      });
+      setAuditMessage('Saved as a draft on this device. Retry from Sync when CRM is reachable.');
+      setSelectedSite(null);
+      setActiveAudit(null);
+      setNotes('');
+      setActualQuantity('');
     } finally {
       setIsSubmitting(false);
     }
@@ -112,7 +131,7 @@ export default function ConsignmentScreen() {
       {auditMessage ? (
         <Card style={{ borderColor: '#B7E4C7', backgroundColor: '#F3FFF7' }}>
           <Text selectable style={{ ...typography.subtitle, color: colors.success }}>
-            Synced
+            {auditMessage.startsWith('Saved as a draft') ? 'Draft on phone' : 'CRM saved'}
           </Text>
           <Text selectable style={{ ...typography.callout, color: colors.text }}>
             {auditMessage}

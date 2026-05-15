@@ -6,6 +6,7 @@ import { Platform, Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountSummary } from '@pulse/contracts/accounts';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
+import { enqueueDraft } from '@/lib/mobile-draft-queue';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -65,6 +66,21 @@ export default function RouteScreen() {
 
   function completeVisit() {
     if (!activeVisit || !notes.trim()) return;
+    enqueueDraft({
+      kind: 'route_visit',
+      title: `Route visit: ${activeVisit.account.displayName}`,
+      detail: 'Draft on this device until the CRM field visit API is approved.',
+      payload: {
+        kind: 'route_visit',
+        accountId: activeVisit.account.id,
+        accountName: activeVisit.account.displayName,
+        checkedInAt: activeVisit.checkedInAt,
+        checkedOutAt: new Date().toISOString(),
+        notes: notes.trim(),
+        ...(activeVisit.latitude !== undefined ? { latitude: activeVisit.latitude } : {}),
+        ...(activeVisit.longitude !== undefined ? { longitude: activeVisit.longitude } : {}),
+      },
+    });
     setCompletedVisits((items) => [
       {
         ...activeVisit,

@@ -5,12 +5,15 @@ import { LeadCard } from '@/components/lead-card';
 import { EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, NativeIcon, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useFieldData } from '@/hooks/use-mobile-data';
+import { useMobileDraftQueue } from '@/lib/mobile-draft-queue';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut } = useSession();
   const { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
+  const drafts = useMobileDraftQueue();
+  const unsyncedDrafts = drafts.filter((draft) => draft.status !== 'synced');
 
   const activeAccounts = accounts.filter((account) => account.lifecycleStatus === 'active').length;
 
@@ -19,7 +22,7 @@ export default function FieldHomeScreen() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
         <PulseLogo compact />
         <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-          <BellButton count={(queueSummary?.urgentCount ?? 0) + consignmentWorkItems.length} />
+          <BellButton count={(queueSummary?.urgentCount ?? 0) + consignmentWorkItems.length + unsyncedDrafts.length} />
           <View style={{ width: 110 }}>
             <SecondaryButton label="Sign out" icon={{ name: 'rectangle.portrait.and.arrow.right', fallback: 'Out' }} onPress={() => void signOut()} />
           </View>
@@ -34,6 +37,26 @@ export default function FieldHomeScreen() {
 
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading field data..." /> : null}
+      {unsyncedDrafts.length ? (
+        <Pressable
+          onPress={() => router.push('/sync-status')}
+          style={{
+            backgroundColor: colors.warningSoft,
+            borderColor: '#FACC15',
+            borderWidth: 1,
+            borderRadius: 18,
+            padding: spacing.lg,
+            gap: spacing.xs,
+          }}
+        >
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            {unsyncedDrafts.length} draft{unsyncedDrafts.length === 1 ? '' : 's'} on this phone
+          </Text>
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            These are not visible in CRM yet. Open sync status when the connection is stable.
+          </Text>
+        </Pressable>
+      ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
         <MetricCard label="Open actions" value={String(queueSummary?.openActionCount ?? leads.length)} detail={`${queueSummary?.urgentCount ?? 0} urgent`} />

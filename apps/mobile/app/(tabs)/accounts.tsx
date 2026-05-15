@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { AccountCard } from '@/components/account-card';
-import { EmptyState, ErrorState, LoadingState, Screen, SectionTitle } from '@/components/native-kit';
+import { EmptyState, ErrorState, HeroCard, LoadingState, Screen, SearchField } from '@/components/native-kit';
 import { useFieldData } from '@/hooks/use-mobile-data';
-import { colors, radius, spacing, typography } from '@/theme';
+import { spacing, typography } from '@/theme';
 
 export default function AccountsScreen() {
   const { accounts, errorMessage, isLoading } = useFieldData(50);
@@ -19,21 +19,15 @@ export default function AccountsScreen() {
 
   return (
     <Screen>
-      <SectionTitle title="Accounts" detail="Field-safe account list for route planning, training, consignment, and dealer portal follow-up." />
-      <TextInput
+      <HeroCard title="Accounts" eyebrow="Field book" icon={{ name: 'building.2.fill', fallback: 'A' }}>
+        <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
+          Field-safe account list for planning visits, training work, consignment checks, and dealer portal support.
+        </Text>
+      </HeroCard>
+      <SearchField
         value={query}
         onChangeText={setQuery}
         placeholder="Search account, territory, TM, group..."
-        placeholderTextColor={colors.subtle}
-        style={{
-          minHeight: 48,
-          borderRadius: radius.md,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          paddingHorizontal: spacing.md,
-          ...typography.body,
-        }}
       />
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading accounts..." /> : null}

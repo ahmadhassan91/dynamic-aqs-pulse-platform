@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import type { LeadSummary } from '@pulse/contracts/leads';
 import { Pill } from '@/components/native-kit';
 import { formatDate, humanize } from '@/lib/format';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, softShadow, spacing, typography } from '@/theme';
 
 export function LeadCard({ lead }: { lead: LeadSummary }) {
   return (
@@ -16,6 +16,8 @@ export function LeadCard({ lead }: { lead: LeadSummary }) {
           borderColor: colors.border,
           padding: spacing.lg,
           gap: spacing.md,
+          borderCurve: 'continuous',
+          ...softShadow,
           opacity: pressed ? 0.86 : 1,
         })}
       >

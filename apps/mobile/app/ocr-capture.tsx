@@ -1,9 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import type { PreviewLeadOcrCaptureResponse } from '@pulse/contracts/leads';
-import { Card, ErrorState, LoadingState, Pill, Screen, SectionTitle } from '@/components/native-kit';
+import { Card, ErrorState, HeroCard, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { mimeTypeFromFileName, uriToBase64 } from '@/lib/media';
 import { previewLeadOcrCapture } from '@/lib/api';
 import { useSession } from '@/providers/session-provider';
@@ -77,11 +77,19 @@ export default function OcrCaptureScreen() {
     <>
       <Stack.Screen options={{ title: 'Scan Business Card', headerShown: true }} />
       <Screen>
-        <SectionTitle title="Scan business card" detail="Preview extracted lead fields before creating or updating a lead." />
+        <HeroCard title="Scan card" eyebrow="Lead capture" icon={{ name: 'camera.viewfinder', fallback: 'S' }}>
+          <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
+            Capture a business card, preview extracted lead fields, then hand it to the governed lead workflow.
+          </Text>
+        </HeroCard>
 
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <Action label="Camera" onPress={() => void scanFromImage(true)} />
-          <Action label="Gallery" onPress={() => void scanFromImage(false)} />
+          <View style={{ flex: 1 }}>
+            <SecondaryButton label="Camera" icon={{ name: 'camera.fill', fallback: 'C' }} onPress={() => void scanFromImage(true)} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <SecondaryButton label="Gallery" icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }} onPress={() => void scanFromImage(false)} />
+          </View>
         </View>
 
         <Card>
@@ -108,7 +116,7 @@ export default function OcrCaptureScreen() {
               ...typography.body,
             }}
           />
-          <Action label="Preview pasted text" disabled={!manualText.trim()} onPress={() => void scanManualText()} />
+          <PrimaryButton label="Preview pasted text" disabled={!manualText.trim()} icon={{ name: 'text.viewfinder', fallback: 'OCR' }} onPress={() => void scanManualText()} />
         </Card>
 
         {isLoading ? <LoadingState label="Reading card..." /> : null}
@@ -172,27 +180,5 @@ function FieldRow({
         {value ? `${value}${confidence !== undefined ? ` · ${Math.round(confidence * 100)}%` : ''}` : 'Not extracted'}
       </Text>
     </View>
-  );
-}
-
-function Action({ disabled, label, onPress }: { disabled?: boolean; label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 48,
-        borderRadius: radius.md,
-        backgroundColor: disabled ? colors.border : colors.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: pressed ? 0.86 : 1,
-      })}
-    >
-      <Text style={{ ...typography.callout, color: disabled ? colors.subtle : colors.white, fontWeight: '800', textAlign: 'center' }}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }

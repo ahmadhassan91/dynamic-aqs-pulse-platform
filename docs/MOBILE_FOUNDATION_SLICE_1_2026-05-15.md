@@ -51,7 +51,7 @@ Visual smoke:
 Next useful slice:
 
 1. Add today calendar/training/consignment APIs to the mobile dashboard.
-2. Add route/map/check-in slice with provider-neutral route plan and GPS capture.
+2. Persist route/check-in visits through backend APIs once the territory field-execution contract is approved.
 3. Add consignment ROSE audit mobile flow.
 4. Add durable offline queue and conflict UI.
 5. Add push notification and deep-link handling after provider/governance approval.
@@ -65,6 +65,32 @@ Added after the foundation checkpoint:
 - Added camera/gallery/manual-text OCR preview flow.
 - OCR preview calls the existing `/api/v1/leads/ocr/preview` endpoint.
 - OCR remains review-first and does not auto-create a lead.
+
+## Slice 3 Update
+
+Added after the OCR checkpoint:
+
+- Upgraded shared mobile UI primitives toward the Expo native UI guidelines:
+  - richer hero surfaces
+  - continuous-radius premium cards
+  - SF Symbol-backed icons on iOS with stable web/Android fallbacks
+  - stronger search and action controls
+- Added `Route Plan` tab.
+- Added provider-neutral suggested stop ordering from visible accounts.
+- Added mobile check-in/check-out shell with:
+  - foreground GPS capture through `expo-location`
+  - timed-only fallback when location permission is unavailable
+  - required checkout notes before completion
+  - completed-visit review list
+- Route optimization, geofence thresholds, and durable backend visit persistence remain parked until the field-execution contract/provider decision is approved.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright smoke for dashboard to route tab with mocked account data.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-premium-route-slice.png`
 
 ## Parked Decisions
 

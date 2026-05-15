@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { Card, Pill, Screen, SectionTitle } from '@/components/native-kit';
+import { Card, HeroCard, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
@@ -8,7 +8,11 @@ export default function SyncScreen() {
 
   return (
     <Screen>
-      <SectionTitle title="Sync status" detail="Foundation for offline field execution. The queue is visible now; durable offline writes come in the native execution slice." />
+      <HeroCard title="Sync status" eyebrow="Mobile reliability" icon={{ name: 'arrow.triangle.2.circlepath', fallback: 'S' }}>
+        <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
+          Session health and offline queue visibility for field execution.
+        </Text>
+      </HeroCard>
 
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
@@ -39,14 +43,8 @@ export default function SyncScreen() {
         </Text>
       </Card>
 
-      <Card style={{ backgroundColor: colors.surfaceMuted }}>
-        <Text selectable style={{ ...typography.subtitle, color: colors.text }} onPress={() => void refresh()}>
-          Refresh Session
-        </Text>
-        <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          Tap the title above to validate the token and update role/session metadata.
-        </Text>
-      </Card>
+      <SectionTitle title="Session tools" />
+      <SecondaryButton label="Refresh session" icon={{ name: 'arrow.clockwise.circle.fill', fallback: 'R' }} onPress={() => void refresh()} />
     </Screen>
   );
 }

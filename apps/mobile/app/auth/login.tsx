@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
-import { Card, ErrorState, Field, PrimaryButton, Screen } from '@/components/native-kit';
+import { Card, ErrorState, Field, HeroCard, PrimaryButton, Screen } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
@@ -31,18 +31,16 @@ export default function LoginScreen() {
           <PulseLogo />
         </View>
 
+        <HeroCard title="Pulse Field" eyebrow="Mobile workspace" icon={{ name: 'iphone.gen3', fallback: 'P' }}>
+          <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
+            Sign in with your Pulse CRM account to open the field workspace.
+          </Text>
+        </HeroCard>
+
         <Card style={{ gap: spacing.lg }}>
-          <View style={{ gap: spacing.sm }}>
-            <Text selectable style={{ ...typography.title, color: colors.text }}>
-              Sign in to Pulse Field
-            </Text>
-            <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-              Use your Pulse CRM account to open the field workspace.
-            </Text>
-          </View>
           <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="you@dynamicaqs.com" />
           <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Your password" />
-          <PrimaryButton label={isSigningIn ? 'Signing in...' : 'Sign in'} onPress={handleSignIn} disabled={!canSubmit} />
+          <PrimaryButton label={isSigningIn ? 'Signing in...' : 'Sign in'} icon={{ name: 'arrow.right.circle.fill', fallback: 'Go' }} onPress={handleSignIn} disabled={!canSubmit} />
         </Card>
 
         {errorMessage ? <ErrorState message={errorMessage} /> : null}

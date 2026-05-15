@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { AccountCard } from '@/components/account-card';
 import { LeadCard } from '@/components/lead-card';
-import { Card, EmptyState, ErrorState, LoadingState, MetricCard, Screen, SectionTitle } from '@/components/native-kit';
+import { EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut } = useSession();
@@ -18,19 +18,16 @@ export default function FieldHomeScreen() {
     <Screen>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
         <PulseLogo compact />
-        <Pressable onPress={signOut} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.full, backgroundColor: colors.surface }}>
-          <Text style={{ ...typography.caption, color: colors.primary, fontWeight: '800' }}>Sign out</Text>
-        </Pressable>
+        <View style={{ width: 110 }}>
+          <SecondaryButton label="Sign out" icon={{ name: 'rectangle.portrait.and.arrow.right', fallback: 'Out' }} onPress={() => void signOut()} />
+        </View>
       </View>
 
-      <Card style={{ backgroundColor: colors.primary, borderColor: colors.primaryDeep }}>
-        <Text selectable style={{ ...typography.largeTitle, color: colors.white }}>
-          Field workspace
-        </Text>
+      <HeroCard title="Field workspace" eyebrow="Pulse mobile" icon={{ name: 'bolt.horizontal.circle.fill', fallback: 'P' }}>
         <Text selectable style={{ ...typography.callout, color: '#DBEAFE' }}>
           {auth?.identity.displayName ?? auth?.identity.email ?? 'Pulse user'} · {auth?.identity.role.replace(/_/g, ' ')}
         </Text>
-      </Card>
+      </HeroCard>
 
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading field data..." /> : null}
@@ -53,31 +50,14 @@ export default function FieldHomeScreen() {
       </View>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <QuickAction label="Refresh" onPress={() => void reload()} />
-        <QuickAction label="Scan card" onPress={() => router.push('/ocr-capture')} />
-        <QuickAction label="Lead inbox" onPress={() => router.push('/(tabs)/leads')} />
+        <QuickAction label="Refresh" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
+        <QuickAction label="Scan card" icon={{ name: 'camera.viewfinder', fallback: 'S' }} onPress={() => router.push('/ocr-capture')} />
+        <QuickAction label="Route" icon={{ name: 'map.fill', fallback: 'M' }} onPress={() => router.push('/(tabs)/route')} />
       </View>
     </Screen>
   );
 }
 
-function QuickAction({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 48,
-        borderRadius: radius.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        opacity: pressed ? 0.86 : 1,
-      })}
-    >
-      <Text style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>{label}</Text>
-    </Pressable>
-  );
+function QuickAction({ icon, label, onPress }: { icon: { name: string; fallback: string }; label: string; onPress: () => void }) {
+  return <View style={{ flex: 1 }}><SecondaryButton label={label} icon={icon} onPress={onPress} /></View>;
 }

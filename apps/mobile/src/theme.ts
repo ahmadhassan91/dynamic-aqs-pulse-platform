@@ -1,14 +1,23 @@
 export const colors = {
-  background: '#F6F8FC',
+  background: '#F3F6FB',
+  backgroundElevated: '#EAF1FB',
   surface: '#FFFFFF',
   surfaceMuted: '#EEF4FF',
+  surfacePressed: '#F8FAFC',
   border: '#DCE4F2',
+  borderStrong: '#C6D3E5',
   text: '#0F172A',
+  textInverse: '#FFFFFF',
   muted: '#64748B',
   subtle: '#94A3B8',
   primary: '#2563EB',
   primarySoft: '#DBEAFE',
   primaryDeep: '#1D4ED8',
+  ink: '#172033',
+  aqua: '#0891B2',
+  aquaSoft: '#DFF7FB',
+  violet: '#7C3AED',
+  violetSoft: '#EDE9FE',
   success: '#16A34A',
   successSoft: '#DCFCE7',
   warning: '#D97706',
@@ -31,8 +40,9 @@ export const spacing = {
 export const radius = {
   sm: 8,
   md: 12,
-  lg: 16,
-  xl: 22,
+  lg: 18,
+  xl: 24,
+  xxl: 30,
   full: 999,
 };
 
@@ -46,7 +56,11 @@ export const typography = {
 };
 
 export const softShadow = {
-  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.08)',
+  boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08)',
+};
+
+export const liftShadow = {
+  boxShadow: '0 18px 44px rgba(15, 23, 42, 0.12)',
 };
 
 export function statusColor(status?: string) {

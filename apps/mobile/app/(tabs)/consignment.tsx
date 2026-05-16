@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import type { ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
+import type { ConsignmentAuditLineSummary, ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SearchField, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { fetchConsignmentSiteDetail, updateConsignmentAudit } from '@/lib/api';
 import { formatDate, formatDateTime, humanize } from '@/lib/format';
@@ -16,13 +16,23 @@ type RoseEvidenceItem = RoseEvidenceMetadata & {
   previewUri?: string;
 };
 
+type RoseLineCount = {
+  lineId: string;
+  sku?: string;
+  barcode?: string;
+  productName: string;
+  expectedQuantity?: number;
+  actualQuantity: string;
+  notes: string;
+};
+
 export default function ConsignmentScreen() {
   const { apiBaseUrl, auth } = useSession();
   const { consignmentSites, consignmentWorkItems, errorMessage, isLoading, reload } = useFieldData(50);
   const [query, setQuery] = useState('');
   const [selectedSite, setSelectedSite] = useState<ConsignmentSiteSummary | null>(null);
   const [activeAudit, setActiveAudit] = useState<ConsignmentAuditSummary | null>(null);
-  const [actualQuantity, setActualQuantity] = useState('');
+  const [lineCounts, setLineCounts] = useState<RoseLineCount[]>([]);
   const [notes, setNotes] = useState('');
   const [evidenceItems, setEvidenceItems] = useState<RoseEvidenceItem[]>([]);
   const [attestedByName, setAttestedByName] = useState('');
@@ -56,7 +66,7 @@ export default function ConsignmentScreen() {
     setSelectedSite(site);
     setActiveAudit(null);
     setNotes('');
-    setActualQuantity('');
+    setLineCounts([]);
     setEvidenceItems([]);
     setAttestedByName('');
     setIsAttested(false);
@@ -64,6 +74,7 @@ export default function ConsignmentScreen() {
       const detail = await fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, site.id);
       const audit = detail.audits.find((item) => item.status === 'scheduled' || item.status === 'in_progress') ?? detail.audits[0] ?? null;
       setActiveAudit(audit);
+      setLineCounts(buildRoseLineCounts(audit?.lines ?? []));
       if (!audit) {
         setAuditError('No ROSE audit is scheduled for this site yet. Schedule it in CRM before field execution.');
       }
@@ -73,9 +84,7 @@ export default function ConsignmentScreen() {
   }
 
   async function submitRoseAudit() {
-    if (!auth || !activeAudit || !notes.trim() || !attestedByName.trim() || !isAttested || !isValidRoseCount(actualQuantity)) return;
-    const quantity = Number(actualQuantity);
-    const quantityIsValid = Number.isFinite(quantity) && quantity >= 0;
+    if (!auth || !activeAudit || !notes.trim() || !attestedByName.trim() || !isAttested || !areRoseLineCountsValid(lineCounts)) return;
     const completedAt = new Date().toISOString();
     const evidenceMetadata = evidenceItems.map(({ previewUri, ...item }) => item);
     const attestation: RoseAttestationMetadata = {
@@ -83,22 +92,18 @@ export default function ConsignmentScreen() {
       attestedAt: completedAt,
       textVersion: 'rose-field-v1',
     };
-    const notesWithEvidence = buildRoseAuditNotes(notes.trim(), attestation, evidenceMetadata);
+    const submittedLines = buildSubmittedLines(lineCounts);
+    const varianceSummary = summarizeVariance(lineCounts);
+    const notesWithEvidence = buildRoseAuditNotes(notes.trim(), attestation, evidenceMetadata, varianceSummary);
     setIsSubmitting(true);
     setAuditError(null);
     setAuditMessage(null);
     const request = {
         status: 'completed',
         completedAt,
-        reconciliationStatus: quantityIsValid ? 'true_up_confirmed' : 'open',
+        reconciliationStatus: varianceSummary.hasVariance ? 'open' : 'true_up_confirmed',
         notes: notesWithEvidence,
-        lines: [
-          ({
-            productName: 'Mobile ROSE field count',
-            ...(quantityIsValid ? { actualQuantity: quantity } : {}),
-            notes: notesWithEvidence,
-          }),
-        ],
+        lines: submittedLines,
       } satisfies Parameters<typeof updateConsignmentAudit>[3];
 
     try {
@@ -107,7 +112,7 @@ export default function ConsignmentScreen() {
       setSelectedSite(null);
       setActiveAudit(null);
       setNotes('');
-      setActualQuantity('');
+      setLineCounts([]);
       setEvidenceItems([]);
       setAttestedByName('');
       setIsAttested(false);
@@ -134,7 +139,7 @@ export default function ConsignmentScreen() {
       setSelectedSite(null);
       setActiveAudit(null);
       setNotes('');
-      setActualQuantity('');
+      setLineCounts([]);
       setEvidenceItems([]);
       setAttestedByName('');
       setIsAttested(false);
@@ -207,26 +212,27 @@ export default function ConsignmentScreen() {
 
       {selectedSite ? (
         <RoseAuditCard
-          actualQuantity={actualQuantity}
           attestedByName={attestedByName}
           audit={activeAudit}
           evidenceItems={evidenceItems}
           isAttested={isAttested}
           isSubmitting={isSubmitting}
+          lineCounts={lineCounts}
           notes={notes}
           onAddEvidence={(useCamera) => void addRoseEvidence(useCamera)}
-          onActualQuantityChange={setActualQuantity}
           onAttestedByNameChange={setAttestedByName}
           onCancel={() => {
             setSelectedSite(null);
             setActiveAudit(null);
             setNotes('');
-            setActualQuantity('');
+            setLineCounts([]);
             setEvidenceItems([]);
             setAttestedByName('');
             setIsAttested(false);
           }}
           onRemoveEvidence={(id) => setEvidenceItems((items) => items.filter((item) => item.id !== id))}
+          onLineActualQuantityChange={(lineId, value) => setLineCounts((items) => items.map((item) => item.lineId === lineId ? { ...item, actualQuantity: value } : item))}
+          onLineNotesChange={(lineId, value) => setLineCounts((items) => items.map((item) => item.lineId === lineId ? { ...item, notes: value } : item))}
           onToggleAttestation={() => setIsAttested((value) => !value)}
           onToggleEvidencePurpose={(id) => setEvidenceItems((items) => items.map((item) => item.id === id ? { ...item, purpose: item.purpose === 'general' ? 'discrepancy' : 'general' } : item))}
           onNotesChange={setNotes}
@@ -287,17 +293,18 @@ function ConsignmentSiteCard({ onOpen, site }: { onOpen: () => void; site: Consi
 }
 
 function RoseAuditCard({
-  actualQuantity,
   attestedByName,
   audit,
   evidenceItems,
   isAttested,
   isSubmitting,
+  lineCounts,
   notes,
   onAddEvidence,
-  onActualQuantityChange,
   onAttestedByNameChange,
   onCancel,
+  onLineActualQuantityChange,
+  onLineNotesChange,
   onRemoveEvidence,
   onToggleAttestation,
   onToggleEvidencePurpose,
@@ -305,17 +312,18 @@ function RoseAuditCard({
   onSubmit,
   site,
 }: {
-  actualQuantity: string;
   attestedByName: string;
   audit: ConsignmentAuditSummary | null;
   evidenceItems: RoseEvidenceItem[];
   isAttested: boolean;
   isSubmitting: boolean;
+  lineCounts: RoseLineCount[];
   notes: string;
   onAddEvidence: (useCamera: boolean) => void;
-  onActualQuantityChange: (value: string) => void;
   onAttestedByNameChange: (value: string) => void;
   onCancel: () => void;
+  onLineActualQuantityChange: (lineId: string, value: string) => void;
+  onLineNotesChange: (lineId: string, value: string) => void;
   onRemoveEvidence: (id: string) => void;
   onToggleAttestation: () => void;
   onToggleEvidencePurpose: (id: string) => void;
@@ -323,6 +331,7 @@ function RoseAuditCard({
   onSubmit: () => void;
   site: ConsignmentSiteSummary;
 }) {
+  const varianceSummary = summarizeVariance(lineCounts);
   return (
     <Card style={{ borderColor: colors.primarySoft }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -353,22 +362,11 @@ function RoseAuditCard({
               Verify manually when Acumatica source is parked/stale.
             </Text>
           </Card>
-          <TextInput
-            value={actualQuantity}
-            onChangeText={onActualQuantityChange}
-            keyboardType="numeric"
-            placeholder="Actual count total required"
-            placeholderTextColor={colors.subtle}
-            style={{
-              minHeight: 48,
-              borderRadius: radius.lg,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.surface,
-              paddingHorizontal: spacing.md,
-              color: colors.text,
-              ...typography.body,
-            }}
+          <RoseLineCountSection
+            lineCounts={lineCounts}
+            onActualQuantityChange={onLineActualQuantityChange}
+            onNotesChange={onLineNotesChange}
+            varianceSummary={varianceSummary}
           />
           <TextInput
             value={notes}
@@ -403,10 +401,120 @@ function RoseAuditCard({
             onAttestedByNameChange={onAttestedByNameChange}
             onToggleAttestation={onToggleAttestation}
           />
-          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={isSubmitting || !notes.trim() || !attestedByName.trim() || !isAttested || !isValidRoseCount(actualQuantity)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
+          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={isSubmitting || !notes.trim() || !attestedByName.trim() || !isAttested || !areRoseLineCountsValid(lineCounts)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
         </>
       ) : null}
       <SecondaryButton label="Cancel" icon={{ name: 'xmark.circle.fill', fallback: 'X' }} onPress={onCancel} />
+    </Card>
+  );
+}
+
+function RoseLineCountSection({
+  lineCounts,
+  onActualQuantityChange,
+  onNotesChange,
+  varianceSummary,
+}: {
+  lineCounts: RoseLineCount[];
+  onActualQuantityChange: (lineId: string, value: string) => void;
+  onNotesChange: (lineId: string, value: string) => void;
+  varianceSummary: RoseVarianceSummary;
+}) {
+  return (
+    <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: spacing.xs }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            Count items
+          </Text>
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            Enter what is physically on site. Variance is previewed before the audit is sent.
+          </Text>
+        </View>
+        <Pill label={varianceSummary.hasVariance ? 'Variance' : 'Balanced'} tone={varianceSummary.hasVariance ? 'review' : 'active'} />
+      </View>
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <FieldChip label="Expected" value={formatQuantity(varianceSummary.expectedTotal)} />
+        <FieldChip label="Actual" value={formatQuantity(varianceSummary.actualTotal)} />
+        <FieldChip label="Variance" value={formatSignedQuantity(varianceSummary.varianceTotal)} />
+      </View>
+
+      {lineCounts.map((line, index) => {
+        const actual = parseRoseQuantity(line.actualQuantity);
+        const variance = actual !== null && line.expectedQuantity !== undefined ? actual - line.expectedQuantity : null;
+        return (
+          <Card key={line.lineId} style={{ backgroundColor: colors.surface, boxShadow: 'none' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
+              <View style={{ flex: 1, gap: spacing.xs }}>
+                <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+                  {line.productName || `ROSE item ${index + 1}`}
+                </Text>
+                <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+                  {[line.sku ? `SKU ${line.sku}` : null, line.barcode ? `Barcode ${line.barcode}` : null].filter(Boolean).join(' · ') || 'No SKU/barcode'}
+                </Text>
+              </View>
+              <Pill label={variance === null ? 'Count needed' : variance === 0 ? 'OK' : formatSignedQuantity(variance)} tone={variance === null ? 'pending' : variance === 0 ? 'active' : 'review'} />
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+              <View style={{ flex: 1, gap: spacing.xs }}>
+                <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>
+                  Expected
+                </Text>
+                <Text selectable style={{ ...typography.title, color: colors.text, fontVariant: ['tabular-nums'] }}>
+                  {formatQuantity(line.expectedQuantity)}
+                </Text>
+              </View>
+              <View style={{ flex: 1.4, gap: spacing.xs }}>
+                <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>
+                  Actual count
+                </Text>
+                <TextInput
+                  value={line.actualQuantity}
+                  onChangeText={(value) => onActualQuantityChange(line.lineId, value)}
+                  keyboardType="numeric"
+                  placeholder="Required"
+                  placeholderTextColor={colors.subtle}
+                  style={{
+                    minHeight: 48,
+                    borderRadius: radius.lg,
+                    borderWidth: 1,
+                    borderColor: isValidRoseCount(line.actualQuantity) ? colors.border : colors.warning,
+                    backgroundColor: colors.surface,
+                    paddingHorizontal: spacing.md,
+                    color: colors.text,
+                    ...typography.body,
+                  }}
+                />
+              </View>
+            </View>
+
+            {variance !== null && variance !== 0 ? (
+              <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+                Variance preview: {formatSignedQuantity(variance)}. Add a note if a PO, transfer, or discrepancy follow-up is needed.
+              </Text>
+            ) : null}
+
+            <TextInput
+              value={line.notes}
+              onChangeText={(value) => onNotesChange(line.lineId, value)}
+              placeholder="Optional item note"
+              placeholderTextColor={colors.subtle}
+              style={{
+                minHeight: 46,
+                borderRadius: radius.lg,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                paddingHorizontal: spacing.md,
+                color: colors.text,
+                ...typography.body,
+              }}
+            />
+          </Card>
+        );
+      })}
     </Card>
   );
 }
@@ -514,12 +622,106 @@ function AttestationSection({
   );
 }
 
-function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata, evidenceItems: RoseEvidenceMetadata[]) {
+type RoseVarianceSummary = {
+  expectedTotal: number | undefined;
+  actualTotal: number;
+  varianceTotal: number;
+  hasVariance: boolean;
+  countedLineCount: number;
+  varianceLineCount: number;
+};
+
+function buildRoseLineCounts(lines: ConsignmentAuditLineSummary[]): RoseLineCount[] {
+  if (!lines.length) {
+    return [{
+      lineId: 'mobile-field-count',
+      productName: 'Manual ROSE field count',
+      actualQuantity: '',
+      notes: '',
+    }];
+  }
+  return lines.map((line, index) => ({
+    lineId: line.id || `line-${index + 1}`,
+    ...(line.sku ? { sku: line.sku } : {}),
+    ...(line.barcode ? { barcode: line.barcode } : {}),
+    productName: line.productName || `ROSE item ${index + 1}`,
+    ...(line.expectedQuantity !== undefined ? { expectedQuantity: line.expectedQuantity } : {}),
+    actualQuantity: line.actualQuantity !== undefined ? String(line.actualQuantity) : '',
+    notes: line.notes ?? '',
+  }));
+}
+
+function buildSubmittedLines(lineCounts: RoseLineCount[]) {
+  return lineCounts.map((line) => {
+    const actualQuantity = parseRoseQuantity(line.actualQuantity);
+    return {
+      ...(line.sku ? { sku: line.sku } : {}),
+      ...(line.barcode ? { barcode: line.barcode } : {}),
+      productName: line.productName,
+      ...(line.expectedQuantity !== undefined ? { expectedQuantity: line.expectedQuantity } : {}),
+      ...(actualQuantity !== null ? { actualQuantity } : {}),
+      ...(line.notes.trim() ? { notes: line.notes.trim() } : {}),
+    };
+  });
+}
+
+function summarizeVariance(lineCounts: RoseLineCount[]): RoseVarianceSummary {
+  let expectedTotal = 0;
+  let hasExpected = false;
+  let actualTotal = 0;
+  let varianceTotal = 0;
+  let hasVariance = false;
+  let countedLineCount = 0;
+  let varianceLineCount = 0;
+
+  for (const line of lineCounts) {
+    if (line.expectedQuantity !== undefined) {
+      hasExpected = true;
+      expectedTotal += line.expectedQuantity;
+    }
+    const actual = parseRoseQuantity(line.actualQuantity);
+    if (actual === null) continue;
+    countedLineCount += 1;
+    actualTotal += actual;
+    if (line.expectedQuantity !== undefined) {
+      const variance = actual - line.expectedQuantity;
+      varianceTotal += variance;
+      if (variance !== 0) {
+        hasVariance = true;
+        varianceLineCount += 1;
+      }
+    }
+  }
+
+  return {
+    expectedTotal: hasExpected ? expectedTotal : undefined,
+    actualTotal,
+    varianceTotal: hasExpected ? varianceTotal : 0,
+    hasVariance,
+    countedLineCount,
+    varianceLineCount,
+  };
+}
+
+function areRoseLineCountsValid(lineCounts: RoseLineCount[]) {
+  return lineCounts.length > 0 && lineCounts.every((line) => isValidRoseCount(line.actualQuantity));
+}
+
+function parseRoseQuantity(value: string) {
+  if (!isValidRoseCount(value)) return null;
+  return Number(value);
+}
+
+function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata, evidenceItems: RoseEvidenceMetadata[], varianceSummary: RoseVarianceSummary) {
   const evidenceSummary = evidenceItems.length
     ? `${evidenceItems.length} photo metadata item${evidenceItems.length === 1 ? '' : 's'} captured (${evidenceItems.filter((item) => item.purpose === 'discrepancy').length} discrepancy). Media upload parked until backend evidence endpoint is approved.`
     : 'No photos attached. Media upload parked until backend evidence endpoint is approved.';
+  const varianceLine = varianceSummary.expectedTotal === undefined
+    ? `ROSE count summary: ${formatQuantity(varianceSummary.actualTotal)} counted across ${varianceSummary.countedLineCount} line${varianceSummary.countedLineCount === 1 ? '' : 's'}; expected quantities are parked until Acumatica/source data is available.`
+    : `ROSE count summary: expected ${formatQuantity(varianceSummary.expectedTotal)}, actual ${formatQuantity(varianceSummary.actualTotal)}, variance ${formatSignedQuantity(varianceSummary.varianceTotal)} across ${varianceSummary.varianceLineCount} variance line${varianceSummary.varianceLineCount === 1 ? '' : 's'}.`;
   return [
     notes,
+    varianceLine,
     `TM attestation: ${attestation.attestedByName} at ${formatDateTime(attestation.attestedAt)}.`,
     evidenceSummary,
   ].join('\n\n');
@@ -528,6 +730,17 @@ function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata
 function isValidRoseCount(value: string) {
   const count = Number(value);
   return value.trim().length > 0 && Number.isFinite(count) && count >= 0;
+}
+
+function formatQuantity(value: number | undefined) {
+  if (value === undefined) return 'Not set';
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatSignedQuantity(value: number) {
+  if (value === 0) return '0';
+  const formatted = Number.isInteger(value) ? String(Math.abs(value)) : Math.abs(value).toFixed(2);
+  return `${value > 0 ? '+' : '-'}${formatted}`;
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {

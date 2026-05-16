@@ -304,6 +304,66 @@ Still parked:
 - ROSE media upload endpoint and server-side evidence table.
 - ROSE line-item variance workflow. This is the recommended next mobile slice.
 
+## Slice 8 Update
+
+Added after the mobile field QA hardening checkpoint:
+
+- Replaced the single ROSE `Actual count total` field with a simple line-item count workflow.
+- Each audit line now shows:
+  - product name
+  - SKU
+  - barcode
+  - expected quantity
+  - required actual count
+  - optional item note
+  - per-line variance preview
+- Added ROSE count summary chips:
+  - expected total
+  - actual total
+  - total variance
+- Expected totals now show immediately when the audit loads, even before the TM/RD starts counting.
+- Submitting a ROSE audit now sends all counted lines to CRM instead of a synthetic single total line.
+- Variance behavior:
+  - balanced counts submit with `true_up_confirmed`
+  - any shortage/overage submits with `open` reconciliation so PO/discrepancy follow-up remains visible
+- Audit notes now include a concise line-count variance summary plus the existing TM/RD attestation and evidence metadata summary.
+
+Usability focus:
+
+- The screen now matches how a Territory Manager or Regional Director audits a site: count each product, see the short/over amount immediately, and add a note only where follow-up is needed.
+- The Acumatica dependency is still visible but does not block field counting.
+- The line-item cards avoid backend terms and present the work as a field checklist.
+
+Playwright QA as Regional Director:
+
+- Seeded a Regional Director mobile session.
+- Loaded a consignment site with two ROSE audit lines:
+  - `ROSE Filter Kit`, expected 12
+  - `UV Lamp Cartridge`, expected 4
+- Confirmed the mobile app showed expected total 16 before counts were entered.
+- Entered actual counts 11 and 4.
+- Confirmed variance preview showed one short line and actual total 15.
+- Submitted during a mocked CRM outage and confirmed `Draft on phone`.
+- Verified the PATCH payload included two line items and `open` reconciliation.
+- Retried from Sync Status after mocked CRM recovery and confirmed `CRM saved`.
+- Checked draft storage for blocked media/local URI/base64 fields and obvious contact PII.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright RD field-flow QA with mocked CRM outage/recovery.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-rose-line-items-qa.png`
+
+Still parked:
+
+- Server-side ROSE evidence/media endpoint.
+- Acumatica authoritative expected inventory refresh.
+- PO creation/posting from variance.
+- Native encrypted/file-backed offline draft adapter.
+- Route visit backend API.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

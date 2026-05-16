@@ -4,13 +4,21 @@ import type { AuthBundle } from '@/lib/api';
 
 const sessionKey = 'pulse.field.session.v1';
 
+export type StoredSession = {
+  apiBaseUrl?: string;
+  auth: AuthBundle;
+};
+
 export async function loadStoredSession() {
   const value = await readValue(sessionKey);
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (isStoredSession(parsed)) {
+    if (isStoredSessionEnvelope(parsed)) {
       return parsed;
+    }
+    if (isStoredAuthBundle(parsed)) {
+      return { auth: parsed };
     }
     await clearStoredSession();
     return null;
@@ -20,7 +28,7 @@ export async function loadStoredSession() {
   }
 }
 
-export async function saveStoredSession(session: AuthBundle) {
+export async function saveStoredSession(session: StoredSession) {
   await writeValue(sessionKey, JSON.stringify(session));
 }
 
@@ -51,7 +59,13 @@ async function deleteValue(key: string) {
   await SecureStore.deleteItemAsync(key);
 }
 
-function isStoredSession(value: unknown): value is AuthBundle {
+function isStoredSessionEnvelope(value: unknown): value is StoredSession {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<StoredSession>;
+  return Boolean(candidate.auth && isStoredAuthBundle(candidate.auth));
+}
+
+function isStoredAuthBundle(value: unknown): value is AuthBundle {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AuthBundle>;
   return Boolean(

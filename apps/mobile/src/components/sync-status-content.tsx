@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { Card, HeroCard, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { clearSyncedDrafts, retryPendingDrafts, useMobileDraftQueue } from '@/lib/mobile-draft-queue';
+import { clearDraft, clearSyncedDrafts, retryPendingDrafts, useMobileDraftQueue } from '@/lib/mobile-draft-queue';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
@@ -45,7 +45,7 @@ export function SyncStatusContent() {
           {pendingDrafts.length}
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          These updates stay on this device until CRM accepts them. ROSE audits can retry now; route visits remain parked until the field visit API is approved.
+          These updates stay on this device until CRM accepts them. ROSE audits can retry now; route visits stay local until the field visit API is approved.
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
           ROSE audits: {roseDrafts} · Route visits: {routeDrafts}
@@ -55,32 +55,42 @@ export function SyncStatusContent() {
       {drafts.length ? (
         <View style={{ gap: spacing.md }}>
           {drafts.map((draft) => (
-            <Card key={draft.id}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
-                <View style={{ flex: 1, gap: spacing.xs }}>
-                  <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
-                    {draft.title}
-                  </Text>
-                  <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-                    {draft.detail}
-                  </Text>
-                  {draft.errorMessage ? (
-                    <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-                      {draft.errorMessage}
+            <View key={draft.id} style={{ gap: spacing.sm }}>
+              <Card>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1, gap: spacing.xs }}>
+                    <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+                      {draft.title}
                     </Text>
-                  ) : null}
-                  {draft.payload.kind === 'consignment_rose_audit' && draft.payload.attestation ? (
-                    <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-                      Attested by {draft.payload.attestation.attestedByName}. Evidence photos: {draft.payload.evidence?.items.length ?? 0}; media upload parked.
+                    <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                      {draft.detail}
                     </Text>
-                  ) : null}
+                    {draft.errorMessage ? (
+                      <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+                        {draft.errorMessage}
+                      </Text>
+                    ) : null}
+                    {draft.payload.kind === 'consignment_rose_audit' && draft.payload.attestation ? (
+                      <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+                        Attested by {draft.payload.attestation.attestedByName}. Evidence photos: {draft.payload.evidence?.items.length ?? 0}; media upload parked.
+                      </Text>
+                    ) : null}
+                    {draft.payload.kind === 'route_visit' ? (
+                      <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+                        Route visit API is parked, so this item stays local and will not retry yet.
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pill
+                    label={draft.payload.kind === 'route_visit' && draft.status !== 'synced' ? 'Local only' : draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}
+                    tone={draft.status === 'synced' ? 'active' : draft.status === 'failed' ? 'review' : 'pending'}
+                  />
                 </View>
-                <Pill
-                  label={draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}
-                  tone={draft.status === 'synced' ? 'active' : draft.status === 'failed' ? 'review' : 'pending'}
-                />
-              </View>
-            </Card>
+              </Card>
+              {draft.status !== 'syncing' ? (
+                <SecondaryButton label="Discard local draft" icon={{ name: 'trash.fill', fallback: 'Del' }} onPress={() => clearDraft(draft.id)} />
+              ) : null}
+            </View>
           ))}
         </View>
       ) : null}

@@ -239,6 +239,71 @@ Still parked:
 - Native encrypted/file-backed offline media storage.
 - Conflict merge rules.
 
+## Slice 7 Update
+
+Added after the ROSE evidence/attestation checkpoint:
+
+- Hardened mobile session persistence so the selected API base URL is saved with the session.
+- Restricted mobile API base URL entry to approved Pulse hosts and HTTPS, with localhost allowed for QA.
+- Made the Field Home role label tolerate legacy/partial session envelopes instead of blanking the app.
+- Changed field data loading to degrade by section:
+  - leads, accounts, queue, consignment sites, and consignment work can load independently
+  - one endpoint failure no longer blanks the whole mobile workspace
+- Hardened the mobile draft queue:
+  - route visit drafts stay `Local only` and are not retried until the field visit API exists
+  - individual drafts can be discarded
+  - route drafts expire after 72 hours
+  - ROSE drafts expire after 7 days
+  - ROSE evidence filenames are redacted before local storage
+- Improved route check-in reliability:
+  - check-in starts immediately as a timed visit
+  - GPS capture updates the active visit if permission succeeds
+  - GPS permission no longer blocks a TM from starting the visit
+- Tightened OCR capture:
+  - camera/gallery request base64 explicitly
+  - non-image files are rejected
+  - large images are rejected before upload
+  - pasted fallback text is capped
+- Added native permission copy/config for camera, photo library, and location.
+- Made ROSE actual count required before submit.
+- Added clear copy that ROSE photos are preview-only until the backend evidence endpoint is approved.
+
+Targeted agent QA inputs:
+
+- Requirements QA: next useful mobile slice is ROSE line-item counts and variance preview.
+- Mobile code QA: called out durable draft storage, route retry semantics, API base persistence, partial data loading, OCR guards, and ROSE count requirement.
+- Scenario QA: covered login/session, home, OCR, leads, accounts, route visit draft, ROSE draft, notifications, and sync.
+- Security/PII QA: called out editable API URL risk, draft retention, OCR size/type guards, and evidence metadata redaction.
+
+Playwright QA as Dynamic field team:
+
+- Seeded a Territory Manager session with mocked Pulse CRM APIs.
+- Verified Field Home loads live lead/account/consignment counts.
+- Previewed a pasted business card through OCR without auto-creating a lead.
+- Opened lead detail and verified the next action.
+- Opened account detail and verified contact context.
+- Completed a route check-in/check-out and confirmed it becomes a parked local route draft.
+- Opened a due ROSE audit, entered count/notes/attestation, forced the first CRM PATCH to fail, and confirmed `Draft on phone`.
+- Opened Notifications and confirmed `2 drafts on this phone`.
+- Opened Sync Status, retried drafts, confirmed ROSE became `CRM saved`, and confirmed route stayed `Local only`.
+- Checked local draft storage for blocked media/local URI/base64 keys and obvious contact PII tokens.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright full field-flow QA with mocked CRM outage/recovery.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-full-qa-cycle.png`
+
+Still parked:
+
+- Native file-backed durable draft storage adapter.
+- Centralized token refresh around every data load.
+- Route visit backend API and server conflict handling.
+- ROSE media upload endpoint and server-side evidence table.
+- ROSE line-item variance workflow. This is the recommended next mobile slice.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

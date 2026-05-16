@@ -46,6 +46,7 @@ export default function RouteScreen() {
     }
 
     const visit: ActiveVisit = { account, checkedInAt: new Date().toISOString() };
+    setActiveVisit(visit);
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.granted) {
@@ -61,7 +62,6 @@ export default function RouteScreen() {
     } catch (error) {
       setLocationError(error instanceof Error ? error.message : 'Unable to capture current location.');
     }
-    setActiveVisit(visit);
   }
 
   function completeVisit() {
@@ -77,8 +77,8 @@ export default function RouteScreen() {
         checkedInAt: activeVisit.checkedInAt,
         checkedOutAt: new Date().toISOString(),
         notes: notes.trim(),
-        ...(activeVisit.latitude !== undefined ? { latitude: activeVisit.latitude } : {}),
-        ...(activeVisit.longitude !== undefined ? { longitude: activeVisit.longitude } : {}),
+        ...(activeVisit.latitude !== undefined ? { latitude: roundCoordinate(activeVisit.latitude) } : {}),
+        ...(activeVisit.longitude !== undefined ? { longitude: roundCoordinate(activeVisit.longitude) } : {}),
       },
     });
     setCompletedVisits((items) => [
@@ -191,6 +191,10 @@ export default function RouteScreen() {
   );
 }
 
+function roundCoordinate(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
 function RouteStopCard({
   account,
   disabled,
@@ -262,7 +266,7 @@ function RouteStopCard({
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
             <NativeIcon name="doc.text.magnifyingglass" fallback="i" color={colors.primary} size={16} />
-            <Text style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>View</Text>
+            <Text onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })} style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>View</Text>
           </View>
         </Pressable>
         <View style={{ width: 1, backgroundColor: colors.border }} />
@@ -280,7 +284,7 @@ function RouteStopCard({
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <NativeIcon name="location.fill" fallback=">" color={disabled || isDone ? colors.subtle : colors.white} size={16} />
-            <Text style={{ ...typography.callout, color: disabled || isDone ? colors.subtle : colors.white, fontWeight: '800' }}>
+            <Text onPress={disabled || isDone ? undefined : onStart} style={{ ...typography.callout, color: disabled || isDone ? colors.subtle : colors.white, fontWeight: '800' }}>
               {isDone ? 'Complete' : 'Check in'}
             </Text>
           </View>

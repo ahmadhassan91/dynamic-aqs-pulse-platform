@@ -82,7 +82,7 @@ export function loadDrafts(): MobileDraft[] {
       return cachedDrafts;
     }
     cachedRawDrafts = value;
-    cachedDrafts = parsed.filter(isMobileDraft);
+    cachedDrafts = parsed.filter(isMobileDraft).filter(isDraftFresh);
     return cachedDrafts;
   } catch {
     cachedRawDrafts = value;
@@ -109,29 +109,32 @@ export function clearSyncedDrafts() {
   saveDrafts(loadDrafts().filter((draft) => draft.status !== 'synced'));
 }
 
+export function clearDraft(draftId: string) {
+  saveDrafts(loadDrafts().filter((draft) => draft.id !== draftId));
+}
+
 export async function retryPendingDrafts(apiBaseUrl: string, accessToken: string) {
   const drafts = loadDrafts();
   for (const draft of drafts) {
     if (draft.status === 'synced') continue;
+    if (draft.payload.kind === 'route_visit') continue;
     await retryDraft(apiBaseUrl, accessToken, draft.id);
   }
   return loadDrafts();
 }
 
 export async function retryDraft(apiBaseUrl: string, accessToken: string, draftId: string) {
-  const drafts = updateDraft(draftId, {
+  const draft = loadDrafts().find((item) => item.id === draftId);
+  if (!draft) return null;
+  if (draft.payload.kind === 'route_visit') return draft;
+
+  updateDraft(draftId, {
     status: 'syncing',
     lastAttemptAt: new Date().toISOString(),
   });
-  const draft = drafts.find((item) => item.id === draftId);
-  if (!draft) return null;
 
   try {
-    if (draft.payload.kind === 'consignment_rose_audit') {
-      await updateConsignmentAudit(apiBaseUrl, accessToken, draft.payload.auditId, draft.payload.request);
-    } else {
-      throw new Error('Route visit backend sync is not enabled yet. Draft remains local until the field visit API is approved.');
-    }
+    await updateConsignmentAudit(apiBaseUrl, accessToken, draft.payload.auditId, draft.payload.request);
     return updateDraft(draftId, {
       status: 'synced',
       updatedAt: new Date().toISOString(),
@@ -177,7 +180,8 @@ function saveDrafts(drafts: MobileDraft[]) {
 }
 
 function sanitizeDraft(draft: MobileDraft): MobileDraft {
-  const serialized = JSON.stringify(draft);
+  const redactedDraft = redactEvidenceFileNames(draft);
+  const serialized = JSON.stringify(redactedDraft);
   const blockedKeyPattern = /"(?:base64|contentBase64|blob|fileUri|previewUri|localUri|signatureImage|imageData)"\s*:/i;
   if (blockedKeyPattern.test(serialized)) {
     throw new Error('Media files are not stored in offline drafts yet. Save text evidence only and retry when CRM media upload is approved.');
@@ -185,32 +189,61 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
   if (serialized.length > 16_000) {
     throw new Error('This offline draft is too large. Shorten notes before saving.');
   }
-  if (draft.payload.kind === 'consignment_rose_audit') {
-    const request = { ...draft.payload.request };
+  if (redactedDraft.payload.kind === 'consignment_rose_audit') {
+    const request = { ...redactedDraft.payload.request };
     if (request.notes) {
       request.notes = request.notes.slice(0, 1000);
     }
     return {
-      ...draft,
+      ...redactedDraft,
       title: 'ROSE audit draft',
       detail: 'Draft on this device until CRM accepts the audit. Media upload remains parked.',
       payload: {
-        ...draft.payload,
+        ...redactedDraft.payload,
         accountName: 'Consignment site',
         request,
       },
     };
   }
   return {
-    ...draft,
+    ...redactedDraft,
     title: 'Route visit draft',
     detail: 'Draft on this device until the CRM field visit API is approved.',
     payload: {
-      ...draft.payload,
+      ...redactedDraft.payload,
       accountName: 'Field account',
-      notes: draft.payload.notes.slice(0, 1000),
+      notes: redactedDraft.payload.notes.slice(0, 1000),
     },
   };
+}
+
+function redactEvidenceFileNames(draft: MobileDraft): MobileDraft {
+  if (draft.payload.kind !== 'consignment_rose_audit' || !draft.payload.evidence) return draft;
+  return {
+    ...draft,
+    payload: {
+      ...draft.payload,
+      evidence: {
+        ...draft.payload.evidence,
+        items: draft.payload.evidence.items.map((item, index) => ({
+          ...item,
+          fileName: `rose-evidence-${index + 1}.${extensionFromMimeType(item.mimeType)}`,
+        })),
+      },
+    },
+  };
+}
+
+function extensionFromMimeType(mimeType: string) {
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function isDraftFresh(draft: MobileDraft) {
+  const ageMs = Date.now() - new Date(draft.createdAt).getTime();
+  const maxAgeMs = draft.payload.kind === 'route_visit' ? 72 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  return Number.isFinite(ageMs) && ageMs <= maxAgeMs;
 }
 
 function isMobileDraft(value: unknown): value is MobileDraft {

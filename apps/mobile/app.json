@@ -9,10 +9,21 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dynamicAqs.pulsefield"
+      "bundleIdentifier": "com.dynamicAqs.pulsefield",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Pulse Field uses the camera to scan business cards and capture ROSE audit evidence.",
+        "NSPhotoLibraryUsageDescription": "Pulse Field uses selected photos for business-card OCR and ROSE audit evidence previews.",
+        "NSLocationWhenInUseUsageDescription": "Pulse Field uses your location only when you check in to a route visit."
+      }
     },
     "android": {
       "package": "com.dynamicAqs.pulsefield",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_MEDIA_IMAGES"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#2563EB"
       }

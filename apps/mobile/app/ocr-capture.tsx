@@ -29,8 +29,8 @@ export default function OcrCaptureScreen() {
       }
 
       const picked = useCamera
-        ? await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.85, base64: false })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.85, base64: false });
+        ? await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.85, base64: true })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.85, base64: true });
 
       if (picked.canceled || !picked.assets[0]) {
         setIsLoading(false);
@@ -39,11 +39,18 @@ export default function OcrCaptureScreen() {
 
       const asset = picked.assets[0];
       const fileName = asset.fileName ?? `business-card-${Date.now()}.jpg`;
-      const contentBase64 = await uriToBase64(asset.uri);
+      const mimeType = asset.mimeType ?? mimeTypeFromFileName(fileName);
+      if (!mimeType.startsWith('image/')) {
+        throw new Error('Unsupported business-card image type.');
+      }
+      if (asset.fileSize && asset.fileSize > 4_000_000) {
+        throw new Error('Business-card image is too large. Choose a smaller image.');
+      }
+      const contentBase64 = asset.base64 ?? await uriToBase64(asset.uri);
       const preview = await previewLeadOcrCapture(apiBaseUrl, auth.tokens.accessToken, {
         documentType: 'business_card',
         fileName,
-        mimeType: asset.mimeType ?? mimeTypeFromFileName(fileName),
+        mimeType,
         contentBase64,
         serviceTechCountFallback: 1,
       });
@@ -57,6 +64,10 @@ export default function OcrCaptureScreen() {
 
   async function scanManualText() {
     if (!auth) return;
+    if (manualText.length > 5000) {
+      setErrorMessage('Pasted business-card text is too long. Keep it under 5,000 characters.');
+      return;
+    }
     setIsLoading(true);
     setErrorMessage(null);
     try {

@@ -31,7 +31,7 @@ export default function FieldHomeScreen() {
 
       <HeroCard title="Field workspace" eyebrow="Pulse mobile" icon={{ name: 'bolt.horizontal.circle.fill', fallback: 'P' }}>
         <Text selectable style={{ ...typography.callout, color: '#DBEAFE' }}>
-          {auth?.identity.displayName ?? auth?.identity.email ?? 'Pulse user'} · {auth?.identity.role.replace(/_/g, ' ')}
+          {auth?.identity.displayName ?? auth?.identity.email ?? 'Pulse user'} · {formatRoleLabel(auth?.identity.role)}
         </Text>
       </HeroCard>
 
@@ -113,4 +113,8 @@ function BellButton({ count }: { count: number }) {
 
 function QuickAction({ icon, label, onPress }: { icon: { name: string; fallback: string }; label: string; onPress: () => void }) {
   return <View style={{ flex: 1 }}><SecondaryButton label={label} icon={icon} onPress={onPress} /></View>;
+}
+
+function formatRoleLabel(role?: string) {
+  return role?.replace(/_/g, ' ') ?? 'Field user';
 }

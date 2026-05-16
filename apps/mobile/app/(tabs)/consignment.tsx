@@ -73,7 +73,7 @@ export default function ConsignmentScreen() {
   }
 
   async function submitRoseAudit() {
-    if (!auth || !activeAudit || !notes.trim() || !attestedByName.trim() || !isAttested) return;
+    if (!auth || !activeAudit || !notes.trim() || !attestedByName.trim() || !isAttested || !isValidRoseCount(actualQuantity)) return;
     const quantity = Number(actualQuantity);
     const quantityIsValid = Number.isFinite(quantity) && quantity >= 0;
     const completedAt = new Date().toISOString();
@@ -357,7 +357,7 @@ function RoseAuditCard({
             value={actualQuantity}
             onChangeText={onActualQuantityChange}
             keyboardType="numeric"
-            placeholder="Actual count total"
+            placeholder="Actual count total required"
             placeholderTextColor={colors.subtle}
             style={{
               minHeight: 48,
@@ -394,13 +394,16 @@ function RoseAuditCard({
             onRemoveEvidence={onRemoveEvidence}
             onToggleEvidencePurpose={onToggleEvidencePurpose}
           />
+          <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+            Photos are preview-only in this slice. CRM receives evidence metadata in notes; media upload is parked until the backend evidence endpoint is approved.
+          </Text>
           <AttestationSection
             attestedByName={attestedByName}
             isAttested={isAttested}
             onAttestedByNameChange={onAttestedByNameChange}
             onToggleAttestation={onToggleAttestation}
           />
-          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={isSubmitting || !notes.trim() || !attestedByName.trim() || !isAttested} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
+          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={isSubmitting || !notes.trim() || !attestedByName.trim() || !isAttested || !isValidRoseCount(actualQuantity)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
         </>
       ) : null}
       <SecondaryButton label="Cancel" icon={{ name: 'xmark.circle.fill', fallback: 'X' }} onPress={onCancel} />
@@ -520,6 +523,11 @@ function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata
     `TM attestation: ${attestation.attestedByName} at ${formatDateTime(attestation.attestedAt)}.`,
     evidenceSummary,
   ].join('\n\n');
+}
+
+function isValidRoseCount(value: string) {
+  const count = Number(value);
+  return value.trim().length > 0 && Number.isFinite(count) && count >= 0;
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {

@@ -19,24 +19,31 @@ export function useFieldData(limit = 20) {
     if (!auth) return;
     setIsLoading(true);
     setErrorMessage(null);
-    try {
-      const [leadResponse, accountResponse, queueResponse, consignmentResponse, consignmentOpsResponse] = await Promise.all([
-        fetchLeads(apiBaseUrl, auth.tokens.accessToken, { limit }),
-        fetchAccounts(apiBaseUrl, auth.tokens.accessToken, { limit }),
-        fetchLeadWorkflowQueue(apiBaseUrl, auth.tokens.accessToken, { limit }),
-        fetchConsignmentSites(apiBaseUrl, auth.tokens.accessToken, { dueWithinDays: 45, includeExited: false, limit }),
-        fetchConsignmentOperationalQueue(apiBaseUrl, auth.tokens.accessToken, { limit }),
-      ]);
-      setLeads(leadResponse.items);
-      setAccounts(accountResponse.items);
-      setQueueSummary(queueResponse.summary);
-      setConsignmentSites(consignmentResponse.items);
-      setConsignmentWorkItems(consignmentOpsResponse.items);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load field data.');
-    } finally {
-      setIsLoading(false);
+    const [leadResponse, accountResponse, queueResponse, consignmentResponse, consignmentOpsResponse] = await Promise.allSettled([
+      fetchLeads(apiBaseUrl, auth.tokens.accessToken, { limit }),
+      fetchAccounts(apiBaseUrl, auth.tokens.accessToken, { limit }),
+      fetchLeadWorkflowQueue(apiBaseUrl, auth.tokens.accessToken, { limit }),
+      fetchConsignmentSites(apiBaseUrl, auth.tokens.accessToken, { dueWithinDays: 45, includeExited: false, limit }),
+      fetchConsignmentOperationalQueue(apiBaseUrl, auth.tokens.accessToken, { limit }),
+    ]);
+
+    if (leadResponse.status === 'fulfilled') setLeads(leadResponse.value.items);
+    if (accountResponse.status === 'fulfilled') setAccounts(accountResponse.value.items);
+    if (queueResponse.status === 'fulfilled') setQueueSummary(queueResponse.value.summary);
+    if (consignmentResponse.status === 'fulfilled') setConsignmentSites(consignmentResponse.value.items);
+    if (consignmentOpsResponse.status === 'fulfilled') setConsignmentWorkItems(consignmentOpsResponse.value.items);
+
+    const failedSections = [
+      leadResponse.status === 'rejected' ? 'leads' : null,
+      accountResponse.status === 'rejected' ? 'accounts' : null,
+      queueResponse.status === 'rejected' ? 'lead queue' : null,
+      consignmentResponse.status === 'rejected' ? 'consignment sites' : null,
+      consignmentOpsResponse.status === 'rejected' ? 'consignment work' : null,
+    ].filter(Boolean);
+    if (failedSections.length) {
+      setErrorMessage(`Some CRM data could not refresh: ${failedSections.join(', ')}. Available sections are still shown.`);
     }
+    setIsLoading(false);
   }, [apiBaseUrl, auth, limit]);
 
   useEffect(() => {

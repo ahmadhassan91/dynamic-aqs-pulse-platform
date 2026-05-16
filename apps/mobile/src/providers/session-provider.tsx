@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoginRequest } from '@pulse/contracts/auth';
-import { defaultApiBaseUrl, fetchCurrentSession, loginToPulse, refreshPulseSession, type AuthBundle } from '@/lib/api';
+import { defaultApiBaseUrl, fetchCurrentSession, loginToPulse, normalizeApiBaseUrl, refreshPulseSession, type AuthBundle } from '@/lib/api';
 import { clearStoredSession, loadStoredSession, saveStoredSession } from '@/lib/session-store';
 
 type SessionContextValue = {
@@ -30,7 +30,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void loadStoredSession()
       .then((stored) => {
         if (!isMounted) return;
-        setAuth(stored);
+        if (stored?.apiBaseUrl) setApiBaseUrlState(stored.apiBaseUrl);
+        setAuth(stored?.auth ?? null);
       })
       .finally(() => {
         if (isMounted) setIsHydrated(true);
@@ -41,7 +42,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setApiBaseUrl = useCallback((value: string) => {
-    setApiBaseUrlState(value.trim() || defaultApiBaseUrl);
+    try {
+      setApiBaseUrlState(normalizeApiBaseUrl(value));
+      setErrorMessage(null);
+    } catch (error) {
+      setApiBaseUrlState(value.trim() || defaultApiBaseUrl);
+      setErrorMessage(error instanceof Error ? error.message : 'Invalid API URL.');
+    }
   }, []);
 
   const signIn = useCallback(
@@ -51,7 +58,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         const bundle = await loginToPulse(apiBaseUrl, input);
         setAuth(bundle);
-        await saveStoredSession(bundle);
+        await saveStoredSession({ apiBaseUrl: normalizeApiBaseUrl(apiBaseUrl), auth: bundle });
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in.');
         throw error;
@@ -74,12 +81,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const current = await fetchCurrentSession(apiBaseUrl, auth.tokens.accessToken);
       const refreshed = { ...auth, identity: current.identity, session: current.session };
       setAuth(refreshed);
-      await saveStoredSession(refreshed);
+      await saveStoredSession({ apiBaseUrl, auth: refreshed });
     } catch {
       try {
         const refreshed = await refreshPulseSession(apiBaseUrl, auth.tokens.refreshToken);
         setAuth(refreshed);
-        await saveStoredSession(refreshed);
+        await saveStoredSession({ apiBaseUrl, auth: refreshed });
       } catch {
         await signOut();
       }

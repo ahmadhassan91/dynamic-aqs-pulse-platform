@@ -69,6 +69,11 @@ export function SyncStatusContent() {
                       {draft.errorMessage}
                     </Text>
                   ) : null}
+                  {draft.payload.kind === 'consignment_rose_audit' && draft.payload.attestation ? (
+                    <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+                      Attested by {draft.payload.attestation.attestedByName}. Evidence photos: {draft.payload.evidence?.items.length ?? 0}; media upload parked.
+                    </Text>
+                  ) : null}
                 </View>
                 <Pill
                   label={draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}

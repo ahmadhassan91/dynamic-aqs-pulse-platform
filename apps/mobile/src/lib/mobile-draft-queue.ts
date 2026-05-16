@@ -18,12 +18,32 @@ export type MobileDraft = {
   payload: ConsignmentRoseAuditDraftPayload | RouteVisitDraftPayload;
 };
 
+export type RoseEvidenceMetadata = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  purpose: 'general' | 'discrepancy';
+  capturedAt: string;
+  byteSize?: number;
+};
+
+export type RoseAttestationMetadata = {
+  attestedByName: string;
+  attestedAt: string;
+  textVersion: 'rose-field-v1';
+};
+
 export type ConsignmentRoseAuditDraftPayload = {
   kind: 'consignment_rose_audit';
   auditId: string;
   siteId: string;
   accountName: string;
   request: UpdateConsignmentAuditRequest;
+  evidence?: {
+    items: RoseEvidenceMetadata[];
+    mediaUploadStatus: 'parked_until_backend_endpoint';
+  };
+  attestation?: RoseAttestationMetadata;
 };
 
 export type RouteVisitDraftPayload = {
@@ -80,8 +100,9 @@ export function enqueueDraft(input: Omit<MobileDraft, 'createdAt' | 'id' | 'stat
     createdAt: now,
     updatedAt: now,
   };
-  saveDrafts([draft, ...loadDrafts()]);
-  return draft;
+  const sanitizedDraft = sanitizeDraft(draft);
+  saveDrafts([sanitizedDraft, ...loadDrafts()].slice(0, 20));
+  return sanitizedDraft;
 }
 
 export function clearSyncedDrafts() {
@@ -146,10 +167,50 @@ function updateDraft(draftId: string, patch: Partial<MobileDraft>) {
 
 function saveDrafts(drafts: MobileDraft[]) {
   const serialized = JSON.stringify(drafts);
+  if (serialized.length > 100_000) {
+    throw new Error('Too many offline drafts on this device. Retry or clear synced drafts before saving more.');
+  }
   cachedRawDrafts = serialized;
   cachedDrafts = drafts;
   globalThis.localStorage?.setItem(draftQueueKey, serialized);
   for (const listener of listeners) listener();
+}
+
+function sanitizeDraft(draft: MobileDraft): MobileDraft {
+  const serialized = JSON.stringify(draft);
+  const blockedKeyPattern = /"(?:base64|contentBase64|blob|fileUri|previewUri|localUri|signatureImage|imageData)"\s*:/i;
+  if (blockedKeyPattern.test(serialized)) {
+    throw new Error('Media files are not stored in offline drafts yet. Save text evidence only and retry when CRM media upload is approved.');
+  }
+  if (serialized.length > 16_000) {
+    throw new Error('This offline draft is too large. Shorten notes before saving.');
+  }
+  if (draft.payload.kind === 'consignment_rose_audit') {
+    const request = { ...draft.payload.request };
+    if (request.notes) {
+      request.notes = request.notes.slice(0, 1000);
+    }
+    return {
+      ...draft,
+      title: 'ROSE audit draft',
+      detail: 'Draft on this device until CRM accepts the audit. Media upload remains parked.',
+      payload: {
+        ...draft.payload,
+        accountName: 'Consignment site',
+        request,
+      },
+    };
+  }
+  return {
+    ...draft,
+    title: 'Route visit draft',
+    detail: 'Draft on this device until the CRM field visit API is approved.',
+    payload: {
+      ...draft.payload,
+      accountName: 'Field account',
+      notes: draft.payload.notes.slice(0, 1000),
+    },
+  };
 }
 
 function isMobileDraft(value: unknown): value is MobileDraft {

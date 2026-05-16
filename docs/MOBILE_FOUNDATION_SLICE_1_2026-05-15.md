@@ -183,6 +183,62 @@ Still parked:
 - ROSE photos/signature/background media sync remain parked; current browser QA stores count/notes/request payload only.
 - Conflict merge rules remain parked until the backend conflict policy is approved.
 
+## Slice 6 Update
+
+Added after the offline draft queue checkpoint:
+
+- Added ROSE evidence capture UI inside the mobile Consignment audit card:
+  - camera/gallery controls through Expo Image Picker
+  - session thumbnail preview
+  - remove evidence before submit
+  - mark each photo as `General audit evidence` or `Discrepancy evidence`
+- Added required TM attestation before submit:
+  - typed name
+  - checkbox text: `I completed this on-site ROSE audit and verified the count to the best of my knowledge.`
+  - submit stays disabled until notes, name, and attestation are present
+- Added evidence metadata and attestation metadata to ROSE offline drafts.
+- Added draft queue guardrails:
+  - no base64/blob/file URI/media bytes stored in local drafts
+  - draft payload size cap
+  - queue size cap
+  - local draft display titles redacted from account/customer names
+- Sync Status now shows ROSE attestation/evidence metadata so a TM can tell what is still on the phone.
+- Live CRM audit notes include a concise attestation/evidence summary while the actual media upload endpoint remains parked.
+
+Field-user clarity:
+
+1. TM can capture evidence intent without learning backend/media terms.
+2. `Draft on phone` still means not visible in CRM yet.
+3. `CRM saved` only appears after the audit PATCH succeeds.
+4. Photo media upload is explicitly parked until the backend evidence endpoint/storage contract is approved.
+
+QA as Dynamic field team:
+
+- Simulated a TM opening a due ROSE audit.
+- Entered count, notes, TM name, and attestation.
+- Verified the CRM PATCH payload contains the attestation summary.
+- Forced the first CRM audit update to fail with weak signal.
+- Confirmed the draft preserved attestation metadata locally.
+- Opened Sync Status and confirmed `Attested by Dynamic TM QA` appeared.
+- Retried the draft after mocked CRM recovery.
+- Confirmed retry updated the audit and showed `CRM saved`.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright route-level field QA with mocked CRM outage/recovery.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-rose-evidence-attestation-slice.png`
+
+Still parked:
+
+- Actual photo/media upload endpoint and server-side evidence table.
+- Customer/legal e-sign ceremony.
+- Background media sync.
+- Native encrypted/file-backed offline media storage.
+- Conflict merge rules.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

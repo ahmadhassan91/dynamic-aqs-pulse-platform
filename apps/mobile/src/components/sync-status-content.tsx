@@ -46,7 +46,7 @@ export function SyncStatusContent() {
           {pendingDrafts.length}
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          These updates stay on this device until CRM accepts them. ROSE audits can retry now; route visits stay local until the field visit API is approved.
+          These updates stay on this device until CRM accepts them. ROSE audits and route visits can retry when the connection is stable.
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
           ROSE audits: {roseDrafts} · Route visits: {routeDrafts}
@@ -84,7 +84,7 @@ export function SyncStatusContent() {
                     ) : null}
                   </View>
                   <Pill
-                    label={draft.payload.kind === 'route_visit' && draft.status !== 'synced' ? 'Local only' : draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}
+                    label={draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}
                     tone={draft.status === 'synced' ? 'active' : draft.status === 'failed' ? 'review' : 'pending'}
                   />
                 </View>
@@ -152,7 +152,7 @@ function RouteDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQ
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-        Route visit API is parked, so this item stays local and will not retry yet.
+        Route visit will retry to CRM using the field execution session.
       </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <DraftMetric label="Check in" value={formatShortTime(draft.payload.checkedInAt)} />

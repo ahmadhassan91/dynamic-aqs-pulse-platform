@@ -435,6 +435,79 @@ Still parked:
 - Native encrypted/file-backed offline draft adapter.
 - Route visit backend API and conflict resolution.
 
+## Slice 10 Update
+
+Added after the Sync Status review checkpoint:
+
+- Connected the mobile Route tab to the existing Pulse Training execution API for real CRM-visible site visits.
+- Route check-in now:
+  - creates a `site_visit` training session for the account
+  - checks the session in through CRM
+  - still starts immediately on the phone if CRM is weak
+  - captures GPS when permission is available, with timed-only fallback
+- Route checkout now:
+  - requires checkout notes
+  - completes the CRM site-visit session when the session was checked in successfully
+  - saves a retryable route draft when CRM completion fails
+- Route drafts are no longer permanently `Local only`.
+  - A draft with a CRM session id retries completion.
+  - A draft without a CRM session id replays create, check-in, and complete.
+  - Legacy route drafts without enough sync data remain review/discard items.
+- Sync Status copy now reflects the real CRM retry path for route visits.
+- Account detail now includes a compact Training context panel:
+  - active programs
+  - overdue programs
+  - certification tracks
+  - last training
+  - next due
+  - recent training/site-visit sessions
+
+Requirement closure:
+
+- This moves the original Slice 2 route/check-in work from local-only field capture into CRM-backed execution.
+- It uses the approved Training `site_visit` model instead of inventing a mobile-only field visit endpoint.
+- It keeps formal training proof upload, voice transcription, route optimization, and geofence automation parked.
+
+Expo/iOS simulator validation:
+
+- Xcode 26.3 and the booted `iPhone 17 Pro Max` simulator were available.
+- Installed Expo Go `54.0.7` on the simulator because the existing simulator app was too old for SDK 54.
+- Launched the app through `pnpm --filter @pulse/mobile exec expo start --ios --localhost --clear`.
+- Captured simulator screenshot:
+  `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-ios-simulator-expo-route-slice.png`
+
+Playwright QA as Territory Manager:
+
+- Logged in through the mobile sign-in screen against a local Pulse API mock.
+- Opened Route Plan and confirmed stale accounts sort first.
+- Started a visit for `AQS Dealer Dallas`.
+- Confirmed `CRM checked in` after create + check-in.
+- Entered checkout notes.
+- Forced first CRM complete call to fail with `503`.
+- Confirmed the app saved `Draft on phone`.
+- Opened Sync Status and confirmed route draft review showed check-in, check-out, GPS/timed-only state, and notes.
+- Retried after CRM recovery and confirmed `CRM saved` with offline draft count returning to `0`.
+- Opened Account Detail and confirmed Training context shows programs, overdue count, certification tracks, and recent session history.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright CLI route visit outage/retry QA.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-route-visit-draft-review-qa.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-route-visit-retry-saved-qa.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-account-training-context-qa.png`
+
+Still parked:
+
+- Native Android emulator QA until Android SDK/JDK/adb are installed.
+- Durable encrypted/file-backed offline storage.
+- Conflict merge UX for `409` route visit conflicts.
+- Training proof/media upload from mobile.
+- Voice transcription.
+- Provider-backed route optimization and navigation handoff.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

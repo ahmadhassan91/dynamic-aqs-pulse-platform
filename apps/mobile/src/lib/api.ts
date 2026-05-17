@@ -18,6 +18,15 @@ import type {
   PreviewLeadOcrCaptureRequest,
   PreviewLeadOcrCaptureResponse,
 } from '@pulse/contracts/leads';
+import type {
+  AccountTrainingHistoryResponse,
+  CheckInTrainingSessionRequest,
+  CompleteTrainingSessionRequest,
+  CreateTrainingSessionRequest,
+  ListTrainingSessionsRequest,
+  ListTrainingSessionsResponse,
+  TrainingSessionSummary,
+} from '@pulse/contracts/training';
 
 export type AuthBundle = {
   identity: AuthIdentity;
@@ -155,6 +164,45 @@ export async function fetchConsignmentSiteDetail(apiBaseUrl: string, accessToken
 export async function updateConsignmentAudit(apiBaseUrl: string, accessToken: string, auditId: string, input: UpdateConsignmentAuditRequest) {
   return requestJson<ConsignmentAuditSummary>(apiBaseUrl, `/api/v1/consignment/audits/${encodeURIComponent(auditId)}`, {
     method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchTrainingSessions(apiBaseUrl: string, accessToken: string, query: ListTrainingSessionsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'accountId', query.accountId);
+  append(searchParams, 'trainerUserId', query.trainerUserId);
+  append(searchParams, 'status', query.status);
+  append(searchParams, 'limit', query.limit);
+  if (query.includeVisits !== undefined) searchParams.set('includeVisits', String(query.includeVisits));
+  const path = `/api/v1/training/sessions${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListTrainingSessionsResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function fetchAccountTrainingHistory(apiBaseUrl: string, accessToken: string, accountId: string) {
+  return requestJson<AccountTrainingHistoryResponse>(apiBaseUrl, `/api/v1/training/accounts/${encodeURIComponent(accountId)}`, { accessToken });
+}
+
+export async function createTrainingSessionRecord(apiBaseUrl: string, accessToken: string, accountId: string, input: CreateTrainingSessionRequest) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/accounts/${encodeURIComponent(accountId)}/sessions`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function checkInTrainingSessionRecord(apiBaseUrl: string, accessToken: string, sessionId: string, input: CheckInTrainingSessionRequest) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${encodeURIComponent(sessionId)}/check-in`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function completeTrainingSessionRecord(apiBaseUrl: string, accessToken: string, sessionId: string, input: CompleteTrainingSessionRequest) {
+  return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${encodeURIComponent(sessionId)}/complete`, {
+    method: 'POST',
     accessToken,
     body: input,
   });

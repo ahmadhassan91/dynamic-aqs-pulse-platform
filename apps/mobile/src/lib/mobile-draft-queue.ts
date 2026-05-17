@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
-import { updateConsignmentAudit } from '@/lib/api';
+import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
+import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, updateConsignmentAudit } from '@/lib/api';
 
 export type MobileDraftKind = 'consignment_rose_audit' | 'route_visit';
 export type MobileDraftStatus = 'pending' | 'syncing' | 'failed' | 'synced';
@@ -50,11 +51,15 @@ export type RouteVisitDraftPayload = {
   kind: 'route_visit';
   accountId: string;
   accountName: string;
+  sessionId?: string;
   checkedInAt: string;
   checkedOutAt: string;
   notes: string;
   latitude?: number;
   longitude?: number;
+  createRequest?: CreateTrainingSessionRequest;
+  checkInRequest?: CheckInTrainingSessionRequest;
+  completeRequest?: CompleteTrainingSessionRequest;
 };
 
 const draftQueueKey = 'pulse.mobile.draftQueue.v1';
@@ -117,7 +122,6 @@ export async function retryPendingDrafts(apiBaseUrl: string, accessToken: string
   const drafts = loadDrafts();
   for (const draft of drafts) {
     if (draft.status === 'synced') continue;
-    if (draft.payload.kind === 'route_visit') continue;
     await retryDraft(apiBaseUrl, accessToken, draft.id);
   }
   return loadDrafts();
@@ -126,7 +130,6 @@ export async function retryPendingDrafts(apiBaseUrl: string, accessToken: string
 export async function retryDraft(apiBaseUrl: string, accessToken: string, draftId: string) {
   const draft = loadDrafts().find((item) => item.id === draftId);
   if (!draft) return null;
-  if (draft.payload.kind === 'route_visit') return draft;
 
   updateDraft(draftId, {
     status: 'syncing',
@@ -134,7 +137,27 @@ export async function retryDraft(apiBaseUrl: string, accessToken: string, draftI
   });
 
   try {
-    await updateConsignmentAudit(apiBaseUrl, accessToken, draft.payload.auditId, draft.payload.request);
+    if (draft.payload.kind === 'consignment_rose_audit') {
+      await updateConsignmentAudit(apiBaseUrl, accessToken, draft.payload.auditId, draft.payload.request);
+    } else if (draft.payload.completeRequest) {
+      let sessionId = draft.payload.sessionId;
+      if (!sessionId) {
+        if (!draft.payload.createRequest || !draft.payload.checkInRequest) {
+          throw new Error('This route visit was saved before CRM visit sync was available. Keep it for reference or discard it after office review.');
+        }
+        const created = await createTrainingSessionRecord(apiBaseUrl, accessToken, draft.payload.accountId, draft.payload.createRequest);
+        sessionId = created.id;
+        updateDraft(draftId, {
+          payload: {
+            ...draft.payload,
+            sessionId,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        await checkInTrainingSessionRecord(apiBaseUrl, accessToken, sessionId, draft.payload.checkInRequest);
+      }
+      await completeTrainingSessionRecord(apiBaseUrl, accessToken, sessionId, draft.payload.completeRequest);
+    }
     return updateDraft(draftId, {
       status: 'synced',
       updatedAt: new Date().toISOString(),
@@ -208,7 +231,7 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
   return {
     ...redactedDraft,
     title: 'Route visit draft',
-    detail: 'Draft on this device until the CRM field visit API is approved.',
+    detail: 'Draft on this device until CRM accepts the route visit.',
     payload: {
       ...redactedDraft.payload,
       accountName: 'Field account',

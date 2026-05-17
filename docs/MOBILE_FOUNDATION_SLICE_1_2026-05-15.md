@@ -364,6 +364,77 @@ Still parked:
 - Native encrypted/file-backed offline draft adapter.
 - Route visit backend API.
 
+## Slice 9 Update
+
+Added after the ROSE line-item QA checkpoint:
+
+- Expanded Sync Status from a simple retry screen into a review screen for saved field work.
+- ROSE drafts now show:
+  - line count
+  - actual total
+  - total variance
+  - product name
+  - SKU and barcode
+  - expected quantity, actual quantity, and per-line variance
+  - attesting user and parked media count
+- Route visit drafts now show:
+  - check-in time
+  - check-out time
+  - GPS captured/timed-only state
+  - visit notes
+- The offline draft copy stays simple for TM/RD users: it explains what is saved only on the phone, what can retry now, and why route visits remain local until the backend field-visit API is approved.
+
+Usability focus:
+
+- A Territory Manager or Regional Director can now inspect exactly what will be retried before tapping `Retry drafts`.
+- Short/over ROSE counts are visible without opening developer tools or reading raw JSON.
+- Parked dependencies remain explicit without blocking useful field work.
+
+Browser QA as Territory Manager:
+
+- Logged in through the Pulse mobile sign-in screen against the local CRM mock.
+- Opened Consignment from the mobile tab bar.
+- Started a ROSE audit for `AQS Dealer Dallas`.
+- Entered two item counts:
+  - `ROSE Filter Kit`: expected 12, actual 11
+  - `UV Lamp Cartridge`: expected 4, actual 4
+- Added audit notes, attested as `Territory Manager QA`, and submitted during a mocked CRM outage.
+- Confirmed the app created a `Draft on phone`.
+- Opened Sync Status and confirmed the draft review showed `Lines: 2`, `Actual: 15`, `Variance: -1`, each product line, and the attestation.
+- Retried after CRM recovery and confirmed `CRM saved`.
+
+Playwright QA as Regional Director:
+
+- Repeated the same ROSE field flow with mocked API failure/recovery.
+- Asserted Sync Status showed:
+  - `Lines: 2`
+  - `Actual: 15`
+  - `Variance: -1`
+  - `ROSE Filter Kit`
+  - `Expected 12 · Actual 11 · Variance -1`
+  - `UV Lamp Cartridge`
+  - `Expected 4 · Actual 4 · Variance 0`
+  - `Attested by Regional Director QA`
+- Retried the saved draft and asserted offline draft count returned to `0` with `CRM saved`.
+
+Validation:
+
+- Browser plugin end-to-end mobile QA.
+- Playwright CLI end-to-end mobile QA.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-sync-status-review-qa.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-sync-status-retried-qa.png`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+
+Still parked:
+
+- Server-side ROSE evidence/media endpoint.
+- Acumatica authoritative expected inventory refresh.
+- PO creation/posting from variance.
+- Native encrypted/file-backed offline draft adapter.
+- Route visit backend API and conflict resolution.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

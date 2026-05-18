@@ -12,6 +12,7 @@ export function SyncStatusContent() {
   const syncedDrafts = drafts.filter((draft) => draft.status === 'synced');
   const roseDrafts = pendingDrafts.filter((draft) => draft.kind === 'consignment_rose_audit').length;
   const routeDrafts = pendingDrafts.filter((draft) => draft.kind === 'route_visit').length;
+  const trainingDrafts = pendingDrafts.filter((draft) => draft.kind === 'training_session').length;
 
   return (
     <Screen>
@@ -46,10 +47,10 @@ export function SyncStatusContent() {
           {pendingDrafts.length}
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          These updates stay on this device until CRM accepts them. ROSE audits and route visits can retry when the connection is stable.
+          These updates stay on this device until CRM accepts them. ROSE audits, route visits, and training completions can retry when the connection is stable.
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          ROSE audits: {roseDrafts} · Route visits: {routeDrafts}
+          ROSE audits: {roseDrafts} · Route visits: {routeDrafts} · Training: {trainingDrafts}
         </Text>
       </Card>
 
@@ -81,6 +82,9 @@ export function SyncStatusContent() {
                     ) : null}
                     {draft.payload.kind === 'route_visit' ? (
                       <RouteDraftSummary draft={draft} />
+                    ) : null}
+                    {draft.payload.kind === 'training_session' ? (
+                      <TrainingDraftSummary draft={draft} />
                     ) : null}
                   </View>
                   <Pill
@@ -159,6 +163,28 @@ function RouteDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQ
         <DraftMetric label="Check out" value={formatShortTime(draft.payload.checkedOutAt)} />
         <DraftMetric label="GPS" value={draft.payload.latitude !== undefined && draft.payload.longitude !== undefined ? 'Captured' : 'Timed only'} />
       </View>
+      <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+        {draft.payload.notes}
+      </Text>
+    </View>
+  );
+}
+
+function TrainingDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQueue>[number] }) {
+  if (draft.payload.kind !== 'training_session') return null;
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+        Training completion will retry to CRM with notes, attendee count, proof intent, and follow-up request.
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <DraftMetric label="Attendees" value={String(draft.payload.attendeeCount)} />
+        <DraftMetric label="Checked in" value={draft.payload.checkedInAt ? formatShortTime(draft.payload.checkedInAt) : 'Not set'} />
+        <DraftMetric label="Proof" value={draft.payload.proofNotes ? 'Noted' : 'Notes only'} />
+      </View>
+      <Text selectable style={{ ...typography.caption, color: colors.text, fontWeight: '800' }}>
+        {draft.payload.sessionTitle}
+      </Text>
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
         {draft.payload.notes}
       </Text>

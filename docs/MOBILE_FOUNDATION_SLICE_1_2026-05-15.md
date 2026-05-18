@@ -508,6 +508,85 @@ Still parked:
 - Voice transcription.
 - Provider-backed route optimization and navigation handoff.
 
+## Slice 11 Update
+
+Added after the CRM-backed Route visit checkpoint:
+
+- Added a dedicated mobile Training execution screen for formal `training` sessions.
+- Training now stays separate from `site_visit` reporting:
+  - the Training screen loads `GET /api/v1/training/sessions` with `includeVisits=false`
+  - Route visits continue to use the `site_visit` activity kind
+- Territory Managers and Regional Directors can now:
+  - open Training from the mobile home quick actions
+  - open Training from account Training context
+  - open Training from Notifications
+  - review scheduled/checked-in/overdue counts
+  - check in to a scheduled training session
+  - enter attendee count
+  - capture completion notes
+  - capture proof intent as text
+  - create an inline follow-up task during completion
+  - complete the training session back to CRM
+- Training completion now has its own offline draft kind:
+  - `training_session`
+  - retries directly through `completeTrainingSessionRecord`
+  - appears separately in Sync Status counts
+  - shows attendee count, check-in time, proof intent, session title, and notes
+- Offline draft safety was tightened:
+  - training drafts are metadata/text-only
+  - media/blob/base64/file/photo/document/storage keys are rejected before saving
+  - proof attachment count is forced to `0` until media upload guardrails are approved
+
+Requirement closure:
+
+- This completes the first formal mobile training execution path using the existing Training API.
+- It covers the field-safe basics Dynamic AQS asked for: scheduled training visibility, check-in/check-out, notes, attendees, follow-up, CRM sync, and retry when connectivity fails.
+- It keeps the app simple: one Training screen, large actions, minimal required typing, and clear parked-dependency copy.
+
+Playwright QA as Territory Manager:
+
+- Logged in through the Pulse mobile sign-in screen against a local Pulse API mock.
+- Opened Training from the mobile home quick action.
+- Confirmed `Product Installation Refresher` rendered as a formal training session.
+- Checked in and confirmed `CRM checked in`.
+- Entered:
+  - attendee count `3`
+  - completion notes
+  - proof notes
+  - follow-up task title and detail
+- Forced the first CRM completion call to fail with `503`.
+- Confirmed the app saved a `Training session draft`.
+- Opened Sync Status and confirmed:
+  - `Training: 1`
+  - `Attendees: 3`
+  - `Proof: Noted`
+  - `Product Installation Refresher`
+  - completion notes were preserved
+- Retried after CRM recovery and confirmed:
+  - `CRM saved`
+  - `Offline drafts: 0`
+  - `Training: 0`
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- Playwright CLI training check-in, outage/draft, and retry QA.
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-training-session-list-qa.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-training-session-draft-review-qa.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/mobile-training-session-retry-saved-qa.png`
+
+Still parked:
+
+- Native Android emulator QA until Android SDK/JDK/adb are installed.
+- Native encrypted/file-backed offline draft adapter.
+- Mobile proof/media upload, MIME/magic-byte validation, malware scanning, and storage retention policy.
+- Voice transcription provider and retention policy.
+- Outlook/Teams/WebEx bidirectional scheduling provider decision.
+- Rich technician participant model beyond lightweight attendee count.
+- Offline conflict merge rules for formal training completions.
+
 ## Parked Decisions
 
 - Push provider and notification governance.

@@ -76,10 +76,11 @@ export default function FieldHomeScreen() {
         {accounts.slice(0, 3).map((account) => <AccountCard key={account.id} account={account} />)}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
         <QuickAction label="Refresh" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
         <QuickAction label="Scan card" icon={{ name: 'camera.viewfinder', fallback: 'S' }} onPress={() => router.push('/ocr-capture')} />
         <QuickAction label="Consign" icon={{ name: 'shippingbox.fill', fallback: 'C' }} onPress={() => router.push('/(tabs)/consignment')} />
+        <QuickAction label="Training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
       </View>
     </Screen>
   );
@@ -112,7 +113,7 @@ function BellButton({ count }: { count: number }) {
 }
 
 function QuickAction({ icon, label, onPress }: { icon: { name: string; fallback: string }; label: string; onPress: () => void }) {
-  return <View style={{ flex: 1 }}><SecondaryButton label={label} icon={icon} onPress={onPress} /></View>;
+  return <View style={{ flexBasis: '47%', flexGrow: 1 }}><SecondaryButton label={label} icon={icon} onPress={onPress} /></View>;
 }
 
 function formatRoleLabel(role?: string) {

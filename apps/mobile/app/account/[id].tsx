@@ -1,9 +1,9 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
 import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
-import { Card, ErrorState, LoadingState, Pill, Screen, SectionTitle } from '@/components/native-kit';
+import { Card, ErrorState, LoadingState, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { fetchAccountDetail, fetchAccountTrainingHistory } from '@/lib/api';
 import { formatDate, initials } from '@/lib/format';
 import { useSession } from '@/providers/session-provider';
@@ -119,6 +119,7 @@ export default function AccountDetailScreen() {
                     </View>
                   ))}
                   {!trainingHistory.recentSessions.length ? <Row label="Recent sessions" value="No training or visit history yet." /> : null}
+                  <SecondaryButton label="Open training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
                 </>
               ) : (
                 <Row label="Training context" value="Not available for this session." />

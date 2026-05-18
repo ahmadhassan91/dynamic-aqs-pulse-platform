@@ -21,7 +21,7 @@ export default function NotificationsScreen() {
       <Screen>
         <HeroCard title="Notifications" eyebrow="CRM sync" icon={{ name: 'bell.fill', fallback: 'N' }}>
           <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
-            Live CRM signals for lead urgency, SLA risk, consignment audit work, and sync health.
+            Live CRM signals for lead urgency, SLA risk, training work, consignment audit work, and sync health.
           </Text>
         </HeroCard>
 
@@ -68,6 +68,8 @@ export default function NotificationsScreen() {
 
         <SectionTitle title="Sync status" detail="Push notifications and conflict merge are still parked; local drafts and live CRM pulls are visible here." />
         <SecondaryButton label="Refresh signals" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
+        <SectionTitle title="Training" detail="Open scheduled training, check in, complete the session, or retry local drafts." />
+        <SecondaryButton label="Open training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
         <Link href="/sync-status" asChild>
           <Pressable
             style={({ pressed }) => ({

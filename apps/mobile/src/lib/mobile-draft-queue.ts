@@ -3,7 +3,7 @@ import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, updateConsignmentAudit } from '@/lib/api';
 
-export type MobileDraftKind = 'consignment_rose_audit' | 'route_visit';
+export type MobileDraftKind = 'consignment_rose_audit' | 'route_visit' | 'training_session';
 export type MobileDraftStatus = 'pending' | 'syncing' | 'failed' | 'synced';
 
 export type MobileDraft = {
@@ -16,7 +16,7 @@ export type MobileDraft = {
   updatedAt: string;
   lastAttemptAt?: string;
   errorMessage?: string;
-  payload: ConsignmentRoseAuditDraftPayload | RouteVisitDraftPayload;
+  payload: ConsignmentRoseAuditDraftPayload | RouteVisitDraftPayload | TrainingSessionDraftPayload;
 };
 
 export type RoseEvidenceMetadata = {
@@ -60,6 +60,19 @@ export type RouteVisitDraftPayload = {
   createRequest?: CreateTrainingSessionRequest;
   checkInRequest?: CheckInTrainingSessionRequest;
   completeRequest?: CompleteTrainingSessionRequest;
+};
+
+export type TrainingSessionDraftPayload = {
+  kind: 'training_session';
+  sessionId: string;
+  accountId: string;
+  accountName: string;
+  sessionTitle: string;
+  checkedInAt?: string;
+  notes: string;
+  attendeeCount: number;
+  proofNotes?: string;
+  completeRequest: CompleteTrainingSessionRequest;
 };
 
 const draftQueueKey = 'pulse.mobile.draftQueue.v1';
@@ -139,7 +152,7 @@ export async function retryDraft(apiBaseUrl: string, accessToken: string, draftI
   try {
     if (draft.payload.kind === 'consignment_rose_audit') {
       await updateConsignmentAudit(apiBaseUrl, accessToken, draft.payload.auditId, draft.payload.request);
-    } else if (draft.payload.completeRequest) {
+    } else if (draft.payload.kind === 'route_visit' && draft.payload.completeRequest) {
       let sessionId = draft.payload.sessionId;
       if (!sessionId) {
         if (!draft.payload.createRequest || !draft.payload.checkInRequest) {
@@ -157,6 +170,10 @@ export async function retryDraft(apiBaseUrl: string, accessToken: string, draftI
         await checkInTrainingSessionRecord(apiBaseUrl, accessToken, sessionId, draft.payload.checkInRequest);
       }
       await completeTrainingSessionRecord(apiBaseUrl, accessToken, sessionId, draft.payload.completeRequest);
+    } else if (draft.payload.kind === 'training_session') {
+      await completeTrainingSessionRecord(apiBaseUrl, accessToken, draft.payload.sessionId, draft.payload.completeRequest);
+    } else {
+      throw new Error('This draft cannot be retried with the current mobile sync contract.');
     }
     return updateDraft(draftId, {
       status: 'synced',
@@ -205,7 +222,7 @@ function saveDrafts(drafts: MobileDraft[]) {
 function sanitizeDraft(draft: MobileDraft): MobileDraft {
   const redactedDraft = redactEvidenceFileNames(draft);
   const serialized = JSON.stringify(redactedDraft);
-  const blockedKeyPattern = /"(?:base64|contentBase64|blob|fileUri|previewUri|localUri|signatureImage|imageData)"\s*:/i;
+  const blockedKeyPattern = /"(?:base64|contentBase64|blob|file|fileUri|previewUri|localUri|uri|photo|image|attachment|document|signatureImage|imageData|storageKey)"\s*:/i;
   if (blockedKeyPattern.test(serialized)) {
     throw new Error('Media files are not stored in offline drafts yet. Save text evidence only and retry when CRM media upload is approved.');
   }
@@ -225,6 +242,27 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
         ...redactedDraft.payload,
         accountName: 'Consignment site',
         request,
+      },
+    };
+  }
+  if (redactedDraft.payload.kind === 'training_session') {
+    const completeRequest: CompleteTrainingSessionRequest = {
+      ...redactedDraft.payload.completeRequest,
+      checkoutNotes: redactedDraft.payload.completeRequest.checkoutNotes.slice(0, 1000),
+      proofAttachmentCount: 0,
+      ...(redactedDraft.payload.completeRequest.notes ? { notes: redactedDraft.payload.completeRequest.notes.slice(0, 1000) } : {}),
+      ...(redactedDraft.payload.completeRequest.proofNotes ? { proofNotes: redactedDraft.payload.completeRequest.proofNotes.slice(0, 1000) } : {}),
+    };
+    return {
+      ...redactedDraft,
+      title: 'Training session draft',
+      detail: 'Draft on this device until CRM accepts the training completion.',
+      payload: {
+        ...redactedDraft.payload,
+        accountName: 'Training account',
+        notes: redactedDraft.payload.notes.slice(0, 1000),
+        ...(redactedDraft.payload.proofNotes ? { proofNotes: redactedDraft.payload.proofNotes.slice(0, 1000) } : {}),
+        completeRequest,
       },
     };
   }
@@ -265,7 +303,7 @@ function extensionFromMimeType(mimeType: string) {
 
 function isDraftFresh(draft: MobileDraft) {
   const ageMs = Date.now() - new Date(draft.createdAt).getTime();
-  const maxAgeMs = draft.payload.kind === 'route_visit' ? 72 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const maxAgeMs = draft.payload.kind === 'route_visit' || draft.payload.kind === 'training_session' ? 72 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   return Number.isFinite(ageMs) && ageMs <= maxAgeMs;
 }
 

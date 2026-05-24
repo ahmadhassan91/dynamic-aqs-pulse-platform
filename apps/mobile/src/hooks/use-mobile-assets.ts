@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Share } from 'react-native';
 import type { DigitalAssetSummary } from '@pulse/contracts/digital-assets';
 import { createDigitalAssetShareLink, fetchDigitalAssets } from '@/lib/api';
@@ -8,6 +8,7 @@ import { useSession } from '@/providers/session-provider';
 export function useMobileAssets() {
   const { apiBaseUrl, auth } = useSession();
   const cache = useMobileAssetCache();
+  const cacheAssetsRef = useRef(cache.assets);
   const [assets, setAssets] = useState<DigitalAssetSummary[]>(cache.assets);
   const [search, setSearch] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
@@ -35,11 +36,11 @@ export function useMobileAssets() {
       saveMobileAssetCache(response.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to load asset library.');
-      if (cache.assets.length) setAssets(cache.assets);
+      if (cacheAssetsRef.current.length) setAssets(cacheAssetsRef.current);
     } finally {
       setIsLoading(false);
     }
-  }, [apiBaseUrl, auth, cache.assets, submittedSearch]);
+  }, [apiBaseUrl, auth, submittedSearch]);
 
   const submitSearch = useCallback(() => {
     setSubmittedSearch(search.trim());
@@ -78,6 +79,10 @@ export function useMobileAssets() {
   useEffect(() => {
     void loadAssets();
   }, [loadAssets]);
+
+  useEffect(() => {
+    cacheAssetsRef.current = cache.assets;
+  }, [cache.assets]);
 
   useEffect(() => {
     void hydrateMobileAssetCache().then((hydrated) => {

@@ -1,4 +1,4 @@
-import { Linking, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import type { DigitalAssetSummary } from '@pulse/contracts/digital-assets';
 import { Card, EmptyState, ErrorState, Field, HeroCard, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { useMobileAssets } from '@/hooks/use-mobile-assets';
@@ -31,21 +31,10 @@ export default function AssetsScreen() {
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading asset library..." /> : null}
 
-      <SectionTitle title="Library" detail="Tap an asset to prepare a customer-safe share link." />
-      {assets.length ? (
-        <View style={{ gap: spacing.md }}>
-          {assets.map((asset) => (
-            <AssetCard key={asset.id} asset={asset} selected={asset.id === selectedAsset?.id} onPress={() => selectAsset(asset.id)} />
-          ))}
-        </View>
-      ) : !isLoading ? (
-        <EmptyState title="No active assets found" detail="Refresh when connected, or check that the asset is active and visible for field sharing." />
-      ) : null}
-
       {selectedAsset ? (
         <>
-          <SectionTitle title="Share selected asset" detail="Generated links can be revoked from CRM Digital Assets." />
-          <Card>
+          <SectionTitle title="Ready to share" detail="Review the selected asset, then create a customer-safe CRM link." />
+          <Card style={{ borderColor: colors.primary, backgroundColor: colors.primarySoft }}>
             <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
               {selectedAsset.title}
             </Text>
@@ -68,28 +57,42 @@ export default function AssetsScreen() {
           </Card>
         </>
       ) : null}
+
+      <SectionTitle title="Library" detail="Tap any asset below to switch what you are sharing." />
+      {assets.length ? (
+        <View style={{ gap: spacing.md }}>
+          {assets.map((asset) => (
+            <AssetCard key={asset.id} asset={asset} selected={asset.id === selectedAsset?.id} onPress={() => selectAsset(asset.id)} />
+          ))}
+        </View>
+      ) : !isLoading ? (
+        <EmptyState title="No active assets found" detail="Refresh when connected, or check that the asset is active and visible for field sharing." />
+      ) : null}
+
     </Screen>
   );
 }
 
 function AssetCard({ asset, onPress, selected }: { asset: DigitalAssetSummary; onPress: () => void; selected: boolean }) {
   return (
-    <Card {...(selected ? { style: { borderColor: colors.primary, backgroundColor: colors.primarySoft } } : {})}>
-      <Text selectable onPress={onPress} style={{ ...typography.subtitle, color: colors.text }}>
-        {asset.title}
-      </Text>
-      <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-        {asset.description || assetSummaryLine(asset)}
-      </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        <Pill label={asset.kind} />
-        <Pill label={asset.visibility} tone={asset.visibility === 'public' || asset.visibility === 'dealer_portal' ? 'active' : 'pending'} />
-        <Pill label={asset.reviewStatus} tone={asset.reviewStatus === 'approved' ? 'active' : 'review'} />
-      </View>
-      <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-        {asset.currentVersion?.fileName ?? asset.legacyFileName ?? asset.stableSlug}
-      </Text>
-    </Card>
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.86 : 1 })}>
+      <Card {...(selected ? { style: { borderColor: colors.primary, backgroundColor: colors.primarySoft } } : {})}>
+        <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+          {asset.title}
+        </Text>
+        <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+          {asset.description || assetSummaryLine(asset)}
+        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <Pill label={asset.kind} />
+          <Pill label={asset.visibility} tone={asset.visibility === 'public' || asset.visibility === 'dealer_portal' ? 'active' : 'pending'} />
+          <Pill label={asset.reviewStatus} tone={asset.reviewStatus === 'approved' ? 'active' : 'review'} />
+        </View>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          {asset.currentVersion?.fileName ?? asset.legacyFileName ?? asset.stableSlug}
+        </Text>
+      </Card>
+    </Pressable>
   );
 }
 

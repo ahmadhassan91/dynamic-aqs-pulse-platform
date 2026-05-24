@@ -156,6 +156,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
       {account ? (
         <Stack gap="md">
           <AccountReadinessBrief account={account} />
+          <AccountUatHandoff account={account} />
           {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
           <Tabs defaultValue={defaultTab}>
             <Tabs.List>
@@ -196,6 +197,79 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
         </Stack>
       ) : null}
     </Stack>
+  );
+}
+
+function AccountUatHandoff({ account }: { account: AccountDetailRecord }) {
+  const needsAttention = account.readiness.checks.filter((check) => check.status === 'needs_attention');
+  const parked = account.readiness.checks.filter((check) => check.status === 'parked');
+  const ready = account.readiness.checks.filter((check) => check.status === 'ready');
+
+  return (
+    <Paper withBorder radius="md" p="lg">
+      <Group justify="space-between" align="flex-start" mb="md">
+        <Stack gap={4}>
+          <Title order={3}>Day-One Handoff</Title>
+          <Text size="sm" c="dimmed">
+            A quick Dynamic AQS checklist for using this account before ERP activity, pricing, orders, and invoices are connected.
+          </Text>
+        </Stack>
+        <Badge color={needsAttention.length ? 'yellow' : 'green'} variant="light">
+          {needsAttention.length ? `${needsAttention.length} action${needsAttention.length === 1 ? '' : 's'}` : 'Usable now'}
+        </Badge>
+      </Group>
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
+        <HandoffCard
+          title="Ready now"
+          tone="ready"
+          items={ready.slice(0, 4).map((check) => check.label)}
+          empty="No completed handoff checks yet."
+        />
+        <HandoffCard
+          title="Needs team follow-up"
+          tone="attention"
+          items={needsAttention.map((check) => check.message)}
+          empty="No Pulse-owned follow-up is blocking this account."
+        />
+        <HandoffCard
+          title="Parked dependency"
+          tone="parked"
+          items={parked.map((check) => check.message)}
+          empty="No external dependency is currently parked."
+        />
+      </SimpleGrid>
+    </Paper>
+  );
+}
+
+function HandoffCard({
+  empty,
+  items,
+  title,
+  tone,
+}: {
+  empty: string;
+  items: string[];
+  title: string;
+  tone: 'ready' | 'attention' | 'parked';
+}) {
+  const color = tone === 'ready' ? 'green' : tone === 'attention' ? 'yellow' : 'gray';
+  return (
+    <Card withBorder radius="md" p="md">
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text fw={700}>{title}</Text>
+          <Badge color={color} variant="light">{items.length}</Badge>
+        </Group>
+        {items.length ? items.map((item) => (
+          <Text key={item} size="sm" c="dimmed">
+            {item}
+          </Text>
+        )) : (
+          <Text size="sm" c="dimmed">{empty}</Text>
+        )}
+      </Stack>
+    </Card>
   );
 }
 

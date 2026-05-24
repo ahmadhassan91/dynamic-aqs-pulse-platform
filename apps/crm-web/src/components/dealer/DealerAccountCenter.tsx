@@ -168,6 +168,10 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             Account Health will show payment terms, credit status, invoices, orders, and payment values after the
             approved finance connection is live.
           </Text>
+          <Alert color="gray" variant="light">
+            For UAT, dealers can confirm profile, users, contacts, locations, and published files here. Orders, invoices,
+            payments, pricing, and credit truth stay parked until the approved finance/Acumatica connection is live.
+          </Alert>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <AccountHealthRow label="Payment terms" value="Not connected yet" />
             <AccountHealthRow label="Credit status" value="Not connected yet" />
@@ -359,6 +363,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <TextInput label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
           <Select
             label="Portal role"
+            description={roleInviteDescription(accessRole)}
             value={accessRole}
             onChange={(value) => setAccessRole((value as Exclude<DealerPortalAccessRoleKey, 'admin'> | null) ?? 'viewer')}
             data={[
@@ -438,6 +443,17 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
 
 function formatAccessRole(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function roleInviteDescription(role: Exclude<DealerPortalAccessRoleKey, 'admin'>) {
+  switch (role) {
+    case 'purchasing':
+      return 'Can use published products and files. Order placement remains parked.';
+    case 'accounting':
+      return 'Can inspect account-health placeholders. Finance truth remains parked.';
+    case 'viewer':
+      return 'Read-only access for company context, contacts, locations, and files.';
+  }
 }
 
 function AccountHealthRow({ label, value }: { label: string; value: string }) {

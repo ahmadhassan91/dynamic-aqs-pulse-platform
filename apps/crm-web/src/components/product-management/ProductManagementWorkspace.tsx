@@ -604,6 +604,11 @@ export function ProductManagementWorkspace() {
         <Metric label="Ready To Publish" value={readinessRows.filter((row) => row.status === 'pass').length} />
       </SimpleGrid>
 
+      <Alert color="blue" title="Dependency-free UAT boundary">
+        Pulse can manage catalog views, readiness, files, dealer visibility, snapshots, and portal publish now.
+        Final product master import, pricing, inventory, UOM, and item lifecycle stay parked until Acumatica mappings are certified.
+      </Alert>
+
       {error ? (
         <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Product API not ready">
           {error}

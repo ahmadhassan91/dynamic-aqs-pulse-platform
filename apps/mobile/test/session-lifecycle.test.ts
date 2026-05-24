@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AuthBundle } from '../src/lib/api.ts';
+import { normalizeApiBaseUrl } from '../src/lib/api-base-url.ts';
 import { isMobileAuthAllowed, resolveStoredSession } from '../src/lib/session-lifecycle.ts';
 
 const mobileAuth = authBundle({ scopes: ['mobile', 'leads'] });
@@ -81,6 +82,13 @@ test('rejects non-mobile sessions before entering the field app', async () => {
 
   assert.equal(resolution.auth, null);
   assert.equal(resolution.shouldClearStoredSession, true);
+});
+
+test('keeps mobile live API pointed at approved HTTPS Pulse hosts', () => {
+  assert.equal(normalizeApiBaseUrl('https://pulse-crm.theclustox.com/'), 'https://pulse-crm.theclustox.com');
+  assert.equal(normalizeApiBaseUrl('http://localhost:4000/'), 'http://localhost:4000');
+  assert.throws(() => normalizeApiBaseUrl('http://pulse-crm.theclustox.com'), /HTTPS/);
+  assert.throws(() => normalizeApiBaseUrl('https://unapproved.example.com'), /not approved/);
 });
 
 function authBundle(overrides: { accessToken?: string; refreshToken?: string; role?: AuthBundle['identity']['role']; scopes?: string[] } = {}): AuthBundle {

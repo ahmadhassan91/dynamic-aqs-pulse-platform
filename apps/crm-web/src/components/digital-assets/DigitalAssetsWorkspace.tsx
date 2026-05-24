@@ -623,6 +623,11 @@ export function DigitalAssetsWorkspace() {
         </Group>
       </Stack>
 
+      <Alert color="blue" title="UAT-ready asset flow">
+        Add files or links, approve the asset, set who can access it, then create customer/prospect share links from the asset detail panel.
+        Widen redirect cutover and full legacy migration remain parked until the migration plan is approved.
+      </Alert>
+
       {error ? (
         <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Digital Assets API not ready">
           {error}

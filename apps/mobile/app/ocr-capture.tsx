@@ -94,6 +94,18 @@ export default function OcrCaptureScreen() {
           </Text>
         </HeroCard>
 
+        <Card style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
+            <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+              Preview first
+            </Text>
+            <Pill label="Review required" tone="review" />
+          </View>
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            The mobile app reads the card and shows the extracted fields here. Creating the final lead still goes through duplicate review, routing, and source attribution in Pulse CRM.
+          </Text>
+        </Card>
+
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <View style={{ flex: 1 }}>
             <SecondaryButton label="Camera" icon={{ name: 'camera.fill', fallback: 'C' }} onPress={() => void scanFromImage(true)} />
@@ -168,6 +180,15 @@ function OcrResult({ result }: { result: PreviewLeadOcrCaptureResponse }) {
             ))}
           </View>
         ) : null}
+      </Card>
+      <Card>
+        <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+          Next step
+        </Text>
+        <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+          Review the fields with the dealer or prospect, then create the lead from the governed CRM intake flow. Direct mobile commit is parked until retention, duplicate-review, and offline media rules are signed off.
+        </Text>
+        <PrimaryButton label="Create lead in CRM review queue" disabled icon={{ name: 'lock.fill', fallback: 'L' }} onPress={() => undefined} />
       </Card>
     </>
   );

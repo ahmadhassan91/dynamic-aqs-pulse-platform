@@ -26,6 +26,7 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 - Expanded maintained Playwright coverage to include Regional Director and Territory Manager workspaces plus affinity, ownership/PE, independent, and hybrid dealer catalog personas.
 - Added a CRM-owned Account Readiness brief to account detail so Dynamic can quickly see profile, primary contact/location, territory ownership, dealer membership, source lineage, and parked ERP activity status without inventing Acumatica truth.
 - Added dealer portal company-user self-admin for dealer admins: invite non-admin users, revoke/reactivate company users, block self-deactivation, block dealer-created admin users, and keep primary owner/admin governance with Dynamic AQS.
+- Added the next dependency-free UAT polish slice: account detail now has a day-one handoff checklist, dealer Account Center clarifies role boundaries and parked finance/ERP truth, Product Management and Digital Assets show UAT-safe source-of-truth boundaries, and mobile card/badge OCR clearly stops at reviewed preview until direct mobile lead commit rules are approved.
 
 ## QA Evidence
 
@@ -43,6 +44,9 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 | `DATABASE_URL=... pnpm --filter @pulse/api test:training` | Passed, 21/21 |
 | `DATABASE_URL=... pnpm --filter @pulse/api test:consignment` | Passed, 15/15 |
 | `pnpm --filter @pulse/mobile test && pnpm --filter @pulse/mobile typecheck` | Passed, 6/6 plus typecheck |
+| `pnpm --filter @pulse/mobile test` after UAT polish slice | Passed, 19/19 |
+| `pnpm --filter @pulse/mobile typecheck` after UAT polish slice | Passed |
+| `pnpm --filter @pulse/crm-web lint` after UAT polish slice | Passed |
 | `DATABASE_URL=... pnpm --filter @pulse/crm-web test:e2e` | Passed, 11/11 |
 | Production deploy smoke: `https://pulse-crm.theclustox.com/api/v1/health/ready` | Passed with app/database/queue/workers healthy; Acumatica reports the expected parked placeholder dependency |
 | Production UAT seed: `node scripts/seed-uat-readiness.mjs` on EC2 | Passed; reseeded 4 dealer accounts, 4 catalog views, 2 products, 3 assets, internal TM/RD/admin personas, and dealer personas |
@@ -61,23 +65,23 @@ Note: an earlier parallel test attempt caused false database deadlocks and fixtu
 | Module | Dependency-free requirement coverage | Notes |
 | --- | ---: | --- |
 | Leads | 78% | Intake, website forms, duplicate review, routing, workflow queues, OCR preview, readiness, and operational alerts are regression-covered. Mobile committed scan-to-lead remains a gap. |
-| Accounts / Customers | 73% | Live customer list/detail, profile edit, contacts, locations, lifecycle, territory ownership, source-lead lineage, dealer portal access, payment-method boundary, and the new Account Readiness brief are covered. Parent/child hierarchy, merge/import governance, ERP orders/invoices/shipments/pricing, and richer activity/document tabs remain parked or later. |
+| Accounts / Customers | 75% | Live customer list/detail, profile edit, contacts, locations, lifecycle, territory ownership, source-lead lineage, dealer portal access, payment-method boundary, Account Readiness, and day-one handoff guidance are covered. Parent/child hierarchy, merge/import governance, ERP orders/invoices/shipments/pricing, and richer activity/document tabs remain parked or later. |
 | Territory | 72% | TM/RD scoping, coverage, transfer, dashboard, map/read models, and ownership propagation are covered. Route optimization remains parked. |
 | Training | 77% | Training catalog, programs, sessions, check-in/out, proof metadata/upload backend, certification, exceptions, reporting, and mobile follow-up/proof-failure truthfulness are covered. Named attendee/technician depth remains limited. |
 | Consignment | 68% | Site master, document register, BLUE/ROSE flow, evidence upload, variance, queue, and Acumatica boundary are covered. ERP warehouse/inventory/PO truth remains parked. |
-| Product Management | 72% | Categories/families, catalog views, inclusions, rules, readiness, snapshots, and parked product-import boundary are covered. Authoritative product creation/import waits for Acumatica/data signoff. |
-| Digital Assets | 81% | Library, versions, managed storage adapter, Widen manifest preview/import traceability, collections, usage, share links, and mobile display-safe metadata cache are covered. Real Widen migration strategy remains parked. |
-| Dealer Portal | 78% full scope, 90% dependency-free slice | Login, dashboard, account center, catalog visibility, favorites, active-snapshot direct-access safety, assignment-level file visibility, asset-open audit, internal preview, dealer admin invite/revoke/reactivate for non-admin company users, and affinity/ownership/independent/hybrid persona boundaries are covered. Commerce, pricing, invoices, shipment tracking, payments, true impersonation, and hierarchy depth remain parked. |
-| Mobile | 68% | Login shell, field home, leads/accounts, route, training, ROSE, assets, notifications, and sync review exist. This pass added stored-session validation/refresh, mobile-scope gating, checked-in route draft persistence, stricter training proof/follow-up messaging, and metadata-only asset cache. Native simulator/live API depth, background sync, Android QA, and offline binary media remain open. |
+| Product Management | 74% | Categories/families, catalog views, inclusions, rules, readiness, snapshots, and parked product-import boundary are covered, with clearer UAT-safe Acumatica/data-source boundaries in the UI. Authoritative product creation/import waits for Acumatica/data signoff. |
+| Digital Assets | 82% | Library, versions, managed storage adapter, Widen manifest preview/import traceability, collections, usage, share links, mobile display-safe metadata cache, and clearer UAT asset-flow guidance are covered. Real Widen migration strategy remains parked. |
+| Dealer Portal | 80% full scope, 92% dependency-free slice | Login, dashboard, account center, catalog visibility, favorites, active-snapshot direct-access safety, assignment-level file visibility, asset-open audit, internal preview, dealer admin invite/revoke/reactivate for non-admin company users, clearer self-admin/finance boundaries, and affinity/ownership/independent/hybrid persona boundaries are covered. Commerce, pricing, invoices, shipment tracking, payments, true impersonation, and hierarchy depth remain parked. |
+| Mobile | 70% | Login shell, field home, leads/accounts, route, training, ROSE, assets, notifications, sync review, approved-host API guardrails, and OCR preview exist. This pass added stored-session validation/refresh, mobile-scope gating, checked-in route draft persistence, stricter training proof/follow-up messaging, metadata-only asset cache, and clearer card/badge OCR review-only boundaries. Native simulator/live API depth, background sync, Android QA, and offline binary media remain open. |
 | Roles/Admin/Auth | 70% | Role catalog, admin user CRUD, login/session/recovery basics exist. MFA, lockout, production identity governance, and fine-grained entitlements remain parked. |
 
-Overall dependency-free readiness: approximately 75%.
+Overall dependency-free readiness: approximately 76%.
 
 ## UAT Blockers Dynamic AQS Could Still Hit
 
-- Mobile business-card/badge capture is preview-heavy; full scan-to-committed-lead needs a later slice.
+- Mobile business-card/badge capture is intentionally preview-and-review only; full scan-to-committed-lead needs retention, duplicate-review, and offline media signoff before activation.
 - Mobile proof/photo offline durability remains intentionally metadata-only until encrypted media storage is implemented.
-- Mobile native simulator/live API depth still needs another pass, but stored-session validation and checked-in route-draft durability now have implementation and unit coverage.
+- Mobile native simulator/live API depth still needs another pass, but stored-session validation, checked-in route-draft durability, and approved production API host controls now have implementation and unit coverage.
 - Product CSV/prototype data can be previewed/mapped, but final apply remains parked until Acumatica/product source-of-truth signoff.
 - Consignment ERP execution remains parked: warehouse creation, inventory movement, transfers/receipts, PO creation, and financial settlement.
 - Current EC2 deployment is internal-UAT grade, not production-grade.

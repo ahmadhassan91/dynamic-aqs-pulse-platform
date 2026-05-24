@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AuthBundle } from '../src/lib/api.ts';
 import { normalizeApiBaseUrl } from '../src/lib/api-base-url.ts';
-import { isMobileAuthAllowed, resolveStoredSession } from '../src/lib/session-lifecycle.ts';
+import { isMobileAuthAllowed, resolveStoredSession, shouldRefreshAccessToken } from '../src/lib/session-lifecycle.ts';
 
 const mobileAuth = authBundle({ scopes: ['mobile', 'leads'] });
 
@@ -37,6 +37,36 @@ test('refreshes stored session when access token is stale', async () => {
   assert.equal(resolution.auth?.tokens.accessToken, 'new-access');
   assert.equal(resolution.shouldSaveStoredSession, true);
   assert.equal(resolution.shouldClearStoredSession, false);
+});
+
+test('proactively refreshes stored session before mobile token expiry', async () => {
+  let fetchCalled = false;
+  const expiringAuth = authBundle({
+    accessTokenExpiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+  });
+  const refreshed = authBundle({ accessToken: 'new-access', refreshToken: 'new-refresh' });
+  const resolution = await resolveStoredSession({ auth: expiringAuth }, {
+    fetchCurrentSession: async () => {
+      fetchCalled = true;
+      return {
+        identity: expiringAuth.identity,
+        session: expiringAuth.session,
+      };
+    },
+    refreshPulseSession: async () => refreshed,
+  });
+
+  assert.equal(fetchCalled, false);
+  assert.equal(resolution.auth?.tokens.accessToken, 'new-access');
+  assert.equal(resolution.shouldSaveStoredSession, true);
+});
+
+test('detects mobile access tokens near expiry', () => {
+  const expiring = authBundle({ accessTokenExpiresAt: '2026-05-24T01:05:00.000Z' });
+  const healthy = authBundle({ accessTokenExpiresAt: '2026-05-24T01:30:00.000Z' });
+
+  assert.equal(shouldRefreshAccessToken(expiring, Date.parse('2026-05-24T01:00:00.000Z')), true);
+  assert.equal(shouldRefreshAccessToken(healthy, Date.parse('2026-05-24T01:00:00.000Z')), false);
 });
 
 test('signs out cleanly when refresh token is rejected', async () => {
@@ -91,7 +121,7 @@ test('keeps mobile live API pointed at approved HTTPS Pulse hosts', () => {
   assert.throws(() => normalizeApiBaseUrl('https://unapproved.example.com'), /not approved/);
 });
 
-function authBundle(overrides: { accessToken?: string; refreshToken?: string; role?: AuthBundle['identity']['role']; scopes?: string[] } = {}): AuthBundle {
+function authBundle(overrides: { accessToken?: string; accessTokenExpiresAt?: string; refreshToken?: string; role?: AuthBundle['identity']['role']; scopes?: string[] } = {}): AuthBundle {
   return {
     identity: {
       actorType: 'internal',
@@ -112,7 +142,7 @@ function authBundle(overrides: { accessToken?: string; refreshToken?: string; ro
     tokens: {
       accessToken: overrides.accessToken ?? 'access-old',
       refreshToken: overrides.refreshToken ?? 'refresh-old',
-      accessTokenExpiresAt: '2026-05-24T01:00:00.000Z',
+      accessTokenExpiresAt: overrides.accessTokenExpiresAt ?? '2099-05-24T01:00:00.000Z',
       refreshTokenExpiresAt: '2026-05-25T00:00:00.000Z',
     },
   };

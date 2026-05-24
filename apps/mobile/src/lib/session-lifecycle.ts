@@ -14,6 +14,8 @@ export type SessionLifecycleResolution = {
   shouldSaveStoredSession: boolean;
 };
 
+const PROACTIVE_REFRESH_WINDOW_MS = 6 * 60 * 1000;
+
 export async function resolveStoredSession(
   stored: StoredSession | null,
   deps: SessionLifecycleDeps,
@@ -28,6 +30,16 @@ export async function resolveStoredSession(
 
   const apiBaseUrl = stored.apiBaseUrl;
   try {
+    if (shouldRefreshAccessToken(stored.auth, Date.now())) {
+      const refreshed = await deps.refreshPulseSession(apiBaseUrl ?? '', stored.auth.tokens.refreshToken);
+      if (!isMobileAuthAllowed(refreshed)) return mobileAccessDeniedResolution(apiBaseUrl);
+      return {
+        apiBaseUrl,
+        auth: refreshed,
+        shouldClearStoredSession: false,
+        shouldSaveStoredSession: true,
+      };
+    }
     const current = await deps.fetchCurrentSession(apiBaseUrl ?? '', stored.auth.tokens.accessToken);
     const auth = {
       ...stored.auth,
@@ -80,6 +92,12 @@ export function isSessionAuthFailure(error: unknown) {
 
 export function isMobileAuthAllowed(auth: AuthBundle) {
   return auth.session.scopes.includes('mobile');
+}
+
+export function shouldRefreshAccessToken(auth: AuthBundle, nowMs: number) {
+  const expiresAtMs = Date.parse(auth.tokens.accessTokenExpiresAt);
+  if (Number.isNaN(expiresAtMs)) return false;
+  return expiresAtMs - nowMs <= PROACTIVE_REFRESH_WINDOW_MS;
 }
 
 function mobileAccessDeniedResolution(apiBaseUrl?: string): SessionLifecycleResolution {

@@ -98,6 +98,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [apiBaseUrl, auth, signOut]);
 
+  useEffect(() => {
+    if (!auth) return;
+    const refreshTimer = globalThis.setInterval(() => {
+      void refresh();
+    }, 5 * 60 * 1000);
+    return () => {
+      globalThis.clearInterval(refreshTimer);
+    };
+  }, [auth, refresh]);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       apiBaseUrl,

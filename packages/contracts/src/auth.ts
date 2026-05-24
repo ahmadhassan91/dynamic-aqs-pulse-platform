@@ -328,8 +328,8 @@ export const ROLE_DEFAULT_MODULE_ACCESS: Record<AuthRole, readonly WorkspaceModu
   SALES_BD_LEADERSHIP: ['home', 'calendar', 'leads', 'cis', 'customers', 'product_management', 'digital_assets', 'communication', 'reports', 'notifications', 'admin'],
   FINANCE: ['home', 'calendar', 'leads', 'cis', 'customers', 'reports', 'notifications'],
   ADMIN_CSR_OPS: ['home', 'calendar', 'leads', 'cis', 'customers', 'product_management', 'dealer_portal', 'consignment', 'digital_assets', 'reports', 'admin', 'notifications'],
-  TERRITORY_MANAGER: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'mobile', 'communication', 'reports', 'notifications'],
-  REGIONAL_DIRECTOR: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'mobile', 'communication', 'reports', 'notifications', 'settings'],
+  TERRITORY_MANAGER: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'digital_assets', 'mobile', 'communication', 'reports', 'notifications'],
+  REGIONAL_DIRECTOR: ['home', 'calendar', 'leads', 'customers', 'territories', 'territory_map', 'training', 'consignment', 'digital_assets', 'mobile', 'communication', 'reports', 'notifications', 'settings'],
   TRAINING_OPS: ['home', 'calendar', 'training', 'product_management', 'digital_assets', 'reports', 'notifications', 'settings'],
   DEALER_PORTAL_USER: ['home', 'calendar', 'dealer_portal', 'notifications'],
 };

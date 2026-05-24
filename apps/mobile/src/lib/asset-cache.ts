@@ -11,6 +11,7 @@ let cachedAt: string | undefined;
 let cachedRaw: string | undefined;
 let cacheError: string | undefined;
 let isNativeHydrating = false;
+let cachedSnapshot: MobileAssetCacheState = { assets: cachedAssets };
 
 export type MobileAssetCacheState = {
   assets: DigitalAssetSummary[];
@@ -30,6 +31,7 @@ export async function hydrateMobileAssetCache() {
     applyCache(raw);
   } catch (error) {
     cacheError = formatCacheError(error);
+    refreshSnapshot();
   } finally {
     isNativeHydrating = false;
     notify();
@@ -59,16 +61,19 @@ export function saveMobileAssetCache(assets: DigitalAssetSummary[]) {
   cachedAssets = assets.slice(0, 50).map(toMobileAssetCacheItem);
   cachedAt = cachedAtValue;
   cacheError = undefined;
+  refreshSnapshot();
 
   if (Platform.OS === 'web') {
     try {
       globalThis.localStorage?.setItem(cacheKey, payload);
     } catch (error) {
       cacheError = formatCacheError(error);
+      refreshSnapshot();
     }
   } else {
     void SecureStore.setItemAsync(cacheKey, payload).catch((error) => {
       cacheError = formatCacheError(error);
+      refreshSnapshot();
       notify();
     });
   }
@@ -88,6 +93,7 @@ function readCache() {
     return globalThis.localStorage?.getItem(cacheKey) ?? cachedRaw;
   } catch (error) {
     cacheError = formatCacheError(error);
+    refreshSnapshot();
     return cachedRaw;
   }
 }
@@ -100,13 +106,19 @@ function applyCache(raw: string | null | undefined) {
     cachedAssets = Array.isArray(parsed.assets) ? parsed.assets.map(toMobileAssetCacheItem) : [];
     cachedAt = parsed.cachedAt;
     cacheError = undefined;
+    refreshSnapshot();
   } catch (error) {
     cacheError = error instanceof Error ? error.message : 'Unable to read cached asset metadata.';
+    refreshSnapshot();
   }
 }
 
 function compactState(): MobileAssetCacheState {
-  return {
+  return cachedSnapshot;
+}
+
+function refreshSnapshot() {
+  cachedSnapshot = {
     assets: cachedAssets,
     ...(cachedAt ? { cachedAt } : {}),
     ...(cacheError ? { errorMessage: cacheError } : {}),

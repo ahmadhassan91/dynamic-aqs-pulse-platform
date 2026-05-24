@@ -432,6 +432,11 @@ export function CustomerTrainingHistory({
                               {session.openFollowUpTaskCount} open follow-up task{session.openFollowUpTaskCount === 1 ? '' : 's'}
                             </Text>
                           ) : null}
+                          {session.fieldActivity.length > 0 ? (
+                            <Text size="xs" c="blue">
+                              {session.fieldActivity.length} reviewed field note{session.fieldActivity.length === 1 ? '' : 's'}
+                            </Text>
+                          ) : null}
                         </Stack>
                       </Table.Td>
                       <Table.Td>{session.activityKind.replace(/_/g, ' ')}</Table.Td>

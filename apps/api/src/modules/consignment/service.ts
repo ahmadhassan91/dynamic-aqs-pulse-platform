@@ -15,6 +15,7 @@ import {
   ConsignmentSiteStatus,
   ConsignmentWorkItemStatus,
   ConsignmentWorkItemType,
+  MobileVoiceNoteReviewStatus,
   Prisma,
   prisma,
 } from '@pulse/db';
@@ -24,6 +25,7 @@ import type {
   ConsignmentAuditEvidenceSummary,
   ConsignmentAuditEvidencePurposeKey,
   ConsignmentAuditSummary,
+  ConsignmentFieldActivityNoteSummary,
   ConsignmentFormStatusKey,
   ConsignmentFormSummary,
   ConsignmentFormTypeKey,
@@ -89,6 +91,15 @@ const SITE_INCLUDE = {
   forms: { orderBy: [{ createdAt: 'desc' }] },
   audits: { include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } }, orderBy: [{ scheduledFor: 'desc' }], take: 10 },
   workItems: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+  mobileVoiceNotes: {
+    where: { reviewStatus: MobileVoiceNoteReviewStatus.APPROVED },
+    include: {
+      createdBy: { select: { displayName: true } },
+      reviewedBy: { select: { displayName: true } },
+    },
+    orderBy: [{ recordedAt: 'desc' }, { createdAt: 'desc' }],
+    take: 5,
+  },
   _count: {
     select: {
       forms: true,
@@ -558,7 +569,22 @@ function throwAuthorization(message: string): never {
 }
 
 function mapSiteDetail(site: SiteWithRelations): ConsignmentSiteDetail {
-  return { ...mapSiteSummary(site), forms: site.forms.map(mapForm), audits: site.audits.map(mapAudit), workItems: site.workItems.map((item) => ({ id: item.id, siteId: item.siteId, type: item.type.toLowerCase(), status: item.status.toLowerCase(), priority: item.priority, title: item.title, ...(item.assignedToUserId ? { assignedToUserId: item.assignedToUserId } : {}), ...(item.dueAt ? { dueAt: item.dueAt.toISOString() } : {}), ...(item.completedAt ? { completedAt: item.completedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() })) };
+  return { ...mapSiteSummary(site), forms: site.forms.map(mapForm), audits: site.audits.map(mapAudit), workItems: site.workItems.map((item) => ({ id: item.id, siteId: item.siteId, type: item.type.toLowerCase(), status: item.status.toLowerCase(), priority: item.priority, title: item.title, ...(item.assignedToUserId ? { assignedToUserId: item.assignedToUserId } : {}), ...(item.dueAt ? { dueAt: item.dueAt.toISOString() } : {}), ...(item.completedAt ? { completedAt: item.completedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() })), fieldActivity: site.mobileVoiceNotes.map(mapFieldActivityNote) };
+}
+
+function mapFieldActivityNote(note: SiteWithRelations['mobileVoiceNotes'][number]): ConsignmentFieldActivityNoteSummary {
+  return {
+    id: note.id,
+    title: note.title,
+    ...(note.structuredSummary ? { summary: note.structuredSummary } : {}),
+    ...(note.structuredNextStep ? { nextStep: note.structuredNextStep } : {}),
+    ...(note.structuredSentiment ? { sentiment: note.structuredSentiment } : {}),
+    ...(note.createdBy?.displayName ? { capturedByName: note.createdBy.displayName } : {}),
+    ...(note.reviewedBy?.displayName ? { reviewedByName: note.reviewedBy.displayName } : {}),
+    recordedAt: note.recordedAt.toISOString(),
+    ...(note.reviewedAt ? { reviewedAt: note.reviewedAt.toISOString() } : {}),
+    ...(note.writebackTarget ? { writebackTarget: note.writebackTarget } : {}),
+  };
 }
 
 function mapSiteSummary(site: SiteWithRelations): ConsignmentSiteSummary {

@@ -177,10 +177,24 @@ export interface ConsignmentWorkItemSummary {
   updatedAt: string;
 }
 
+export interface ConsignmentFieldActivityNoteSummary {
+  id: string;
+  title: string;
+  summary?: string;
+  nextStep?: string;
+  sentiment?: string;
+  capturedByName?: string;
+  reviewedByName?: string;
+  recordedAt: string;
+  reviewedAt?: string;
+  writebackTarget?: string;
+}
+
 export interface ConsignmentSiteDetail extends ConsignmentSiteSummary {
   forms: ConsignmentFormSummary[];
   audits: ConsignmentAuditSummary[];
   workItems: ConsignmentWorkItemSummary[];
+  fieldActivity: ConsignmentFieldActivityNoteSummary[];
 }
 
 export interface ListConsignmentSitesRequest {

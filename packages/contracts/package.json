@@ -20,6 +20,7 @@
     "./cis": "./dist/cis.js",
     "./lead-options": "./dist/lead-options.js",
     "./leads": "./dist/leads.js",
+    "./mobile-voice-notes": "./dist/mobile-voice-notes.js",
     "./product-management": "./dist/product-management.js",
     "./reference": "./dist/reference.js",
     "./territories": "./dist/territories.js",

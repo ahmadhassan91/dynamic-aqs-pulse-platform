@@ -3,6 +3,7 @@ import {
   AccountSegment,
   AccountTrainingProgramStatus,
   AuditAction,
+  MobileVoiceNoteReviewStatus,
   prisma,
   TrainingProofDocumentType,
   TrainingProofReviewStatus,
@@ -71,6 +72,7 @@ import type {
   TrainingFollowUpTaskSummary,
   TrainingComplianceHoursRollup,
   TrainingExecutionStateKey,
+  TrainingFieldActivityNoteSummary,
   TrainingOverviewResponse,
   TrainingProofDocumentSummary,
   TrainingProofDocumentTypeKey,
@@ -610,6 +612,17 @@ const trainingSessionArgs = Prisma.validator<Prisma.TrainingSessionDefaultArgs>(
       },
       orderBy: [{ uploadedAt: 'desc' }, { createdAt: 'desc' }],
     },
+    mobileVoiceNotes: {
+      where: {
+        reviewStatus: MobileVoiceNoteReviewStatus.APPROVED,
+      },
+      include: {
+        createdBy: { select: { displayName: true } },
+        reviewedBy: { select: { displayName: true } },
+      },
+      orderBy: [{ recordedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 5,
+    },
   },
 });
 
@@ -667,6 +680,7 @@ type TrainingAccountRecord = Prisma.AccountGetPayload<typeof trainingAccountArgs
 type TrainingFollowUpTaskRecord = TrainingSessionRecord['followUpTasks'][number];
 type TrainingCertificationRecord = TrainingSessionRecord['certifications'][number];
 type TrainingProofDocumentRecord = TrainingSessionRecord['proofDocuments'][number];
+type TrainingFieldActivityRecord = TrainingSessionRecord['mobileVoiceNotes'][number];
 type TrainingCategoryRecord = Prisma.TrainingCategoryGetPayload<{
   include: { _count: { select: { trainingTypes: true } } };
 }>;
@@ -3096,9 +3110,25 @@ function toTrainingSessionSummary(
     countsTowardHours: session.trainingType?.countsTowardHours ?? false,
     openFollowUpTaskCount,
     followUpTasks: session.followUpTasks.map(toTrainingFollowUpTaskSummary),
+    fieldActivity: session.mobileVoiceNotes.map(toTrainingFieldActivitySummary),
     certifications: session.certifications.map(toTrainingCertificationSummary),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
+  };
+}
+
+function toTrainingFieldActivitySummary(note: TrainingFieldActivityRecord): TrainingFieldActivityNoteSummary {
+  return {
+    id: note.id,
+    title: note.title,
+    ...(note.structuredSummary ? { summary: note.structuredSummary } : {}),
+    ...(note.structuredNextStep ? { nextStep: note.structuredNextStep } : {}),
+    ...(note.structuredSentiment ? { sentiment: note.structuredSentiment } : {}),
+    ...(note.createdBy?.displayName ? { capturedByName: note.createdBy.displayName } : {}),
+    ...(note.reviewedBy?.displayName ? { reviewedByName: note.reviewedBy.displayName } : {}),
+    recordedAt: note.recordedAt.toISOString(),
+    ...(note.reviewedAt ? { reviewedAt: note.reviewedAt.toISOString() } : {}),
+    ...(note.writebackTarget ? { writebackTarget: note.writebackTarget } : {}),
   };
 }
 

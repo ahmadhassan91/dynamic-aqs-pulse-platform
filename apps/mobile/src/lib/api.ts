@@ -28,6 +28,12 @@ import type {
   PreviewLeadOcrCaptureResponse,
 } from '@pulse/contracts/leads';
 import type {
+  CreateMobileVoiceNoteRequest,
+  ListMobileVoiceNotesRequest,
+  ListMobileVoiceNotesResponse,
+  MobileVoiceNoteSummary,
+} from '@pulse/contracts/mobile-voice-notes';
+import type {
   AccountTrainingHistoryResponse,
   CheckInTrainingSessionRequest,
   CompleteTrainingSessionRequest,
@@ -241,6 +247,24 @@ export async function fetchDigitalAssetDetail(apiBaseUrl: string, accessToken: s
 
 export async function createDigitalAssetShareLink(apiBaseUrl: string, accessToken: string, assetId: string, input: CreateDigitalAssetShareLinkRequest) {
   return requestJson<DigitalAssetShareLinkSummary>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}/share-links`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchMobileVoiceNotes(apiBaseUrl: string, accessToken: string, query: ListMobileVoiceNotesRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'contextType', query.contextType);
+  append(searchParams, 'leadId', query.leadId);
+  append(searchParams, 'accountId', query.accountId);
+  append(searchParams, 'limit', query.limit);
+  const path = `/api/v1/mobile/voice-notes${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListMobileVoiceNotesResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function createMobileVoiceNote(apiBaseUrl: string, accessToken: string, input: CreateMobileVoiceNoteRequest) {
+  return requestJson<MobileVoiceNoteSummary>(apiBaseUrl, '/api/v1/mobile/voice-notes', {
     method: 'POST',
     accessToken,
     body: input,

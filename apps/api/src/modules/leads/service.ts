@@ -13,6 +13,7 @@ import {
   LeadRoutingTeam,
   LeadStage,
   GroupClassification,
+  MobileVoiceNoteReviewStatus,
   TerritoryAssignmentMethod,
   Prisma,
   prisma,
@@ -204,6 +205,19 @@ const LEAD_DETAIL_INCLUDE = {
     take: 1,
     include: {
       financeDecision: true,
+    },
+  },
+  mobileVoiceNotes: {
+    where: {
+      reviewStatus: MobileVoiceNoteReviewStatus.APPROVED,
+    },
+    orderBy: {
+      recordedAt: 'desc',
+    },
+    take: 5,
+    include: {
+      createdBy: { select: { displayName: true, email: true } },
+      reviewedBy: { select: { displayName: true, email: true } },
     },
   },
 } satisfies Prisma.LeadInclude;
@@ -5443,6 +5457,17 @@ function toLeadDetail(lead: LeadWithDetailRefs, policy: LeadRoutingPolicyRecord)
     ...(firstOrderAt ? { firstOrderAt } : {}),
     workflowTask: toLeadWorkflowTaskSummary(workflowTask),
     stageHistory: lead.stageEvents.map(toLeadStageEventSummary),
+    fieldActivity: lead.mobileVoiceNotes.map((note) => ({
+      id: note.id,
+      title: note.title,
+      summary: note.structuredSummary ?? note.rawTranscript ?? 'Reviewed field note.',
+      tags: note.structuredTags,
+      occurredAt: (note.reviewedAt ?? note.recordedAt).toISOString(),
+      ...(note.structuredNextStep ? { nextStep: note.structuredNextStep } : {}),
+      ...(note.structuredSentiment ? { sentiment: note.structuredSentiment } : {}),
+      ...(note.createdBy ? { capturedByName: note.createdBy.displayName || note.createdBy.email } : {}),
+      ...(note.reviewedBy ? { reviewedByName: note.reviewedBy.displayName || note.reviewedBy.email } : {}),
+    })),
   };
 }
 

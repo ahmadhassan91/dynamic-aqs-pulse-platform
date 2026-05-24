@@ -864,6 +864,7 @@ export function TrainingWorkspace() {
                         <Table.Th>Scheduled</Table.Th>
                         <Table.Th>Status</Table.Th>
                         <Table.Th>Follow-ups</Table.Th>
+                        <Table.Th>Field Notes</Table.Th>
                         {canSchedule ? <Table.Th>Actions</Table.Th> : null}
                       </Table.Tr>
                     </Table.Thead>
@@ -895,6 +896,13 @@ export function TrainingWorkspace() {
                             ) : null}
                           </Table.Td>
                           <Table.Td>{session.openFollowUpTaskCount}</Table.Td>
+                          <Table.Td>
+                            {session.fieldActivity.length > 0 ? (
+                              <Badge color="blue" variant="light">{session.fieldActivity.length} reviewed</Badge>
+                            ) : (
+                              <Text size="sm" c="dimmed">None</Text>
+                            )}
+                          </Table.Td>
                           {canSchedule ? (
                             <Table.Td>
                               {session.status === 'scheduled' ? (

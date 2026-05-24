@@ -8,6 +8,7 @@ export * from './cis.js';
 export * from './consignment.js';
 export * from './leads.js';
 export * from './lead-options.js';
+export * from './mobile-voice-notes.js';
 export * from './product-management.js';
 export * from './reference.js';
 export * from './territories.js';

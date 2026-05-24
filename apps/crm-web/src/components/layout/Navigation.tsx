@@ -140,6 +140,7 @@ export function Navigation() {
       icon: IconBuildingStore,
       links: [
         { label: 'All Accounts', link: '/customers' },
+        { label: 'Field Activity Review', link: '/customers/field-activity' },
       ],
     });
   }

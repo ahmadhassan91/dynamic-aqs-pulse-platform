@@ -28,7 +28,7 @@ The slice follows the old prototype’s field-app intent:
 - Account context as the field work surface.
 - Sync/offline surfaced as a first-class concept.
 
-It intentionally does not port the old prototype wholesale. Mock-only route optimization, camera OCR, voice transcription, consignment audit, and offline conflict handling stay out until those native slices are implemented against real APIs.
+It intentionally does not port the old prototype wholesale. Mock-only route optimization, camera OCR, automatic voice-note writeback, consignment audit, and offline conflict handling stay out until those native slices are implemented against real APIs.
 
 ## Build And Validation
 
@@ -466,7 +466,7 @@ Requirement closure:
 
 - This moves the original Slice 2 route/check-in work from local-only field capture into CRM-backed execution.
 - It uses the approved Training `site_visit` model instead of inventing a mobile-only field visit endpoint.
-- It keeps formal training proof upload, voice transcription, route optimization, and geofence automation parked.
+- It keeps formal training proof upload, automatic voice-note writeback, route optimization, and geofence automation parked.
 
 Expo/iOS simulator validation:
 
@@ -505,7 +505,7 @@ Still parked:
 - Durable encrypted/file-backed offline storage.
 - Conflict merge UX for `409` route visit conflicts.
 - Training proof/media upload from mobile.
-- Voice transcription.
+- Voice-note provider QA, offline audio storage, and official writeback policy.
 - Provider-backed route optimization and navigation handoff.
 
 ## Slice 11 Update
@@ -582,7 +582,7 @@ Still parked:
 - Native Android emulator QA until Android SDK/JDK/adb are installed.
 - Native encrypted/file-backed offline draft adapter.
 - Mobile proof/media upload, MIME/magic-byte validation, malware scanning, and storage retention policy.
-- Voice transcription provider and retention policy.
+- Voice-note provider production credentials, audio retention, and writeback approval UI.
 - Outlook/Teams/WebEx bidirectional scheduling provider decision.
 - Rich technician participant model beyond lightweight attendee count.
 - Offline conflict merge rules for formal training completions.
@@ -638,7 +638,7 @@ Still parked:
 
 - Push provider and notification governance.
 - Offline sync conflict rules.
-- Voice transcription provider, recording retention, and privacy policy.
+- Voice-note provider production credentials, recording retention, privacy policy, and official writeback approvals.
 - Route optimization provider and geofence thresholds.
 - Mobile commerce/checkout. The mobile app should hand off to Dealer Portal, not become the dealer checkout app.
 
@@ -865,6 +865,41 @@ Validation:
 - `pnpm --filter @pulse/mobile typecheck`
 - `pnpm --filter @pulse/mobile build`
 - `git diff --check`
+
+## Slice 20 Update
+
+Added after mobile field voice-note request:
+
+- Added `expo-audio` to the Pulse Field app.
+- Added the `Voice Notes` bottom tab and Field Home quick action.
+- Added native microphone permissions for iOS and Android.
+- Added a focused mobile voice-note hook so recording, base64 conversion, API sync, and screen state stay outside the route file.
+- Added a simple field flow:
+  - record audio
+  - type/edit transcript text
+  - choose general CRM context or an account
+  - structure and sync to Pulse CRM
+  - review recent notes from the current mobile user
+- Added mobile policy tests for empty-note blocking, account-scoped request creation, audio MIME mapping, and review copy.
+- Added backend `MobileVoiceNote` storage, `/api/v1/mobile/voice-notes`, audit trail, and AI provider configuration.
+- Added OpenAI-backed transcription/structuring when configured, with local keyword fallback when disabled or unavailable.
+
+Still parked:
+
+- Automatic lead/account/training/consignment writeback from AI notes.
+- Office approval UI for AI-structured notes.
+- Offline audio draft storage.
+- Background upload/retry for audio.
+- Audio retention/deletion policy.
+- Provider-backed transcription QA with real Dynamic field recordings.
+
+Validation:
+
+- `pnpm --filter @pulse/api build`
+- `node --test --test-concurrency=1 apps/api/test/mobile-voice-notes.regression.test.mjs`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile test`
+- `pnpm --filter @pulse/mobile build`
 
 ## Slice 20 Update
 

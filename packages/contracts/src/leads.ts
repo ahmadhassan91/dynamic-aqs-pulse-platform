@@ -534,6 +534,18 @@ export interface LeadStageEventSummary {
   occurredAt: string;
 }
 
+export interface LeadFieldActivityEventSummary {
+  id: string;
+  title: string;
+  summary: string;
+  nextStep?: string;
+  sentiment?: string;
+  tags: string[];
+  capturedByName?: string;
+  reviewedByName?: string;
+  occurredAt: string;
+}
+
 export interface LeadReadinessItemSummary {
   id: string;
   code: string;
@@ -607,6 +619,7 @@ export interface LeadDetail extends LeadSummary {
   firstOrderAt?: string;
   workflowTask: LeadWorkflowTaskSummary;
   stageHistory: LeadStageEventSummary[];
+  fieldActivity: LeadFieldActivityEventSummary[];
   readiness?: LeadReadinessSummary;
 }
 

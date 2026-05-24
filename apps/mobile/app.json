@@ -13,13 +13,15 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Pulse Field uses the camera to scan business cards and capture ROSE audit evidence.",
         "NSPhotoLibraryUsageDescription": "Pulse Field uses selected photos for business-card OCR and ROSE audit evidence previews.",
-        "NSLocationWhenInUseUsageDescription": "Pulse Field uses your location only when you check in to a route visit."
+        "NSLocationWhenInUseUsageDescription": "Pulse Field uses your location only when you check in to a route visit.",
+        "NSMicrophoneUsageDescription": "Pulse Field uses the microphone when you record voice notes for CRM follow-up."
       }
     },
     "android": {
       "package": "com.dynamicAqs.pulsefield",
       "permissions": [
         "CAMERA",
+        "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "READ_MEDIA_IMAGES"
@@ -34,7 +36,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

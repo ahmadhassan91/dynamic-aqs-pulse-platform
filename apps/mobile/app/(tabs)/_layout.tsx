@@ -9,6 +9,7 @@ const icons: Record<string, { name: string; fallback: string }> = {
   leads: { name: 'person.crop.circle.badge.plus', fallback: 'L' },
   accounts: { name: 'building.2.fill', fallback: 'A' },
   route: { name: 'map.fill', fallback: 'R' },
+  'voice-notes': { name: 'mic.circle.fill', fallback: 'V' },
   consignment: { name: 'shippingbox.fill', fallback: 'C' },
   assets: { name: 'photo.on.rectangle.angled', fallback: 'M' },
   training: { name: 'graduationcap.fill', fallback: 'T' },
@@ -54,6 +55,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="leads" options={{ title: 'Lead Inbox', tabBarLabel: 'Leads' }} />
       <Tabs.Screen name="accounts" options={{ title: 'Accounts', tabBarLabel: 'Accounts' }} />
       <Tabs.Screen name="route" options={{ title: 'Route Plan', tabBarLabel: 'Route' }} />
+      <Tabs.Screen name="voice-notes" options={{ title: 'Voice Notes', tabBarLabel: 'Notes' }} />
       <Tabs.Screen name="consignment" options={{ title: 'Consignment', tabBarLabel: 'Consign' }} />
       <Tabs.Screen name="assets" options={{ title: 'Asset Library', tabBarLabel: 'Assets' }} />
       <Tabs.Screen name="training" options={{ title: 'Training', tabBarLabel: 'Training' }} />

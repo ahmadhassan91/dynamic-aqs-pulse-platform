@@ -649,6 +649,19 @@ export interface TrainingCoachingWorkloadResponse {
   expiringCertifications: TrainingOperationalCertificationQueueItem[];
 }
 
+export interface TrainingFieldActivityNoteSummary {
+  id: string;
+  title: string;
+  summary?: string;
+  nextStep?: string;
+  sentiment?: string;
+  capturedByName?: string;
+  reviewedByName?: string;
+  recordedAt: string;
+  reviewedAt?: string;
+  writebackTarget?: string;
+}
+
 export interface TrainingSessionSummary {
   id: string;
   accountId: string;
@@ -685,6 +698,7 @@ export interface TrainingSessionSummary {
   countsTowardHours: boolean;
   openFollowUpTaskCount: number;
   followUpTasks: TrainingFollowUpTaskSummary[];
+  fieldActivity: TrainingFieldActivityNoteSummary[];
   certifications: TrainingCertificationSummary[];
   createdAt: string;
   updatedAt: string;

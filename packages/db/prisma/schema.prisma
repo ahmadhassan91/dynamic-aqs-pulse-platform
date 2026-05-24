@@ -70,6 +70,28 @@ enum AuditAction {
   REJECT
 }
 
+enum MobileVoiceNoteContextType {
+  GENERAL
+  LEAD
+  ACCOUNT
+  TRAINING_SESSION
+  CONSIGNMENT_SITE
+  ROUTE_VISIT
+}
+
+enum MobileVoiceNoteProcessingStatus {
+  PENDING
+  STRUCTURED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum MobileVoiceNoteReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum FeatureFlagState {
   OFF
   ON
@@ -788,6 +810,7 @@ enum ConsignmentWorkItemType {
   WAREHOUSE_SETUP
   BASELINE_REVIEW
   VARIANCE_REVIEW
+  FIELD_NOTE_FOLLOW_UP
   PO_FOLLOW_UP
   EXIT_REVIEW
   ACUMATICA_RESUME
@@ -864,6 +887,8 @@ model User {
   consignmentAuditsSubmitted         ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
   consignmentAuditEvidenceUploaded   ConsignmentAuditEvidence[]    @relation("ConsignmentAuditEvidenceUploadedBy")
   consignmentWorkItemsAssigned       ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
+  mobileVoiceNotesCreated            MobileVoiceNote[]             @relation("MobileVoiceNoteCreatedBy")
+  mobileVoiceNotesReviewed           MobileVoiceNote[]             @relation("MobileVoiceNoteReviewedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -1186,6 +1211,64 @@ model AuditEntry {
   @@index([requestId])
   @@index([correlationId])
   @@index([createdAt])
+}
+
+model MobileVoiceNote {
+  id                   String                          @id @default(uuid()) @db.Uuid
+  createdByUserId      String?                         @db.Uuid
+  contextType          MobileVoiceNoteContextType      @default(GENERAL)
+  leadId               String?                         @db.Uuid
+  accountId            String?                         @db.Uuid
+  trainingSessionId    String?                         @db.Uuid
+  consignmentSiteId    String?                         @db.Uuid
+  routeVisitLocalId    String?
+  title                String
+  rawTranscript        String?
+  structuredSummary    String?
+  structuredNextStep   String?
+  structuredSentiment  String?
+  structuredTags       String[]                        @default([])
+  structuredData       Json?
+  processingStatus     MobileVoiceNoteProcessingStatus @default(NEEDS_REVIEW)
+  reviewStatus         MobileVoiceNoteReviewStatus     @default(PENDING_REVIEW)
+  reviewedByUserId     String?                         @db.Uuid
+  reviewedAt           DateTime?
+  reviewNotes          String?
+  rejectedReason       String?
+  writebackCompletedAt DateTime?
+  writebackTarget      String?
+  llmProvider          String?
+  llmModel             String?
+  llmErrorMessage      String?
+  audioStorageKey      String?
+  audioFileName        String?
+  audioMimeType        String?
+  audioSizeBytes       Int?
+  audioSha256          String?
+  durationSeconds      Int?
+  crmSyncedAt          DateTime?
+  recordedAt           DateTime                        @default(now())
+  createdAt            DateTime                        @default(now())
+  updatedAt            DateTime                        @updatedAt
+
+  createdBy       User?            @relation("MobileVoiceNoteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reviewedBy      User?            @relation("MobileVoiceNoteReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  account         Account?         @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  trainingSession TrainingSession? @relation(fields: [trainingSessionId], references: [id], onDelete: SetNull)
+  consignmentSite ConsignmentSite? @relation(fields: [consignmentSiteId], references: [id], onDelete: SetNull)
+
+  @@index([createdByUserId, createdAt])
+  @@index([contextType, createdAt])
+  @@index([leadId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([trainingSessionId, createdAt])
+  @@index([consignmentSiteId, createdAt])
+  @@index([processingStatus])
+  @@index([reviewStatus, recordedAt])
+  @@index([reviewedByUserId])
+  @@index([writebackCompletedAt])
+  @@index([crmSyncedAt])
 }
 
 model ProductCategory {
@@ -2151,6 +2234,7 @@ model Lead {
   conversionPreparation LeadConversionPreparation?
   convertedAccount      Account?                   @relation("LeadToAccount")
   websiteSubmissions    WebsiteLeadSubmission[]    @relation("LeadToWebsiteSubmission")
+  mobileVoiceNotes      MobileVoiceNote[]
 
   @@index([businessSegmentId])
   @@index([leadSourceId])
@@ -2874,6 +2958,7 @@ model Account {
   trainingCertifications   TrainingCertificationRecord[]
   paymentVaultReferences   AccountPaymentVaultReference[]
   consignmentSites         ConsignmentSite[]
+  mobileVoiceNotes         MobileVoiceNote[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -2989,6 +3074,7 @@ model ConsignmentSite {
   auditEvidence    ConsignmentAuditEvidence[]
   discrepancyCases ConsignmentDiscrepancyCase[]
   workItems        ConsignmentWorkItem[]
+  mobileVoiceNotes MobileVoiceNote[]
 
   @@index([accountId])
   @@index([locationId])
@@ -3428,14 +3514,15 @@ model TrainingSession {
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
 
-  account        Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  location       AccountLocation?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  program        AccountTrainingProgram?       @relation(fields: [programId], references: [id], onDelete: SetNull)
-  trainingType   TrainingType?                 @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
-  trainerUser    User?                         @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
-  followUpTasks  TrainingFollowUpTask[]
-  certifications TrainingCertificationRecord[]
-  proofDocuments TrainingProofDocument[]
+  account          Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  location         AccountLocation?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  program          AccountTrainingProgram?       @relation(fields: [programId], references: [id], onDelete: SetNull)
+  trainingType     TrainingType?                 @relation(fields: [trainingTypeId], references: [id], onDelete: SetNull)
+  trainerUser      User?                         @relation("TrainingSessionTrainer", fields: [trainerUserId], references: [id], onDelete: SetNull)
+  followUpTasks    TrainingFollowUpTask[]
+  certifications   TrainingCertificationRecord[]
+  proofDocuments   TrainingProofDocument[]
+  mobileVoiceNotes MobileVoiceNote[]
 
   @@index([accountId])
   @@index([locationId])

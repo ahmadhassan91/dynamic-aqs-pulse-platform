@@ -1,5 +1,5 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
+import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, MobileVoiceNoteReviewStatus, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
   AccountActivityReviewEvent,
@@ -1802,6 +1802,18 @@ async function buildAccountActivityReview(account: {
         },
       })
     : [];
+  const approvedFieldNotes = await prisma.mobileVoiceNote.findMany({
+    where: {
+      accountId: account.id,
+      reviewStatus: MobileVoiceNoteReviewStatus.APPROVED,
+    },
+    orderBy: [{ recordedAt: 'desc' }, { updatedAt: 'desc' }],
+    take: 5,
+    include: {
+      createdBy: { select: { displayName: true, email: true } },
+      reviewedBy: { select: { displayName: true, email: true } },
+    },
+  });
 
   const recentEvents: AccountActivityReviewEvent[] = auditEntries.map((entry) => ({
     id: entry.id,
@@ -1813,6 +1825,20 @@ async function buildAccountActivityReview(account: {
     source: entry.entityType === ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE ? 'payment_boundary' : 'pulse_crm',
     ...(entry.actor ? { actorName: entry.actor.displayName || entry.actor.email } : {}),
   }));
+
+  recentEvents.push(...approvedFieldNotes.map((note) => ({
+    id: `mobile-voice-note-${note.id}`,
+    occurredAt: (note.reviewedAt ?? note.recordedAt).toISOString(),
+    action: 'APPROVE',
+    entityType: 'MOBILE_VOICE_NOTE',
+    label: 'Field note approved',
+    detail: [
+      note.structuredSummary ?? note.rawTranscript ?? 'Mobile field note was reviewed and attached to this account.',
+      note.structuredNextStep ? `Next: ${note.structuredNextStep}` : undefined,
+    ].filter(Boolean).join(' '),
+    source: 'field_activity' as const,
+    ...(note.createdBy ? { actorName: note.createdBy.displayName || note.createdBy.email } : {}),
+  })));
 
   if (account.sourceLeadId) {
     recentEvents.push({

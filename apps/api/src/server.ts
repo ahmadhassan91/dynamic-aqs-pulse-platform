@@ -20,6 +20,7 @@ import {
   processLeadOperationalAlertScanJob,
 } from './modules/leads/service.js';
 import { handleMigrationRoutes } from './modules/migrations/http.js';
+import { handleMobileVoiceNoteRoutes } from './modules/mobile-voice-notes/http.js';
 import { handleProductManagementRoutes } from './modules/product-management/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
@@ -330,6 +331,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const migrationRouteHandled = await handleMigrationRoutes(req, res, url, ctx.config.migration.adminToken);
   if (migrationRouteHandled !== false) {
+    return;
+  }
+
+  const mobileVoiceNoteRouteHandled = await handleMobileVoiceNoteRoutes(req, res, url, ctx.config);
+  if (mobileVoiceNoteRouteHandled !== false) {
     return;
   }
 

@@ -83,6 +83,7 @@ export default function FieldHomeScreen() {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
         <QuickAction label="Refresh" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
         <QuickAction label="Scan card" icon={{ name: 'camera.viewfinder', fallback: 'S' }} onPress={() => router.push('/ocr-capture')} />
+        <QuickAction label="Voice note" icon={{ name: 'mic.circle.fill', fallback: 'V' }} onPress={() => router.push('./voice-notes')} />
         <QuickAction label="Consign" icon={{ name: 'shippingbox.fill', fallback: 'C' }} onPress={() => router.push('/(tabs)/consignment')} />
         <QuickAction label="Training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
       </View>

@@ -372,6 +372,34 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                 <Text size="sm" c="dimmed">No ROSE audit history returned yet.</Text>
               )}
             </Card>
+
+            <Card withBorder radius="md" p="lg">
+              <Title order={4} mb="md">Reviewed Field Notes</Title>
+              {site.fieldActivity.length ? (
+                <Stack gap="sm">
+                  {site.fieldActivity.map((note) => (
+                    <Paper key={note.id} withBorder radius="md" p="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text fw={700}>{note.summary ?? note.title}</Text>
+                          {note.nextStep ? <Text size="sm" c="dimmed">{note.nextStep}</Text> : null}
+                          <Text size="xs" c="dimmed">
+                            Captured by {note.capturedByName ?? 'field user'} · Reviewed {formatConsignmentDate(note.reviewedAt)}
+                          </Text>
+                        </Stack>
+                        {note.writebackTarget?.startsWith('consignment_work_item:') ? (
+                          <Badge color="green" variant="light">Work item opened</Badge>
+                        ) : (
+                          <Badge color="blue" variant="light">Activity saved</Badge>
+                        )}
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : (
+                <Text size="sm" c="dimmed">No reviewed mobile field notes are linked to this site yet.</Text>
+              )}
+            </Card>
           </SimpleGrid>
         </Stack>
       ) : null}

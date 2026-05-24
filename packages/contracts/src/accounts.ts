@@ -116,7 +116,7 @@ export interface AccountActivityReviewEvent {
   entityType: string;
   label: string;
   detail: string;
-  source: 'pulse_crm' | 'source_lead' | 'dealer_portal' | 'payment_boundary' | 'parked_dependency';
+  source: 'pulse_crm' | 'source_lead' | 'dealer_portal' | 'payment_boundary' | 'parked_dependency' | 'field_activity';
   actorName?: string;
 }
 

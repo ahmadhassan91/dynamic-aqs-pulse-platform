@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { colors, liftShadow, radius, softShadow, spacing, statusColor, typography } from '@/theme';
 
 export function Screen({ children }: { children: ReactNode }) {
@@ -204,7 +204,7 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
   );
 }
 
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({ label, style, ...props }: TextInputProps & { label: string; style?: TextStyle }) {
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
@@ -213,7 +213,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
       <TextInput
         {...props}
         placeholderTextColor={colors.subtle}
-        style={{
+        style={[{
           minHeight: 48,
           borderRadius: radius.lg,
           borderWidth: 1,
@@ -223,7 +223,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
           color: colors.text,
           borderCurve: 'continuous',
           ...typography.body,
-        }}
+        }, style]}
       />
     </View>
   );

@@ -467,6 +467,17 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         occurredAt: event.occurredAt,
         color: 'gray',
       })),
+      ...lead.fieldActivity.map((event) => ({
+        key: `field-activity-${event.id}`,
+        title: event.title || 'Field note approved',
+        description: [
+          event.summary,
+          event.nextStep ? `Next: ${event.nextStep}` : undefined,
+          event.capturedByName ? `Captured by ${event.capturedByName}` : undefined,
+        ].filter(Boolean).join(' '),
+        occurredAt: event.occurredAt,
+        color: event.sentiment === 'urgent' ? 'red' : event.sentiment === 'concern' ? 'orange' : 'blue',
+      })),
     ];
 
     return items

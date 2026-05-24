@@ -123,6 +123,17 @@ export type AppMonerisHostedTokenizationConfig = {
   cleanupIntervalMinutes: number;
 };
 
+export type AppAiConfig = {
+  voiceNotes: {
+    provider: 'disabled' | 'openai';
+    openaiApiKey?: string | undefined;
+    openaiBaseUrl: string;
+    structureModel: string;
+    transcriptionModel: string;
+    timeoutMs: number;
+  };
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -143,6 +154,7 @@ export type AppConfig = {
   auth: AppAuthConfig;
   outlookCalendar: AppOutlookCalendarConfig;
   monerisHostedTokenization: AppMonerisHostedTokenizationConfig;
+  ai: AppAiConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -164,6 +176,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const monerisIframeOrigin = optionalString(env.MONERIS_HOSTED_TOKENIZATION_IFRAME_ORIGIN)
     ?? safeUrlOrigin(monerisIframeUrl);
   const monerisCallbackSecret = optionalString(env.MONERIS_HOSTED_TOKENIZATION_CALLBACK_SECRET);
+  const voiceNotesOpenAiKey = optionalString(env.PULSE_VOICE_NOTES_OPENAI_API_KEY) ?? optionalString(env.OPENAI_API_KEY);
   const entraLoginRedirectUri = optionalString(env.MICROSOFT_ENTRA_LOGIN_REDIRECT_URI);
   const entraLoginScopes = parseScopes(env.MICROSOFT_ENTRA_LOGIN_SCOPES, [
     'openid',
@@ -311,6 +324,16 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       tokenTtlMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES, 30),
       cleanupIntervalMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_CLEANUP_INTERVAL_MINUTES, 15),
     },
+    ai: {
+      voiceNotes: {
+        provider: parseVoiceNotesProvider(env.PULSE_VOICE_NOTES_AI_PROVIDER, voiceNotesOpenAiKey ? 'openai' : 'disabled'),
+        openaiApiKey: voiceNotesOpenAiKey,
+        openaiBaseUrl: optionalString(env.PULSE_VOICE_NOTES_OPENAI_BASE_URL) ?? 'https://api.openai.com/v1',
+        structureModel: optionalString(env.PULSE_VOICE_NOTES_STRUCTURE_MODEL) ?? 'gpt-5.5',
+        transcriptionModel: optionalString(env.PULSE_VOICE_NOTES_TRANSCRIPTION_MODEL) ?? 'gpt-4o-transcribe',
+        timeoutMs: parseNumber(env.PULSE_VOICE_NOTES_AI_TIMEOUT_MS, 20_000),
+      },
+    },
   };
 }
 
@@ -359,6 +382,18 @@ function parseLeadOperationalAlertDeliveryMode(
 ): AppLeadOperationsConfig['operationalAlertDeliveryMode'] {
   const normalized = value?.trim().toLowerCase();
   if (normalized === 'preview' || normalized === 'disabled' || normalized === 'microsoft_graph') {
+    return normalized;
+  }
+
+  return fallback;
+}
+
+function parseVoiceNotesProvider(
+  value: string | undefined,
+  fallback: AppAiConfig['voiceNotes']['provider'],
+): AppAiConfig['voiceNotes']['provider'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'openai' || normalized === 'disabled') {
     return normalized;
   }
 

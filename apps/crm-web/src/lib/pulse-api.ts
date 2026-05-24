@@ -247,6 +247,10 @@ import type {
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
+  ListMobileVoiceNoteReviewQueueRequest,
+  ListMobileVoiceNotesResponse,
+  MobileVoiceNoteSummary,
+  ReviewMobileVoiceNoteRequest,
 } from '@pulse/contracts';
 import type {
   ActivateCatalogRuleSetResponse,
@@ -1636,6 +1640,44 @@ export async function fetchAccountDetail(apiBaseUrl: string, accessToken: string
   return requestJson<AccountDetail>(apiBaseUrl, `/api/v1/accounts/${accountId}`, {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function fetchFieldActivityReviewQueue(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: ListMobileVoiceNoteReviewQueueRequest = {},
+) {
+  const searchParams = new URLSearchParams();
+  if (query.contextType) searchParams.set('contextType', query.contextType);
+  if (query.processingStatus) searchParams.set('processingStatus', query.processingStatus);
+  if (query.reviewStatus) searchParams.set('reviewStatus', query.reviewStatus);
+  if (query.leadId) searchParams.set('leadId', query.leadId);
+  if (query.accountId) searchParams.set('accountId', query.accountId);
+  if (query.trainingSessionId) searchParams.set('trainingSessionId', query.trainingSessionId);
+  if (query.consignmentSiteId) searchParams.set('consignmentSiteId', query.consignmentSiteId);
+  if (query.createdByUserId) searchParams.set('createdByUserId', query.createdByUserId);
+  if (query.search) searchParams.set('search', query.search);
+  if (query.limit !== undefined) searchParams.set('limit', String(query.limit));
+  const pathname = searchParams.size
+    ? `/api/v1/mobile-voice-notes/review-queue?${searchParams.toString()}`
+    : '/api/v1/mobile-voice-notes/review-queue';
+  return requestJson<ListMobileVoiceNotesResponse>(apiBaseUrl, pathname, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function reviewFieldActivityVoiceNote(
+  apiBaseUrl: string,
+  accessToken: string,
+  voiceNoteId: string,
+  input: ReviewMobileVoiceNoteRequest,
+) {
+  return requestJson<MobileVoiceNoteSummary>(apiBaseUrl, `/api/v1/mobile-voice-notes/${voiceNoteId}/review`, {
+    method: 'POST',
+    accessToken,
+    body: input,
   });
 }
 

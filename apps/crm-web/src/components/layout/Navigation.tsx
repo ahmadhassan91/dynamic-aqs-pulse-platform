@@ -159,7 +159,7 @@ export function Navigation() {
       label: 'Product Management',
       icon: IconPackage,
       links: [
-        { label: 'Dealer Catalog Views', link: '/product-management?tab=visibility' },
+        { label: 'Who Sees It', link: '/product-management?tab=visibility' },
         { label: 'Products', link: '/product-management?tab=products' },
         { label: 'Files & Readiness', link: '/product-management?tab=readiness' },
         { label: 'Ready To Publish', link: '/product-management?tab=publish' },

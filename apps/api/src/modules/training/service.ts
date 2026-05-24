@@ -104,6 +104,14 @@ const TRAINING_SESSION_ENTITY = 'TRAINING_SESSION';
 const TRAINING_CERTIFICATION_ENTITY = 'TRAINING_CERTIFICATION_RECORD';
 const TRAINING_FOLLOW_UP_TASK_ENTITY = 'TRAINING_FOLLOW_UP_TASK';
 const TRAINING_PROOF_DOCUMENT_ENTITY = 'TRAINING_PROOF_DOCUMENT';
+const TRAINING_PROOF_MAX_BYTES = 4 * 1024 * 1024;
+const TRAINING_PROOF_ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/csv',
+]);
 
 const DEFAULT_TRAINING_CATEGORIES = [
   {
@@ -627,6 +635,9 @@ const trainingAccountArgs = Prisma.validator<Prisma.AccountDefaultArgs>()({
         email: true,
       },
     },
+    locations: {
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    },
     trainingPrograms: {
       include: trainingProgramArgs.include,
       orderBy: [{ nextDueAt: 'asc' }, { createdAt: 'asc' }],
@@ -668,6 +679,17 @@ type TrainingTemplateRecord = Prisma.TrainingTemplateGetPayload<{
 type TrainingCadencePolicyRecord = Prisma.TrainingCadencePolicyGetPayload<{
   include: { trainingType: true };
 }>;
+type TrainingCertificationLifecycleRecord = Prisma.TrainingCertificationRecordGetPayload<{
+  include: {
+    trainingType: true;
+    awardedByUser: {
+      select: {
+        id: true;
+        displayName: true;
+      };
+    };
+  };
+}>;
 
 const trainingFollowUpTaskInclude = Prisma.validator<Prisma.TrainingFollowUpTaskDefaultArgs>()({
   include: {
@@ -703,6 +725,94 @@ export async function ensureTrainingSeeded() {
   });
 
   return trainingSeedPromise;
+}
+
+async function requireVisibleTrainingAccount(
+  actor: AuthenticatedActor,
+  accountId: string,
+): Promise<TrainingAccountRecord> {
+  const accountScope = buildAccountRecordScope(actor);
+  const account = await prisma.account.findFirst({
+    where: {
+      AND: [
+        ...(accountScope ? [accountScope] : []),
+        { id: accountId },
+      ],
+    },
+    include: trainingAccountArgs.include,
+  });
+  if (!account) {
+    throw new Error('Account not found');
+  }
+  return account;
+}
+
+async function requireVisibleTrainingSession(
+  actor: AuthenticatedActor,
+  sessionId: string,
+): Promise<TrainingSessionRecord> {
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const session = await prisma.trainingSession.findFirst({
+    where: {
+      AND: [
+        ...(sessionScope ? [sessionScope] : []),
+        { id: sessionId },
+      ],
+    },
+    include: trainingSessionArgs.include,
+  });
+  if (!session) {
+    throw new Error('Training session not found');
+  }
+  return session;
+}
+
+async function requireVisibleTrainingFollowUpTask(
+  actor: AuthenticatedActor,
+  taskId: string,
+): Promise<Prisma.TrainingFollowUpTaskGetPayload<{ include: typeof trainingFollowUpTaskInclude }>> {
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const task = await prisma.trainingFollowUpTask.findFirst({
+    where: {
+      AND: [
+        ...(sessionScope ? [{ session: sessionScope }] : []),
+        { id: taskId },
+      ],
+    },
+    include: trainingFollowUpTaskInclude,
+  });
+  if (!task) {
+    throw new Error('Training follow-up task not found');
+  }
+  return task;
+}
+
+async function requireVisibleTrainingCertification(
+  actor: AuthenticatedActor,
+  certificationId: string,
+): Promise<TrainingCertificationLifecycleRecord> {
+  const accountScope = buildAccountRecordScope(actor);
+  const certification = await prisma.trainingCertificationRecord.findFirst({
+    where: {
+      AND: [
+        ...(accountScope ? [{ account: accountScope }] : []),
+        { id: certificationId },
+      ],
+    },
+    include: {
+      trainingType: true,
+      awardedByUser: {
+        select: {
+          id: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+  if (!certification) {
+    throw new Error('Training certification not found');
+  }
+  return certification;
 }
 
 async function ensureTrainingSeededInternal() {
@@ -828,6 +938,10 @@ async function ensureTrainingSeededInternal() {
 
 export async function listTrainingOverview(actor: AuthenticatedActor): Promise<TrainingOverviewResponse> {
   assertModuleAccess(actor.role, 'training');
+  const accountScope = buildAccountRecordScope(actor);
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const accountScopedWhere = accountScope ? { account: accountScope } : {};
+  const sessionScopedWhere = sessionScope ? { AND: [sessionScope] } : {};
 
   const [
     totalAccountsTracked,
@@ -845,11 +959,15 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
   ] = await Promise.all([
     prisma.account.count({
       where: {
-        isActive: true,
+        AND: [
+          ...(accountScope ? [accountScope] : []),
+          { isActive: true },
+        ],
       },
     }),
     prisma.accountTrainingProgram.count({
       where: {
+        ...accountScopedWhere,
         status: {
           in: [AccountTrainingProgramStatus.ACTIVE, AccountTrainingProgramStatus.NOT_STARTED, AccountTrainingProgramStatus.OVERDUE],
         },
@@ -857,16 +975,19 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
     }),
     prisma.trainingSession.count({
       where: {
+        ...sessionScopedWhere,
         status: TrainingSessionStatus.COMPLETED,
       },
     }),
     prisma.trainingSession.count({
       where: {
+        ...sessionScopedWhere,
         status: TrainingSessionStatus.SCHEDULED,
       },
     }),
     prisma.accountTrainingProgram.count({
       where: {
+        ...accountScopedWhere,
         OR: [
           { status: AccountTrainingProgramStatus.OVERDUE },
           {
@@ -880,6 +1001,7 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
     }),
     prisma.trainingFollowUpTask.count({
       where: {
+        ...(sessionScope ? { session: sessionScope } : {}),
         status: TrainingFollowUpTaskStatus.OPEN,
       },
     }),
@@ -900,11 +1022,13 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
     }),
     prisma.trainingCertificationRecord.count({
       where: {
+        ...accountScopedWhere,
         status: TrainingCertificationStatus.ACTIVE,
       },
     }),
     prisma.trainingSession.count({
       where: {
+        ...sessionScopedWhere,
         status: TrainingSessionStatus.COMPLETED,
         certificationOutcome: TrainingCertificationOutcome.PENDING_DECISION,
       },
@@ -913,6 +1037,7 @@ export async function listTrainingOverview(actor: AuthenticatedActor): Promise<T
 
   const completedHourSessions = await prisma.trainingSession.findMany({
     where: {
+      ...sessionScopedWhere,
       status: TrainingSessionStatus.COMPLETED,
       activityKind: TrainingActivityKind.TRAINING,
     },
@@ -1237,18 +1362,7 @@ export async function createAccountTrainingProgram(
 ): Promise<AccountTrainingProgramSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    include: {
-      businessSegment: true,
-      territory: true,
-      assignedTmUser: true,
-      assignedRdUser: true,
-    },
-  });
-  if (!account) {
-    throw new Error('Account not found');
-  }
+  const account = await requireVisibleTrainingAccount(actor, accountId);
 
   const trainingType = input.trainingTypeId
     ? await prisma.trainingType.findUnique({
@@ -1764,19 +1878,7 @@ export async function createTrainingSession(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    include: {
-      assignedTmUser: true,
-      assignedRdUser: true,
-      locations: {
-        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
-      },
-    },
-  });
-  if (!account) {
-    throw new Error('Account not found');
-  }
+  const account = await requireVisibleTrainingAccount(actor, accountId);
 
   const scheduledAt = parseIsoDate(input.scheduledAt, 'scheduledAt');
   if (scheduledAt.getTime() < Date.now() - 60_000) {
@@ -1898,13 +2000,7 @@ export async function rescheduleTrainingSession(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
   if (session.status !== TrainingSessionStatus.SCHEDULED) {
     throw new Error('Only scheduled training sessions can be rescheduled');
   }
@@ -1985,13 +2081,7 @@ export async function checkInTrainingSession(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
   if (session.status !== TrainingSessionStatus.SCHEDULED) {
     throw new Error('Only scheduled training sessions can be checked in');
   }
@@ -2044,13 +2134,7 @@ export async function completeTrainingSession(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
   if (session.status !== TrainingSessionStatus.SCHEDULED) {
     throw new Error('Only scheduled training sessions can be completed');
   }
@@ -2253,9 +2337,17 @@ export async function uploadTrainingSessionProof(
   if (!mimeType) {
     throw new Error('mimeType is required');
   }
+  if (!TRAINING_PROOF_ALLOWED_MIME_TYPES.has(mimeType.toLowerCase())) {
+    throw new Error('Unsupported training proof file type');
+  }
+
+  const estimatedSizeBytes = estimateBase64DecodedSize(input.contentBase64);
+  if (estimatedSizeBytes > TRAINING_PROOF_MAX_BYTES) {
+    throw new Error('Training proof file cannot exceed 4 MB');
+  }
 
   const documentType = toTrainingProofDocumentType(input.documentType ?? 'proof_attachment');
-  const storageKey = input.storageKey?.trim() || buildTrainingProofStorageKey(sessionId, fileName);
+  const storageKey = buildTrainingProofStorageKey(sessionId, fileName);
   const stored = await storeBase64Document(config, {
     storageKey,
     contentBase64: input.contentBase64,
@@ -2511,13 +2603,7 @@ export async function resolveTrainingCertificationDecision(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
   if (session.status !== TrainingSessionStatus.COMPLETED) {
     throw new Error('Only completed training sessions can resolve certification decisions');
   }
@@ -2621,13 +2707,7 @@ export async function cancelTrainingSession(
 ): Promise<TrainingSessionSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
   if (session.status !== TrainingSessionStatus.SCHEDULED) {
     throw new Error('Only scheduled training sessions can be cancelled or marked no-show');
   }
@@ -2689,13 +2769,7 @@ export async function createTrainingFollowUpTask(
 ): Promise<TrainingFollowUpTaskSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: sessionId },
-    include: trainingSessionArgs.include,
-  });
-  if (!session) {
-    throw new Error('Training session not found');
-  }
+  const session = await requireVisibleTrainingSession(actor, sessionId);
 
   const created = await prisma.$transaction(async (tx) => {
     const task = await createTrainingFollowUpTaskInTransaction(tx, actor, session, input);
@@ -2712,13 +2786,7 @@ export async function completeTrainingFollowUpTask(
 ): Promise<TrainingFollowUpTaskSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const task = await prisma.trainingFollowUpTask.findUnique({
-    where: { id: taskId },
-    include: trainingFollowUpTaskInclude,
-  });
-  if (!task) {
-    throw new Error('Training follow-up task not found');
-  }
+  const task = await requireVisibleTrainingFollowUpTask(actor, taskId);
   if (task.status !== TrainingFollowUpTaskStatus.OPEN) {
     throw new Error('Only open follow-up tasks can be completed');
   }
@@ -2763,21 +2831,7 @@ export async function revokeTrainingCertification(
 ): Promise<TrainingCertificationSummary> {
   assertActionAccess(actor.role, 'training.schedule');
 
-  const certification = await prisma.trainingCertificationRecord.findUnique({
-    where: { id: certificationId },
-    include: {
-      trainingType: true,
-      awardedByUser: {
-        select: {
-          id: true,
-          displayName: true,
-        },
-      },
-    },
-  });
-  if (!certification) {
-    throw new Error('Training certification not found');
-  }
+  const certification = await requireVisibleTrainingCertification(actor, certificationId);
 
   if (certification.status === TrainingCertificationStatus.REVOKED) {
     return toTrainingCertificationSummary(certification);
@@ -4107,6 +4161,15 @@ function compareQueueAccountNames(left: string | undefined, right: string | unde
 function buildTrainingProofStorageKey(sessionId: string, fileName: string) {
   const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]+/g, '_');
   return ['training-proof', sessionId, `${Date.now()}-${safeFileName}`].join('/');
+}
+
+function estimateBase64DecodedSize(value: string) {
+  const normalized = value.trim().replace(/\s+/g, '');
+  if (!normalized) {
+    throw new Error('contentBase64 is required');
+  }
+  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+  return Math.floor((normalized.length * 3) / 4) - padding;
 }
 
 function severityWeight(severity: TrainingExecutionExceptionSeverityKey) {

@@ -68,6 +68,8 @@ import {
   uploadTrainingSessionProof,
 } from './service.js';
 
+const TRAINING_PROOF_UPLOAD_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
 export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
   const method = req.method ?? 'GET';
   const pathname = url.pathname;
@@ -496,7 +498,7 @@ export async function handleTrainingRoutes(req: IncomingMessage, res: ServerResp
       }
 
       return withTrainingAuth(req, res, { action: 'training.schedule' }, async (actor) => {
-        const body = (await readJsonBody(req)) as UploadTrainingSessionProofRequest;
+        const body = (await readJsonBody(req, TRAINING_PROOF_UPLOAD_BODY_LIMIT_BYTES)) as UploadTrainingSessionProofRequest;
         const response = await uploadTrainingSessionProof(actor, config, sessionId, body);
         return jsonResponse(res, 201, response);
       });

@@ -1337,13 +1337,7 @@ export async function reassignLeadTerritory(
   }
   await assertTerritoryReassignmentVisible(actor, 'lead', leadId);
 
-  const territory = await prisma.territory.findUnique({
-    where: { id: input.territoryId },
-    include: TERRITORY_INCLUDE,
-  });
-  if (!territory || !territory.isActive) {
-    throw new Error('Unknown or inactive territory');
-  }
+  const territory = await requireVisibleTargetTerritory(actor, input.territoryId);
 
   const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
   const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
@@ -1428,13 +1422,7 @@ export async function reassignAccountTerritory(
   }
   await assertTerritoryReassignmentVisible(actor, 'account', accountId);
 
-  const territory = await prisma.territory.findUnique({
-    where: { id: input.territoryId },
-    include: TERRITORY_INCLUDE,
-  });
-  if (!territory || !territory.isActive) {
-    throw new Error('Unknown or inactive territory');
-  }
+  const territory = await requireVisibleTargetTerritory(actor, input.territoryId);
 
   const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
   const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
@@ -1521,13 +1509,7 @@ export async function bulkReassignLeadTerritories(
     throw new Error('At least one lead is required');
   }
 
-  const territory = await prisma.territory.findUnique({
-    where: { id: input.territoryId },
-    include: TERRITORY_INCLUDE,
-  });
-  if (!territory || !territory.isActive) {
-    throw new Error('Unknown or inactive territory');
-  }
+  const territory = await requireVisibleTargetTerritory(actor, input.territoryId);
 
   const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
   const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
@@ -1650,13 +1632,7 @@ export async function bulkReassignAccountTerritories(
     throw new Error('At least one account is required');
   }
 
-  const territory = await prisma.territory.findUnique({
-    where: { id: input.territoryId },
-    include: TERRITORY_INCLUDE,
-  });
-  if (!territory || !territory.isActive) {
-    throw new Error('Unknown or inactive territory');
-  }
+  const territory = await requireVisibleTargetTerritory(actor, input.territoryId);
 
   const assignedTmUserId = await validateOptionalTerritoryOwnerUserId(input.assignedTmUserId, 'TERRITORY_MANAGER');
   const assignedRdUserId = await validateOptionalTerritoryOwnerUserId(input.assignedRdUserId, 'REGIONAL_DIRECTOR');
@@ -2131,6 +2107,26 @@ const TERRITORY_INCLUDE = {
     },
   },
 } satisfies Prisma.TerritoryInclude;
+
+async function requireVisibleTargetTerritory(
+  actor: AuthenticatedActor,
+  territoryId: string,
+): Promise<TerritoryWithRefs> {
+  const territoryScope = await buildTerritoryReadScope(actor);
+  const territory = await prisma.territory.findFirst({
+    where: {
+      AND: [
+        ...(territoryScope ? [territoryScope] : []),
+        { id: territoryId, isActive: true },
+      ],
+    },
+    include: TERRITORY_INCLUDE,
+  });
+  if (!territory) {
+    throw new Error('Unknown, inactive, or inaccessible territory');
+  }
+  return territory;
+}
 
 const LEAD_TERRITORY_INCLUDE = {
   affinityGroup: {

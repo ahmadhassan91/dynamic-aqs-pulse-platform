@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
-import { Card, ErrorState, Field, HeroCard, PrimaryButton, Screen } from '@/components/native-kit';
+import { Card, ErrorState, Field, HeroCard, PrimaryButton, Screen, SecondaryButton } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
@@ -49,7 +49,27 @@ export default function LoginScreen() {
           <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
             API Environment
           </Text>
-          <Field label="Base URL" value={apiBaseUrl} onChangeText={setApiBaseUrl} autoCapitalize="none" autoCorrect={false} />
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            Production is used by default. QA can switch to a local API without fighting the keyboard.
+          </Text>
+          <Field
+            label="Base URL"
+            value={apiBaseUrl}
+            onChangeText={setApiBaseUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            selectTextOnFocus
+            placeholder="https://pulse-crm.theclustox.com"
+          />
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <SecondaryButton label="Production" icon={{ name: 'checkmark.seal.fill', fallback: 'P' }} onPress={() => setApiBaseUrl('https://pulse-crm.theclustox.com')} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <SecondaryButton label="Local QA" icon={{ name: 'desktopcomputer', fallback: 'Q' }} onPress={() => setApiBaseUrl('http://127.0.0.1:8111')} />
+            </View>
+          </View>
         </Card>
       </Screen>
     </KeyboardAvoidingView>

@@ -3,6 +3,8 @@ import type { URL } from 'node:url';
 import type {
   AcceptDealerPortalInviteRequest,
   DealerPortalAccessRoleKey,
+  DealerPortalSelfCreateUserRequest,
+  DealerPortalSelfUpdateUserRequest,
   ProvisionDealerPortalUserRequest,
   ResetDealerPortalUserPasswordRequest,
   UpdateDealerPortalUserStatusRequest,
@@ -24,6 +26,7 @@ import {
 } from '../auth/request.js';
 import {
   acceptDealerPortalInvite,
+  createCurrentDealerPortalUser,
   createDealerPortalInvite,
   favoriteCurrentDealerPortalProduct,
   getCurrentDealerPortalCatalog,
@@ -34,6 +37,7 @@ import {
   recordCurrentDealerPortalAssetOpen,
   resetDealerPortalUserPassword,
   unfavoriteCurrentDealerPortalProduct,
+  updateCurrentDealerPortalUser,
   updateDealerPortalUserStatus,
 } from './service.js';
 
@@ -51,6 +55,8 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
     || pathname === '/api/v1/dealer-portal/invites/accept'
     || pathname === '/api/v1/dealer-portal/me/catalog'
     || pathname === '/api/v1/dealer-portal/me/dashboard'
+    || pathname === '/api/v1/dealer-portal/me/users'
+    || /^\/api\/v1\/dealer-portal\/me\/users\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/me\/favorites\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/me\/assets\/[^/]+\/open$/.test(pathname);
 
@@ -92,6 +98,37 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
         module: 'dealer_portal',
       });
       const response = await getCurrentDealerPortalDashboard(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/dealer-portal/me/users') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+      });
+      const body = (await readJsonBody(req)) as DealerPortalSelfCreateUserRequest;
+      const response = await createCurrentDealerPortalUser(actor, body);
+      return jsonResponse(res, 201, response);
+    }
+
+    const currentUserMatch = pathname.match(/^\/api\/v1\/dealer-portal\/me\/users\/([^/]+)$/);
+    if (currentUserMatch) {
+      const portalUserId = currentUserMatch[1];
+      if (!portalUserId) {
+        return badRequestResponse(res, 'Dealer portal user id is required');
+      }
+      if (method !== 'PATCH') {
+        return methodNotAllowedResponse(res, method, ['PATCH']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+      });
+      const body = (await readJsonBody(req)) as DealerPortalSelfUpdateUserRequest;
+      const response = await updateCurrentDealerPortalUser(actor, decodeURIComponent(portalUserId), body);
       return jsonResponse(res, 200, response);
     }
 

@@ -8,7 +8,8 @@ export function Screen({ children }: { children: ReactNode }) {
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 52, gap: spacing.lg }}
+      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136, gap: spacing.lg }}
+      keyboardShouldPersistTaps="handled"
     >
       {children}
     </ScrollView>

@@ -8,7 +8,16 @@ import type {
   ListConsignmentSitesResponse,
   UpdateConsignmentAuditRequest,
   ConsignmentAuditSummary,
+  UploadConsignmentAuditEvidenceRequest,
+  UploadConsignmentAuditEvidenceResponse,
 } from '@pulse/contracts/consignment';
+import type {
+  CreateDigitalAssetShareLinkRequest,
+  DigitalAssetDetail,
+  DigitalAssetShareLinkSummary,
+  ListDigitalAssetsRequest,
+  ListDigitalAssetsResponse,
+} from '@pulse/contracts/digital-assets';
 import type {
   LeadDetail,
   ListLeadsRequest,
@@ -26,6 +35,8 @@ import type {
   ListTrainingSessionsRequest,
   ListTrainingSessionsResponse,
   TrainingSessionSummary,
+  UploadTrainingSessionProofRequest,
+  UploadTrainingSessionProofResponse,
 } from '@pulse/contracts/training';
 
 export type AuthBundle = {
@@ -169,6 +180,14 @@ export async function updateConsignmentAudit(apiBaseUrl: string, accessToken: st
   });
 }
 
+export async function uploadConsignmentAuditEvidenceRecord(apiBaseUrl: string, accessToken: string, auditId: string, input: UploadConsignmentAuditEvidenceRequest) {
+  return requestJson<UploadConsignmentAuditEvidenceResponse>(apiBaseUrl, `/api/v1/consignment/audits/${encodeURIComponent(auditId)}/evidence`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
 export async function fetchTrainingSessions(apiBaseUrl: string, accessToken: string, query: ListTrainingSessionsRequest = {}) {
   const searchParams = new URLSearchParams();
   append(searchParams, 'accountId', query.accountId);
@@ -202,6 +221,41 @@ export async function checkInTrainingSessionRecord(apiBaseUrl: string, accessTok
 
 export async function completeTrainingSessionRecord(apiBaseUrl: string, accessToken: string, sessionId: string, input: CompleteTrainingSessionRequest) {
   return requestJson<TrainingSessionSummary>(apiBaseUrl, `/api/v1/training/sessions/${encodeURIComponent(sessionId)}/complete`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function uploadTrainingSessionProofRecord(apiBaseUrl: string, accessToken: string, sessionId: string, input: UploadTrainingSessionProofRequest) {
+  return requestJson<UploadTrainingSessionProofResponse>(apiBaseUrl, `/api/v1/training/sessions/${encodeURIComponent(sessionId)}/proof`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchDigitalAssets(apiBaseUrl: string, accessToken: string, query: ListDigitalAssetsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'search', query.search);
+  append(searchParams, 'kind', query.kind);
+  append(searchParams, 'status', query.status);
+  append(searchParams, 'visibility', query.visibility);
+  append(searchParams, 'brandScope', query.brandScope);
+  append(searchParams, 'regionScope', query.regionScope);
+  append(searchParams, 'dealerGroupId', query.dealerGroupId);
+  append(searchParams, 'sourceSystem', query.sourceSystem);
+  append(searchParams, 'limit', query.limit);
+  const path = `/api/v1/digital-assets/assets${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListDigitalAssetsResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function fetchDigitalAssetDetail(apiBaseUrl: string, accessToken: string, assetId: string) {
+  return requestJson<DigitalAssetDetail>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}`, { accessToken });
+}
+
+export async function createDigitalAssetShareLink(apiBaseUrl: string, accessToken: string, assetId: string, input: CreateDigitalAssetShareLinkRequest) {
+  return requestJson<DigitalAssetShareLinkSummary>(apiBaseUrl, `/api/v1/digital-assets/assets/${encodeURIComponent(assetId)}/share-links`, {
     method: 'POST',
     accessToken,
     body: input,
@@ -254,6 +308,10 @@ function parsePayload(text: string) {
 }
 
 function extractErrorMessage(payload: unknown) {
+  if (payload && typeof payload === 'object' && 'detail' in payload) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === 'string') return detail;
+  }
   if (payload && typeof payload === 'object' && 'error' in payload) {
     const error = (payload as { error?: unknown }).error;
     if (typeof error === 'string') return error;

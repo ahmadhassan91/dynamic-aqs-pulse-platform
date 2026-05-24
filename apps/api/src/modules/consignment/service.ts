@@ -5,6 +5,7 @@ import {
 import {
   AuditAction,
   ConsignmentAcumaticaStatus,
+  ConsignmentAuditEvidencePurpose,
   ConsignmentAuditStatus,
   ConsignmentDiscrepancyStatus,
   ConsignmentFormStatus,
@@ -20,6 +21,8 @@ import {
 import type {
   CompleteConsignmentAuditRequest,
   ConsignmentAccountReadModel,
+  ConsignmentAuditEvidenceSummary,
+  ConsignmentAuditEvidencePurposeKey,
   ConsignmentAuditSummary,
   ConsignmentFormStatusKey,
   ConsignmentFormSummary,
@@ -37,15 +40,27 @@ import type {
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
+  UploadConsignmentAuditEvidenceRequest,
+  UploadConsignmentAuditEvidenceResponse,
   UpsertConsignmentDocumentRequest,
 } from '@pulse/contracts/consignment';
+import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { storeBase64Document } from '../documents/storage.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const ROSE_CADENCE_DAYS = 90;
 const PO_CLOCK_BUSINESS_DAYS = 5;
+const CONSIGNMENT_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024;
+const CONSIGNMENT_EVIDENCE_ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
 const ACTIVATION_READY_FORM_STATUSES = new Set<ConsignmentFormStatus>([
   ConsignmentFormStatus.SIGNED,
   ConsignmentFormStatus.APPROVED,
@@ -72,7 +87,7 @@ const SITE_INCLUDE = {
   region: { select: { id: true, name: true } },
   shippingCenter: { select: { id: true, name: true } },
   forms: { orderBy: [{ createdAt: 'desc' }] },
-  audits: { include: { lines: { orderBy: [{ createdAt: 'asc' }] } }, orderBy: [{ scheduledFor: 'desc' }], take: 10 },
+  audits: { include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } }, orderBy: [{ scheduledFor: 'desc' }], take: 10 },
   workItems: { orderBy: [{ createdAt: 'desc' }], take: 25 },
   _count: {
     select: {
@@ -310,7 +325,7 @@ export async function listConsignmentAudits(actor: AuthenticatedActor, siteId: s
 export async function createConsignmentAudit(actor: AuthenticatedActor, siteId: string, input: CreateConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
   assertConsignmentAuditManage(actor);
   await getSiteForMutation(actor, siteId);
-  const audit = await prisma.consignmentAudit.create({ data: compact({ siteId, scheduledFor: parseRequiredDate(input.scheduledFor, 'scheduledFor'), notes: cleanOptional(input.notes) }) as any, include: { lines: true } });
+  const audit = await prisma.consignmentAudit.create({ data: compact({ siteId, scheduledFor: parseRequiredDate(input.scheduledFor, 'scheduledFor'), notes: cleanOptional(input.notes) }) as any, include: { lines: true, evidence: true } });
   return mapAudit(audit);
 }
 
@@ -322,8 +337,87 @@ export async function updateConsignmentAudit(actor: AuthenticatedActor, auditId:
     return completeAudit(actor, audit.siteId, audit.id, compact({ completedAt: input.completedAt ?? undefined, notes: input.notes, reconciliationStatus: input.reconciliationStatus, lines: input.lines }) as UpdateConsignmentAuditRequest);
   }
   await getSiteForMutation(actor, audit.siteId);
-  const updated = await prisma.consignmentAudit.update({ where: { id: audit.id }, data: { ...(input.scheduledFor !== undefined ? { scheduledFor: parseRequiredDate(input.scheduledFor, 'scheduledFor') } : {}), ...(input.status !== undefined ? { status: input.status.toUpperCase() as ConsignmentAuditStatus } : {}), ...(input.notes !== undefined ? { notes: cleanNullable(input.notes) } : {}), ...(input.reconciliationStatus !== undefined ? { reconciliationStatus: toReconciliationStatus(input.reconciliationStatus) } : {}) }, include: { lines: { orderBy: [{ createdAt: 'asc' }] } } });
+  const updated = await prisma.consignmentAudit.update({ where: { id: audit.id }, data: { ...(input.scheduledFor !== undefined ? { scheduledFor: parseRequiredDate(input.scheduledFor, 'scheduledFor') } : {}), ...(input.status !== undefined ? { status: input.status.toUpperCase() as ConsignmentAuditStatus } : {}), ...(input.notes !== undefined ? { notes: cleanNullable(input.notes) } : {}), ...(input.reconciliationStatus !== undefined ? { reconciliationStatus: toReconciliationStatus(input.reconciliationStatus) } : {}) }, include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } } });
   return mapAudit(updated);
+}
+
+export async function uploadConsignmentAuditEvidence(
+  actor: AuthenticatedActor,
+  config: AppConfig,
+  auditId: string,
+  input: UploadConsignmentAuditEvidenceRequest,
+): Promise<UploadConsignmentAuditEvidenceResponse> {
+  assertConsignmentAuditManage(actor);
+  const audit = await prisma.consignmentAudit.findFirst({
+    where: { AND: [{ id: auditId }, { site: siteScopeWhere(actor) }] },
+    include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } },
+  });
+  if (!audit) throw new Error('Consignment audit not found');
+  if (audit.status === ConsignmentAuditStatus.CANCELLED) throw new Error('Evidence cannot be uploaded to a cancelled ROSE audit');
+
+  const fileName = cleanOptional(input.fileName);
+  const mimeType = cleanOptional(input.mimeType)?.toLowerCase();
+  const contentBase64 = cleanOptional(input.contentBase64);
+  if (!fileName) throw new Error('fileName is required');
+  if (!mimeType) throw new Error('mimeType is required');
+  if (!contentBase64) throw new Error('contentBase64 is required');
+  if (!CONSIGNMENT_EVIDENCE_ALLOWED_MIME_TYPES.has(mimeType)) {
+    throw new Error('ROSE evidence upload accepts photos only');
+  }
+  const estimatedSizeBytes = estimateBase64DecodedSize(contentBase64);
+  if (estimatedSizeBytes > CONSIGNMENT_EVIDENCE_MAX_BYTES) {
+    throw new Error('ROSE evidence photo cannot exceed 4 MB');
+  }
+
+  const purpose = toEvidencePurpose(input.purpose ?? 'general');
+  const storageKey = buildConsignmentEvidenceStorageKey(auditId, fileName);
+  const stored = await storeBase64Document(config, { storageKey, contentBase64 });
+
+  const result = await prisma.$transaction(async (tx) => {
+    const evidence = await tx.consignmentAuditEvidence.create({
+      data: {
+        auditId,
+        siteId: audit.siteId,
+        purpose,
+        storageKey,
+        fileName,
+        mimeType,
+        sizeBytes: stored.sizeBytes,
+        sha256: stored.sha256,
+        uploadedByUserId: actor.userId,
+        ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      },
+      include: { uploadedBy: { select: { id: true, displayName: true } } },
+    });
+
+    const nextAudit = await tx.consignmentAudit.findUniqueOrThrow({
+      where: { id: auditId },
+      include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: 'CONSIGNMENT_AUDIT_EVIDENCE',
+        entityId: evidence.id,
+        afterData: { ...mapEvidence(evidence) },
+        metadata: {
+          auditId,
+          siteId: audit.siteId,
+          acumaticaBoundary: 'not_an_acumatica_attachment',
+          storageOwner: 'pulse_crm',
+        },
+      }),
+    });
+
+    return { evidence, audit: nextAudit };
+  });
+
+  return {
+    audit: mapAudit(result.audit),
+    evidence: mapEvidence(result.evidence),
+  };
 }
 
 export async function listConsignmentReadinessItems(actor: AuthenticatedActor, siteId: string): Promise<ConsignmentReadinessItemSummary[] | null> {
@@ -373,7 +467,7 @@ async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId:
         }) as any),
       });
     }
-    const row = await tx.consignmentAudit.findUniqueOrThrow({ where: { id: auditId }, include: { lines: { orderBy: [{ createdAt: 'asc' }] } } });
+    const row = await tx.consignmentAudit.findUniqueOrThrow({ where: { id: auditId }, include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } } });
     await tx.consignmentSite.update({ where: { id: siteId }, data: { lastAuditCompletedAt: completedAt, nextAuditDueAt: addDays(completedAt, ROSE_CADENCE_DAYS) } });
     if (hasVariance) {
       const poDueAt = addBusinessDays(completedAt, PO_CLOCK_BUSINESS_DAYS);
@@ -477,8 +571,29 @@ function mapForm(form: { id: string; siteId: string; formType: ConsignmentFormTy
   return { id: form.id, siteId: form.siteId, formType: mapFormType(form.formType), status: mapFormStatus(form.status), ...(form.title ? { title: form.title } : {}), ...(form.documentUrl ? { documentUrl: form.documentUrl } : {}), ...(form.externalRef ? { externalRef: form.externalRef } : {}), version: form.version, isCurrent: form.isCurrent, ...(form.receivedAt ? { receivedAt: form.receivedAt.toISOString() } : {}), ...(form.signedAt ? { signedAt: form.signedAt.toISOString() } : {}), ...(form.approvedAt ? { approvedAt: form.approvedAt.toISOString() } : {}), ...(form.notes ? { notes: form.notes } : {}), createdAt: form.createdAt.toISOString(), updatedAt: form.updatedAt.toISOString() };
 }
 
-function mapAudit(audit: { id: string; siteId: string; scheduledFor: Date; startedAt: Date | null; completedAt: Date | null; status: ConsignmentAuditStatus; reconciliationStatus: ConsignmentReconciliationStatus; expectedSource: string; sourceFreshnessLabel: string; notes: string | null; createdAt: Date; updatedAt: Date; lines: Array<{ id: string; sku: string | null; barcode: string | null; productName: string; expectedQuantity: number | null; actualQuantity: number | null; varianceQuantity: number | null; notes: string | null }> }): ConsignmentAuditSummary {
-  return { id: audit.id, siteId: audit.siteId, scheduledFor: audit.scheduledFor.toISOString(), ...(audit.startedAt ? { startedAt: audit.startedAt.toISOString() } : {}), ...(audit.completedAt ? { completedAt: audit.completedAt.toISOString() } : {}), status: audit.status.toLowerCase() as ConsignmentAuditSummary['status'], reconciliationStatus: audit.reconciliationStatus.toLowerCase() as ConsignmentAuditSummary['reconciliationStatus'], expectedSource: audit.expectedSource, sourceFreshnessLabel: audit.sourceFreshnessLabel, ...(audit.notes ? { notes: audit.notes } : {}), lines: audit.lines.map((line) => ({ id: line.id, ...(line.sku ? { sku: line.sku } : {}), ...(line.barcode ? { barcode: line.barcode } : {}), productName: line.productName, ...(line.expectedQuantity !== null ? { expectedQuantity: line.expectedQuantity } : {}), ...(line.actualQuantity !== null ? { actualQuantity: line.actualQuantity } : {}), ...(line.varianceQuantity !== null ? { varianceQuantity: line.varianceQuantity } : {}), ...(line.notes ? { notes: line.notes } : {}) })), createdAt: audit.createdAt.toISOString(), updatedAt: audit.updatedAt.toISOString() };
+function mapAudit(audit: { id: string; siteId: string; scheduledFor: Date; startedAt: Date | null; completedAt: Date | null; status: ConsignmentAuditStatus; reconciliationStatus: ConsignmentReconciliationStatus; expectedSource: string; sourceFreshnessLabel: string; notes: string | null; createdAt: Date; updatedAt: Date; lines: Array<{ id: string; sku: string | null; barcode: string | null; productName: string; expectedQuantity: number | null; actualQuantity: number | null; varianceQuantity: number | null; notes: string | null }>; evidence?: Array<{ purpose: ConsignmentAuditEvidencePurpose }> }): ConsignmentAuditSummary {
+  const evidence = audit.evidence ?? [];
+  return { id: audit.id, siteId: audit.siteId, scheduledFor: audit.scheduledFor.toISOString(), ...(audit.startedAt ? { startedAt: audit.startedAt.toISOString() } : {}), ...(audit.completedAt ? { completedAt: audit.completedAt.toISOString() } : {}), status: audit.status.toLowerCase() as ConsignmentAuditSummary['status'], reconciliationStatus: audit.reconciliationStatus.toLowerCase() as ConsignmentAuditSummary['reconciliationStatus'], expectedSource: audit.expectedSource, sourceFreshnessLabel: audit.sourceFreshnessLabel, ...(audit.notes ? { notes: audit.notes } : {}), lines: audit.lines.map((line) => ({ id: line.id, ...(line.sku ? { sku: line.sku } : {}), ...(line.barcode ? { barcode: line.barcode } : {}), productName: line.productName, ...(line.expectedQuantity !== null ? { expectedQuantity: line.expectedQuantity } : {}), ...(line.actualQuantity !== null ? { actualQuantity: line.actualQuantity } : {}), ...(line.varianceQuantity !== null ? { varianceQuantity: line.varianceQuantity } : {}), ...(line.notes ? { notes: line.notes } : {}) })), evidenceCount: evidence.length, discrepancyEvidenceCount: evidence.filter((item) => item.purpose === ConsignmentAuditEvidencePurpose.DISCREPANCY).length, createdAt: audit.createdAt.toISOString(), updatedAt: audit.updatedAt.toISOString() };
+}
+
+function mapEvidence(evidence: { id: string; auditId: string; siteId: string; purpose: ConsignmentAuditEvidencePurpose; storageKey: string; fileName: string; mimeType: string; sizeBytes: number; sha256: string | null; notes: string | null; uploadedByUserId: string | null; uploadedBy?: { displayName: string | null } | null; uploadedAt: Date; createdAt: Date; updatedAt: Date }): ConsignmentAuditEvidenceSummary {
+  return {
+    id: evidence.id,
+    auditId: evidence.auditId,
+    siteId: evidence.siteId,
+    purpose: evidence.purpose.toLowerCase() as ConsignmentAuditEvidenceSummary['purpose'],
+    storageKey: evidence.storageKey,
+    fileName: evidence.fileName,
+    mimeType: evidence.mimeType,
+    sizeBytes: evidence.sizeBytes,
+    ...(evidence.sha256 ? { sha256: evidence.sha256 } : {}),
+    ...(evidence.notes ? { notes: evidence.notes } : {}),
+    ...(evidence.uploadedByUserId ? { uploadedByUserId: evidence.uploadedByUserId } : {}),
+    ...(evidence.uploadedBy?.displayName ? { uploadedByName: evidence.uploadedBy.displayName } : {}),
+    uploadedAt: evidence.uploadedAt.toISOString(),
+    createdAt: evidence.createdAt.toISOString(),
+    updatedAt: evidence.updatedAt.toISOString(),
+  };
 }
 
 function snapshotSite(site: SiteWithRelations) {
@@ -492,6 +607,12 @@ function toFormType(type: ConsignmentFormTypeKey): ConsignmentFormType { return 
 function mapFormStatus(status: ConsignmentFormStatus): ConsignmentFormStatusKey { return status.toLowerCase() as ConsignmentFormStatusKey; }
 function toFormStatus(status: ConsignmentFormStatusKey): ConsignmentFormStatus { return status.toUpperCase() as ConsignmentFormStatus; }
 function toReconciliationStatus(status: string): ConsignmentReconciliationStatus { return status.toUpperCase() as ConsignmentReconciliationStatus; }
+function toEvidencePurpose(purpose: ConsignmentAuditEvidencePurposeKey): ConsignmentAuditEvidencePurpose {
+  if (purpose !== 'general' && purpose !== 'discrepancy') {
+    throw new Error('purpose must be general or discrepancy');
+  }
+  return purpose.toUpperCase() as ConsignmentAuditEvidencePurpose;
+}
 function clampLimit(limit?: number) { return !limit || Number.isNaN(limit) ? DEFAULT_LIMIT : Math.max(1, Math.min(MAX_LIMIT, Math.trunc(limit))); }
 function cleanOptional(value: string | undefined) { const trimmed = value?.trim(); return trimmed ? trimmed : undefined; }
 function cleanNullable(value: string | null | undefined) { if (value === null) return null; const trimmed = value?.trim(); return trimmed ? trimmed : null; }
@@ -501,3 +622,6 @@ function parseOptionalDate(value: string | null | undefined) { return value ? pa
 function addDays(date: Date, days: number) { const next = new Date(date); next.setUTCDate(next.getUTCDate() + days); return next; }
 function addBusinessDays(date: Date, days: number) { const next = new Date(date); let remaining = days; while (remaining > 0) { next.setUTCDate(next.getUTCDate() + 1); const day = next.getUTCDay(); if (day !== 0 && day !== 6) remaining -= 1; } return next; }
 function computeVariance(expected?: number, actual?: number) { return expected === undefined || actual === undefined ? undefined : actual - expected; }
+function estimateBase64DecodedSize(value: string) { const normalized = value.trim().replace(/\s+/g, ''); const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0; return Math.floor((normalized.length * 3) / 4) - padding; }
+function buildConsignmentEvidenceStorageKey(auditId: string, fileName: string) { return `consignment/audits/${auditId}/evidence/${Date.now()}-${sanitizeFileName(fileName)}`; }
+function sanitizeFileName(fileName: string) { return fileName.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'rose-evidence.jpg'; }

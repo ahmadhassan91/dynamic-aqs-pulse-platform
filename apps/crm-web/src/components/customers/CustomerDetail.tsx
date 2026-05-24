@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Loader, Paper, Stack, Tabs, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Loader, Paper, Progress, SimpleGrid, Stack, Tabs, Text, Title } from '@mantine/core';
 import type { AccountDetail as AccountDetailRecord, TrainingCatalogResponse } from '@pulse/contracts';
 import { fetchAccountDetail, fetchTrainingCatalog } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -155,6 +155,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
 
       {account ? (
         <Stack gap="md">
+          <AccountReadinessBrief account={account} />
           {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
           <Tabs defaultValue={defaultTab}>
             <Tabs.List>
@@ -196,4 +197,70 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
       ) : null}
     </Stack>
   );
+}
+
+function AccountReadinessBrief({ account }: { account: AccountDetailRecord }) {
+  const attentionCount = account.readiness.checks.filter((check) => check.status === 'needs_attention').length;
+  const parkedCount = account.readiness.checks.filter((check) => check.status === 'parked').length;
+  const keyChecks = account.readiness.checks.filter((check) => ['territory', 'dealer_membership', 'source_lineage', 'erp_activity'].includes(check.key));
+
+  return (
+    <Paper withBorder radius="md" p="lg">
+      <Group justify="space-between" align="flex-start" mb="md">
+        <Stack gap={4}>
+          <Group gap="xs">
+            <Title order={3}>Account Readiness</Title>
+            <Badge color={readinessColor(account.readiness.status)} variant="light">
+              {formatReadinessStatus(account.readiness.status)}
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            One place to confirm the account is ready for territory handoff, dealer catalog visibility, training, and support work.
+          </Text>
+        </Stack>
+        <Stack gap={4} align="flex-end">
+          <Text fw={700} size="xl">{account.readiness.score}%</Text>
+          <Text size="xs" c="dimmed">{attentionCount} needs attention · {parkedCount} parked</Text>
+        </Stack>
+      </Group>
+      <Progress value={account.readiness.score} color={readinessColor(account.readiness.status)} mb="md" />
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
+        {keyChecks.map((check) => (
+          <Card key={check.key} withBorder radius="md" p="md">
+            <Stack gap={6}>
+              <Group justify="space-between" align="flex-start">
+                <Text fw={700}>{check.label}</Text>
+                <Badge color={readinessColor(check.status)} variant="light" size="sm">
+                  {formatReadinessStatus(check.status)}
+                </Badge>
+              </Group>
+              <Text size="sm" c="dimmed">{check.message}</Text>
+            </Stack>
+          </Card>
+        ))}
+      </SimpleGrid>
+    </Paper>
+  );
+}
+
+function readinessColor(status: AccountDetailRecord['readiness']['status']) {
+  switch (status) {
+    case 'ready':
+      return 'green';
+    case 'needs_attention':
+      return 'yellow';
+    case 'parked':
+      return 'gray';
+  }
+}
+
+function formatReadinessStatus(status: AccountDetailRecord['readiness']['status']) {
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'needs_attention':
+      return 'Needs Attention';
+    case 'parked':
+      return 'Parked';
+  }
 }

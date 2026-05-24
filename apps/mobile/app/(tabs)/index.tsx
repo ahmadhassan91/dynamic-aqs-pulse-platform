@@ -14,6 +14,8 @@ export default function FieldHomeScreen() {
   const { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
   const drafts = useMobileDraftQueue();
   const unsyncedDrafts = drafts.filter((draft) => draft.status !== 'synced');
+  const dueConsignmentSites = consignmentSites.filter((site) => site.nextAuditDueAt);
+  const notificationCount = (queueSummary?.urgentCount ?? 0) + (queueSummary?.slaRiskCount ?? 0) + dueConsignmentSites.length + consignmentWorkItems.length + unsyncedDrafts.length;
 
   const activeAccounts = accounts.filter((account) => account.lifecycleStatus === 'active').length;
 
@@ -22,7 +24,7 @@ export default function FieldHomeScreen() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
         <PulseLogo compact />
         <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-          <BellButton count={(queueSummary?.urgentCount ?? 0) + consignmentWorkItems.length + unsyncedDrafts.length} />
+          <BellButton count={notificationCount} />
           <View style={{ width: 110 }}>
             <SecondaryButton label="Sign out" icon={{ name: 'rectangle.portrait.and.arrow.right', fallback: 'Out' }} onPress={() => void signOut()} />
           </View>

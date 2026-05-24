@@ -53,7 +53,7 @@ Next useful slice:
 1. Add today calendar/training APIs to the mobile dashboard.
 2. Persist route/check-in visits through backend APIs once the territory field-execution contract is approved.
 3. Add consignment readiness/documents/detail routes beyond the first audit queue.
-4. Add durable offline queue and conflict UI.
+4. Add native encrypted/file-backed offline storage and background sync when release packaging is closer.
 5. Add push notification and deep-link handling after provider/governance approval.
 
 ## Slice 2 Update
@@ -587,6 +587,53 @@ Still parked:
 - Rich technician participant model beyond lightweight attendee count.
 - Offline conflict merge rules for formal training completions.
 
+## Slice 12 Update
+
+Added after iOS simulator QA found real field-user friction:
+
+- Added `Training` to the persistent bottom tab bar so Territory Managers and Regional Directors do not need to discover it by scrolling the Home quick actions.
+- Simplified the formal Training completion form:
+  - completion notes now show clear required guidance
+  - proof notes explicitly state that file/photo upload remains parked and should be captured as text for now
+  - follow-up task creation is now an explicit optional action
+  - follow-up task has a clear `Clear` action
+  - the disabled `Complete training` button now explains the exact blocker
+  - attendee count selects existing text on focus so field users can replace `1` quickly
+- Improved QA/API environment switching on mobile login:
+  - Base URL no longer validates on every keystroke
+  - the URL field selects text on focus
+  - one-tap `Production` and `Local QA` buttons are available
+
+Why this mattered:
+
+- The simulator pass showed the original follow-up form could trap focus and make completion feel broken when only a task title was entered.
+- Training was technically reachable, but not obvious enough for a field app.
+- QA users could corrupt the Base URL while trying to switch environments because validation ran while typing.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- iOS simulator smoke:
+  - bottom Training tab visible
+  - Training tab opens the formal Training screen
+  - simplified completion blocker copy appears
+  - optional follow-up panel expands clearly
+  - login API controls show Production and Local QA buttons
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/ios-fix-02-home-training-tab.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/ios-fix-04-training-followup-simple.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/ios-fix-05-training-followup-expanded.png`
+- Screenshot: `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/output/playwright/ios-fix-06-login-api-controls.png`
+
+Still parked:
+
+- Native encrypted/file-backed offline draft adapter.
+- ROSE/consignment proof media upload endpoint and storage/security policy.
+- Android emulator QA until Android SDK/JDK/adb are available.
+- Push notifications and deep links.
+- Offline conflict merge rules.
+- Provider-backed route optimization/geofencing.
+
 ## Parked Decisions
 
 - Push provider and notification governance.
@@ -594,3 +641,310 @@ Still parked:
 - Voice transcription provider, recording retention, and privacy policy.
 - Route optimization provider and geofence thresholds.
 - Mobile commerce/checkout. The mobile app should hand off to Dealer Portal, not become the dealer checkout app.
+
+## Slice 13 Update
+
+Added after the iOS simulator UX cleanup:
+
+- Hardened the local mobile draft queue for weak-signal field work:
+  - queue metadata now tracks retry count, last attempt, error kind, retryability, and conflict/review states
+  - stale `syncing` drafts reset to `Draft on phone` after app reload instead of looking stuck forever
+  - local storage read/write failures fall back to in-memory drafts and surface a clear warning in Sync Status
+  - draft payload guardrails still block media/base64/file URI storage and keep drafts capped/redacted
+- Route visit completion now only clears the active visit after CRM saves or the phone draft is safely queued.
+- ROSE audit completion now keeps line counts, notes, attestation, and evidence metadata on screen if local draft queueing fails.
+- Training completion now keeps notes, attendee count, proof notes, and follow-up state on screen if local draft queueing fails.
+- Sync Status is now a field-review screen instead of a technical queue:
+  - `Draft on phone`
+  - `Needs retry`
+  - `Needs review`
+  - `CRM saved`
+  - per-draft retry
+  - discard/remove copy
+  - saved/updated/last-tried timestamps
+  - ROSE variance summary, route timed/GPS summary, and training completion summary
+
+Field-user clarity:
+
+1. `CRM saved` is only shown after the API accepts the work.
+2. `Draft on phone` means the work is not visible in CRM yet.
+3. `Needs retry` means the TM/RD can retry when the connection is stable.
+4. `Needs review` means CRM reported a conflict or validation issue and the phone copy should be compared before discarding.
+5. Storage warnings tell the user to keep the app open when durable phone storage cannot be confirmed.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `git diff --check`
+
+Still parked:
+
+- Native encrypted/file-backed offline storage.
+- Background sync.
+- Conflict merge rules and server-side conflict resolution.
+- ROSE/consignment proof media upload endpoint, MIME/magic-byte validation, malware scanning, and storage retention policy.
+- Android emulator QA.
+- Provider-backed route optimization, geofencing, push notifications, and deep links.
+
+## Slice 14 Update
+
+Added after the offline reliability hardening:
+
+- Formal Training now supports mobile proof photo upload from the field:
+  - camera capture
+  - gallery selection
+  - direct upload to the existing CRM Training proof route
+  - 3-photo per session mobile cap
+  - 4 MB per photo mobile cap
+  - proof count carried into Training completion
+- Mobile Training keeps the field flow simple:
+  - proof files show as a small count
+  - photo proof is optional
+  - proof notes still capture context for roster/certificate/photo meaning
+  - failed completion still creates a `Draft on phone`; uploaded proof remains in CRM
+- Backend Training proof upload boundary was tightened:
+  - route accepts mobile-sized base64 JSON payloads up to the proof-upload body cap
+  - server always owns the storage key
+  - unsupported MIME types are rejected
+  - decoded file size is capped at 4 MB
+  - proof upload still writes CRM audit evidence and proof counters
+
+What stayed parked:
+
+- ROSE/consignment media upload is still parked. The correct next step is a consignment-owned evidence attachment model, not reusing Digital Assets and not adding Acumatica attachment assumptions.
+- Native encrypted/file-backed offline media storage.
+- Background media sync.
+- Malware scanning/quarantine workflow and MIME magic-byte validation.
+- S3-backed document storage for training proof documents. The current Training proof storage uses the existing document storage adapter; provider hardening can follow the shared storage strategy.
+
+Validation:
+
+- `pnpm --filter @pulse/contracts build`
+- `pnpm --filter @pulse/db build`
+- `pnpm --filter @pulse/api build`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `node --test --test-concurrency=1 apps/api/test/training.proof-upload.regression.test.mjs`
+- `git diff --check`
+
+## Slice 15 Update
+
+Added after the formal Training proof upload slice:
+
+- ROSE/consignment audit execution now supports consignment-owned evidence upload:
+  - camera capture
+  - gallery selection
+  - 3-photo per audit mobile cap
+  - 4 MB per photo mobile cap
+  - server-owned storage keys under the consignment audit evidence namespace
+  - general/discrepancy evidence purpose tracking
+  - uploaded evidence counts on the audit summary
+- The backend now has a dedicated `ConsignmentAuditEvidence` model and `POST /api/v1/consignment/audits/:auditId/evidence` route.
+- Evidence audit logging explicitly marks the boundary as `not_an_acumatica_attachment`.
+- The mobile field flow stays simple:
+  - photos show as ready/uploaded evidence
+  - evidence upload runs before audit submission when online
+  - if CRM is unreachable, the app saves ROSE counts, attestation, notes, and photo metadata as a `Draft on phone`
+  - photo bytes are not stored in offline drafts until native encrypted/file-backed storage is implemented
+
+What stayed parked:
+
+- Native encrypted/file-backed offline media storage.
+- Background media sync and conflict merge rules.
+- Malware scanning/quarantine workflow and MIME magic-byte validation.
+- Android emulator QA until local Android tooling is available.
+- Push notifications/deep links.
+- Provider-backed route optimization/geofencing.
+- Acumatica warehouse/inventory/PO execution and Acumatica attachments.
+
+Validation:
+
+- `pnpm run db:generate`
+- `pnpm --filter @pulse/contracts build`
+- `pnpm --filter @pulse/db build`
+- `pnpm --filter @pulse/api build`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/api test:consignment`
+
+## Slice 16 Update
+
+Added after ROSE evidence upload:
+
+- Mobile offline draft storage now has a native hydration path:
+  - web continues to use `localStorage`
+  - iOS/Android hydrate and persist sanitized draft metadata through Expo SecureStore
+  - Sync Status shows whether phone storage is loading, ready, or degraded
+- The draft queue remains deliberately text/metadata-only:
+  - no base64
+  - no file URI
+  - no preview URI
+  - no storage key
+  - no photo bytes in offline drafts
+- ROSE draft wording now matches the new evidence reality: CRM evidence upload exists, but offline drafts preserve metadata only until CRM connectivity returns.
+- Consignment API regression coverage now exercises mobile-facing evidence upload through HTTP with test data and rejects unsupported file types.
+
+Still parked:
+
+- Route optimization remains parked until the provider/rules decision is approved.
+- Large encrypted file-backed media cache for offline photo bytes.
+- Background sync worker.
+- Conflict merge UI/rules.
+- Push notifications and deep links.
+- Android emulator QA.
+- Acumatica warehouse/inventory/PO execution.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile lint`
+- `pnpm --filter @pulse/mobile build`
+- `pnpm --filter @pulse/api test:consignment`
+
+## Slice 17 Update
+
+Added after the live API routing fix:
+
+- Patched the live EC2/Nginx path issue so mobile/web requests to `/api/v1/...` now reach the API as `/api/v1/...`.
+- Added a persistent mobile header bell in the tab shell:
+  - available from Leads, Accounts, Route, Consignment, Assets, and Training
+  - badges unsynced phone drafts
+  - opens the Notifications center without requiring users to return to Field Home
+- Improved Notifications sync wording:
+  - separates retry failures from CRM-review conflicts
+  - keeps field-user language focused on `Draft on phone`, `Needs retry`, `Needs review`, and `CRM saved`
+- Added mobile Asset Library:
+  - searches active CRM Digital Assets through the live API
+  - caches recent asset metadata on the phone
+  - opens the current file URL when available
+  - creates customer share links through the existing Digital Assets share-link API
+  - uses native share behavior where supported
+
+What stayed parked:
+
+- Binary/offline file cache for asset documents and photos.
+- Background sync, push notifications, and deep links.
+- Signed CDN delivery and CloudFront invalidation from mobile.
+- Acumatica-driven product truth, inventory, pricing, and attachments.
+- Android emulator QA until local Android tooling is available.
+
+Validation:
+
+- `/Users/clustox1/.codex/skills/pulse-deployment-setup/scripts/pulse_deploy_probe.sh`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile build`
+- `git diff --check`
+
+## Slice 18 Update
+
+Added after the SOLID architecture review:
+
+- Created reusable Codex skills for future mobile agents:
+  - `/Users/clustox1/.codex/skills/pulse-mobile-solid-architecture/SKILL.md`
+  - `/Users/clustox1/.codex/skills/pulse-mobile-solid-review/SKILL.md`
+- Extracted formal Training orchestration into `useTrainingExecution` so the Training screen can stay focused on layout and field flow copy.
+- Hardened offline draft saves:
+  - route visits, ROSE audits, and Training completions now await native durable storage before the UI reports `Draft on phone`
+  - the existing media/base64/local-URI draft blockers remain in place
+- Tightened mobile Asset Library caching:
+  - native asset metadata cache hydrates before fallback display
+  - cached records are lean metadata DTOs, not binary/file cache records
+  - search only reloads on submit/refresh instead of every keystroke
+
+Still parked:
+
+- Large encrypted/file-backed media cache for offline photos/assets.
+- Background sync worker and conflict merge rules.
+- Push notifications and deep links.
+- Android emulator QA.
+- Provider-backed route optimization.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile build`
+- `git diff --check`
+
+## Slice 20 Update
+
+Added after Mobile Sync Review Hardening:
+
+- Added a derived mobile draft review policy without changing persisted draft statuses:
+  - `Saved on phone`
+  - `Ready to retry`
+  - `Sign in again`
+  - `Needs review`
+  - `Sending`
+  - `CRM saved`
+- Added explicit auth classification for CRM `401/403` retry failures so expired sessions do not look like generic network failures.
+- Centralized retry decisions in the draft queue helper so Sync Status and future sync workers use the same policy.
+- Limited repeated noisy retries by moving drafts to review-only after repeated attempts.
+- Improved Sync Status copy and controls:
+  - summary counts now separate saved/retry/auth/review states
+  - sign-in guidance appears for auth failures
+  - bulk retry now targets only retry-ready updates
+  - review/conflict drafts remain protected and disabled for blind retry
+- Added the first real mobile unit-test harness using Node's built-in test runner.
+- Added focused sync-review policy tests for:
+  - saved-on-phone pending drafts
+  - retryable network failures
+  - auth/sign-in failures
+  - validation and conflict review-only failures
+  - repeated retry cap
+  - sending and CRM-saved terminal/current states
+
+Still parked:
+
+- True background sync worker.
+- Conflict merge/edit rules.
+- Native storage integration tests for SecureStore hydration/persistence.
+- Large encrypted/file-backed offline media cache.
+- Push notifications and deep links.
+- Android emulator QA.
+- Provider-backed route optimization.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile test`
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile build`
+- `git diff --check`
+
+## Slice 19 Update
+
+Added after the Consignment ROSE SOLID refactor:
+
+- Extracted ROSE field-audit orchestration into `useConsignmentRoseAudit`.
+- The Consignment route now focuses on rendering the field flow:
+  - queue/search
+  - audit card
+  - line count UI
+  - evidence UI
+  - attestation UI
+- The hook now owns:
+  - CRM site detail load
+  - audit submit
+  - evidence capture/upload
+  - draft-safe evidence metadata stripping
+  - durable offline draft fallback
+  - line-count variance helpers
+- Fixed field-user copy:
+  - removed stale "preview-only" photo language
+  - simplified Acumatica/CRM boundary wording
+  - added a visible submit blocker hint when counts, notes, name, or attestation are missing
+- Disabled evidence add/remove/purpose controls while the audit is submitting so the screen cannot drift from the upload snapshot.
+
+Still parked:
+
+- Large encrypted/file-backed offline media cache.
+- Background sync worker and conflict merge rules.
+- Push notifications and deep links.
+- Android emulator QA.
+- Acumatica inventory, warehouse, PO, attachment, and finance reconciliation execution.
+
+Validation:
+
+- `pnpm --filter @pulse/mobile typecheck`
+- `pnpm --filter @pulse/mobile build`
+- `git diff --check`

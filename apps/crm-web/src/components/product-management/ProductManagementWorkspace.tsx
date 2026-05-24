@@ -621,7 +621,7 @@ export function ProductManagementWorkspace() {
         }}
       >
         <Tabs.List>
-          <Tabs.Tab value="visibility">Catalog Views</Tabs.Tab>
+          <Tabs.Tab value="visibility">Who Sees It</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="readiness">Files & Readiness</Tabs.Tab>
           <Tabs.Tab value="publish">Ready To Publish</Tabs.Tab>
@@ -631,7 +631,7 @@ export function ProductManagementWorkspace() {
 
         <Tabs.Panel value="categories" pt="md">
           <Alert color="blue" mb="md" title="Catalog setup, not dealer groups">
-            Categories organize navigation and reporting. Families group related SKUs. Dealer-specific visibility belongs in Dealer Catalog Views.
+            Categories organize navigation and reporting. Families group related SKUs. Dealer-specific visibility belongs in Who Sees It.
           </Alert>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
             <Paper withBorder p="md" data-testid="product-category-form">
@@ -859,7 +859,7 @@ export function ProductManagementWorkspace() {
 
         <Tabs.Panel value="visibility" pt="md">
           <Stack gap="md">
-            <Alert color="blue" title="Dealer Catalog Views">
+            <Alert color="blue" title="Who Sees It">
               A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility decide the right view. Pricing stays separate.
             </Alert>
             <Alert color="gray" title="Inputs become one dealer catalog">

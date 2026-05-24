@@ -98,6 +98,33 @@ export interface ProvisionDealerPortalUserResponse {
   createdContactId?: string;
 }
 
+export interface DealerPortalSelfCreateUserRequest {
+  firstName: string;
+  lastName: string;
+  title?: string;
+  email: string;
+  accessRole: Exclude<DealerPortalAccessRoleKey, 'admin'>;
+  notes?: string;
+}
+
+export interface DealerPortalSelfCreateUserResponse {
+  dashboard: DealerPortalDashboardResponse;
+  user: DealerPortalUserSummary;
+  inviteToken: string;
+  invitePath: string;
+  expiresAt: string;
+}
+
+export interface DealerPortalSelfUpdateUserRequest {
+  status: Exclude<DealerPortalUserStatusKey, 'suspended'>;
+  notes?: string;
+}
+
+export interface DealerPortalSelfUpdateUserResponse {
+  dashboard: DealerPortalDashboardResponse;
+  user: DealerPortalUserSummary;
+}
+
 export interface UpdateDealerPortalUserStatusRequest {
   status: DealerPortalUserStatusKey;
   notes?: string;

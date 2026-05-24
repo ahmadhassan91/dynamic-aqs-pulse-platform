@@ -38,6 +38,15 @@ Map your domain with an `A` record to the `public_ip` output.
 
 After DNS is mapped, update `/etc/pulse/pulse.env` through the `DEV_ENV_FILE` GitHub secret so callback/base URLs use the domain instead of the raw IP.
 
+Use the public origin as the API base URL, not an `/api`-suffixed URL. The web and mobile clients append `/api/v1/...` themselves:
+
+```bash
+NEXT_PUBLIC_PULSE_API_BASE_URL=https://pulse-crm.theclustox.com
+EXPO_PUBLIC_PULSE_API_URL=https://pulse-crm.theclustox.com
+```
+
+Nginx must preserve the `/api/v1/...` prefix when proxying to the API. A public request to `/api/v1/health/ready` should arrive at the Node API as `/api/v1/health/ready`, not `/v1/health/ready`.
+
 ## GitHub Secrets
 
 Set these repository secrets for `.github/workflows/deploy-dev-ec2.yml`:

@@ -20,6 +20,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.7.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build deployable packages
+        env:
+          NEXT_PUBLIC_PULSE_API_BASE_URL: https://pulse-crm.theclustox.com
+          NEXT_PUBLIC_PULSE_WEB_BASE_URL: https://pulse-crm.theclustox.com
+        run: |
+          pnpm --filter @pulse/contracts build
+          pnpm --filter @pulse/config build
+          pnpm --filter @pulse/db build
+          pnpm --filter @pulse/api build
+          pnpm --filter @pulse/crm-web build
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh

@@ -1740,6 +1740,23 @@ test('territory reassignment writes deny out-of-scope records for TMs and keep b
 
   await assert.rejects(
     () =>
+      reassignLeadTerritory(tmActor, visibleLead.id, {
+        territoryId: hidden.territory.id,
+        reasonCode: 'tm_hidden_target_override',
+      }),
+    /inaccessible territory/i,
+  );
+  await assert.rejects(
+    () =>
+      reassignAccountTerritory(tmActor, visibleAccount.id, {
+        territoryId: hidden.territory.id,
+        reasonCode: 'tm_hidden_target_account_override',
+      }),
+    /inaccessible territory/i,
+  );
+
+  await assert.rejects(
+    () =>
       reassignLeadTerritory(tmActor, hiddenLead.id, {
         territoryId: visible.territory.id,
         reasonCode: 'tm_hidden_override',
@@ -1753,6 +1770,25 @@ test('territory reassignment writes deny out-of-scope records for TMs and keep b
         reasonCode: 'tm_hidden_account_override',
       }),
     (error) => error?.name === 'AuthorizationError',
+  );
+
+  await assert.rejects(
+    () =>
+      bulkReassignLeadTerritories(tmActor, {
+        leadIds: [visibleLead.id],
+        territoryId: hidden.territory.id,
+        reasonCode: 'tm_hidden_target_bulk_lead_override',
+      }),
+    /inaccessible territory/i,
+  );
+  await assert.rejects(
+    () =>
+      bulkReassignAccountTerritories(tmActor, {
+        accountIds: [visibleAccount.id],
+        territoryId: hidden.territory.id,
+        reasonCode: 'tm_hidden_target_bulk_account_override',
+      }),
+    /inaccessible territory/i,
   );
 
   await assert.rejects(

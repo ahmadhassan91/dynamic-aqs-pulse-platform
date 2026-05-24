@@ -55,6 +55,10 @@ import type {
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
   DealerPortalInternalPreviewResponse,
+  DealerPortalSelfCreateUserRequest,
+  DealerPortalSelfCreateUserResponse,
+  DealerPortalSelfUpdateUserRequest,
+  DealerPortalSelfUpdateUserResponse,
   DealerPortalAccessRoleKey,
   ProvisionDealerPortalUserRequest,
   ProvisionDealerPortalUserResponse,
@@ -2383,6 +2387,35 @@ export async function fetchDealerPortalCatalog(apiBaseUrl: string, accessToken: 
     method: 'GET',
     accessToken,
   });
+}
+
+export async function createCurrentDealerPortalUser(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: DealerPortalSelfCreateUserRequest,
+) {
+  return requestJson<DealerPortalSelfCreateUserResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/users', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateCurrentDealerPortalUser(
+  apiBaseUrl: string,
+  accessToken: string,
+  portalUserId: string,
+  input: DealerPortalSelfUpdateUserRequest,
+) {
+  return requestJson<DealerPortalSelfUpdateUserResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/users/${encodeURIComponent(portalUserId)}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input,
+    },
+  );
 }
 
 export async function fetchDealerPortalInternalPreview(

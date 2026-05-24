@@ -19,3 +19,11 @@ export function mimeTypeFromFileName(fileName: string) {
   if (lower.endsWith('.pdf')) return 'application/pdf';
   return 'image/jpeg';
 }
+
+export function extensionFromMimeType(mimeType: string) {
+  const lower = mimeType.toLowerCase();
+  if (lower === 'image/png') return 'png';
+  if (lower === 'image/webp') return 'webp';
+  if (lower === 'application/pdf') return 'pdf';
+  return 'jpg';
+}

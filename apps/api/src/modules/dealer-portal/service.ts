@@ -15,6 +15,7 @@ import {
   Prisma,
   ProductLifecycleStatus,
   ProductPublishStatus,
+  DealerCatalogViewKind,
   UserKind,
   prisma,
 } from '@pulse/db';
@@ -32,6 +33,10 @@ import type {
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
   DealerPortalInternalPreviewResponse,
+  DealerPortalSelfCreateUserRequest,
+  DealerPortalSelfCreateUserResponse,
+  DealerPortalSelfUpdateUserRequest,
+  DealerPortalSelfUpdateUserResponse,
   DealerPortalProvisioningStatusKey,
   DealerPortalUserStatusKey,
   DealerPortalUserSummary,
@@ -640,6 +645,271 @@ export async function acceptDealerPortalInvite(
   };
 }
 
+export async function createCurrentDealerPortalUser(
+  actor: AuthenticatedActor,
+  input: DealerPortalSelfCreateUserRequest,
+): Promise<DealerPortalSelfCreateUserResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  const currentPortalUser = await loadActiveDealerPortalUser(actor);
+  assertDealerPortalSelfAdmin(currentPortalUser.accessRole);
+
+  const firstName = input.firstName?.trim();
+  const lastName = input.lastName?.trim();
+  const email = normalizeEmail(input.email);
+  const title = input.title?.trim();
+  const notes = input.notes?.trim();
+  const accessRole = toDealerPortalAccessRoleEnum(input.accessRole);
+  if (!firstName || !lastName) {
+    throw new Error('First and last name are required');
+  }
+  if (!email) {
+    throw new Error('Email is required');
+  }
+  if (accessRole === DealerPortalAccessRole.ADMIN) {
+    throw new AuthorizationError('Dealer admins cannot create additional admin users from the portal');
+  }
+
+  const account = await prisma.account.findUnique({
+    where: { id: currentPortalUser.accountId },
+    include: {
+      contacts: true,
+      dealerPortalUsers: {
+        include: {
+          user: {
+            select: {
+              email: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!account || !account.isActive) {
+    throw new Error('Dealer account is not active');
+  }
+
+  const existingMembership = account.dealerPortalUsers.find((entry) => entry.user.email.toLowerCase() === email);
+  if (existingMembership) {
+    throw new Error('A portal user already exists for this email');
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existingUser) {
+    throw new Error('A Pulse user already exists for this email');
+  }
+
+  const inviteToken = createInviteToken();
+  const inviteExpiresAt = new Date(Date.now() + DEALER_PORTAL_INVITE_TTL_MS);
+  const temporaryPassword = createTemporaryPassword();
+  const passwordHash = hashSecret(temporaryPassword);
+  const displayName = `${firstName} ${lastName}`.trim();
+  let createdPortalUserId: string | null = null;
+
+  await prisma.$transaction(async (tx) => {
+    const contact = await tx.contact.create({
+      data: {
+        accountId: account.id,
+        firstName,
+        lastName,
+        ...(title ? { title } : {}),
+        email,
+        isPrimary: false,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    const user = await tx.user.create({
+      data: {
+        email,
+        displayName,
+        roleCode: normalizeRole('DEALER_PORTAL_USER'),
+        userType: UserKind.DEALER,
+        isActive: true,
+        identities: {
+          create: {
+            provider: IdentityProvider.LOCAL,
+            providerSubject: email,
+            loginEmail: email,
+            passwordHash,
+            isPrimary: true,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const portalUser = await tx.dealerPortalUser.create({
+      data: {
+        accountId: account.id,
+        contactId: contact.id,
+        userId: user.id,
+        createdByUserId: actor.userId,
+        status: DealerPortalUserStatus.ACTIVE,
+        accessRole,
+        isPrimaryOwner: false,
+        inviteTokenHash: hashToken(inviteToken),
+        inviteIssuedAt: new Date(),
+        inviteExpiresAt,
+        activatedAt: new Date(),
+        ...(notes ? { notes } : {}),
+      },
+      select: { id: true },
+    });
+    createdPortalUserId = portalUser.id;
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: DEALER_PORTAL_USER_ENTITY,
+        entityId: portalUser.id,
+        metadata: {
+          operation: 'dealer_portal.self_admin_create_user',
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          accountId: account.id,
+        },
+        afterData: {
+          accountId: account.id,
+          userId: user.id,
+          email,
+          accessRole: toDealerPortalAccessRoleKey(accessRole),
+          inviteExpiresAt: inviteExpiresAt.toISOString(),
+        },
+      }),
+    });
+  });
+
+  const dashboard = await getCurrentDealerPortalDashboard(actor);
+  const createdUser = dashboard.companyUsers.find((user) => user.id === createdPortalUserId);
+  if (!createdUser) {
+    throw new Error('Created dealer portal user could not be loaded');
+  }
+
+  return {
+    dashboard,
+    user: createdUser,
+    inviteToken,
+    invitePath: buildInvitePath(inviteToken),
+    expiresAt: inviteExpiresAt.toISOString(),
+  };
+}
+
+export async function updateCurrentDealerPortalUser(
+  actor: AuthenticatedActor,
+  portalUserId: string,
+  input: DealerPortalSelfUpdateUserRequest,
+): Promise<DealerPortalSelfUpdateUserResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  const currentPortalUser = await loadActiveDealerPortalUser(actor);
+  assertDealerPortalSelfAdmin(currentPortalUser.accessRole);
+
+  const normalizedPortalUserId = portalUserId.trim();
+  if (!normalizedPortalUserId) {
+    throw new Error('Dealer portal user id is required');
+  }
+  if (normalizedPortalUserId === currentPortalUser.id) {
+    throw new AuthorizationError('Dealer admins cannot deactivate their own portal access');
+  }
+
+  const nextStatus = toDealerPortalUserStatusEnum(input.status);
+  if (nextStatus === DealerPortalUserStatus.SUSPENDED) {
+    throw new AuthorizationError('Dealer admins can activate or deactivate users only');
+  }
+
+  const existing = await prisma.dealerPortalUser.findFirst({
+    where: {
+      id: normalizedPortalUserId,
+      accountId: currentPortalUser.accountId,
+    },
+    include: {
+      user: true,
+    },
+  });
+  if (!existing) {
+    throw new Error('Dealer portal user not found for this account');
+  }
+  if (existing.isPrimaryOwner) {
+    throw new AuthorizationError('Primary owner access must be managed by Dynamic AQS');
+  }
+
+  const notes = input.notes?.trim();
+  const changedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.dealerPortalUser.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        suspendedAt: null,
+        deactivatedAt: nextStatus === DealerPortalUserStatus.DEACTIVATED ? changedAt : null,
+        activatedAt: nextStatus === DealerPortalUserStatus.ACTIVE ? changedAt : existing.activatedAt,
+        ...(notes !== undefined ? { notes: notes || null } : {}),
+      },
+    });
+
+    await tx.user.update({
+      where: { id: existing.userId },
+      data: {
+        isActive: nextStatus === DealerPortalUserStatus.ACTIVE,
+      },
+    });
+
+    if (nextStatus !== DealerPortalUserStatus.ACTIVE) {
+      await tx.session.updateMany({
+        where: {
+          userId: existing.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: changedAt,
+          revokedReason: 'dealer-portal-self-admin-deactivated',
+        },
+      });
+    }
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: DEALER_PORTAL_USER_ENTITY,
+        entityId: existing.id,
+        metadata: {
+          operation: 'dealer_portal.self_admin_update_user',
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          accountId: currentPortalUser.accountId,
+        },
+        beforeData: {
+          status: toDealerPortalUserStatusKey(existing.status),
+          isActive: existing.user.isActive,
+        },
+        afterData: {
+          status: toDealerPortalUserStatusKey(nextStatus),
+          isActive: nextStatus === DealerPortalUserStatus.ACTIVE,
+        },
+      }),
+    });
+  });
+
+  const dashboard = await getCurrentDealerPortalDashboard(actor);
+  const updatedUser = dashboard.companyUsers.find((user) => user.id === existing.id);
+  if (!updatedUser) {
+    throw new Error('Updated dealer portal user could not be loaded');
+  }
+
+  return {
+    dashboard,
+    user: updatedUser,
+  };
+}
+
 export async function updateDealerPortalUserStatus(
   actor: AuthenticatedActor,
   portalUserId: string,
@@ -914,7 +1184,7 @@ async function buildDealerPortalCatalogForAccount(
   const selectedPreviewRole = options.selectedPreviewRole ?? 'viewer';
 
   if (!catalogView) {
-    const warnings = ['No published catalog view is assigned to this dealer account yet.'];
+    const warnings = [catalogResolution.reviewReason ?? 'No published catalog view is assigned to this dealer account yet.'];
     return {
       catalog: {
         products: [],
@@ -1360,6 +1630,11 @@ async function loadActiveDealerPortalUser(actor: AuthenticatedActor) {
               },
             },
           },
+          dealerPortalAccount: {
+            select: {
+              status: true,
+            },
+          },
         },
       },
     },
@@ -1385,6 +1660,12 @@ async function loadVisibleDealerCatalogPresentation(
   const { catalogView } = await resolveCatalogViewForAccount(portalUser.account);
   if (!catalogView) {
     throw new Error('No published catalog view is assigned to this dealer account yet');
+  }
+
+  const activeSnapshot = await loadActiveDealerCatalogSnapshot(catalogView.id);
+  const snapshotItem = activeSnapshot?.items.find((item) => item.presentationId === normalizedPresentationId);
+  if (activeSnapshot && !snapshotItem) {
+    throw new Error('Product presentation is not visible in the active dealer catalog snapshot');
   }
 
   const presentation = await prisma.productPresentation.findFirst({
@@ -1423,6 +1704,14 @@ async function loadVisibleDealerCatalogAsset(
     throw new Error('No published catalog view is assigned to this dealer account yet');
   }
 
+  const activeSnapshot = await loadActiveDealerCatalogSnapshot(catalogView.id);
+  const snapshotAssetIds = new Set(
+    (activeSnapshot?.items ?? []).flatMap((item) => readSnapshotAssetPayload(item).map((asset) => asset.assetId)),
+  );
+  if (activeSnapshot && !snapshotAssetIds.has(normalizedAssetId)) {
+    throw new Error('Asset is not visible in the active dealer catalog snapshot');
+  }
+
   const assignments = await prisma.productAssetAssignment.findMany({
     where: {
       assetId: normalizedAssetId,
@@ -1459,12 +1748,28 @@ async function loadVisibleDealerCatalogAsset(
   };
 }
 
+async function loadActiveDealerCatalogSnapshot(dealerCatalogViewId: string) {
+  return prisma.dealerCatalogSnapshot.findFirst({
+    where: { dealerCatalogViewId, isActive: true },
+    include: { items: true },
+    orderBy: [{ version: 'desc' }],
+  });
+}
+
 function assertDealerPortalCanManageFavorites(accessRole: DealerPortalAccessRole) {
   if (accessRole === DealerPortalAccessRole.ADMIN || accessRole === DealerPortalAccessRole.PURCHASING) {
     return;
   }
 
   throw new AuthorizationError('This dealer portal role cannot save catalog favorites');
+}
+
+function assertDealerPortalSelfAdmin(accessRole: DealerPortalAccessRole) {
+  if (accessRole === DealerPortalAccessRole.ADMIN) {
+    return;
+  }
+
+  throw new AuthorizationError('Only dealer portal admins can manage company portal users');
 }
 
 function visibleDealerCatalogPresentationWhere(catalogViewId: string): Prisma.ProductPresentationWhereInput {
@@ -1747,6 +2052,7 @@ async function resolveCatalogViewForAccount(account: {
   groupClassification?: string | null;
   territory?: { region?: { code: string; name: string } | null } | null;
   sourceLead?: { conversionPreparation?: { portalEligibilityStatus: PortalEligibilityStatus } | null } | null;
+  dealerPortalAccount?: { status: DealerPortalProvisioningStatus } | null;
 }) {
   const ruleSet = await prisma.catalogRuleSet.findFirst({
     where: {
@@ -1847,12 +2153,16 @@ function readAccountConditionValue(
   if (field === 'region') return account.territory?.region?.code ?? account.territory?.region?.name ?? '';
   if (field === 'portal_eligible') {
     const status = account.sourceLead?.conversionPreparation?.portalEligibilityStatus;
-    return status === PortalEligibilityStatus.READY || status === PortalEligibilityStatus.PROVISIONED;
+    const persistedStatus = account.dealerPortalAccount?.status;
+    return status === PortalEligibilityStatus.READY
+      || status === PortalEligibilityStatus.PROVISIONED
+      || persistedStatus === DealerPortalProvisioningStatus.ACTIVE
+      || persistedStatus === DealerPortalProvisioningStatus.READY_TO_PROVISION;
   }
   return '';
 }
 
-function isDealerVisibleAsset(assignment: any, catalogView: { brandLabel?: string | null; regionScope?: string | null }) {
+function isDealerVisibleAsset(assignment: any, catalogView: { kind?: DealerCatalogViewKind | null; resolverKey?: string | null; brandLabel?: string | null; regionScope?: string | null }) {
   const asset = assignment.asset;
   if (!asset || asset.status !== DigitalAssetStatus.ACTIVE) {
     return false;
@@ -1874,7 +2184,44 @@ function isDealerVisibleAsset(assignment: any, catalogView: { brandLabel?: strin
     return false;
   }
 
+  if (assignment.brandLabel && assignment.brandLabel !== catalogView.brandLabel) {
+    return false;
+  }
+
+  if (assignment.regionScope && assignment.regionScope !== catalogView.regionScope) {
+    return false;
+  }
+
+  if (!doesAssignmentMatchCatalogView(assignment, catalogView)) {
+    return false;
+  }
+
   return true;
+}
+
+function doesAssignmentMatchCatalogView(
+  assignment: { dealerGroupType?: string | null; dealerGroupId?: string | null },
+  catalogView: { kind?: DealerCatalogViewKind | null; resolverKey?: string | null },
+) {
+  const type = assignment.dealerGroupType?.trim().toLowerCase();
+  const id = assignment.dealerGroupId?.trim().toLowerCase();
+  if (!type || type === 'all_dealers' || type === 'standard') return true;
+  const expectedKind = dealerCatalogViewKindFromLegacyType(type);
+  if (catalogView.kind && expectedKind !== catalogView.kind) return false;
+  if (id && (catalogView.resolverKey ?? '').trim().toLowerCase() !== id) return false;
+  return true;
+}
+
+function dealerCatalogViewKindFromLegacyType(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'affinity_group') return DealerCatalogViewKind.AFFINITY;
+  if (normalized === 'ownership_group') return DealerCatalogViewKind.OWNERSHIP;
+  if (normalized === 'independent') return DealerCatalogViewKind.INDEPENDENT;
+  if (normalized === 'region') return DealerCatalogViewKind.REGION;
+  if (normalized === 'brand') return DealerCatalogViewKind.BRAND;
+  if (normalized === 'private_label') return DealerCatalogViewKind.PRIVATE_LABEL;
+  if (normalized === 'account_override') return DealerCatalogViewKind.ACCOUNT_OVERRIDE;
+  return DealerCatalogViewKind.STANDARD;
 }
 
 function buildAssetVisibilitySource(

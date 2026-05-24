@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoginRequest } from '@pulse/contracts/auth';
 import { defaultApiBaseUrl, fetchCurrentSession, loginToPulse, normalizeApiBaseUrl, refreshPulseSession, type AuthBundle } from '@/lib/api';
+import { hydrateMobileDraftStorage } from '@/lib/mobile-draft-queue';
+import { isMobileAuthAllowed, resolveStoredSession } from '@/lib/session-lifecycle';
 import { clearStoredSession, loadStoredSession, saveStoredSession } from '@/lib/session-store';
 
 type SessionContextValue = {
@@ -27,11 +29,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+    void hydrateMobileDraftStorage();
     void loadStoredSession()
-      .then((stored) => {
+      .then((stored) => resolveStoredSession(stored, { fetchCurrentSession, refreshPulseSession }))
+      .then(async (resolution) => {
         if (!isMounted) return;
-        if (stored?.apiBaseUrl) setApiBaseUrlState(stored.apiBaseUrl);
-        setAuth(stored?.auth ?? null);
+        if (resolution.apiBaseUrl) setApiBaseUrlState(resolution.apiBaseUrl);
+        setAuth(resolution.auth);
+        if (resolution.errorMessage) setErrorMessage(resolution.errorMessage);
+        if (resolution.shouldClearStoredSession) {
+          await clearStoredSession();
+        } else if (resolution.shouldSaveStoredSession && resolution.auth) {
+          await saveStoredSession({
+            apiBaseUrl: normalizeApiBaseUrl(resolution.apiBaseUrl ?? defaultApiBaseUrl),
+            auth: resolution.auth,
+          });
+        }
       })
       .finally(() => {
         if (isMounted) setIsHydrated(true);
@@ -42,13 +55,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setApiBaseUrl = useCallback((value: string) => {
-    try {
-      setApiBaseUrlState(normalizeApiBaseUrl(value));
-      setErrorMessage(null);
-    } catch (error) {
-      setApiBaseUrlState(value.trim() || defaultApiBaseUrl);
-      setErrorMessage(error instanceof Error ? error.message : 'Invalid API URL.');
-    }
+    setApiBaseUrlState(value);
+    setErrorMessage(null);
   }, []);
 
   const signIn = useCallback(
@@ -57,6 +65,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setErrorMessage(null);
       try {
         const bundle = await loginToPulse(apiBaseUrl, input);
+        if (!isMobileAuthAllowed(bundle)) {
+          throw new Error('This Pulse account is not enabled for the mobile field app.');
+        }
         setAuth(bundle);
         await saveStoredSession({ apiBaseUrl: normalizeApiBaseUrl(apiBaseUrl), auth: bundle });
       } catch (error) {
@@ -77,19 +88,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!auth) return;
-    try {
-      const current = await fetchCurrentSession(apiBaseUrl, auth.tokens.accessToken);
-      const refreshed = { ...auth, identity: current.identity, session: current.session };
-      setAuth(refreshed);
-      await saveStoredSession({ apiBaseUrl, auth: refreshed });
-    } catch {
-      try {
-        const refreshed = await refreshPulseSession(apiBaseUrl, auth.tokens.refreshToken);
-        setAuth(refreshed);
-        await saveStoredSession({ apiBaseUrl, auth: refreshed });
-      } catch {
-        await signOut();
-      }
+    const resolution = await resolveStoredSession({ apiBaseUrl, auth }, { fetchCurrentSession, refreshPulseSession });
+    setAuth(resolution.auth);
+    if (resolution.errorMessage) setErrorMessage(resolution.errorMessage);
+    if (resolution.shouldClearStoredSession) {
+      await signOut();
+    } else if (resolution.shouldSaveStoredSession && resolution.auth) {
+      await saveStoredSession({ apiBaseUrl: normalizeApiBaseUrl(apiBaseUrl), auth: resolution.auth });
     }
   }, [apiBaseUrl, auth, signOut]);
 

@@ -1,24 +1,25 @@
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
-import { enqueueDraft } from '@/lib/mobile-draft-queue';
+import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
 
 type ActiveVisit = {
+  localVisitId: string;
   account: AccountSummary;
   checkedInAt: string;
-  sessionId?: string;
-  latitude?: number;
-  longitude?: number;
+  sessionId?: string | undefined;
+  latitude?: number | undefined;
+  longitude?: number | undefined;
   crmStatus: 'pending' | 'checked_in' | 'local_only';
   crmMessage?: string;
   createRequest: CreateTrainingSessionRequest;
@@ -50,15 +51,41 @@ export default function RouteScreen() {
       .slice(0, 8);
   }, [accounts]);
 
+  useEffect(() => {
+    if (activeVisit || !accounts.length) return;
+    const draft = getLatestCheckedInRouteVisitDraft();
+    if (!draft) return;
+    const account = accounts.find((item) => item.id === draft.payload.accountId);
+    if (!account || !draft.payload.createRequest || !draft.payload.checkInRequest) return;
+    setActiveVisit({
+      account,
+      checkedInAt: draft.payload.checkedInAt,
+      checkInRequest: draft.payload.checkInRequest,
+      createRequest: draft.payload.createRequest,
+      crmMessage: 'Checked-in visit restored from this phone. Complete it or retry CRM sync from Sync Status.',
+      crmStatus: draft.payload.sessionId ? 'checked_in' : 'local_only',
+      latitude: draft.payload.latitude,
+      localVisitId: draft.payload.localVisitId ?? draft.id,
+      longitude: draft.payload.longitude,
+      sessionId: draft.payload.sessionId,
+    });
+    setNotes(draft.payload.notes);
+  }, [accounts, activeVisit]);
+
   async function startVisit(account: AccountSummary) {
     setLocationError(null);
     setVisitSyncMessage(null);
+    if (!auth?.identity.userId) {
+      setVisitSyncMessage('Sign in before starting a route visit so CRM can assign the trainer correctly.');
+      return;
+    }
     if (Platform.OS === 'ios') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
     const checkedInAt = new Date().toISOString();
-    const createRequest = buildRouteVisitCreateRequest(account, auth?.identity.userId, checkedInAt);
+    const localVisitId = `route-${account.id}-${Date.now()}`;
+    const createRequest = buildRouteVisitCreateRequest(account, auth.identity.userId, checkedInAt);
     const checkInRequest = buildRouteVisitCheckInRequest(checkedInAt);
     const visit: ActiveVisit = {
       account,
@@ -66,20 +93,42 @@ export default function RouteScreen() {
       crmStatus: 'pending',
       createRequest,
       checkInRequest,
+      localVisitId,
     };
     setActiveVisit(visit);
-
-    if (!auth) {
-      setActiveVisit({ ...visit, crmStatus: 'local_only', crmMessage: 'No active CRM session. Complete the visit and retry from Sync Status after signing in.' });
-      return;
+    try {
+      await saveCheckedInRouteVisitDraft(visit);
+    } catch (draftError) {
+      setVisitSyncMessage(draftError instanceof Error ? `Visit started, but offline draft failed: ${draftError.message}` : 'Visit started, but offline draft failed.');
     }
 
+    let createdSessionId: string | undefined;
     try {
       const created = await createTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, account.id, createRequest);
+      createdSessionId = created.id;
+      await saveCheckedInRouteVisitDraft({ ...visit, sessionId: created.id, crmStatus: 'pending', crmMessage: 'CRM session created; checking in...' });
+      setActiveVisit((current) => current && current.checkedInAt === checkedInAt ? {
+        ...current,
+        sessionId: created.id,
+        crmStatus: 'pending',
+        crmMessage: 'CRM session created; checking in...',
+      } : current);
       await checkInTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, created.id, checkInRequest);
+      await saveCheckedInRouteVisitDraft({ ...visit, sessionId: created.id, crmStatus: 'checked_in', crmMessage: 'CRM checked in' });
       setActiveVisit((current) => current && current.checkedInAt === checkedInAt ? { ...current, sessionId: created.id, crmStatus: 'checked_in', crmMessage: 'CRM checked in' } : current);
     } catch (error) {
-      setActiveVisit((current) => current && current.checkedInAt === checkedInAt ? { ...current, crmStatus: 'local_only', crmMessage: error instanceof Error ? error.message : 'CRM check-in failed. Complete the visit and retry from Sync Status.' } : current);
+      await saveCheckedInRouteVisitDraft({
+        ...visit,
+        ...(createdSessionId ? { sessionId: createdSessionId } : {}),
+        crmStatus: 'local_only',
+        crmMessage: error instanceof Error ? error.message : 'CRM check-in failed. Complete the visit and retry from Sync Status.',
+      });
+      setActiveVisit((current) => current && current.checkedInAt === checkedInAt ? {
+        ...current,
+        ...(createdSessionId ? { sessionId: createdSessionId } : {}),
+        crmStatus: 'local_only',
+        crmMessage: error instanceof Error ? error.message : 'CRM check-in failed. Complete the visit and retry from Sync Status.',
+      } : current);
     }
 
     try {
@@ -88,9 +137,16 @@ export default function RouteScreen() {
         const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setActiveVisit((existing) => existing && existing.checkedInAt === checkedInAt ? {
           ...existing,
-          latitude: current.coords.latitude,
-          longitude: current.coords.longitude,
+          latitude: roundCoordinate(current.coords.latitude),
+          longitude: roundCoordinate(current.coords.longitude),
         } : existing);
+        const latest = {
+          ...visit,
+          ...(createdSessionId ? { sessionId: createdSessionId } : {}),
+          latitude: roundCoordinate(current.coords.latitude),
+          longitude: roundCoordinate(current.coords.longitude),
+        };
+        await saveCheckedInRouteVisitDraft(latest);
         return;
       }
       setLocationError('Location permission was not granted. The visit can still be timed, but GPS evidence is missing.');
@@ -102,33 +158,49 @@ export default function RouteScreen() {
   async function completeVisit() {
     if (!activeVisit || !notes.trim()) return;
     const checkedOutAt = new Date().toISOString();
-    const completeRequest = buildRouteVisitCompleteRequest(activeVisit, notes.trim(), checkedOutAt);
+    const checkoutNotes = notes.trim();
+    const completeRequest = buildRouteVisitCompleteRequest(activeVisit, checkoutNotes, checkedOutAt);
     setIsSubmittingVisit(true);
     setVisitSyncMessage(null);
     let savedToCrm = false;
+    let savedForLater = false;
     if (auth && activeVisit.sessionId) {
       try {
         await completeTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, activeVisit.sessionId, completeRequest);
         savedToCrm = true;
+        savedForLater = true;
+        clearRouteVisitDraft(activeVisit.localVisitId);
         setVisitSyncMessage('CRM saved');
       } catch (error) {
-        saveRouteVisitDraft(activeVisit, checkedOutAt, notes.trim(), completeRequest, error);
-        setVisitSyncMessage('Draft on phone. Retry from Sync Status when CRM is reachable.');
+        try {
+          await saveRouteVisitDraft(activeVisit, checkedOutAt, checkoutNotes, completeRequest, error);
+          savedForLater = true;
+          setVisitSyncMessage(describeDraftSaveFailure(error).message);
+        } catch (draftError) {
+          setVisitSyncMessage(draftError instanceof Error ? `Visit not saved yet: ${draftError.message}` : 'Visit not saved yet. Your notes are still on screen; shorten them and try again.');
+        }
       }
     } else {
-      saveRouteVisitDraft(activeVisit, checkedOutAt, notes.trim(), completeRequest);
-      setVisitSyncMessage('Draft on phone. Retry from Sync Status when CRM is reachable.');
+      try {
+        await saveRouteVisitDraft(activeVisit, checkedOutAt, checkoutNotes, completeRequest);
+        savedForLater = true;
+        setVisitSyncMessage(describeDraftSaveFailure().message);
+      } catch (draftError) {
+        setVisitSyncMessage(draftError instanceof Error ? `Visit not saved yet: ${draftError.message}` : 'Visit not saved yet. Your notes are still on screen; shorten them and try again.');
+      }
     }
-    setCompletedVisits((items) => [
-      {
-        ...activeVisit,
-        checkedOutAt,
-        notes: notes.trim(),
-      },
-      ...items,
-    ]);
-    setActiveVisit(null);
-    setNotes('');
+    if (savedForLater) {
+      setCompletedVisits((items) => [
+        {
+          ...activeVisit,
+          checkedOutAt,
+          notes: checkoutNotes,
+        },
+        ...items,
+      ]);
+      setActiveVisit(null);
+      setNotes('');
+    }
     setIsSubmittingVisit(false);
     if (savedToCrm && Platform.OS === 'ios') {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -246,7 +318,7 @@ function roundCoordinate(value: number) {
   return Math.round(value * 1000) / 1000;
 }
 
-function buildRouteVisitCreateRequest(account: AccountSummary, trainerUserId: string | undefined, checkedInAt: string): CreateTrainingSessionRequest {
+function buildRouteVisitCreateRequest(account: AccountSummary, trainerUserId: string, checkedInAt: string): CreateTrainingSessionRequest {
   return {
     activityKind: 'site_visit',
     attendeeCount: 0,
@@ -254,7 +326,7 @@ function buildRouteVisitCreateRequest(account: AccountSummary, trainerUserId: st
     notes: `Mobile route visit for ${account.displayName}.`,
     scheduledAt: new Date(Date.now() + 30_000).toISOString(),
     title: `Route visit - ${account.displayName}`,
-    trainerUserId: trainerUserId ?? 'mobile-session-user',
+    trainerUserId,
   };
 }
 
@@ -282,13 +354,16 @@ function buildRouteVisitCompleteRequest(activeVisit: ActiveVisit, checkoutNotes:
   };
 }
 
-function saveRouteVisitDraft(activeVisit: ActiveVisit, checkedOutAt: string, checkoutNotes: string, completeRequest: CompleteTrainingSessionRequest, error?: unknown) {
-  enqueueDraft({
+async function saveRouteVisitDraft(activeVisit: ActiveVisit, checkedOutAt: string, checkoutNotes: string, completeRequest: CompleteTrainingSessionRequest, error?: unknown) {
+  const failureCopy = describeDraftSaveFailure(error);
+  await upsertRouteVisitDraftDurably({
     kind: 'route_visit',
     title: `Route visit: ${activeVisit.account.displayName}`,
-    detail: error instanceof Error ? `CRM sync failed: ${error.message}` : 'Draft on this device until CRM accepts the route visit.',
+    detail: failureCopy.detail,
     payload: {
       kind: 'route_visit',
+      localVisitId: activeVisit.localVisitId,
+      stage: 'completed',
       accountId: activeVisit.account.id,
       accountName: activeVisit.account.displayName,
       checkedInAt: activeVisit.checkedInAt,
@@ -297,6 +372,28 @@ function saveRouteVisitDraft(activeVisit: ActiveVisit, checkedOutAt: string, che
       createRequest: activeVisit.createRequest,
       checkInRequest: activeVisit.checkInRequest,
       completeRequest,
+      ...(activeVisit.sessionId ? { sessionId: activeVisit.sessionId } : {}),
+      ...(activeVisit.latitude !== undefined ? { latitude: roundCoordinate(activeVisit.latitude) } : {}),
+      ...(activeVisit.longitude !== undefined ? { longitude: roundCoordinate(activeVisit.longitude) } : {}),
+    },
+  });
+}
+
+async function saveCheckedInRouteVisitDraft(activeVisit: ActiveVisit) {
+  await upsertRouteVisitDraftDurably({
+    kind: 'route_visit',
+    title: `Route visit: ${activeVisit.account.displayName}`,
+    detail: 'Checked-in visit saved on this device. Complete checkout in Route or retry CRM sync from Sync Status.',
+    payload: {
+      kind: 'route_visit',
+      localVisitId: activeVisit.localVisitId,
+      stage: 'checked_in',
+      accountId: activeVisit.account.id,
+      accountName: activeVisit.account.displayName,
+      checkedInAt: activeVisit.checkedInAt,
+      notes: '',
+      createRequest: activeVisit.createRequest,
+      checkInRequest: activeVisit.checkInRequest,
       ...(activeVisit.sessionId ? { sessionId: activeVisit.sessionId } : {}),
       ...(activeVisit.latitude !== undefined ? { latitude: roundCoordinate(activeVisit.latitude) } : {}),
       ...(activeVisit.longitude !== undefined ? { longitude: roundCoordinate(activeVisit.longitude) } : {}),

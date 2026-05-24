@@ -8,8 +8,10 @@ import type {
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
+  UploadConsignmentAuditEvidenceRequest,
   UpsertConsignmentDocumentRequest,
 } from '@pulse/contracts/consignment';
+import type { AppConfig } from '../../config.js';
 import {
   badRequestResponse,
   forbiddenResponse,
@@ -42,10 +44,13 @@ import {
   updateConsignmentAudit,
   updateConsignmentDocument,
   updateConsignmentSite,
+  uploadConsignmentAuditEvidence,
   upsertConsignmentDocument,
 } from './service.js';
 
-export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
+const CONSIGNMENT_EVIDENCE_UPLOAD_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
+export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerResponse, url: URL, config?: AppConfig) {
   const method = req.method ?? 'GET';
   const pathname = url.pathname;
 
@@ -274,6 +279,28 @@ export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerR
       const response = await updateConsignmentAudit(actor, auditId, body);
       return jsonResponse(res, 200, response);
     }
+
+    const auditEvidenceMatch = matchPath(pathname, '/api/v1/consignment/audits/:auditId/evidence');
+    if (auditEvidenceMatch) {
+      const auditId = auditEvidenceMatch.auditId;
+      if (!auditId) {
+        return badRequestResponse(res, 'Consignment audit id is required');
+      }
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+      if (!config) {
+        return badRequestResponse(res, 'Consignment evidence storage is not configured');
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.audit',
+      });
+      const body = (await readJsonBody(req, CONSIGNMENT_EVIDENCE_UPLOAD_BODY_LIMIT_BYTES)) as UploadConsignmentAuditEvidenceRequest;
+      const response = await uploadConsignmentAuditEvidence(actor, config, auditId, body);
+      return jsonResponse(res, 201, response);
+    }
   } catch (error) {
     if (isAuthenticationError(error)) {
       return unauthorizedResponse(res, error.message);
@@ -313,7 +340,8 @@ function isConsignmentRoute(pathname: string) {
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/documents$/.test(pathname)
     || /^\/api\/v1\/consignment\/documents\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/audits$/.test(pathname)
-    || /^\/api\/v1\/consignment\/audits\/[^/]+$/.test(pathname);
+    || /^\/api\/v1\/consignment\/audits\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/consignment\/audits\/[^/]+\/evidence$/.test(pathname);
 }
 
 function readListSitesQuery(url: URL): ListConsignmentSitesRequest {

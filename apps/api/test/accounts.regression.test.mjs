@@ -228,6 +228,107 @@ test('accounts list and detail expose converted lead territory assignment contex
   assert.equal(detail.locations.length, 1);
 });
 
+test('account detail exposes CRM-owned readiness checks without ERP assumptions', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Readiness Dealer',
+    contactDisplayName: 'Riley Readiness',
+    email: 'readiness@example.com',
+    phone: '555-310-1000',
+    state: 'TX',
+    serviceTechCount: 6,
+  });
+  const region = await prisma.region.create({
+    data: {
+      code: 'rg_account_readiness',
+      name: 'Account Readiness Region',
+      isActive: true,
+    },
+  });
+  const tmUser = await prisma.user.create({
+    data: {
+      email: 'tm.account.readiness@pulse.local',
+      displayName: 'TM Account Readiness',
+      roleCode: 'TERRITORY_MANAGER',
+      isActive: true,
+    },
+  });
+  const rdUser = await prisma.user.create({
+    data: {
+      email: 'rd.account.readiness@pulse.local',
+      displayName: 'RD Account Readiness',
+      roleCode: 'REGIONAL_DIRECTOR',
+      isActive: true,
+    },
+  });
+  const territory = await prisma.territory.create({
+    data: {
+      code: 'territory_account_readiness',
+      name: 'Account Readiness Territory',
+      regionId: region.id,
+      managerUserId: tmUser.id,
+      isActive: true,
+    },
+  });
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({ orderBy: { createdAt: 'asc' } });
+  const readyAccount = await prisma.account.create({
+    data: {
+      sourceLeadId: lead.id,
+      displayName: 'Readiness Dealer',
+      legalName: 'Readiness Dealer LLC',
+      accountType: 'Dealer',
+      affinityGroupSelection: 'NONE',
+      ownershipGroupSelection: 'NONE',
+      groupClassification: 'INDEPENDENT',
+      territoryId: territory.id,
+      shippingCenterId: shippingCenter.id,
+      assignedTmUserId: tmUser.id,
+      assignedRdUserId: rdUser.id,
+      lastEngagementAt: new Date(),
+      contacts: {
+        create: {
+          firstName: 'Riley',
+          lastName: 'Readiness',
+          email: 'readiness@example.com',
+          isPrimary: true,
+          isActive: true,
+        },
+      },
+      locations: {
+        create: {
+          city: 'Dallas',
+          state: 'TX',
+          countryCode: 'US',
+          isPrimary: true,
+          isActive: true,
+        },
+      },
+    },
+  });
+  const incompleteAccount = await prisma.account.create({
+    data: {
+      displayName: 'Incomplete Readiness Dealer',
+      affinityGroupSelection: 'UNKNOWN',
+      ownershipGroupSelection: 'UNKNOWN',
+      isActive: true,
+    },
+  });
+
+  const readyDetail = await getAccountDetail(actor, readyAccount.id);
+  assert.equal(readyDetail.readiness.status, 'ready');
+  assert.equal(readyDetail.readiness.score, 100);
+  assert.equal(readyDetail.readiness.checks.find((check) => check.key === 'dealer_membership')?.status, 'ready');
+  assert.match(
+    readyDetail.readiness.checks.find((check) => check.key === 'source_lineage')?.message ?? '',
+    /source lead is linked/i,
+  );
+
+  const incompleteDetail = await getAccountDetail(actor, incompleteAccount.id);
+  assert.equal(incompleteDetail.readiness.status, 'parked');
+  assert.equal(incompleteDetail.readiness.checks.find((check) => check.key === 'territory')?.status, 'needs_attention');
+  assert.equal(incompleteDetail.readiness.checks.find((check) => check.key === 'erp_activity')?.status, 'parked');
+});
+
 test('direct customer creation is reserved for super admin or migration workflows', SERIAL, async () => {
   const actor = await createAdminActor();
 

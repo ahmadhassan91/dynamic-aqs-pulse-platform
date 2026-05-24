@@ -3,12 +3,13 @@ import { Pressable, Text, View } from 'react-native';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate } from '@/lib/format';
 import { useFieldData } from '@/hooks/use-mobile-data';
-import { useMobileDraftQueue } from '@/lib/mobile-draft-queue';
+import { summarizeMobileDraftQueue, useMobileDraftQueue } from '@/lib/mobile-draft-queue';
 import { colors, radius, spacing, typography } from '@/theme';
 
 export default function NotificationsScreen() {
   const { consignmentSites, consignmentWorkItems, errorMessage, isLoading, queueSummary, reload } = useFieldData(20);
   const drafts = useMobileDraftQueue();
+  const draftSummary = summarizeMobileDraftQueue(drafts);
   const unsyncedDrafts = drafts.filter((draft) => draft.status !== 'synced');
   const leadAlerts = queueSummary?.urgentCount ?? 0;
   const slaAlerts = queueSummary?.slaRiskCount ?? 0;
@@ -32,9 +33,9 @@ export default function NotificationsScreen() {
           <View style={{ gap: spacing.md }}>
             {unsyncedDrafts.length > 0 ? (
               <NotificationCard
-                title={`${unsyncedDrafts.length} draft${unsyncedDrafts.length === 1 ? '' : 's'} on this phone`}
-                detail="These field updates are not visible in CRM yet. Retry them when the connection is stable."
-                tone="warning"
+                title={draftAlertTitle(draftSummary)}
+                detail={draftAlertDetail(draftSummary)}
+                tone={draftSummary.conflict > 0 ? 'danger' : 'warning'}
                 action="Open sync status"
                 onPress={() => router.push('/sync-status')}
               />
@@ -66,7 +67,7 @@ export default function NotificationsScreen() {
           <EmptyState title="No urgent CRM alerts" detail="Lead, consignment, and sync signals are clear for this mobile session." />
         )}
 
-        <SectionTitle title="Sync status" detail="Push notifications and conflict merge are still parked; local drafts and live CRM pulls are visible here." />
+        <SectionTitle title="Sync status" detail="Local drafts, retry failures, and conflict-review items are visible here before CRM accepts them." />
         <SecondaryButton label="Refresh signals" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
         <SectionTitle title="Training" detail="Open scheduled training, check in, complete the session, or retry local drafts." />
         <SecondaryButton label="Open training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
@@ -132,4 +133,28 @@ function NotificationCard({
       </View>
     </Card>
   );
+}
+
+function draftAlertTitle(summary: ReturnType<typeof summarizeMobileDraftQueue>) {
+  if (summary.conflict > 0) return `${summary.conflict} draft${summary.conflict === 1 ? '' : 's'} need CRM review`;
+  if (summary.failed > 0) return `${summary.failed} draft${summary.failed === 1 ? '' : 's'} need retry`;
+  return `${summary.unsynced} draft${summary.unsynced === 1 ? '' : 's'} on this phone`;
+}
+
+function draftAlertDetail(summary: ReturnType<typeof summarizeMobileDraftQueue>) {
+  const parts = [
+    summary.pending > 0 ? `${summary.pending} waiting` : null,
+    summary.syncing > 0 ? `${summary.syncing} sending` : null,
+    summary.failed > 0 ? `${summary.failed} failed retry` : null,
+    summary.conflict > 0 ? `${summary.conflict} conflict review` : null,
+  ].filter(Boolean);
+  const status = parts.length ? `Status: ${parts.join(' · ')}.` : '';
+
+  if (summary.conflict > 0) {
+    return `${status} Compare the phone copy with CRM before retrying or discarding it.`;
+  }
+  if (summary.failed > 0) {
+    return `${status} These field updates are still protected on this phone; retry when the connection is stable.`;
+  }
+  return `${status} These field updates are not visible in CRM yet. Retry them when the connection is stable.`;
 }

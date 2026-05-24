@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
+import path from 'node:path';
 import test from 'node:test';
 import { applyTestEnvironment, ensureTestDatabaseReady, resetDatabase } from './support/runtime.mjs';
 
@@ -137,7 +139,7 @@ async function createConsignmentAccountFixture(suffix = 'foundation') {
 async function withConsignmentRuntime(callback) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    const handled = await handleConsignmentRoutes(req, res, url);
+    const handled = await handleConsignmentRoutes(req, res, url, config);
     if (handled === false) {
       res.statusCode = 404;
       res.end();
@@ -447,6 +449,39 @@ test('ROSE audit scheduler resets the 90-day due date and creates manual PO foll
   assert.ok(detail.workItems.some((item) => item.type === 'po_follow_up'));
 });
 
+test('ROSE audit evidence upload stores CRM-owned photo evidence outside Acumatica', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('audit-evidence');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Evidence consignment site',
+    ownerTmUserId: fixture.tm.id,
+    ownerRdUserId: fixture.rd.id,
+  });
+  const scheduled = await service.createConsignmentAudit(actor, site.id, {
+    scheduledFor: '2026-05-20T10:00:00.000Z',
+  });
+
+  const response = await service.uploadConsignmentAuditEvidence(actor, config, scheduled.id, {
+    purpose: 'discrepancy',
+    fileName: 'rose-count-shelf.jpg',
+    mimeType: 'image/jpeg',
+    contentBase64: Buffer.from('fake photo bytes for regression').toString('base64'),
+  });
+
+  assert.equal(response.evidence.purpose, 'discrepancy');
+  assert.equal(response.audit.evidenceCount, 1);
+  assert.equal(response.audit.discrepancyEvidenceCount, 1);
+  assert.match(response.evidence.storageKey, /^consignment\/audits\/.+\/evidence\/.+rose-count-shelf\.jpg$/);
+  assert.equal(existsSync(path.join(config.storage.rootDir, response.evidence.storageKey)), true);
+
+  const auditEntry = await prisma.auditEntry.findFirst({
+    where: { entityType: 'CONSIGNMENT_AUDIT_EVIDENCE', entityId: response.evidence.id },
+  });
+  assert.equal(auditEntry.metadata.acumaticaBoundary, 'not_an_acumatica_attachment');
+});
+
 test('operational queue honors auditStatus filter from the HTTP contract', SERIAL, async () => {
   const actor = await createAdminActor();
   const scheduledFixture = await createConsignmentAccountFixture('queue-scheduled');
@@ -550,6 +585,54 @@ test('consignment API routes create, read, filter, and gate workflow resources',
     assert.equal(activationResponse.status, 400);
     const activationPayload = await activationResponse.json();
     assert.match(String(activationPayload.detail), /warehouse|baseline|active/i);
+
+    const auditResponse = await fetch(`${baseUrl}/api/v1/consignment/sites/${created.id}/audits`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        scheduledFor: '2026-05-20T10:00:00.000Z',
+      }),
+    });
+    assert.equal(auditResponse.status, 201);
+    const audit = await auditResponse.json();
+
+    const evidenceResponse = await fetch(`${baseUrl}/api/v1/consignment/audits/${audit.id}/evidence`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        purpose: 'general',
+        fileName: 'mobile-rose-audit.jpg',
+        mimeType: 'image/jpeg',
+        contentBase64: Buffer.from('mobile evidence bytes').toString('base64'),
+      }),
+    });
+    assert.equal(evidenceResponse.status, 201);
+    const evidencePayload = await evidenceResponse.json();
+    assert.equal(evidencePayload.audit.evidenceCount, 1);
+    assert.equal(evidencePayload.evidence.mimeType, 'image/jpeg');
+
+    const invalidEvidenceResponse = await fetch(`${baseUrl}/api/v1/consignment/audits/${audit.id}/evidence`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        purpose: 'general',
+        fileName: 'mobile-rose-audit.pdf',
+        mimeType: 'application/pdf',
+        contentBase64: Buffer.from('not a supported mobile photo').toString('base64'),
+      }),
+    });
+    assert.equal(invalidEvidenceResponse.status, 400);
+    const invalidEvidencePayload = await invalidEvidenceResponse.json();
+    assert.match(String(invalidEvidencePayload.detail), /photos only/i);
 
     const accountResponse = await fetch(`${baseUrl}/api/v1/consignment/accounts/${fixture.account.id}`, {
       headers: {

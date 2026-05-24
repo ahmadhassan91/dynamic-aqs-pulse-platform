@@ -411,6 +411,119 @@ test('training sessions reject ineligible trainers and mismatched programs', SER
   );
 });
 
+test('TM/RD training writes and overview stay scoped to visible accounts and sessions', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const visible = await createTrainingAccountFixture(actor, 'tm-visible');
+  const hidden = await createTrainingAccountFixture(actor, 'tm-hidden');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+  assert.ok(onboardingType);
+
+  const trainingOps = actorWithRole(actor, 'TRAINING_OPS');
+  const tmActor = actorForUser(actor, visible.tm, 'TERRITORY_MANAGER');
+
+  await createAccountTrainingProgram(trainingOps, visible.account.id, {
+    trainingTypeId: onboardingType.id,
+  });
+  await createAccountTrainingProgram(trainingOps, hidden.account.id, {
+    trainingTypeId: onboardingType.id,
+  });
+
+  await assert.rejects(
+    () =>
+      createTrainingSession(tmActor, hidden.account.id, {
+        trainingTypeId: onboardingType.id,
+        trainerUserId: visible.tm.id,
+        scheduledAt: '2026-06-01T10:00:00.000Z',
+        durationMinutes: 60,
+      }),
+    /Account not found/i,
+  );
+
+  const visibleSession = await createTrainingSession(tmActor, visible.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: visible.tm.id,
+    scheduledAt: '2026-06-02T10:00:00.000Z',
+    durationMinutes: 60,
+  });
+  const hiddenSession = await createTrainingSession(trainingOps, hidden.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: hidden.tm.id,
+    scheduledAt: '2026-06-03T10:00:00.000Z',
+    durationMinutes: 60,
+  });
+
+  const hiddenFollowUp = await createTrainingFollowUpTask(trainingOps, hiddenSession.id, {
+    title: 'Hidden follow-up',
+    dueAt: '2026-06-10T10:00:00.000Z',
+  });
+  const hiddenCertification = await prisma.trainingCertificationRecord.create({
+    data: {
+      accountId: hidden.account.id,
+      sessionId: hiddenSession.id,
+      trainingTypeId: onboardingType.id,
+      awardedByUserId: actor.userId,
+      title: 'Hidden Certification',
+      status: 'ACTIVE',
+      awardedAt: new Date('2026-06-03T12:00:00.000Z'),
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      checkInTrainingSession(tmActor, hiddenSession.id, {
+        notes: 'Should not reach hidden session.',
+      }),
+    /Training session not found/i,
+  );
+  await assert.rejects(
+    () =>
+      rescheduleTrainingSession(tmActor, hiddenSession.id, {
+        scheduledAt: '2026-06-04T10:00:00.000Z',
+      }),
+    /Training session not found/i,
+  );
+  await assert.rejects(
+    () =>
+      completeTrainingSession(tmActor, hiddenSession.id, {
+        checkoutNotes: 'Hidden completion should be denied.',
+        completionSummary: 'Denied.',
+        durationMinutes: 60,
+      }),
+    /Training session not found/i,
+  );
+  await assert.rejects(
+    () =>
+      completeTrainingFollowUpTask(tmActor, hiddenFollowUp.id, {
+        notes: 'Hidden follow-up should be denied.',
+      }),
+    /Training follow-up task not found/i,
+  );
+  await assert.rejects(
+    () =>
+      revokeTrainingCertification(tmActor, hiddenCertification.id, {
+        notes: 'Hidden revoke should be denied.',
+      }),
+    /Training certification not found/i,
+  );
+
+  await checkInTrainingSession(tmActor, visibleSession.id, {
+    notes: 'Visible check-in remains available.',
+  });
+  await completeTrainingSession(tmActor, visibleSession.id, {
+    checkoutNotes: 'Visible TM completed this dealer visit.',
+    completionSummary: 'Visible session completed.',
+    durationMinutes: 60,
+  });
+
+  const overview = await listTrainingOverview(tmActor);
+  assert.equal(overview.totalAccountsTracked, 1);
+  assert.equal(overview.activePrograms, 1);
+  assert.equal(overview.completedSessions, 1);
+  assert.equal(overview.scheduledSessions, 0);
+  assert.equal(overview.openFollowUpTasks, 0);
+  assert.equal(overview.activeCertificationCount, 0);
+});
+
 test('completing a training session advances cadence and creates follow-up tasks', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const fixture = await createTrainingAccountFixture(actor, 'complete');

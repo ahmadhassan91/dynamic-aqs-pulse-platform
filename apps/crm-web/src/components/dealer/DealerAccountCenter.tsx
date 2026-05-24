@@ -1,12 +1,84 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { useState } from 'react';
+import { Alert, Badge, Box, Button, Card, Grid, Group, Modal, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
+import { createCurrentDealerPortalUser, updateCurrentDealerPortalUser } from '@/lib/pulse-api';
+import { usePulseSession } from '@/lib/pulse-session';
 
 export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDashboardResponse }) {
-  const roleProfile = getRoleProfile(dashboard.currentUser.accessRole);
-  const isViewer = dashboard.currentUser.accessRole === 'viewer';
+  const { auth, apiBaseUrl } = usePulseSession();
+  const [currentDashboard, setCurrentDashboard] = useState(dashboard);
+  const [inviteOpened, setInviteOpened] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [title, setTitle] = useState('');
+  const [accessRole, setAccessRole] = useState<Exclude<DealerPortalAccessRoleKey, 'admin'>>('viewer');
+  const [notes, setNotes] = useState('');
+  const [isSavingUser, setIsSavingUser] = useState(false);
+  const [lastInvitePath, setLastInvitePath] = useState<string | null>(null);
+  const roleProfile = getRoleProfile(currentDashboard.currentUser.accessRole);
+  const isViewer = currentDashboard.currentUser.accessRole === 'viewer';
+  const canManageUsers = currentDashboard.currentUser.accessRole === 'admin';
+
+  async function handleInviteUser() {
+    if (!auth) return;
+    setIsSavingUser(true);
+    try {
+      const response = await createCurrentDealerPortalUser(apiBaseUrl, auth.tokens.accessToken, {
+        firstName,
+        lastName,
+        email,
+        ...(title.trim() ? { title: title.trim() } : {}),
+        accessRole,
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+      });
+      setCurrentDashboard(response.dashboard);
+      setLastInvitePath(response.invitePath);
+      setFirstName('');
+      setLastName('');
+      setEmail('');
+      setTitle('');
+      setAccessRole('viewer');
+      setNotes('');
+      setInviteOpened(false);
+      notifications.show({
+        title: 'Portal user invited',
+        message: `${response.user.displayName} can now accept the dealer portal invite.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Invite failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingUser(false);
+    }
+  }
+
+  async function handleUserStatus(userId: string, status: 'active' | 'deactivated') {
+    if (!auth) return;
+    try {
+      const response = await updateCurrentDealerPortalUser(apiBaseUrl, auth.tokens.accessToken, userId, { status });
+      setCurrentDashboard(response.dashboard);
+      notifications.show({
+        title: status === 'active' ? 'Portal user activated' : 'Portal user deactivated',
+        message: `${response.user.displayName} was updated.`,
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'User update failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    }
+  }
 
   return (
     <Stack gap="lg">
@@ -60,10 +132,10 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="sm">
               <Title order={3}>Portal Access</Title>
-              <MetadataRow label="Status" value={dashboard.portalAccount.status.replace(/_/g, ' ')} badgeColor={statusColor(dashboard.portalAccount.status)} />
-              <MetadataRow label="Eligibility" value={dashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'} />
-              <MetadataRow label="Set Up At" value={formatDateTime(dashboard.portalAccount.provisionedAt)} />
-              <MetadataRow label="Notes" value={dashboard.portalAccount.notes ?? 'No setup notes added yet'} />
+              <MetadataRow label="Status" value={currentDashboard.portalAccount.status.replace(/_/g, ' ')} badgeColor={statusColor(currentDashboard.portalAccount.status)} />
+              <MetadataRow label="Eligibility" value={currentDashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'} />
+              <MetadataRow label="Set Up At" value={formatDateTime(currentDashboard.portalAccount.provisionedAt)} />
+              <MetadataRow label="Notes" value={currentDashboard.portalAccount.notes ?? 'No setup notes added yet'} />
             </Stack>
           </Card>
         </Grid.Col>
@@ -71,11 +143,11 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
             <Stack gap="sm">
               <Title order={3}>Dynamic AQS Account Team</Title>
-              <MetadataRow label="Territory" value={dashboard.portalAccount.territoryName ?? 'Not assigned'} />
-              <MetadataRow label="Region" value={dashboard.portalAccount.regionName ?? 'Not assigned'} />
-              <MetadataRow label="Shipping Center" value={dashboard.portalAccount.shippingCenterName ?? 'Not assigned'} />
-              <MetadataRow label="Territory Manager" value={dashboard.portalAccount.assignedTmName ?? 'Not assigned'} />
-              <MetadataRow label="Regional Director" value={dashboard.portalAccount.assignedRdName ?? 'Not assigned'} />
+              <MetadataRow label="Territory" value={currentDashboard.portalAccount.territoryName ?? 'Not assigned'} />
+              <MetadataRow label="Region" value={currentDashboard.portalAccount.regionName ?? 'Not assigned'} />
+              <MetadataRow label="Shipping Center" value={currentDashboard.portalAccount.shippingCenterName ?? 'Not assigned'} />
+              <MetadataRow label="Territory Manager" value={currentDashboard.portalAccount.assignedTmName ?? 'Not assigned'} />
+              <MetadataRow label="Regional Director" value={currentDashboard.portalAccount.assignedRdName ?? 'Not assigned'} />
             </Stack>
           </Card>
         </Grid.Col>
@@ -107,13 +179,30 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
 
       <Card withBorder radius="xl" p="lg" className="premium-detail-card">
         <Stack gap="md">
-          <Group justify="space-between">
-            <Title order={3}>Portal User Access</Title>
-            <Badge size="lg" color="blue" variant="light">
-              {dashboard.companyUsers.length} user{dashboard.companyUsers.length === 1 ? '' : 's'}
-            </Badge>
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={4}>
+              <Title order={3}>Portal User Access</Title>
+              <Text size="sm" c="dimmed">
+                Dealer admins can invite or revoke non-admin company users. Dynamic AQS still manages primary owner and admin access.
+              </Text>
+            </Stack>
+            <Group gap="xs">
+              <Badge size="lg" color="blue" variant="light">
+                {currentDashboard.companyUsers.length} user{currentDashboard.companyUsers.length === 1 ? '' : 's'}
+              </Badge>
+              {canManageUsers ? (
+                <Button size="sm" onClick={() => setInviteOpened(true)}>
+                  Invite User
+                </Button>
+              ) : null}
+            </Group>
           </Group>
-          {dashboard.companyUsers.length === 0 ? (
+          {lastInvitePath ? (
+            <Alert color="green" variant="light">
+              Invite link created: {lastInvitePath}
+            </Alert>
+          ) : null}
+          {currentDashboard.companyUsers.length === 0 ? (
             <Alert color="blue" variant="light">
               No portal users have been set up for this account yet.
             </Alert>
@@ -129,10 +218,11 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Primary Owner</Table.Th>
                   <Table.Th>Activated</Table.Th>
+                  {canManageUsers ? <Table.Th>Actions</Table.Th> : null}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {dashboard.companyUsers.map((user) => (
+                {currentDashboard.companyUsers.map((user) => (
                   <Table.Tr key={user.id}>
                     <Table.Td>{user.displayName}</Table.Td>
                     <Table.Td>{user.email}</Table.Td>
@@ -145,6 +235,21 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     </Table.Td>
                     <Table.Td>{user.isPrimaryOwner ? 'Yes' : 'No'}</Table.Td>
                     <Table.Td>{formatDateTime(user.activatedAt)}</Table.Td>
+                    {canManageUsers ? (
+                      <Table.Td>
+                        {user.id === currentDashboard.currentUser.id || user.isPrimaryOwner || user.accessRole === 'admin' ? (
+                          <Text size="xs" c="dimmed">Dynamic managed</Text>
+                        ) : user.status === 'active' ? (
+                          <Button size="compact-xs" variant="light" color="red" onClick={() => void handleUserStatus(user.id, 'deactivated')}>
+                            Revoke
+                          </Button>
+                        ) : (
+                          <Button size="compact-xs" variant="light" color="green" onClick={() => void handleUserStatus(user.id, 'active')}>
+                            Reactivate
+                          </Button>
+                        )}
+                      </Table.Td>
+                    ) : null}
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -159,7 +264,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Company Contacts</Title>
-              {dashboard.contacts.length === 0 ? (
+              {currentDashboard.contacts.length === 0 ? (
                 <Alert color="blue" variant="light">
                   No contacts have been published for this account yet.
                 </Alert>
@@ -175,7 +280,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {dashboard.contacts.map((contact) => (
+                    {currentDashboard.contacts.map((contact) => (
                       <Table.Tr key={contact.id}>
                         <Table.Td>
                           <Group gap="xs">
@@ -203,7 +308,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="md">
               <Title order={3}>Company Locations</Title>
-              {dashboard.locations.length === 0 ? (
+              {currentDashboard.locations.length === 0 ? (
                 <Alert color="blue" variant="light">
                   No locations have been published for this account yet.
                 </Alert>
@@ -219,7 +324,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {dashboard.locations.map((location) => (
+                    {currentDashboard.locations.map((location) => (
                       <Table.Tr key={location.id}>
                         <Table.Td>
                           <Group gap="xs">
@@ -244,6 +349,46 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           </Card>
         </Grid.Col>
       </Grid>
+      <Modal opened={inviteOpened} onClose={() => setInviteOpened(false)} title="Invite Portal User" size="lg" centered>
+        <Stack gap="md">
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput label="First name" value={firstName} onChange={(event) => setFirstName(event.currentTarget.value)} required />
+            <TextInput label="Last name" value={lastName} onChange={(event) => setLastName(event.currentTarget.value)} required />
+          </SimpleGrid>
+          <TextInput label="Email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} required />
+          <TextInput label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+          <Select
+            label="Portal role"
+            value={accessRole}
+            onChange={(value) => setAccessRole((value as Exclude<DealerPortalAccessRoleKey, 'admin'> | null) ?? 'viewer')}
+            data={[
+              { value: 'purchasing', label: 'Purchasing' },
+              { value: 'accounting', label: 'Accounting' },
+              { value: 'viewer', label: 'Viewer' },
+            ]}
+            allowDeselect={false}
+          />
+          <Textarea
+            label="Notes"
+            value={notes}
+            onChange={(event) => setNotes(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Alert color="blue" variant="light">
+            Admin and primary-owner access is managed by Dynamic AQS. This keeps company access simple during UAT.
+          </Alert>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setInviteOpened(false)}>Cancel</Button>
+            <Button
+              onClick={() => void handleInviteUser()}
+              loading={isSavingUser}
+              disabled={!firstName.trim() || !lastName.trim() || !email.trim()}
+            >
+              Create Invite
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

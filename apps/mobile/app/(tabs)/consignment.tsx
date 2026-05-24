@@ -1,186 +1,51 @@
-import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import type { ConsignmentAuditLineSummary, ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
+import type { ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SearchField, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { fetchConsignmentSiteDetail, updateConsignmentAudit } from '@/lib/api';
 import { formatDate, formatDateTime, humanize } from '@/lib/format';
-import { enqueueDraft, type RoseAttestationMetadata, type RoseEvidenceMetadata } from '@/lib/mobile-draft-queue';
-import { mimeTypeFromFileName } from '@/lib/media';
-import { useFieldData } from '@/hooks/use-mobile-data';
-import { useSession } from '@/providers/session-provider';
+import {
+  areRoseLineCountsValid,
+  formatQuantity,
+  formatSignedQuantity,
+  isValidRoseCount,
+  parseRoseQuantity,
+  summarizeVariance,
+  useConsignmentRoseAudit,
+  type RoseEvidenceItem,
+  type RoseLineCount,
+  type RoseVarianceSummary,
+} from '@/hooks/use-consignment-rose-audit';
 import { colors, radius, spacing, typography } from '@/theme';
 
-type RoseEvidenceItem = RoseEvidenceMetadata & {
-  previewUri?: string;
-};
-
-type RoseLineCount = {
-  lineId: string;
-  sku?: string;
-  barcode?: string;
-  productName: string;
-  expectedQuantity?: number;
-  actualQuantity: string;
-  notes: string;
-};
-
 export default function ConsignmentScreen() {
-  const { apiBaseUrl, auth } = useSession();
-  const { consignmentSites, consignmentWorkItems, errorMessage, isLoading, reload } = useFieldData(50);
-  const [query, setQuery] = useState('');
-  const [selectedSite, setSelectedSite] = useState<ConsignmentSiteSummary | null>(null);
-  const [activeAudit, setActiveAudit] = useState<ConsignmentAuditSummary | null>(null);
-  const [lineCounts, setLineCounts] = useState<RoseLineCount[]>([]);
-  const [notes, setNotes] = useState('');
-  const [evidenceItems, setEvidenceItems] = useState<RoseEvidenceItem[]>([]);
-  const [attestedByName, setAttestedByName] = useState('');
-  const [isAttested, setIsAttested] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [auditMessage, setAuditMessage] = useState<string | null>(null);
-  const [auditError, setAuditError] = useState<string | null>(null);
-
-  const filteredSites = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    const ordered = [...consignmentSites].sort((left, right) => {
-      const leftDue = left.nextAuditDueAt ? new Date(left.nextAuditDueAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const rightDue = right.nextAuditDueAt ? new Date(right.nextAuditDueAt).getTime() : Number.MAX_SAFE_INTEGER;
-      return leftDue - rightDue;
-    });
-    if (!needle) return ordered;
-    return ordered.filter((site) => [
-      site.accountName,
-      site.name,
-      site.warehouseCode,
-      site.ownerTmName,
-      site.territoryName,
-      site.regionName,
-    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
-  }, [consignmentSites, query]);
-
-  async function openRoseAudit(site: ConsignmentSiteSummary) {
-    if (!auth) return;
-    setAuditError(null);
-    setAuditMessage(null);
-    setSelectedSite(site);
-    setActiveAudit(null);
-    setNotes('');
-    setLineCounts([]);
-    setEvidenceItems([]);
-    setAttestedByName('');
-    setIsAttested(false);
-    try {
-      const detail = await fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, site.id);
-      const audit = detail.audits.find((item) => item.status === 'scheduled' || item.status === 'in_progress') ?? detail.audits[0] ?? null;
-      setActiveAudit(audit);
-      setLineCounts(buildRoseLineCounts(audit?.lines ?? []));
-      if (!audit) {
-        setAuditError('No ROSE audit is scheduled for this site yet. Schedule it in CRM before field execution.');
-      }
-    } catch (error) {
-      setAuditError(error instanceof Error ? error.message : 'Unable to load consignment audit.');
-    }
-  }
-
-  async function submitRoseAudit() {
-    if (!auth || !activeAudit || !notes.trim() || !attestedByName.trim() || !isAttested || !areRoseLineCountsValid(lineCounts)) return;
-    const completedAt = new Date().toISOString();
-    const evidenceMetadata = evidenceItems.map(({ previewUri, ...item }) => item);
-    const attestation: RoseAttestationMetadata = {
-      attestedByName: attestedByName.trim(),
-      attestedAt: completedAt,
-      textVersion: 'rose-field-v1',
-    };
-    const submittedLines = buildSubmittedLines(lineCounts);
-    const varianceSummary = summarizeVariance(lineCounts);
-    const notesWithEvidence = buildRoseAuditNotes(notes.trim(), attestation, evidenceMetadata, varianceSummary);
-    setIsSubmitting(true);
-    setAuditError(null);
-    setAuditMessage(null);
-    const request = {
-        status: 'completed',
-        completedAt,
-        reconciliationStatus: varianceSummary.hasVariance ? 'open' : 'true_up_confirmed',
-        notes: notesWithEvidence,
-        lines: submittedLines,
-      } satisfies Parameters<typeof updateConsignmentAudit>[3];
-
-    try {
-      await updateConsignmentAudit(apiBaseUrl, auth.tokens.accessToken, activeAudit.id, request);
-      setAuditMessage('ROSE audit submitted to CRM. Any variance/PO follow-up remains in the consignment work queue.');
-      setSelectedSite(null);
-      setActiveAudit(null);
-      setNotes('');
-      setLineCounts([]);
-      setEvidenceItems([]);
-      setAttestedByName('');
-      setIsAttested(false);
-      await reload();
-    } catch (error) {
-      enqueueDraft({
-        kind: 'consignment_rose_audit',
-        title: `ROSE audit: ${selectedSite?.accountName ?? 'Consignment site'}`,
-        detail: 'Saved as a draft on this device because CRM sync was unavailable.',
-        payload: {
-          kind: 'consignment_rose_audit',
-          auditId: activeAudit.id,
-          siteId: activeAudit.siteId,
-          accountName: selectedSite?.accountName ?? 'Consignment site',
-          request,
-          evidence: {
-            items: evidenceMetadata,
-            mediaUploadStatus: 'parked_until_backend_endpoint',
-          },
-          attestation,
-        },
-      });
-      setAuditMessage('Saved as a draft on this device. Retry from Sync when CRM is reachable.');
-      setSelectedSite(null);
-      setActiveAudit(null);
-      setNotes('');
-      setLineCounts([]);
-      setEvidenceItems([]);
-      setAttestedByName('');
-      setIsAttested(false);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function addRoseEvidence(useCamera: boolean) {
-    setAuditError(null);
-    try {
-      if (useCamera) {
-        const permission = await ImagePicker.requestCameraPermissionsAsync();
-        if (!permission.granted) {
-          throw new Error('Camera access is required to add ROSE evidence.');
-        }
-      }
-
-      const picked = useCamera
-        ? await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.65, base64: false })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.65, base64: false });
-
-      if (picked.canceled || !picked.assets[0]) return;
-      const asset = picked.assets[0];
-      const fileName = asset.fileName ?? `rose-evidence-${Date.now()}.jpg`;
-      setEvidenceItems((items) => [
-        ...items,
-        {
-          id: `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          fileName,
-          mimeType: asset.mimeType ?? mimeTypeFromFileName(fileName),
-          purpose: 'general',
-          capturedAt: new Date().toISOString(),
-          ...(asset.fileSize !== undefined ? { byteSize: asset.fileSize } : {}),
-          previewUri: asset.uri,
-        },
-      ]);
-    } catch (error) {
-      setAuditError(error instanceof Error ? error.message : 'Unable to add ROSE evidence.');
-    }
-  }
+  const {
+    activeAudit,
+    addRoseEvidence,
+    attestedByName,
+    auditError,
+    auditMessage,
+    closeAudit,
+    consignmentSites,
+    consignmentWorkItems,
+    errorMessage,
+    evidenceItems,
+    filteredSites,
+    isAttested,
+    isLoading,
+    isSubmitting,
+    lineCounts,
+    notes,
+    openRoseAudit,
+    query,
+    selectedSite,
+    setAttestedByName,
+    setEvidenceItems,
+    setIsAttested,
+    setLineCounts,
+    setNotes,
+    setQuery,
+    submitRoseAudit,
+  } = useConsignmentRoseAudit();
 
   return (
     <Screen>
@@ -202,7 +67,7 @@ export default function ConsignmentScreen() {
       {auditMessage ? (
         <Card style={{ borderColor: '#B7E4C7', backgroundColor: '#F3FFF7' }}>
           <Text selectable style={{ ...typography.subtitle, color: colors.success }}>
-            {auditMessage.startsWith('Saved as a draft') ? 'Draft on phone' : 'CRM saved'}
+            {auditMessage.startsWith('Draft on phone') ? 'Draft on phone' : 'CRM saved'}
           </Text>
           <Text selectable style={{ ...typography.callout, color: colors.text }}>
             {auditMessage}
@@ -221,15 +86,7 @@ export default function ConsignmentScreen() {
           notes={notes}
           onAddEvidence={(useCamera) => void addRoseEvidence(useCamera)}
           onAttestedByNameChange={setAttestedByName}
-          onCancel={() => {
-            setSelectedSite(null);
-            setActiveAudit(null);
-            setNotes('');
-            setLineCounts([]);
-            setEvidenceItems([]);
-            setAttestedByName('');
-            setIsAttested(false);
-          }}
+          onCancel={closeAudit}
           onRemoveEvidence={(id) => setEvidenceItems((items) => items.filter((item) => item.id !== id))}
           onLineActualQuantityChange={(lineId, value) => setLineCounts((items) => items.map((item) => item.lineId === lineId ? { ...item, actualQuantity: value } : item))}
           onLineNotesChange={(lineId, value) => setLineCounts((items) => items.map((item) => item.lineId === lineId ? { ...item, notes: value } : item))}
@@ -241,7 +98,7 @@ export default function ConsignmentScreen() {
         />
       ) : null}
 
-      <SectionTitle title="Audit queue" detail="Due and active sites come from CRM. Expected inventory remains Acumatica-dependent when source freshness is parked or stale." />
+      <SectionTitle title="Audit queue" detail="Due and active sites come from CRM. Expected quantities may be missing or stale until Acumatica data is available." />
       <View style={{ gap: spacing.md }}>
         {filteredSites.map((site) => (
           <ConsignmentSiteCard key={site.id} site={site} onOpen={() => void openRoseAudit(site)} />
@@ -255,7 +112,7 @@ export default function ConsignmentScreen() {
       <SectionTitle title="CRM sync boundary" />
       <Card style={{ backgroundColor: colors.surfaceMuted }}>
         <Text selectable style={{ ...typography.callout, color: colors.text }}>
-          Mobile is synced with Pulse CRM for sites, audit due dates, work items, and audit submission. Acumatica warehouse creation, authoritative expected inventory, PO posting, and final financial reconciliation stay parked until access and mappings are approved.
+          Mobile sends the ROSE audit, counts, notes, and evidence to Pulse CRM. Inventory values from Acumatica may be unavailable or stale; PO posting and finance reconciliation happen outside the mobile app until those integrations are approved.
         </Text>
       </Card>
     </Screen>
@@ -332,6 +189,7 @@ function RoseAuditCard({
   site: ConsignmentSiteSummary;
 }) {
   const varianceSummary = summarizeVariance(lineCounts);
+  const submitBlocker = getRoseSubmitBlocker({ attestedByName, isAttested, isSubmitting, lineCounts, notes });
   return (
     <Card style={{ borderColor: colors.primarySoft }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -387,13 +245,14 @@ function RoseAuditCard({
             }}
           />
           <EvidenceCaptureSection
+            disabled={isSubmitting}
             evidenceItems={evidenceItems}
             onAddEvidence={onAddEvidence}
             onRemoveEvidence={onRemoveEvidence}
             onToggleEvidencePurpose={onToggleEvidencePurpose}
           />
           <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-            Photos are preview-only in this slice. CRM receives evidence metadata in notes; media upload is parked until the backend evidence endpoint is approved.
+            Photos upload with the audit when CRM is reachable. Offline drafts keep counts, notes, attestation, and photo metadata only.
           </Text>
           <AttestationSection
             attestedByName={attestedByName}
@@ -401,7 +260,12 @@ function RoseAuditCard({
             onAttestedByNameChange={onAttestedByNameChange}
             onToggleAttestation={onToggleAttestation}
           />
-          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={isSubmitting || !notes.trim() || !attestedByName.trim() || !isAttested || !areRoseLineCountsValid(lineCounts)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
+          {submitBlocker ? (
+            <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+              {submitBlocker}
+            </Text>
+          ) : null}
+          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={Boolean(submitBlocker)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
         </>
       ) : null}
       <SecondaryButton label="Cancel" icon={{ name: 'xmark.circle.fill', fallback: 'X' }} onPress={onCancel} />
@@ -520,11 +384,13 @@ function RoseLineCountSection({
 }
 
 function EvidenceCaptureSection({
+  disabled,
   evidenceItems,
   onAddEvidence,
   onRemoveEvidence,
   onToggleEvidencePurpose,
 }: {
+  disabled: boolean;
   evidenceItems: RoseEvidenceItem[];
   onAddEvidence: (useCamera: boolean) => void;
   onRemoveEvidence: (id: string) => void;
@@ -538,7 +404,7 @@ function EvidenceCaptureSection({
             Evidence
           </Text>
           <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-            Add photos for the audit record. Media upload is parked; metadata and attestation stay with the ROSE draft.
+            Add up to three photos. They upload to CRM with the audit; if the app is offline, counts and photo metadata stay in the phone draft.
           </Text>
         </View>
         <Pill label={`${evidenceItems.length} photo${evidenceItems.length === 1 ? '' : 's'}`} tone={evidenceItems.length ? 'active' : 'pending'} />
@@ -546,10 +412,10 @@ function EvidenceCaptureSection({
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <View style={{ flex: 1 }}>
-          <SecondaryButton label="Camera" icon={{ name: 'camera.fill', fallback: 'C' }} onPress={() => onAddEvidence(true)} />
+          <SecondaryButton label="Camera" disabled={disabled} icon={{ name: 'camera.fill', fallback: 'C' }} onPress={() => onAddEvidence(true)} />
         </View>
         <View style={{ flex: 1 }}>
-          <SecondaryButton label="Gallery" icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }} onPress={() => onAddEvidence(false)} />
+          <SecondaryButton label="Gallery" disabled={disabled} icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }} onPress={() => onAddEvidence(false)} />
         </View>
       </View>
 
@@ -561,14 +427,14 @@ function EvidenceCaptureSection({
               {item.fileName}
             </Text>
             <Text selectable style={{ ...typography.caption, color: colors.muted }}>
-              {item.purpose === 'discrepancy' ? 'Discrepancy evidence' : 'General audit evidence'}
+              {item.purpose === 'discrepancy' ? 'Discrepancy evidence' : 'General audit evidence'} · {item.uploadStatus === 'crm_saved' ? 'Uploaded to CRM' : 'Ready to upload'}
             </Text>
           </View>
           <View style={{ gap: spacing.xs }}>
-            <Text onPress={() => onToggleEvidencePurpose(item.id)} style={{ ...typography.caption, color: colors.primary, fontWeight: '800' }}>
+            <Text onPress={disabled ? undefined : () => onToggleEvidencePurpose(item.id)} style={{ ...typography.caption, color: disabled ? colors.subtle : colors.primary, fontWeight: '800' }}>
               {item.purpose === 'discrepancy' ? 'General' : 'Discrepancy'}
             </Text>
-            <Text onPress={() => onRemoveEvidence(item.id)} style={{ ...typography.caption, color: colors.danger, fontWeight: '800' }}>
+            <Text onPress={disabled ? undefined : () => onRemoveEvidence(item.id)} style={{ ...typography.caption, color: disabled ? colors.subtle : colors.danger, fontWeight: '800' }}>
               Remove
             </Text>
           </View>
@@ -622,125 +488,19 @@ function AttestationSection({
   );
 }
 
-type RoseVarianceSummary = {
-  expectedTotal: number | undefined;
-  actualTotal: number;
-  varianceTotal: number;
-  hasVariance: boolean;
-  countedLineCount: number;
-  varianceLineCount: number;
-};
-
-function buildRoseLineCounts(lines: ConsignmentAuditLineSummary[]): RoseLineCount[] {
-  if (!lines.length) {
-    return [{
-      lineId: 'mobile-field-count',
-      productName: 'Manual ROSE field count',
-      actualQuantity: '',
-      notes: '',
-    }];
-  }
-  return lines.map((line, index) => ({
-    lineId: line.id || `line-${index + 1}`,
-    ...(line.sku ? { sku: line.sku } : {}),
-    ...(line.barcode ? { barcode: line.barcode } : {}),
-    productName: line.productName || `ROSE item ${index + 1}`,
-    ...(line.expectedQuantity !== undefined ? { expectedQuantity: line.expectedQuantity } : {}),
-    actualQuantity: line.actualQuantity !== undefined ? String(line.actualQuantity) : '',
-    notes: line.notes ?? '',
-  }));
-}
-
-function buildSubmittedLines(lineCounts: RoseLineCount[]) {
-  return lineCounts.map((line) => {
-    const actualQuantity = parseRoseQuantity(line.actualQuantity);
-    return {
-      ...(line.sku ? { sku: line.sku } : {}),
-      ...(line.barcode ? { barcode: line.barcode } : {}),
-      productName: line.productName,
-      ...(line.expectedQuantity !== undefined ? { expectedQuantity: line.expectedQuantity } : {}),
-      ...(actualQuantity !== null ? { actualQuantity } : {}),
-      ...(line.notes.trim() ? { notes: line.notes.trim() } : {}),
-    };
-  });
-}
-
-function summarizeVariance(lineCounts: RoseLineCount[]): RoseVarianceSummary {
-  let expectedTotal = 0;
-  let hasExpected = false;
-  let actualTotal = 0;
-  let varianceTotal = 0;
-  let hasVariance = false;
-  let countedLineCount = 0;
-  let varianceLineCount = 0;
-
-  for (const line of lineCounts) {
-    if (line.expectedQuantity !== undefined) {
-      hasExpected = true;
-      expectedTotal += line.expectedQuantity;
-    }
-    const actual = parseRoseQuantity(line.actualQuantity);
-    if (actual === null) continue;
-    countedLineCount += 1;
-    actualTotal += actual;
-    if (line.expectedQuantity !== undefined) {
-      const variance = actual - line.expectedQuantity;
-      varianceTotal += variance;
-      if (variance !== 0) {
-        hasVariance = true;
-        varianceLineCount += 1;
-      }
-    }
-  }
-
-  return {
-    expectedTotal: hasExpected ? expectedTotal : undefined,
-    actualTotal,
-    varianceTotal: hasExpected ? varianceTotal : 0,
-    hasVariance,
-    countedLineCount,
-    varianceLineCount,
-  };
-}
-
-function areRoseLineCountsValid(lineCounts: RoseLineCount[]) {
-  return lineCounts.length > 0 && lineCounts.every((line) => isValidRoseCount(line.actualQuantity));
-}
-
-function parseRoseQuantity(value: string) {
-  if (!isValidRoseCount(value)) return null;
-  return Number(value);
-}
-
-function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata, evidenceItems: RoseEvidenceMetadata[], varianceSummary: RoseVarianceSummary) {
-  const evidenceSummary = evidenceItems.length
-    ? `${evidenceItems.length} photo metadata item${evidenceItems.length === 1 ? '' : 's'} captured (${evidenceItems.filter((item) => item.purpose === 'discrepancy').length} discrepancy). Media upload parked until backend evidence endpoint is approved.`
-    : 'No photos attached. Media upload parked until backend evidence endpoint is approved.';
-  const varianceLine = varianceSummary.expectedTotal === undefined
-    ? `ROSE count summary: ${formatQuantity(varianceSummary.actualTotal)} counted across ${varianceSummary.countedLineCount} line${varianceSummary.countedLineCount === 1 ? '' : 's'}; expected quantities are parked until Acumatica/source data is available.`
-    : `ROSE count summary: expected ${formatQuantity(varianceSummary.expectedTotal)}, actual ${formatQuantity(varianceSummary.actualTotal)}, variance ${formatSignedQuantity(varianceSummary.varianceTotal)} across ${varianceSummary.varianceLineCount} variance line${varianceSummary.varianceLineCount === 1 ? '' : 's'}.`;
-  return [
-    notes,
-    varianceLine,
-    `TM attestation: ${attestation.attestedByName} at ${formatDateTime(attestation.attestedAt)}.`,
-    evidenceSummary,
-  ].join('\n\n');
-}
-
-function isValidRoseCount(value: string) {
-  const count = Number(value);
-  return value.trim().length > 0 && Number.isFinite(count) && count >= 0;
-}
-
-function formatQuantity(value: number | undefined) {
-  if (value === undefined) return 'Not set';
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
-function formatSignedQuantity(value: number) {
-  if (value === 0) return '0';
-  const formatted = Number.isInteger(value) ? String(Math.abs(value)) : Math.abs(value).toFixed(2);
-  return `${value > 0 ? '+' : '-'}${formatted}`;
+function getRoseSubmitBlocker(input: {
+  attestedByName: string;
+  isAttested: boolean;
+  isSubmitting: boolean;
+  lineCounts: RoseLineCount[];
+  notes: string;
+}) {
+  if (input.isSubmitting) return 'Sending audit to CRM. Keep this screen open until it finishes.';
+  if (!areRoseLineCountsValid(input.lineCounts)) return 'Enter an actual count for every ROSE item.';
+  if (!input.notes.trim()) return 'Add a short audit note before submitting.';
+  if (!input.attestedByName.trim()) return 'Enter your name for the audit attestation.';
+  if (!input.isAttested) return 'Confirm the on-site attestation before submitting.';
+  return null;
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {

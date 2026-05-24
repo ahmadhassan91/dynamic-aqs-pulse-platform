@@ -17,6 +17,7 @@
         "name": "next"
       }
     ],
+    "declaration": false,
     "noEmit": true
   },
   "include": [

@@ -1,133 +1,44 @@
-import * as Haptics from 'expo-haptics';
 import { Stack } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, Text, TextInput, View } from 'react-native';
-import type { CompleteTrainingSessionRequest, TrainingSessionSummary } from '@pulse/contracts/training';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import type { TrainingSessionSummary } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { checkInTrainingSessionRecord, completeTrainingSessionRecord, fetchTrainingSessions } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
-import { enqueueDraft } from '@/lib/mobile-draft-queue';
-import { useSession } from '@/providers/session-provider';
+import { isTrainingSessionCompleted, maxMobileProofFiles, useTrainingExecution } from '@/hooks/use-training-execution';
 import { colors, radius, spacing, typography } from '@/theme';
 
-type SaveState = 'idle' | 'checking_in' | 'completing';
-
 export default function TrainingExecutionScreen() {
-  const { apiBaseUrl, auth } = useSession();
-  const [sessions, setSessions] = useState<TrainingSessionSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [attendeeCount, setAttendeeCount] = useState('1');
-  const [notes, setNotes] = useState('');
-  const [proofNotes, setProofNotes] = useState('');
-  const [followUpTitle, setFollowUpTitle] = useState('');
-  const [followUpDescription, setFollowUpDescription] = useState('');
-  const [saveState, setSaveState] = useState<SaveState>('idle');
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-
-  const selectedSession = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? null;
-
-  const metrics = useMemo(() => {
-    return {
-      checkedIn: sessions.filter((session) => Boolean(session.checkedInAt) && !session.completedAt).length,
-      overdue: sessions.filter((session) => session.isOverdue).length,
-      scheduled: sessions.filter((session) => !session.completedAt).length,
-    };
-  }, [sessions]);
-
-  const loadSessions = useCallback(async () => {
-    if (!auth) return;
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const response = await fetchTrainingSessions(apiBaseUrl, auth.tokens.accessToken, {
-        includeVisits: false,
-        limit: 30,
-        status: 'all',
-      });
-      const trainingItems = response.items
-        .filter((session) => session.activityKind === 'training')
-        .filter((session) => !['cancelled', 'no_show'].includes(session.status))
-        .sort(compareTrainingSessions);
-      setSessions(trainingItems);
-      setSelectedId((current) => current && trainingItems.some((session) => session.id === current) ? current : trainingItems[0]?.id ?? null);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load training sessions.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [apiBaseUrl, auth]);
-
-  useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
-
-  useEffect(() => {
-    if (!selectedSession) return;
-    setAttendeeCount(String(Math.max(1, selectedSession.attendeeCount || 1)));
-    setNotes(selectedSession.checkoutNotes ?? selectedSession.notes ?? '');
-    setProofNotes(selectedSession.proofNotes ?? '');
-    setFollowUpTitle('');
-    setFollowUpDescription('');
-    setSyncMessage(null);
-  }, [selectedSession?.id]);
-
-  async function handleCheckIn() {
-    if (!auth || !selectedSession || isSessionCompleted(selectedSession)) return;
-    const checkedInAt = selectedSession.checkedInAt ?? new Date().toISOString();
-    setSaveState('checking_in');
-    setSyncMessage(null);
-    try {
-      const updated = await checkInTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, selectedSession.id, {
-        checkedInAt,
-        notes: 'Mobile training check-in.',
-      });
-      replaceSession(updated);
-      setSyncMessage('CRM checked in');
-      if (Platform.OS === 'ios') await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to check in to CRM.');
-    } finally {
-      setSaveState('idle');
-    }
-  }
-
-  async function handleComplete() {
-    if (!selectedSession || !auth || !notes.trim()) return;
-    const completedAt = new Date().toISOString();
-    const checkedInAt = selectedSession.checkedInAt ?? completedAt;
-    const request = buildCompleteRequest(selectedSession, {
-      attendeeCount: attendeeCountValue(attendeeCount),
-      checkedInAt,
-      completedAt,
-      followUpDescription: followUpDescription.trim(),
-      followUpTitle: followUpTitle.trim(),
-      notes: notes.trim(),
-      proofNotes: proofNotes.trim(),
-    });
-
-    setSaveState('completing');
-    setSyncMessage(null);
-    try {
-      const updated = await completeTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, selectedSession.id, request);
-      replaceSession(updated);
-      setSyncMessage('CRM saved');
-      if (Platform.OS === 'ios') await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      enqueueTrainingDraft(selectedSession, checkedInAt, request, error);
-      setSyncMessage('Draft on phone. Retry from Sync Status when CRM is reachable.');
-    } finally {
-      setSaveState('idle');
-    }
-  }
-
-  function replaceSession(next: TrainingSessionSummary) {
-    setSessions((items) => items.map((item) => item.id === next.id ? next : item));
-    setSelectedId(next.id);
-  }
-
-  const canComplete = Boolean(selectedSession && auth && notes.trim() && attendeeCountValue(attendeeCount) >= 0 && saveState === 'idle' && !isSessionCompleted(selectedSession));
+  const training = useTrainingExecution();
+  const {
+    attendeeCount,
+    canComplete,
+    checkIn,
+    clearFollowUp,
+    complete,
+    completionBlocker,
+    errorMessage,
+    followUpDescription,
+    followUpEnabled,
+    followUpTitle,
+    isLoading,
+    loadSessions,
+    metrics,
+    notes,
+    pickProofImage,
+    proofStatus,
+    proofNotes,
+    saveState,
+    selectedProofCount,
+    selectedSession,
+    selectSession,
+    sessions,
+    setAttendeeCount,
+    setFollowUpDescription,
+    setFollowUpEnabled,
+    setFollowUpTitle,
+    setNotes,
+    setProofNotes,
+    syncMessage,
+  } = training;
 
   return (
     <>
@@ -154,7 +65,7 @@ export default function TrainingExecutionScreen() {
             <TrainingSessionCard
               key={session.id}
               isSelected={session.id === selectedSession?.id}
-              onPress={() => setSelectedId(session.id)}
+              onPress={() => selectSession(session.id)}
               session={session}
             />
           ))}
@@ -184,10 +95,10 @@ export default function TrainingExecutionScreen() {
               </View>
 
               <PrimaryButton
-                disabled={Boolean(selectedSession.checkedInAt) || isSessionCompleted(selectedSession) || saveState !== 'idle'}
+                disabled={Boolean(selectedSession.checkedInAt) || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
                 icon={{ name: 'location.fill', fallback: 'In' }}
                 label={selectedSession.checkedInAt ? 'Checked in' : saveState === 'checking_in' ? 'Checking in...' : 'Check in'}
-                onPress={() => void handleCheckIn()}
+                onPress={() => void checkIn()}
               />
 
               <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -200,6 +111,7 @@ export default function TrainingExecutionScreen() {
                     onChangeText={setAttendeeCount}
                     placeholder="0"
                     placeholderTextColor={colors.subtle}
+                    selectTextOnFocus
                     value={attendeeCount}
                     style={inputStyle}
                   />
@@ -210,45 +122,76 @@ export default function TrainingExecutionScreen() {
                   </Text>
                   <View style={[inputStyle, { justifyContent: 'center' }]}>
                     <Text selectable style={{ ...typography.body, color: colors.subtle }}>
-                      Parked
+                      {selectedProofCount}/{maxMobileProofFiles}
                     </Text>
                   </View>
                 </View>
+              </View>
+
+              <View style={{ gap: spacing.sm }}>
+                <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <SecondaryButton
+                      disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
+                      icon={{ name: 'camera.fill', fallback: 'C' }}
+                      label={saveState === 'uploading_proof' ? 'Uploading...' : 'Camera'}
+                      onPress={() => void pickProofImage(true)}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <SecondaryButton
+                      disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
+                      icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }}
+                      label="Gallery"
+                      onPress={() => void pickProofImage(false)}
+                    />
+                  </View>
+                </View>
+                <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+                  Optional photo proof uploads directly to CRM. Limit {maxMobileProofFiles} images, 4 MB each.
+                </Text>
+                {proofStatus ? (
+                  <Text selectable style={{ ...typography.caption, color: proofStatus.tone === 'success' ? colors.success : colors.warning }}>
+                    {proofStatus.message}
+                  </Text>
+                ) : null}
               </View>
 
               <LabeledTextArea
                 label="Completion notes"
                 onChangeText={setNotes}
                 placeholder="Topics covered, dealer questions, attendee readiness, next action..."
+                helper="Required. Keep it simple: what happened and what the office should know."
                 value={notes}
               />
               <LabeledTextArea
                 label="Proof notes"
                 onChangeText={setProofNotes}
-                placeholder="Photos or certificates captured outside the app for now..."
+                placeholder="Roster names, certificate context, or what the proof photo shows..."
+                helper="Optional. Add context for uploaded proof photos or note external proof kept outside the app."
                 value={proofNotes}
               />
-              <LabeledTextArea
-                label="Follow-up task"
-                onChangeText={setFollowUpTitle}
-                placeholder="Optional task title"
-                value={followUpTitle}
+              <FollowUpPanel
+                description={followUpDescription}
+                enabled={followUpEnabled}
+                onClear={clearFollowUp}
+                onDescriptionChange={setFollowUpDescription}
+                onEnable={() => setFollowUpEnabled(true)}
+                onTitleChange={setFollowUpTitle}
+                title={followUpTitle}
               />
-              {followUpTitle.trim() ? (
-                <LabeledTextArea
-                  label="Follow-up detail"
-                  onChangeText={setFollowUpDescription}
-                  placeholder="What should the office or field team do next?"
-                  value={followUpDescription}
-                />
-              ) : null}
 
               <PrimaryButton
                 disabled={!canComplete}
                 icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }}
                 label={saveState === 'completing' ? 'Saving training...' : 'Complete training'}
-                onPress={() => void handleComplete()}
+                onPress={() => void complete()}
               />
+              {completionBlocker ? (
+                <Text selectable style={{ ...typography.caption, color: colors.muted, textAlign: 'center' }}>
+                  {completionBlocker}
+                </Text>
+              ) : null}
             </Card>
           </>
         ) : null}
@@ -291,7 +234,78 @@ function TrainingSessionCard({ isSelected, onPress, session }: { isSelected: boo
   );
 }
 
-function LabeledTextArea({ label, onChangeText, placeholder, value }: { label: string; onChangeText: (value: string) => void; placeholder: string; value: string }) {
+function FollowUpPanel({
+  description,
+  enabled,
+  onClear,
+  onDescriptionChange,
+  onEnable,
+  onTitleChange,
+  title,
+}: {
+  description: string;
+  enabled: boolean;
+  onClear: () => void;
+  onDescriptionChange: (value: string) => void;
+  onEnable: () => void;
+  onTitleChange: (value: string) => void;
+  title: string;
+}) {
+  if (!enabled) {
+    return (
+      <SecondaryButton
+        label="Add follow-up task"
+        icon={{ name: 'plus.circle.fill', fallback: '+' }}
+        onPress={onEnable}
+      />
+    );
+  }
+
+  return (
+    <View style={{ gap: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceMuted, padding: spacing.md }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            Follow-up task
+          </Text>
+          <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+            Optional. Add this only when someone needs to do something after the session.
+          </Text>
+        </View>
+        <Pressable onPress={onClear} style={{ paddingHorizontal: 10, paddingVertical: 8 }}>
+          <Text style={{ ...typography.caption, color: colors.primary, fontWeight: '800' }}>Clear</Text>
+        </Pressable>
+      </View>
+      <LabeledTextArea
+        label="Task title"
+        onChangeText={onTitleChange}
+        placeholder="Example: Send recap to dealer"
+        value={title}
+      />
+      <LabeledTextArea
+        label="Task detail"
+        onChangeText={onDescriptionChange}
+        placeholder="What should the office or field team do next?"
+        helper={title.trim() ? 'Required when a task title is entered.' : 'Add a title first, or clear this task.'}
+        value={description}
+      />
+    </View>
+  );
+}
+
+function LabeledTextArea({
+  helper,
+  label,
+  onChangeText,
+  placeholder,
+  value,
+}: {
+  helper?: string;
+  label: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
@@ -305,6 +319,11 @@ function LabeledTextArea({ label, onChangeText, placeholder, value }: { label: s
         value={value}
         style={[inputStyle, { minHeight: 92, paddingTop: spacing.md, textAlignVertical: 'top' }]}
       />
+      {helper ? (
+        <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+          {helper}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -340,74 +359,6 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
       </Text>
     </View>
   );
-}
-
-function buildCompleteRequest(session: TrainingSessionSummary, input: {
-  attendeeCount: number;
-  checkedInAt: string;
-  completedAt: string;
-  followUpDescription: string;
-  followUpTitle: string;
-  notes: string;
-  proofNotes: string;
-}): CompleteTrainingSessionRequest {
-  const durationMinutes = Math.max(1, Math.round((new Date(input.completedAt).getTime() - new Date(input.checkedInAt).getTime()) / 60_000) || session.durationMinutes || 1);
-  return {
-    attendeeCount: input.attendeeCount,
-    checkedOutAt: input.completedAt,
-    completedAt: input.completedAt,
-    checkoutNotes: input.notes,
-    certificationOutcome: session.isCertificationTrack ? 'pending_decision' : 'not_applicable',
-    completionSummary: `Mobile training completed for ${session.accountName ?? 'account'}. Proof media upload remains parked; proof notes captured as text.`,
-    durationMinutes,
-    notes: input.notes,
-    proofAttachmentCount: 0,
-    ...(input.proofNotes ? { proofNotes: input.proofNotes } : {}),
-    ...(input.followUpTitle ? {
-      createFollowUpTask: {
-        title: input.followUpTitle,
-        ...(input.followUpDescription ? { description: input.followUpDescription } : {}),
-      },
-    } : {}),
-  };
-}
-
-function enqueueTrainingDraft(session: TrainingSessionSummary, checkedInAt: string, completeRequest: CompleteTrainingSessionRequest, error?: unknown) {
-  enqueueDraft({
-    kind: 'training_session',
-    title: `Training: ${session.title}`,
-    detail: error instanceof Error ? `CRM sync failed: ${error.message}` : 'Draft on this device until CRM accepts the training completion.',
-    payload: {
-      kind: 'training_session',
-      accountId: session.accountId,
-      accountName: session.accountName ?? 'Training account',
-      attendeeCount: completeRequest.attendeeCount ?? 0,
-      checkedInAt,
-      completeRequest,
-      notes: completeRequest.notes ?? completeRequest.checkoutNotes,
-      sessionId: session.id,
-      sessionTitle: session.title,
-      ...(completeRequest.proofNotes ? { proofNotes: completeRequest.proofNotes } : {}),
-    },
-  });
-}
-
-function attendeeCountValue(value: string) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) return 0;
-  return parsed;
-}
-
-function compareTrainingSessions(left: TrainingSessionSummary, right: TrainingSessionSummary) {
-  if (left.completedAt && !right.completedAt) return 1;
-  if (!left.completedAt && right.completedAt) return -1;
-  const leftTime = left.scheduledAt ? new Date(left.scheduledAt).getTime() : Number.MAX_SAFE_INTEGER;
-  const rightTime = right.scheduledAt ? new Date(right.scheduledAt).getTime() : Number.MAX_SAFE_INTEGER;
-  return leftTime - rightTime;
-}
-
-function isSessionCompleted(session: TrainingSessionSummary) {
-  return Boolean(session.completedAt || session.executionState === 'completed' || session.status === 'completed');
 }
 
 const inputStyle = {

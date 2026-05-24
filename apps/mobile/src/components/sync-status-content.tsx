@@ -1,24 +1,29 @@
 import { Text, View } from 'react-native';
 import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
 import { Card, HeroCard, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { clearDraft, clearSyncedDrafts, retryPendingDrafts, useMobileDraftQueue } from '@/lib/mobile-draft-queue';
+import { clearDraft, clearSyncedDrafts, getMobileDraftReviewState, retryDraft, retryPendingDrafts, summarizeMobileDraftQueue, summarizeMobileDraftStatus, useMobileDraftQueue, type MobileDraft } from '@/lib/mobile-draft-queue';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
 export function SyncStatusContent() {
   const { apiBaseUrl, auth, refresh } = useSession();
   const drafts = useMobileDraftQueue();
+  const summary = summarizeMobileDraftQueue(drafts);
   const pendingDrafts = drafts.filter((draft) => draft.status !== 'synced');
   const syncedDrafts = drafts.filter((draft) => draft.status === 'synced');
+  const sendingDrafts = drafts.filter((draft) => draft.status === 'syncing');
+  const failedDrafts = drafts.filter((draft) => draft.status === 'failed');
+  const conflictDrafts = drafts.filter((draft) => draft.status === 'conflict');
   const roseDrafts = pendingDrafts.filter((draft) => draft.kind === 'consignment_rose_audit').length;
   const routeDrafts = pendingDrafts.filter((draft) => draft.kind === 'route_visit').length;
   const trainingDrafts = pendingDrafts.filter((draft) => draft.kind === 'training_session').length;
+  const canRetry = Boolean(auth);
 
   return (
     <Screen>
       <HeroCard title="Sync status" eyebrow="Mobile reliability" icon={{ name: 'arrow.triangle.2.circlepath', fallback: 'S' }}>
         <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
-          See what is already in CRM and what is still saved only on this phone.
+          Check which field updates are saved only on this phone, which ones reached CRM, and which ones need review before the next retry.
         </Text>
       </HeroCard>
 
@@ -32,7 +37,7 @@ export function SyncStatusContent() {
               {auth?.identity.email ?? 'No active identity'}
             </Text>
           </View>
-          <Pill label="online" tone="active" />
+          <Pill label={auth ? 'signed in' : 'not signed in'} tone={auth ? 'active' : 'review'} />
         </View>
         <Text selectable style={{ ...typography.caption, color: colors.muted }}>
           CRM connection: {apiBaseUrl}
@@ -41,42 +46,89 @@ export function SyncStatusContent() {
 
       <Card>
         <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
-          Offline drafts
+          Saved only on this phone
         </Text>
         <Text selectable style={{ ...typography.largeTitle, color: colors.text, fontVariant: ['tabular-nums'] }}>
-          {pendingDrafts.length}
+          {summary.unsynced}
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          These updates stay on this device until CRM accepts them. ROSE audits, route visits, and training completions can retry when the connection is stable.
+          These updates are protected on this device, but they are not visible to CRM users until CRM saves them.
+        </Text>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          Saved on phone: {summary.savedOnPhone} · Ready to retry: {summary.readyToRetry} · Sign in again: {summary.signInAgain} · Needs review: {summary.needsReview} · Sending: {sendingDrafts.length} · CRM saved: {syncedDrafts.length}
+        </Text>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          Failed drafts: {failedDrafts.length} · Conflict drafts: {conflictDrafts.length}
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
           ROSE audits: {roseDrafts} · Route visits: {routeDrafts} · Training: {trainingDrafts}
         </Text>
+        <Text selectable style={{ ...typography.caption, color: summary.storageHydrated ? colors.subtle : colors.warning }}>
+          Phone storage: {summary.storageHydrated ? 'Ready' : 'Loading'}
+        </Text>
       </Card>
+
+      {!summary.storageHydrated ? (
+        <Card style={{ backgroundColor: colors.surfaceMuted, borderColor: colors.border }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            Phone storage is starting
+          </Text>
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            The app is opening the encrypted phone draft store. New work stays on screen until storage confirms it is ready.
+          </Text>
+        </Card>
+      ) : null}
+
+      {summary.storageHydrated && !summary.storageAvailable ? (
+        <Card style={{ backgroundColor: colors.warningSoft, borderColor: '#F8D37A' }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.warning }}>
+            Draft storage warning
+          </Text>
+          <Text selectable style={{ ...typography.callout, color: colors.text }}>
+            Drafts are being kept for this app session, but this device could not confirm durable phone storage. Keep the app open, retry when the connection is stable, and avoid signing out until CRM saves the work.
+          </Text>
+          {summary.storageErrorMessage ? (
+            <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+              {friendlyErrorMessage(summary.storageErrorMessage)}
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
 
       {drafts.length ? (
         <View style={{ gap: spacing.md }}>
-          {drafts.map((draft) => (
+          {drafts.map((draft) => {
+            const status = summarizeMobileDraftStatus(draft);
+            const review = getMobileDraftReviewState(draft);
+            const canRetryThisDraft = review.canRetry;
+            return (
             <View key={draft.id} style={{ gap: spacing.sm }}>
-              <Card>
+              <Card {...(draft.status === 'failed' || draft.status === 'conflict' ? { style: { borderColor: colors.warning } } : {})}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
                   <View style={{ flex: 1, gap: spacing.xs }}>
                     <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
                       {draft.title}
                     </Text>
                     <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-                      {draft.detail}
+                      {displayDraftDetail(draft)}
+                    </Text>
+                    <Text selectable style={{ ...typography.caption, color: draft.status === 'failed' ? colors.warning : colors.subtle }}>
+                      {draftStatusHelp(draft)}
+                    </Text>
+                    <Text selectable style={{ ...typography.caption, color: review.category === 'sign_in_again' || review.category === 'needs_review' ? colors.warning : colors.subtle }}>
+                      {review.detail}
                     </Text>
                     {draft.errorMessage ? (
                       <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-                        {draft.errorMessage}
+                        {friendlyErrorMessage(draft.errorMessage)}
                       </Text>
                     ) : null}
                     {draft.payload.kind === 'consignment_rose_audit' && draft.payload.attestation ? (
                       <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-                        Attested by {draft.payload.attestation.attestedByName}. Evidence photos: {draft.payload.evidence?.items.length ?? 0}; media upload parked.
+                        Attested by {draft.payload.attestation.attestedByName}. Photos noted: {draft.payload.evidence?.items.length ?? 0}; offline drafts keep photo metadata only until CRM accepts the upload.
                       </Text>
                     ) : null}
+                    <DraftReviewMeta draft={draft} />
                     {draft.payload.kind === 'consignment_rose_audit' ? (
                       <RoseDraftSummary draft={draft} />
                     ) : null}
@@ -88,35 +140,98 @@ export function SyncStatusContent() {
                     ) : null}
                   </View>
                   <Pill
-                    label={draft.status === 'synced' ? 'CRM saved' : draft.status === 'syncing' ? 'Sending' : draft.status === 'failed' ? 'Needs retry' : 'Draft on phone'}
-                    tone={draft.status === 'synced' ? 'active' : draft.status === 'failed' ? 'review' : 'pending'}
+                    label={status.label}
+                    tone={status.tone === 'success' ? 'active' : status.tone === 'warning' || status.tone === 'conflict' ? 'review' : 'pending'}
                   />
                 </View>
               </Card>
+              {draft.status === 'failed' || draft.status === 'conflict' ? <ConflictGuidance {...(draft.errorMessage ? { message: draft.errorMessage } : {})} /> : null}
+              {review.category === 'sign_in_again' ? <SignInGuidance /> : null}
               {draft.status !== 'syncing' ? (
-                <SecondaryButton label="Discard local draft" icon={{ name: 'trash.fill', fallback: 'Del' }} onPress={() => clearDraft(draft.id)} />
+                <View style={{ gap: spacing.sm }}>
+                  {draft.status !== 'synced' ? (
+                    <SecondaryButton
+                      disabled={!canRetry || !canRetryThisDraft}
+                      label={!canRetry || review.category === 'sign_in_again' ? 'Sign in to retry' : canRetryThisDraft ? 'Retry this update' : 'Review before retry'}
+                      icon={{ name: 'arrow.clockwise.circle.fill', fallback: 'Retry' }}
+                      onPress={() => {
+                        if (!auth || !canRetryThisDraft) return;
+                        void retryDraft(apiBaseUrl, auth.tokens.accessToken, draft.id);
+                      }}
+                    />
+                  ) : null}
+                  <SecondaryButton
+                    label={draft.status === 'synced' ? 'Remove saved copy from phone' : 'Discard phone copy'}
+                    icon={{ name: 'trash.fill', fallback: 'Del' }}
+                    onPress={() => clearDraft(draft.id)}
+                  />
+                </View>
               ) : null}
             </View>
-          ))}
+          );
+          })}
         </View>
       ) : null}
 
       <SectionTitle title="Session tools" />
       <SecondaryButton label="Refresh session" icon={{ name: 'arrow.clockwise.circle.fill', fallback: 'R' }} onPress={() => void refresh()} />
       <SecondaryButton
-        label="Retry drafts"
+        disabled={!canRetry || summary.retryable === 0}
+        label={canRetry ? `Retry ready updates (${summary.retryable})` : 'Sign in to retry updates'}
         icon={{ name: 'arrow.up.arrow.down.circle.fill', fallback: 'Sync' }}
         onPress={() => {
           if (!auth) return;
           void retryPendingDrafts(apiBaseUrl, auth.tokens.accessToken);
         }}
       />
-      <SecondaryButton label={`Clear synced (${syncedDrafts.length})`} icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }} onPress={clearSyncedDrafts} />
+      <SecondaryButton disabled={syncedDrafts.length === 0} label={`Remove CRM-saved copies (${syncedDrafts.length})`} icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }} onPress={clearSyncedDrafts} />
     </Screen>
   );
 }
 
-function RoseDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQueue>[number] }) {
+function DraftReviewMeta({ draft }: { draft: MobileDraft }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      <DraftMetric label="Saved" value={formatShortDateTime(draft.createdAt)} />
+      <DraftMetric label="Updated" value={formatShortDateTime(draft.updatedAt)} />
+      {draft.lastAttemptAt ? <DraftMetric label="Last tried" value={formatShortDateTime(draft.lastAttemptAt)} tone={draft.status === 'failed' ? 'warning' : 'normal'} /> : null}
+    </View>
+  );
+}
+
+function ConflictGuidance({ message }: { message?: string }) {
+  const conflict = isConflictLike(message);
+  return (
+    <Card style={{ backgroundColor: conflict ? colors.warningSoft : colors.surfaceMuted, borderColor: conflict ? '#F8D37A' : colors.border }}>
+      <Text selectable style={{ ...typography.subtitle, color: conflict ? colors.warning : colors.text }}>
+        {conflict ? 'Review before discarding' : 'What to do next'}
+      </Text>
+      <Text selectable style={{ ...typography.callout, color: colors.text }}>
+        {conflict
+          ? 'CRM may already have a newer or completed version of this work. Compare the phone copy with CRM or your RD before retrying. Discard the phone copy only after the right CRM record is confirmed.'
+          : 'Retry when the connection is steady. If it still fails, keep this phone copy for review and only discard it after the update is captured another way.'}
+      </Text>
+      <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+        Draft review is shown here. Editing saved phone drafts is not supported by the current queue, so make corrections in the original workflow and then remove this copy after review.
+      </Text>
+    </Card>
+  );
+}
+
+function SignInGuidance() {
+  return (
+    <Card style={{ backgroundColor: colors.warningSoft, borderColor: '#F8D37A' }}>
+      <Text selectable style={{ ...typography.subtitle, color: colors.warning }}>
+        Sign in again before retrying
+      </Text>
+      <Text selectable style={{ ...typography.callout, color: colors.text }}>
+        CRM rejected the last retry because the session was expired or not allowed. Refresh the session or sign in again, then retry this phone copy.
+      </Text>
+    </Card>
+  );
+}
+
+function RoseDraftSummary({ draft }: { draft: MobileDraft }) {
   const lines = draft.payload.kind === 'consignment_rose_audit' ? draft.payload.request.lines ?? [] : [];
   const summary = summarizeRoseDraftLines(lines);
   return (
@@ -151,16 +266,18 @@ function RoseDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQu
   );
 }
 
-function RouteDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQueue>[number] }) {
+function RouteDraftSummary({ draft }: { draft: MobileDraft }) {
   if (draft.payload.kind !== 'route_visit') return null;
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-        Route visit will retry to CRM using the field execution session.
+        {(draft.payload.stage ?? 'completed') === 'checked_in'
+          ? 'Checked-in route visit is saved on this phone. Finish checkout in the Route tab or retry CRM check-in.'
+          : 'Route visit will retry with the visit time, notes, and location status saved on this phone.'}
       </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <DraftMetric label="Check in" value={formatShortTime(draft.payload.checkedInAt)} />
-        <DraftMetric label="Check out" value={formatShortTime(draft.payload.checkedOutAt)} />
+        <DraftMetric label="Check out" value={draft.payload.checkedOutAt ? formatShortTime(draft.payload.checkedOutAt) : 'Not yet'} />
         <DraftMetric label="GPS" value={draft.payload.latitude !== undefined && draft.payload.longitude !== undefined ? 'Captured' : 'Timed only'} />
       </View>
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
@@ -170,12 +287,12 @@ function RouteDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQ
   );
 }
 
-function TrainingDraftSummary({ draft }: { draft: ReturnType<typeof useMobileDraftQueue>[number] }) {
+function TrainingDraftSummary({ draft }: { draft: MobileDraft }) {
   if (draft.payload.kind !== 'training_session') return null;
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-        Training completion will retry to CRM with notes, attendee count, proof intent, and follow-up request.
+        Training completion will retry with notes, attendee count, proof notes, and any follow-up request saved on this phone.
       </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <DraftMetric label="Attendees" value={String(draft.payload.attendeeCount)} />
@@ -217,6 +334,37 @@ function summarizeRoseDraftLines(lines: NonNullable<UpdateConsignmentAuditReques
   return { actualTotal, varianceTotal, hasExpected };
 }
 
+function draftStatusHelp(draft: MobileDraft) {
+  const review = getMobileDraftReviewState(draft);
+  if (draft.status === 'synced') return 'CRM accepted this update. You can remove the phone copy when you are done reviewing it.';
+  if (draft.status === 'syncing') return 'Sending now. Keep the app open until the status changes.';
+  if (review.category === 'sign_in_again') return 'Sign in again before retrying this phone copy.';
+  if (review.category === 'needs_review') return 'CRM needs this update reviewed before retry. Keep the phone copy until the right CRM record is confirmed.';
+  if (review.category === 'ready_to_retry') return 'CRM did not save this update yet. It is ready to retry when the signal is steady.';
+  return 'Saved on this phone only. Retry when the signal is steady so CRM users can see it.';
+}
+
+function displayDraftDetail(draft: MobileDraft) {
+  if (draft.status === 'synced') return 'CRM saved this update. A review copy remains on this phone.';
+  if (draft.status === 'failed') return 'This phone copy is still available for review because CRM did not save it.';
+  return draft.detail
+    .replace(/^CRM sync failed:\s*/i, 'CRM did not save it yet: ')
+    .replace(/Draft on this device/i, 'Saved on this phone')
+    .replace(/Media upload remains parked/i, 'Photo upload waits for CRM connectivity');
+}
+
+function friendlyErrorMessage(message: string) {
+  return message
+    .replace(/^CRM sync failed:\s*/i, 'CRM did not save it yet: ')
+    .replace(/backend endpoint/gi, 'approved photo upload')
+    .replace(/mobile sync contract/gi, 'mobile retry setup');
+}
+
+function isConflictLike(message?: string) {
+  if (!message) return false;
+  return /409|conflict|already|newer|stale|completed|changed/i.test(message);
+}
+
 function formatQuantity(value: number | undefined) {
   if (value === undefined) return 'Not set';
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -232,4 +380,10 @@ function formatShortTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Not set';
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+}
+
+function formatShortDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not set';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
 }

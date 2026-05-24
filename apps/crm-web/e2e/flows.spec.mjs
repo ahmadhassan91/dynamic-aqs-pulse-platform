@@ -46,6 +46,9 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await page.goto(`/customers/${fixtures.customer.accountId}`);
   await expect(page.getByRole('heading', { name: fixtures.customer.displayName })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Account Readiness' })).toBeVisible();
+  await expect(page.getByText('Dealer membership resolves as independent.')).toBeVisible();
+  await expect(page.getByText('The source lead is linked for audit and handoff traceability.')).toBeVisible();
   await page.getByRole('tab', { name: 'Dealer Portal' }).click();
   await expect(page.getByRole('heading', { name: 'Provision Dealer Portal User' })).toBeVisible();
 
@@ -352,24 +355,117 @@ test('dealer portal login opens the branded dashboard and account center', async
 
   await expect(page).toHaveURL(/\/dealer\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'Dealer dashboard' })).toBeVisible();
-  await expect(page.getByText('Account Context')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Account Context' })).toBeVisible();
   await expect(page.getByText('Portal Users', { exact: true }).first()).toBeVisible();
 
   await page.getByRole('link', { name: 'Open Account Center' }).click();
   await expect(page).toHaveURL(/\/dealer\/account$/);
   await expect(page.getByRole('heading', { name: 'Account center' })).toBeVisible();
-  await expect(page.getByText('Portal Provisioning')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Portal Access' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Portal User Access' })).toBeVisible();
+  await page.getByRole('button', { name: 'Invite User' }).click();
+  const inviteDialog = page.getByRole('dialog', { name: 'Invite Portal User' });
+  await inviteDialog.getByLabel('First name').fill('E2E');
+  await inviteDialog.getByLabel('Last name').fill('Buyer');
+  await inviteDialog.getByLabel('Email').fill('dealer-buyer.e2e@example.com');
+  await inviteDialog.getByLabel('Title').fill('Buyer');
+  await inviteDialog.getByRole('button', { name: 'Create Invite' }).click();
+  await expect(page.getByRole('cell', { name: 'dealer-buyer.e2e@example.com' }).first()).toBeVisible();
+  await expect(page.getByText('Invite link created:')).toBeVisible();
+});
+
+test('RD and TM personas can use scoped Dynamic workspaces', async ({ page }) => {
+  const fixtures = await readFixtures();
+
+  await loginWithCredentials(page, fixtures.personas.regionalDirector.email, fixtures.personas.regionalDirector.password);
+  await expect(page).toHaveURL(/\/leads$/);
+  await page.goto('/territories');
+  await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
+  await page.goto('/territory_map');
+  await expect(page.getByRole('heading', { name: 'Territory Coverage Map' })).toBeVisible();
+  await page.goto('/customers');
+  await expect(page.getByRole('heading', { name: 'Account Management' })).toBeVisible();
+  await page.goto('/training');
+  await expect(page.getByRole('heading', { name: 'Training Management' })).toBeVisible();
+  await page.goto('/consignment');
+  await expect(page.getByRole('heading', { name: 'Consignment' })).toBeVisible();
+  await page.goto('/calendar');
+  await expect(page.getByRole('heading', { name: 'CRM Calendar' })).toBeVisible();
+
+  await clearPulseSession(page);
+
+  await loginWithCredentials(page, fixtures.personas.territoryManager.email, fixtures.personas.territoryManager.password);
+  await expect(page).toHaveURL(/\/leads$/);
+  await page.goto('/territories');
+  await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
+  await page.goto('/customers');
+  await expect(page.getByRole('heading', { name: 'Account Management' })).toBeVisible();
+  await page.goto('/training');
+  await expect(page.getByRole('heading', { name: 'Training Management' })).toBeVisible();
+  await page.goto('/consignment');
+  await expect(page.getByRole('heading', { name: 'Consignment' })).toBeVisible();
+});
+
+test('dealer catalog personas see the right catalog or review boundary', async ({ page }) => {
+  const fixtures = await readFixtures();
+
+  await loginToDealerPortal(page, fixtures.dealerCatalogPersonas.affinity);
+  await page.goto('/dealer/catalog');
+  await expect(page.getByRole('heading', { name: 'Products and Files' })).toBeVisible();
+  await expect(page.getByText('Nexstar E2E Air Cleaner')).toBeVisible();
+  await expect(page.getByText('Ownership E2E Air Cleaner')).not.toBeVisible();
+
+  await clearPulseSession(page);
+  await loginToDealerPortal(page, fixtures.dealerCatalogPersonas.ownership);
+  await page.goto('/dealer/catalog');
+  await expect(page.getByText('Ownership E2E Air Cleaner')).toBeVisible();
+  await expect(page.getByText('Nexstar E2E Air Cleaner')).not.toBeVisible();
+
+  await clearPulseSession(page);
+  await loginToDealerPortal(page, fixtures.dealerCatalogPersonas.independent);
+  await page.goto('/dealer/catalog');
+  await expect(page.getByText('Independent E2E Air Cleaner')).toBeVisible();
+
+  await clearPulseSession(page);
+  await loginToDealerPortal(page, fixtures.dealerCatalogPersonas.hybrid);
+  await page.goto('/dealer/catalog');
+  await expect(page.getByText('No products are published yet')).toBeVisible();
+  await expect(page.getByText('Hybrid dealer requires Dynamic review before catalog is shown.')).toBeVisible();
 });
 
 async function loginToInternalWorkspace(page, fixtures) {
+  await loginWithCredentials(page, fixtures.internalAuth.email, fixtures.internalAuth.password);
+}
+
+async function loginWithCredentials(page, email, password) {
   await page.goto('/auth/login');
   await expect(page.getByRole('heading', { name: 'Welcome to Pulse CRM' })).toBeVisible();
-  await page.getByLabel('Email').fill(fixtures.internalAuth.email);
-  await page.getByLabel('Password').fill(fixtures.internalAuth.password);
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill(password);
   await Promise.all([
     page.waitForURL(/\/leads$/),
     page.getByRole('button', { name: 'Sign in', exact: true }).click(),
   ]);
+}
+
+async function loginToDealerPortal(page, persona) {
+  await clearPulseSession(page);
+  await page.goto('/dealer/login');
+  await expect(page.getByRole('heading', { name: 'Dealer Portal Sign In' })).toBeVisible();
+  await page.getByLabel('Email').fill(persona.email);
+  await page.getByLabel('Password').fill(persona.password);
+  await Promise.all([
+    page.waitForURL(/\/dealer\/dashboard$/),
+    page.getByRole('button', { name: 'Sign In' }).click(),
+  ]);
+}
+
+async function clearPulseSession(page) {
+  await page.goto('/');
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
 }
 
 async function chooseSelectOption(scope, label, optionMatcher) {

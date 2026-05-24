@@ -39,7 +39,7 @@ PORT=4000
 LOG_LEVEL=info
 APP_WEB_BASE_URL=http://${domain_name_or_ip}
 NEXT_PUBLIC_PULSE_WEB_BASE_URL=http://${domain_name_or_ip}
-NEXT_PUBLIC_PULSE_API_BASE_URL=http://${domain_name_or_ip}/api
+NEXT_PUBLIC_PULSE_API_BASE_URL=http://${domain_name_or_ip}
 DATABASE_URL=postgresql://pulse:pulse_dev_password_change_me@127.0.0.1:5432/pulse_dev
 PG_BOSS_CONNECTION_STRING=postgresql://pulse:pulse_dev_password_change_me@127.0.0.1:5432/pulse_dev
 PGBOSS_SCHEMA=pgboss
@@ -138,7 +138,7 @@ server {
   client_max_body_size 50m;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:4000/;
+    proxy_pass http://127.0.0.1:4000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;

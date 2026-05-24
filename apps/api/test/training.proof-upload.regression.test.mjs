@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,6 +16,7 @@ let ensureTrainingSeeded;
 let ensureBootstrapAdminSeeded;
 let loginWithPassword;
 let authenticateAccessToken;
+let handleTrainingRoutes;
 let uploadTrainingSessionProof;
 let reviewTrainingSessionProof;
 let downloadTrainingSessionProof;
@@ -28,6 +30,7 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
   ({ ensureReferenceDataSeeded } = await import('../dist/modules/reference/service.js'));
+  ({ handleTrainingRoutes } = await import('../dist/modules/training/http.js'));
   ({
     ensureTrainingSeeded,
     completeTrainingSession,
@@ -67,7 +70,7 @@ async function createAdminSession() {
 
   const actor = await authenticateAccessToken(auth.tokens.accessToken);
   assert.ok(actor, 'expected bootstrap admin actor');
-  return { actor };
+  return { actor, auth };
 }
 
 async function createUser(roleCode, email, displayName) {
@@ -167,6 +170,84 @@ test('training proof upload stores bytes, persists metadata, and updates proof c
     },
   });
   assert.ok(downloadAudit);
+});
+
+test('training proof upload route accepts mobile-sized base64 JSON payloads', SERIAL, async () => {
+  const { auth } = await createAdminSession();
+  const fixture = await createProofFixture();
+  const mobilePhotoBytes = Buffer.alloc(1_100_000, 0x61);
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const handled = await handleTrainingRoutes(req, res, url, config);
+    if (handled === false) {
+      res.writeHead(404).end();
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/training/sessions/${fixture.session.id}/proof`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        documentType: 'photo',
+        fileName: 'mobile-proof.jpg',
+        mimeType: 'image/jpeg',
+        contentBase64: mobilePhotoBytes.toString('base64'),
+      }),
+    });
+
+    assert.equal(response.status, 201);
+    const payload = await response.json();
+    assert.equal(payload.document.fileName, 'mobile-proof.jpg');
+    assert.equal(payload.document.mimeType, 'image/jpeg');
+    assert.equal(payload.document.sizeBytes, mobilePhotoBytes.byteLength);
+    assert.equal(payload.session.proofAttachmentCount, 1);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('training proof upload keeps storage server-owned and validates mobile media boundaries', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createProofFixture();
+
+  const uploaded = await uploadTrainingSessionProof(actor, config, fixture.session.id, {
+    documentType: 'photo',
+    fileName: 'mobile-proof.jpg',
+    mimeType: 'image/jpeg',
+    contentBase64: Buffer.from('safe mobile proof', 'utf8').toString('base64'),
+    storageKey: 'client-chosen/proof.jpg',
+  });
+
+  assert.ok(uploaded.document.storageKey.startsWith(`training-proof/${fixture.session.id}/`));
+  assert.equal(uploaded.document.storageKey.includes('client-chosen'), false);
+
+  await assert.rejects(
+    uploadTrainingSessionProof(actor, config, fixture.session.id, {
+      documentType: 'photo',
+      fileName: 'proof.exe',
+      mimeType: 'application/x-msdownload',
+      contentBase64: Buffer.from('not allowed', 'utf8').toString('base64'),
+    }),
+    /Unsupported training proof file type/,
+  );
+
+  await assert.rejects(
+    uploadTrainingSessionProof(actor, config, fixture.session.id, {
+      documentType: 'photo',
+      fileName: 'too-large.jpg',
+      mimeType: 'image/jpeg',
+      contentBase64: Buffer.alloc(4 * 1024 * 1024 + 1, 0x61).toString('base64'),
+    }),
+    /cannot exceed 4 MB/,
+  );
 });
 
 test('training proof review records approval governance and audit evidence', SERIAL, async () => {

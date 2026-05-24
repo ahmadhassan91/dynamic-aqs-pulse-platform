@@ -1023,13 +1023,29 @@ async function buildCatalogSnapshotItems(catalogView: { id: string; brandLabel?:
   });
 }
 
-function isDealerVisibleSnapshotAsset(assignment: any, catalogView: { brandLabel?: string | null; regionScope?: string | null }) {
+function isDealerVisibleSnapshotAsset(assignment: any, catalogView: { kind?: DealerCatalogViewKind | null; resolverKey?: string | null; brandLabel?: string | null; regionScope?: string | null }) {
   const asset = assignment.asset;
   if (!asset || asset.status !== DigitalAssetStatus.ACTIVE) return false;
   if (asset.visibility !== DigitalAssetVisibility.DEALER_PORTAL && asset.visibility !== DigitalAssetVisibility.PUBLIC) return false;
   if (asset.reviewStatus !== DigitalAssetReviewStatus.APPROVED && asset.reviewStatus !== DigitalAssetReviewStatus.NOT_REQUIRED) return false;
   if (asset.brandScope && catalogView.brandLabel && asset.brandScope !== catalogView.brandLabel) return false;
   if (asset.regionScope && catalogView.regionScope && asset.regionScope !== catalogView.regionScope) return false;
+  if (assignment.brandLabel && assignment.brandLabel !== catalogView.brandLabel) return false;
+  if (assignment.regionScope && assignment.regionScope !== catalogView.regionScope) return false;
+  if (!doesAssignmentMatchCatalogView(assignment, catalogView)) return false;
+  return true;
+}
+
+function doesAssignmentMatchCatalogView(
+  assignment: { dealerGroupType?: string | null; dealerGroupId?: string | null },
+  catalogView: { kind?: DealerCatalogViewKind | null; resolverKey?: string | null },
+) {
+  const type = assignment.dealerGroupType?.trim().toLowerCase();
+  const id = assignment.dealerGroupId?.trim().toLowerCase();
+  if (!type || type === 'all_dealers' || type === 'standard') return true;
+  const expectedKind = dealerCatalogViewKindFromLegacyType(type);
+  if (catalogView.kind && expectedKind !== catalogView.kind) return false;
+  if (id && (catalogView.resolverKey ?? '').trim().toLowerCase() !== id) return false;
   return true;
 }
 

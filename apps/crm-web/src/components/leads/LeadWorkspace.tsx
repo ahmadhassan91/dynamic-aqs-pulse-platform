@@ -628,7 +628,8 @@ export function LeadWorkspace({
               <Group gap="xs">
                 <Badge color="blue" variant="light">Residential Program</Badge>
                 <Badge color="cyan" variant="light">Pulse Website Intake</Badge>
-                <Badge color="blue" variant="light">Ready for daily intake</Badge>
+                <Badge color="blue" variant="light">Internal intake ready</Badge>
+                <Badge color="gray" variant="outline">Loaded {leads.length} of {totalLeads}</Badge>
               </Group>
             </Stack>
             <Group gap="sm">
@@ -665,6 +666,9 @@ export function LeadWorkspace({
               <Text fw={600}>Digital intake & routing</Text>
               <Text size="sm" c="dimmed">
                 Homeowner and contractor forms across branded websites, plus referral and trade-show capture, land directly in Pulse CRM. Routing stays configuration-backed and currently runs on service tech count.
+              </Text>
+              <Text size="xs" c="dimmed">
+                Pipeline, source, and readiness cards summarize the currently loaded lead window until server-side aggregate reporting is enabled.
               </Text>
             </Stack>
             <Group gap="xs">

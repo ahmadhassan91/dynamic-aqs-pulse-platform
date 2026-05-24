@@ -27,6 +27,8 @@ let unfavoriteCurrentDealerPortalProduct;
 let recordCurrentDealerPortalAssetOpen;
 let createDealerPortalInvite;
 let acceptDealerPortalInvite;
+let createCurrentDealerPortalUser;
+let updateCurrentDealerPortalUser;
 
 const SERIAL = { concurrency: false };
 
@@ -49,6 +51,8 @@ test.before(async () => {
     recordCurrentDealerPortalAssetOpen,
     createDealerPortalInvite,
     acceptDealerPortalInvite,
+    createCurrentDealerPortalUser,
+    updateCurrentDealerPortalUser,
   } = await import('../dist/modules/dealer-portal/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword, authenticateAccessToken } = await import('../dist/modules/auth/service.js'));
 
@@ -255,6 +259,103 @@ test('dealer portal invite token lets dealer set first password once', SERIAL, a
   const dashboard = await getCurrentDealerPortalDashboard(dealerActor);
   assert.equal(dashboard.currentUser.email, fixture.contact.email);
   assert.ok(dashboard.currentUser.inviteAcceptedAt);
+});
+
+test('dealer portal admins can invite and revoke non-admin company users only', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Self Admin Dealer Comfort',
+    email: 'self-admin@portal.test',
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'admin',
+    isPrimaryOwner: true,
+  });
+
+  const dealerAuth = await loginWithPassword(
+    config,
+    {
+      email: fixture.contact.email,
+      password: provisioned.temporaryPassword,
+    },
+    {},
+  );
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const created = await createCurrentDealerPortalUser(dealerActor, {
+    firstName: 'Pat',
+    lastName: 'Purchaser',
+    title: 'Purchasing Lead',
+    email: 'pat.purchaser@portal.test',
+    accessRole: 'purchasing',
+  });
+  assert.equal(created.user.email, 'pat.purchaser@portal.test');
+  assert.equal(created.user.accessRole, 'purchasing');
+  assert.ok(created.invitePath.includes(encodeURIComponent(created.inviteToken)));
+  assert.equal(created.dashboard.companyUsers.length, 2);
+
+  await assert.rejects(
+    () => createCurrentDealerPortalUser(dealerActor, {
+      firstName: 'Annie',
+      lastName: 'Admin',
+      email: 'annie.admin@portal.test',
+      accessRole: 'admin',
+    }),
+    /cannot create additional admin users/i,
+  );
+
+  await assert.rejects(
+    () => updateCurrentDealerPortalUser(dealerActor, provisioned.user.id, {
+      status: 'deactivated',
+    }),
+    /cannot deactivate their own portal access/i,
+  );
+
+  const revoked = await updateCurrentDealerPortalUser(dealerActor, created.user.id, {
+    status: 'deactivated',
+  });
+  assert.equal(revoked.user.status, 'deactivated');
+  assert.equal(revoked.dashboard.companyUsers.find((user) => user.id === created.user.id)?.status, 'deactivated');
+
+  const reactivated = await updateCurrentDealerPortalUser(dealerActor, created.user.id, {
+    status: 'active',
+  });
+  assert.equal(reactivated.user.status, 'active');
+});
+
+test('non-admin dealer portal users cannot manage company portal users', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Self Admin Denied Dealer Comfort',
+    email: 'self-admin-denied@portal.test',
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'viewer',
+  });
+
+  const dealerAuth = await loginWithPassword(
+    config,
+    {
+      email: fixture.contact.email,
+      password: provisioned.temporaryPassword,
+    },
+    {},
+  );
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  await assert.rejects(
+    () => createCurrentDealerPortalUser(dealerActor, {
+      firstName: 'Vic',
+      lastName: 'Viewer',
+      email: 'viewer.invite@portal.test',
+      accessRole: 'viewer',
+    }),
+    /Only dealer portal admins can manage company portal users/i,
+  );
 });
 
 test('dealer portal catalog exposes only published dealer-ready products and files', SERIAL, async () => {
@@ -796,6 +897,380 @@ test('read-only dealer portal roles cannot mutate product favorites', SERIAL, as
   await assert.rejects(
     () => favoriteCurrentDealerPortalProduct(dealerActor, presentation.id),
     /cannot save catalog favorites/i,
+  );
+});
+
+test('portal eligible catalog rules honor manually provisioned dealer portal accounts', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Manual Portal Eligible Dealer',
+    email: 'manual-portal-eligible@portal.test',
+  });
+
+  const portalCatalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'portal-eligible-runtime-test',
+      name: 'Portal Eligible Runtime Catalog',
+      kind: 'STANDARD',
+      isDefault: false,
+      isActive: true,
+      precedence: 5,
+    },
+  });
+  await prisma.catalogRuleSet.create({
+    data: {
+      code: 'portal-eligible-runtime-rule-set',
+      name: 'Portal Eligible Runtime Rules',
+      status: 'ACTIVE',
+      isActive: true,
+      activatedAt: new Date(),
+      rules: {
+        create: [{
+          name: 'Portal eligible dealers see runtime catalog',
+          priority: 1,
+          conditions: [{ field: 'portal_eligible', operator: 'is', value: true }],
+          resultAction: 'ASSIGN_CATALOG_VIEW',
+          dealerCatalogViewId: portalCatalogView.id,
+          isEnabled: true,
+        }],
+      },
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'PORTAL-ELIGIBLE-100',
+      productName: 'Portal Eligible Runtime Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Portal Eligible Runtime Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: portalCatalogView.id,
+      dealerGroupType: 'all_dealers',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'purchasing',
+  });
+  const dealerAuth = await loginWithPassword(config, {
+    email: fixture.contact.email,
+    password: provisioned.temporaryPassword,
+  }, {});
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.equal(catalog.catalogView.name, 'Portal Eligible Runtime Catalog');
+  assert.deepEqual(catalog.products.map((item) => item.sku), ['PORTAL-ELIGIBLE-100']);
+});
+
+test('active catalog snapshots gate direct favorite and asset-open access', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Snapshot Gate Dealer Comfort',
+    email: 'snapshot-gate@portal.test',
+  });
+
+  const catalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'snapshot-gate-standard-test',
+      name: 'Snapshot Gate Standard Catalog',
+      kind: 'STANDARD',
+      isDefault: true,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+  const visibleProduct = await prisma.baseProduct.create({
+    data: {
+      sku: 'SNAP-100',
+      productName: 'Snapshot Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const leakedProduct = await prisma.baseProduct.create({
+    data: {
+      sku: 'SNAP-LIVE-ONLY',
+      productName: 'Live Only Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const visiblePresentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: visibleProduct.id,
+      displayName: 'Snapshot Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  const liveOnlyPresentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: leakedProduct.id,
+      displayName: 'Live Only Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.createMany({
+    data: [
+      {
+        presentationId: visiblePresentation.id,
+        dealerCatalogViewId: catalogView.id,
+        dealerGroupType: 'all_dealers',
+        isVisible: true,
+        publishStatus: 'PUBLISHED',
+      },
+      {
+        presentationId: liveOnlyPresentation.id,
+        dealerCatalogViewId: catalogView.id,
+        dealerGroupType: 'all_dealers',
+        isVisible: true,
+        publishStatus: 'PUBLISHED',
+      },
+    ],
+  });
+  const liveOnlyAsset = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: 'snapshot-live-only-spec',
+      title: 'Live Only Spec',
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'APPROVED',
+      audience: 'dealer',
+      versions: {
+        create: {
+          versionNumber: 1,
+          externalUrl: 'https://assets.example.test/live-only.pdf',
+          fileName: 'live-only.pdf',
+          isCurrent: true,
+        },
+      },
+    },
+    include: { versions: true },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: liveOnlyPresentation.id,
+      assetId: liveOnlyAsset.id,
+      assetVersionId: liveOnlyAsset.versions[0].id,
+      role: 'SPEC_SHEET',
+    },
+  });
+  await prisma.dealerCatalogSnapshot.create({
+    data: {
+      dealerCatalogViewId: catalogView.id,
+      version: 1,
+      status: 'ACTIVE',
+      isActive: true,
+      productCount: 1,
+      fileCount: 0,
+      publishedByUserId: actor.userId,
+      items: {
+        create: {
+          dealerCatalogViewId: catalogView.id,
+          presentationId: visiblePresentation.id,
+          baseProductId: visibleProduct.id,
+          sku: 'SNAP-100',
+          displayName: 'Snapshot Product',
+          assetCount: 0,
+          assetVersionPayload: [],
+          sortOrder: 10,
+        },
+      },
+    },
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'purchasing',
+  });
+  const dealerAuth = await loginWithPassword(config, {
+    email: fixture.contact.email,
+    password: provisioned.temporaryPassword,
+  }, {});
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.deepEqual(catalog.products.map((product) => product.sku), ['SNAP-100']);
+  await assert.rejects(
+    () => favoriteCurrentDealerPortalProduct(dealerActor, liveOnlyPresentation.id),
+    /active dealer catalog snapshot|not visible in the current dealer catalog/i,
+  );
+  await assert.rejects(
+    () => recordCurrentDealerPortalAssetOpen(dealerActor, liveOnlyAsset.id),
+    /active dealer catalog snapshot|not visible in the current dealer catalog/i,
+  );
+});
+
+test('dealer portal file visibility enforces assignment brand region and catalog view scopes', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await seedPortalReadyAccount(actor, {
+    companyName: 'Scoped Asset Dealer Comfort',
+    email: 'scoped-assets@portal.test',
+  });
+
+  const catalogView = await prisma.dealerCatalogView.create({
+    data: {
+      code: 'scoped-asset-catalog-test',
+      name: 'Scoped Asset Catalog',
+      kind: 'STANDARD',
+      regionScope: 'US',
+      brandLabel: 'Dynamic',
+      isDefault: true,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku: 'SCOPE-100',
+      productName: 'Scoped Product',
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName: 'Scoped Product',
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: catalogView.id,
+      dealerGroupType: 'all_dealers',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+  const createAsset = (slug, title) => prisma.digitalAsset.create({
+    data: {
+      stableSlug: slug,
+      title,
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'APPROVED',
+      audience: 'dealer',
+      versions: {
+        create: {
+          versionNumber: 1,
+          externalUrl: `https://assets.example.test/${slug}.pdf`,
+          fileName: `${slug}.pdf`,
+          isCurrent: true,
+        },
+      },
+    },
+    include: { versions: true },
+  });
+  const visibleAsset = await createAsset('scope-visible', 'Visible Scoped Spec');
+  const brandMismatch = await createAsset('scope-brand-mismatch', 'Wrong Brand Spec');
+  const regionMismatch = await createAsset('scope-region-mismatch', 'Wrong Region Spec');
+  const groupMismatch = await createAsset('scope-group-mismatch', 'Wrong Catalog View Spec');
+  await prisma.productAssetAssignment.createMany({
+    data: [
+      {
+        presentationId: presentation.id,
+        assetId: visibleAsset.id,
+        assetVersionId: visibleAsset.versions[0].id,
+        role: 'SPEC_SHEET',
+        brandLabel: 'Dynamic',
+        regionScope: 'US',
+        dealerGroupType: 'all_dealers',
+        sortOrder: 10,
+      },
+      {
+        presentationId: presentation.id,
+        assetId: brandMismatch.id,
+        assetVersionId: brandMismatch.versions[0].id,
+        role: 'SPEC_SHEET',
+        brandLabel: 'Private Label',
+        regionScope: 'US',
+        dealerGroupType: 'all_dealers',
+        sortOrder: 20,
+      },
+      {
+        presentationId: presentation.id,
+        assetId: regionMismatch.id,
+        assetVersionId: regionMismatch.versions[0].id,
+        role: 'SPEC_SHEET',
+        brandLabel: 'Dynamic',
+        regionScope: 'CA',
+        dealerGroupType: 'all_dealers',
+        sortOrder: 30,
+      },
+      {
+        presentationId: presentation.id,
+        assetId: groupMismatch.id,
+        assetVersionId: groupMismatch.versions[0].id,
+        role: 'SPEC_SHEET',
+        brandLabel: 'Dynamic',
+        regionScope: 'US',
+        dealerGroupType: 'affinity_group',
+        dealerGroupId: 'nexstar',
+        sortOrder: 40,
+      },
+    ],
+  });
+
+  const provisioned = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: fixture.contact.id,
+    accessRole: 'purchasing',
+  });
+  const dealerAuth = await loginWithPassword(config, {
+    email: fixture.contact.email,
+    password: provisioned.temporaryPassword,
+  }, {});
+  const dealerActor = await authenticateAccessToken(dealerAuth.tokens.accessToken);
+
+  const catalog = await getCurrentDealerPortalCatalog(dealerActor);
+  assert.deepEqual(catalog.products[0].assets.map((asset) => asset.title), ['Visible Scoped Spec']);
+  await assert.rejects(
+    () => recordCurrentDealerPortalAssetOpen(dealerActor, brandMismatch.id),
+    /not visible in the current dealer catalog/i,
+  );
+  await assert.rejects(
+    () => recordCurrentDealerPortalAssetOpen(dealerActor, regionMismatch.id),
+    /not visible in the current dealer catalog/i,
+  );
+  await assert.rejects(
+    () => recordCurrentDealerPortalAssetOpen(dealerActor, groupMismatch.id),
+    /not visible in the current dealer catalog/i,
   );
 });
 

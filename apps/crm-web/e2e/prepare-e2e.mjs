@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { randomBytes, scryptSync } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -160,6 +161,9 @@ try {
       isActive: true,
     },
   });
+  const e2ePersonaPassword = 'PulseE2E123!';
+  await ensureLocalIdentity(tmUser.id, tmUser.email, e2ePersonaPassword);
+  await ensureLocalIdentity(rdUser.id, rdUser.email, e2ePersonaPassword);
 
   const trainerUser = await prisma.user.create({
     data: {
@@ -205,11 +209,16 @@ try {
       displayName: 'E2E Dealer Comfort',
       legalName: 'E2E Dealer Comfort LLC',
       accountType: 'Dealer',
+      sourceLeadId: cisLead.id,
       businessSegmentId: segment?.id ?? null,
+      affinityGroupSelection: 'NONE',
+      ownershipGroupSelection: 'NONE',
+      groupClassification: 'INDEPENDENT',
       territoryId: territory.id,
       shippingCenterId: shippingCenter.id,
       assignedTmUserId: tmUser.id,
       assignedRdUserId: rdUser.id,
+      lastEngagementAt: new Date(),
       isActive: true,
       contacts: {
         create: {
@@ -242,6 +251,8 @@ try {
     contactId: account.contacts[0]?.id,
     isPrimaryOwner: true,
   });
+
+  const dealerCatalogPersonas = await seedDealerCatalogPersonas(adminActor, e2ePersonaPassword);
 
   const certificationType = await prisma.trainingType.findUniqueOrThrow({
     where: { code: 'iaq_certification_curriculum' },
@@ -296,6 +307,17 @@ try {
         password: dealerPortal.temporaryPassword,
         accountDisplayName: account.displayName,
       },
+      personas: {
+        territoryManager: {
+          email: tmUser.email,
+          password: e2ePersonaPassword,
+        },
+        regionalDirector: {
+          email: rdUser.email,
+          password: e2ePersonaPassword,
+        },
+      },
+      dealerCatalogPersonas,
       training: {
         sessionId: trainingSession.id,
         title: trainingSession.title,
@@ -313,4 +335,232 @@ function extractPublicToken(publicUrl) {
 
 async function importFromRepo(relativePath) {
   return import(pathToFileURL(path.join(repoRootDir, relativePath)).href);
+}
+
+async function ensureLocalIdentity(userId, email, password) {
+  await prisma.userIdentity.upsert({
+    where: {
+      provider_loginEmail: {
+        provider: 'LOCAL',
+        loginEmail: email,
+      },
+    },
+    update: {
+      userId,
+      providerSubject: email,
+      passwordHash: hashSecret(password),
+      isPrimary: true,
+    },
+    create: {
+      userId,
+      provider: 'LOCAL',
+      providerSubject: email,
+      loginEmail: email,
+      passwordHash: hashSecret(password),
+      isPrimary: true,
+    },
+  });
+}
+
+async function seedDealerCatalogPersonas(adminActor) {
+  const affinityGroup = await prisma.affinityGroupRef.create({
+    data: {
+      code: 'nexstar-e2e',
+      name: 'Nexstar E2E',
+      groupType: 'BUYING_GROUP',
+      isActive: true,
+    },
+  });
+  const ownershipGroup = await prisma.ownershipGroupRef.create({
+    data: {
+      code: 'redwood-e2e',
+      name: 'Redwood E2E',
+      ownershipType: 'PRIVATE_EQUITY',
+      isActive: true,
+    },
+  });
+  const catalogViews = {
+    affinity: await createCatalogView('e2e-affinity-catalog', 'Nexstar E2E Catalog', 'AFFINITY', 'nexstar-e2e'),
+    ownership: await createCatalogView('e2e-ownership-catalog', 'Ownership / PE E2E Catalog', 'OWNERSHIP', 'redwood-e2e'),
+    independent: await createCatalogView('e2e-independent-catalog', 'Independent E2E Catalog', 'INDEPENDENT', null),
+  };
+  await prisma.catalogRuleSet.create({
+    data: {
+      code: 'e2e-dealer-persona-rules',
+      name: 'E2E Dealer Persona Rules',
+      status: 'ACTIVE',
+      isActive: true,
+      activatedAt: new Date(),
+      rules: {
+        create: [
+          {
+            name: 'Hybrid dealer needs review',
+            priority: 1,
+            conditions: [
+              { field: 'affinity_group', operator: 'is', value: 'nexstar-e2e' },
+              { field: 'ownership_group', operator: 'is', value: 'redwood-e2e' },
+            ],
+            resultAction: 'REQUIRE_REVIEW',
+            requireReviewReason: 'Hybrid dealer requires Dynamic review before catalog is shown.',
+            isEnabled: true,
+          },
+          {
+            name: 'Ownership dealer catalog',
+            priority: 10,
+            conditions: [{ field: 'ownership_group', operator: 'is', value: 'redwood-e2e' }],
+            resultAction: 'ASSIGN_CATALOG_VIEW',
+            dealerCatalogViewId: catalogViews.ownership.id,
+            isEnabled: true,
+          },
+          {
+            name: 'Affinity dealer catalog',
+            priority: 20,
+            conditions: [{ field: 'affinity_group', operator: 'is', value: 'nexstar-e2e' }],
+            resultAction: 'ASSIGN_CATALOG_VIEW',
+            dealerCatalogViewId: catalogViews.affinity.id,
+            isEnabled: true,
+          },
+          {
+            name: 'Independent dealer catalog',
+            priority: 30,
+            conditions: [{ field: 'independent', operator: 'is', value: true }],
+            resultAction: 'ASSIGN_CATALOG_VIEW',
+            dealerCatalogViewId: catalogViews.independent.id,
+            isEnabled: true,
+          },
+        ],
+      },
+    },
+  });
+
+  await createCatalogProduct(catalogViews.affinity.id, 'E2E-AFF-100', 'Nexstar E2E Air Cleaner');
+  await createCatalogProduct(catalogViews.ownership.id, 'E2E-PE-100', 'Ownership E2E Air Cleaner');
+  await createCatalogProduct(catalogViews.independent.id, 'E2E-IND-100', 'Independent E2E Air Cleaner');
+
+  const affinity = await createDealerPersona(adminActor, {
+    accountNumber: 'E2E-AFFINITY',
+    displayName: 'E2E Affinity Dealer',
+    email: 'e2e-affinity-dealer@portal.test',
+    affinityGroupId: affinityGroup.id,
+    affinityGroupSelection: 'GROUP',
+    groupClassification: 'AFFINITY_ONLY',
+  });
+  const ownership = await createDealerPersona(adminActor, {
+    accountNumber: 'E2E-OWNERSHIP',
+    displayName: 'E2E Ownership Dealer',
+    email: 'e2e-ownership-dealer@portal.test',
+    ownershipGroupId: ownershipGroup.id,
+    ownershipGroupSelection: 'GROUP',
+    groupClassification: 'OWNERSHIP_ONLY',
+  });
+  const independent = await createDealerPersona(adminActor, {
+    accountNumber: 'E2E-INDEPENDENT',
+    displayName: 'E2E Independent Dealer',
+    email: 'e2e-independent-dealer@portal.test',
+    groupClassification: 'INDEPENDENT',
+  });
+  const hybrid = await createDealerPersona(adminActor, {
+    accountNumber: 'E2E-HYBRID',
+    displayName: 'E2E Hybrid Dealer',
+    email: 'e2e-hybrid-dealer@portal.test',
+    affinityGroupId: affinityGroup.id,
+    affinityGroupSelection: 'GROUP',
+    ownershipGroupId: ownershipGroup.id,
+    ownershipGroupSelection: 'GROUP',
+    groupClassification: 'HYBRID',
+  });
+
+  return { affinity, ownership, independent, hybrid };
+}
+
+async function createCatalogView(code, name, kind, resolverKey) {
+  return prisma.dealerCatalogView.create({
+    data: {
+      code,
+      name,
+      kind,
+      resolverKey,
+      resolverLabel: resolverKey,
+      isDefault: false,
+      isActive: true,
+      precedence: 10,
+    },
+  });
+}
+
+async function createCatalogProduct(catalogViewId, sku, displayName) {
+  const product = await prisma.baseProduct.create({
+    data: {
+      sku,
+      productName: displayName,
+      lifecycleStatus: 'ACTIVE',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'ACUMATICA',
+      isSellable: true,
+      isDealerVisible: true,
+    },
+  });
+  const presentation = await prisma.productPresentation.create({
+    data: {
+      baseProductId: product.id,
+      displayName,
+      publishStatus: 'PUBLISHED',
+      readyForDealerPortal: true,
+      publishedAt: new Date(),
+    },
+  });
+  await prisma.catalogInclusion.create({
+    data: {
+      presentationId: presentation.id,
+      dealerCatalogViewId: catalogViewId,
+      dealerGroupType: 'all_dealers',
+      isVisible: true,
+      publishStatus: 'PUBLISHED',
+    },
+  });
+}
+
+async function createDealerPersona(adminActor, input) {
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({ orderBy: { createdAt: 'asc' } });
+  const account = await prisma.account.create({
+    data: {
+      accountNumber: input.accountNumber,
+      displayName: input.displayName,
+      legalName: `${input.displayName} LLC`,
+      accountType: 'Dealer',
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+      affinityGroupSelection: input.affinityGroupSelection ?? 'NONE',
+      affinityGroupId: input.affinityGroupId ?? null,
+      ownershipGroupSelection: input.ownershipGroupSelection ?? 'NONE',
+      ownershipGroupId: input.ownershipGroupId ?? null,
+      groupClassification: input.groupClassification,
+      contacts: {
+        create: {
+          firstName: 'Dana',
+          lastName: input.displayName.replace(/^E2E\s+/, ''),
+          email: input.email,
+          title: 'Owner',
+          isPrimary: true,
+          isActive: true,
+        },
+      },
+    },
+    include: { contacts: true },
+  });
+  const provisioned = await provisionDealerPortalUser(adminActor, account.id, {
+    contactId: account.contacts[0]?.id,
+    accessRole: 'purchasing',
+  });
+  return {
+    email: input.email,
+    password: provisioned.temporaryPassword,
+    accountDisplayName: input.displayName,
+  };
+}
+
+function hashSecret(secret) {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(secret, salt, 64).toString('hex');
+  return `scrypt$${salt}$${derivedKey}`;
 }

@@ -635,7 +635,7 @@ export function LeadOnboardingReadyPanel({
                   </Badge>
                 </Group>
                 <Text size="sm" c="dimmed" mb="md">
-                  Customer creation stays blocked until readiness is complete and the first order is confirmed.
+                  This creates the CRM customer/account record only. Acumatica order posting, pricing, inventory, and ERP customer truth remain parked until certified integration access is available.
                 </Text>
                 <TextInput
                   label="First Order Confirmed At"
@@ -650,7 +650,7 @@ export function LeadOnboardingReadyPanel({
                   loading={isConverting}
                   disabled={!canCreateCustomer || leadLifecycleLocked || readiness?.summary.status !== 'ready'}
                 >
-                  Convert On First Order
+                  Create CRM Customer Record
                 </Button>
               </Card>
             </Stack>

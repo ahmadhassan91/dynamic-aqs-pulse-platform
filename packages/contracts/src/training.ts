@@ -800,7 +800,6 @@ export interface UploadTrainingSessionProofRequest {
   fileName: string;
   mimeType: string;
   contentBase64: string;
-  storageKey?: string;
 }
 
 export interface UploadTrainingSessionProofResponse {

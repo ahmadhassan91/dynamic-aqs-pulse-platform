@@ -43,6 +43,9 @@ export type ConsignmentFormStatusKey = (typeof CONSIGNMENT_FORM_STATUSES)[number
 export const CONSIGNMENT_AUDIT_STATUSES = ['scheduled', 'in_progress', 'completed', 'cancelled'] as const;
 export type ConsignmentAuditStatusKey = (typeof CONSIGNMENT_AUDIT_STATUSES)[number];
 
+export const CONSIGNMENT_AUDIT_EVIDENCE_PURPOSES = ['general', 'discrepancy'] as const;
+export type ConsignmentAuditEvidencePurposeKey = (typeof CONSIGNMENT_AUDIT_EVIDENCE_PURPOSES)[number];
+
 export const CONSIGNMENT_RECONCILIATION_STATUSES = [
   'not_started',
   'open',
@@ -135,6 +138,26 @@ export interface ConsignmentAuditSummary {
   sourceFreshnessLabel: string;
   notes?: string;
   lines: ConsignmentAuditLineSummary[];
+  evidenceCount: number;
+  discrepancyEvidenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConsignmentAuditEvidenceSummary {
+  id: string;
+  auditId: string;
+  siteId: string;
+  purpose: ConsignmentAuditEvidencePurposeKey;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256?: string;
+  notes?: string;
+  uploadedByUserId?: string;
+  uploadedByName?: string;
+  uploadedAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -256,6 +279,19 @@ export interface UpdateConsignmentAuditRequest {
 }
 
 export type CompleteConsignmentAuditRequest = UpdateConsignmentAuditRequest;
+
+export interface UploadConsignmentAuditEvidenceRequest {
+  purpose?: ConsignmentAuditEvidencePurposeKey;
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+  notes?: string;
+}
+
+export interface UploadConsignmentAuditEvidenceResponse {
+  audit: ConsignmentAuditSummary;
+  evidence: ConsignmentAuditEvidenceSummary;
+}
 
 export interface ConsignmentReadinessItemSummary {
   code: string;

@@ -7,7 +7,7 @@
     "dev": "expo start",
     "build": "expo export --platform web --output-dir dist",
     "lint": "tsc --noEmit",
-    "test": "echo \"Mobile automated tests pending\"",
+    "test": "node --test --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .expo"
   },

@@ -90,6 +90,22 @@ export interface ContactSummary {
 export interface AccountDetail extends AccountSummary {
   locations: AccountLocationSummary[];
   contacts: ContactSummary[];
+  readiness: AccountReadinessSummary;
+}
+
+export type AccountReadinessLevel = 'ready' | 'needs_attention' | 'parked';
+
+export interface AccountReadinessCheck {
+  key: string;
+  label: string;
+  status: AccountReadinessLevel;
+  message: string;
+}
+
+export interface AccountReadinessSummary {
+  score: number;
+  status: AccountReadinessLevel;
+  checks: AccountReadinessCheck[];
 }
 
 export interface AccountPaymentMethodSummary {

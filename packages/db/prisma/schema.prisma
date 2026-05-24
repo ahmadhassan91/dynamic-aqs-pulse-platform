@@ -754,6 +754,11 @@ enum ConsignmentAuditStatus {
   CANCELLED
 }
 
+enum ConsignmentAuditEvidencePurpose {
+  GENERAL
+  DISCREPANCY
+}
+
 enum ConsignmentReconciliationStatus {
   NOT_STARTED
   OPEN
@@ -857,6 +862,7 @@ model User {
   ownedConsignmentSitesRd            ConsignmentSite[]             @relation("ConsignmentSiteOwnerRd")
   consignmentFormsCreated            ConsignmentForm[]             @relation("ConsignmentFormCreatedBy")
   consignmentAuditsSubmitted         ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
+  consignmentAuditEvidenceUploaded   ConsignmentAuditEvidence[]    @relation("ConsignmentAuditEvidenceUploadedBy")
   consignmentWorkItemsAssigned       ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
 
   @@index([roleCode])
@@ -2980,6 +2986,7 @@ model ConsignmentSite {
   createdBy        User?                        @relation("ConsignmentSiteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   forms            ConsignmentForm[]
   audits           ConsignmentAudit[]
+  auditEvidence    ConsignmentAuditEvidence[]
   discrepancyCases ConsignmentDiscrepancyCase[]
   workItems        ConsignmentWorkItem[]
 
@@ -3041,6 +3048,7 @@ model ConsignmentAudit {
   site             ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
   submittedBy      User?                        @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
   lines            ConsignmentAuditLine[]
+  evidence         ConsignmentAuditEvidence[]
   discrepancyCases ConsignmentDiscrepancyCase[]
 
   @@index([siteId])
@@ -3067,6 +3075,32 @@ model ConsignmentAuditLine {
   @@index([auditId])
   @@index([sku])
   @@index([barcode])
+}
+
+model ConsignmentAuditEvidence {
+  id               String                          @id @default(uuid()) @db.Uuid
+  auditId          String                          @db.Uuid
+  siteId           String                          @db.Uuid
+  purpose          ConsignmentAuditEvidencePurpose @default(GENERAL)
+  storageKey       String
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  sha256           String?
+  notes            String?
+  uploadedByUserId String?                         @db.Uuid
+  uploadedAt       DateTime                        @default(now())
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+
+  audit      ConsignmentAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  site       ConsignmentSite  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  uploadedBy User?            @relation("ConsignmentAuditEvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([auditId])
+  @@index([siteId])
+  @@index([purpose])
+  @@index([uploadedByUserId])
 }
 
 model ConsignmentDiscrepancyCase {

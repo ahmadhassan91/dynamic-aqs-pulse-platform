@@ -2,6 +2,8 @@ import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
+  AccountReadinessCheck,
+  AccountReadinessSummary,
   AccountLifecycleStatusKey,
   AccountLocationSummary,
   AccountPaymentMethodSummary,
@@ -484,6 +486,7 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
     ...toAccountSummary(account),
     locations: account.locations.map(toAccountLocationSummary),
     contacts: account.contacts.map(toContactSummary),
+    readiness: buildAccountReadinessSummary(account),
   };
 }
 
@@ -1662,6 +1665,104 @@ function toAccountSummary(account: {
   }
 
   return summary;
+}
+
+function buildAccountReadinessSummary(account: {
+  sourceLeadId?: string | null;
+  displayName: string;
+  legalName: string | null;
+  accountType: string | null;
+  affinityGroupSelection: import('@pulse/db').GroupAxisSelection;
+  ownershipGroupSelection: import('@pulse/db').GroupAxisSelection;
+  groupClassification?: import('@pulse/db').GroupClassification | null;
+  territoryId?: string | null;
+  shippingCenterId?: string | null;
+  assignedTmUserId?: string | null;
+  assignedRdUserId?: string | null;
+  lastOrderAt?: Date | null;
+  lastEngagementAt?: Date | null;
+  contacts: Array<{ isPrimary: boolean; isActive: boolean; email: string | null; phone: string | null; mobilePhone: string | null }>;
+  locations: Array<{ isPrimary: boolean; isActive: boolean; city: string | null; state: string | null; countryCode: string | null }>;
+}): AccountReadinessSummary {
+  const activeContacts = account.contacts.filter((contact) => contact.isActive);
+  const primaryContact = activeContacts.find((contact) => contact.isPrimary) ?? activeContacts[0];
+  const activeLocations = account.locations.filter((location) => location.isActive);
+  const primaryLocation = activeLocations.find((location) => location.isPrimary) ?? activeLocations[0];
+  const hasKnownMembership = account.affinityGroupSelection !== 'UNKNOWN'
+    && account.ownershipGroupSelection !== 'UNKNOWN'
+    && Boolean(account.groupClassification);
+
+  const checks: AccountReadinessCheck[] = [
+    {
+      key: 'profile',
+      label: 'Profile',
+      status: account.displayName && account.legalName && account.accountType ? 'ready' : 'needs_attention',
+      message: account.displayName && account.legalName && account.accountType
+        ? 'Core account name, legal name, and type are recorded.'
+        : 'Add legal name and account type before treating this as a complete account profile.',
+    },
+    {
+      key: 'contact',
+      label: 'Primary contact',
+      status: primaryContact && (primaryContact.email || primaryContact.phone || primaryContact.mobilePhone) ? 'ready' : 'needs_attention',
+      message: primaryContact && (primaryContact.email || primaryContact.phone || primaryContact.mobilePhone)
+        ? 'A reachable primary contact is available.'
+        : 'Add a primary contact with email or phone so the field and support teams know who to reach.',
+    },
+    {
+      key: 'location',
+      label: 'Primary location',
+      status: primaryLocation && primaryLocation.city && primaryLocation.state && primaryLocation.countryCode ? 'ready' : 'needs_attention',
+      message: primaryLocation && primaryLocation.city && primaryLocation.state && primaryLocation.countryCode
+        ? 'A primary location is available for territory, route, and training context.'
+        : 'Add a primary city, state, and country before relying on route or territory context.',
+    },
+    {
+      key: 'territory',
+      label: 'Territory ownership',
+      status: account.territoryId && account.shippingCenterId && account.assignedTmUserId && account.assignedRdUserId ? 'ready' : 'needs_attention',
+      message: account.territoryId && account.shippingCenterId && account.assignedTmUserId && account.assignedRdUserId
+        ? 'Territory, shipping center, TM, and RD ownership are assigned.'
+        : 'Confirm territory, shipping center, TM, and RD ownership before field handoff.',
+    },
+    {
+      key: 'dealer_membership',
+      label: 'Dealer membership',
+      status: hasKnownMembership ? 'ready' : 'needs_attention',
+      message: hasKnownMembership
+        ? `Dealer membership resolves as ${formatReadinessClassification(account.groupClassification)}.`
+        : 'Confirm affinity and ownership/PE status so catalog visibility rules stay predictable.',
+    },
+    {
+      key: 'source_lineage',
+      label: 'Source lineage',
+      status: account.sourceLeadId ? 'ready' : 'needs_attention',
+      message: account.sourceLeadId
+        ? 'The source lead is linked for audit and handoff traceability.'
+        : 'No source lead is linked; this should usually be limited to bootstrap or migration records.',
+    },
+    {
+      key: 'erp_activity',
+      label: 'ERP activity',
+      status: account.lastOrderAt || account.lastEngagementAt ? 'ready' : 'parked',
+      message: account.lastOrderAt || account.lastEngagementAt
+        ? 'Recent order or engagement signal is present.'
+        : 'Order and revenue recency remain parked until Acumatica activity is available.',
+    },
+  ];
+
+  const readyCount = checks.filter((check) => check.status === 'ready').length;
+  const score = Math.round((readyCount / checks.length) * 100);
+  return {
+    score,
+    status: score >= 80 ? 'ready' : score >= 50 ? 'needs_attention' : 'parked',
+    checks,
+  };
+}
+
+function formatReadinessClassification(classification: import('@pulse/db').GroupClassification | null | undefined) {
+  if (!classification) return 'unknown';
+  return classification.toLowerCase().replaceAll('_', ' ');
 }
 
 function toAccountLifecycleStatusEnum(value: AccountLifecycleStatusKey) {

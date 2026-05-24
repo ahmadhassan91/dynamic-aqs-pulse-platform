@@ -580,6 +580,10 @@ test('territory-scoped lead visibility stays simple for territory managers', SER
 
   const tmHiddenDetail = await getLeadDetail(tmActor, hiddenLead.id);
   assert.equal(tmHiddenDetail, null);
+
+  const tmWorkflowQueue = await listLeadWorkflowQueue(tmActor, {});
+  assert.ok(tmWorkflowQueue.items.some((item) => item.leadId === visibleLead.id), 'visible lead should appear in scoped TM workflow queue');
+  assert.ok(!tmWorkflowQueue.items.some((item) => item.leadId === hiddenLead.id), 'hidden lead must not appear in scoped TM workflow queue');
 });
 
 test('manual intake rejects unsupported state or province values', SERIAL, async () => {

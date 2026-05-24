@@ -919,6 +919,7 @@ export async function listLeadWorkflowQueue(
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
+  const scopeWhere = await resolveLeadRecordScope(actor);
   const where: Prisma.LeadWhereInput = {
     stage: {
       not: LeadStage.CUSTOMER_ACTIVE,
@@ -940,7 +941,7 @@ export async function listLeadWorkflowQueue(
       },
     }),
     prisma.lead.findMany({
-      where,
+      where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       orderBy: [
         { updatedAt: 'asc' },
         { createdAt: 'asc' },

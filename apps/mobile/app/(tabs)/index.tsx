@@ -2,16 +2,17 @@ import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { AccountCard } from '@/components/account-card';
 import { LeadCard } from '@/components/lead-card';
-import { EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, NativeIcon, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { Card, EmptyState, ErrorState, HeroCard, LoadingState, MetricCard, NativeIcon, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useFieldData } from '@/hooks/use-mobile-data';
+import type { MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import { useMobileDraftQueue } from '@/lib/mobile-draft-queue';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut } = useSession();
-  const { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, queueSummary, reload } = useFieldData(8);
+  const { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, liveApiStatus, queueSummary, reload } = useFieldData(8);
   const drafts = useMobileDraftQueue();
   const unsyncedDrafts = drafts.filter((draft) => draft.status !== 'synced');
   const dueConsignmentSites = consignmentSites.filter((site) => site.nextAuditDueAt);
@@ -39,6 +40,7 @@ export default function FieldHomeScreen() {
 
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading field data..." /> : null}
+      {liveApiStatus ? <LiveApiStatusCard status={liveApiStatus} /> : null}
       {unsyncedDrafts.length ? (
         <Pressable
           onPress={() => router.push('/sync-status')}
@@ -85,6 +87,34 @@ export default function FieldHomeScreen() {
         <QuickAction label="Training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
       </View>
     </Screen>
+  );
+}
+
+function LiveApiStatusCard({ status }: { status: MobileLiveApiStatus }) {
+  const tone = status.overall === 'ready' ? 'active' : status.overall === 'partial' ? 'review' : 'pending';
+  return (
+    <Card>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: spacing.xs }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            Live CRM data
+          </Text>
+          <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+            {status.message}
+          </Text>
+        </View>
+        <Pill label={status.overall} tone={tone} />
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        {status.sections.map((section) => (
+          <View key={section.key} style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+            <Text selectable style={{ ...typography.caption, color: section.status === 'failed' ? colors.warning : colors.muted }}>
+              {section.label}: {section.status === 'failed' ? 'failed' : section.count}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Card>
   );
 }
 

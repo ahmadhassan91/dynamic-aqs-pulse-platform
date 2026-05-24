@@ -46,6 +46,8 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 | `pnpm --filter @pulse/mobile test && pnpm --filter @pulse/mobile typecheck` | Passed, 6/6 plus typecheck |
 | `pnpm --filter @pulse/mobile test` after UAT polish slice | Passed, 19/19 |
 | `pnpm --filter @pulse/mobile typecheck` after UAT polish slice | Passed |
+| `pnpm --filter @pulse/mobile test` after mobile live-API status slice | Passed, 22/22 |
+| `pnpm --filter @pulse/mobile build` after mobile live-API status slice | Passed, Expo web export completed |
 | `pnpm --filter @pulse/crm-web lint` after UAT polish slice | Passed |
 | `DATABASE_URL=... pnpm --filter @pulse/crm-web test:e2e` | Passed, 11/11 |
 | Production deploy smoke: `https://pulse-crm.theclustox.com/api/v1/health/ready` | Passed with app/database/queue/workers healthy; Acumatica reports the expected parked placeholder dependency |
@@ -55,7 +57,7 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 | Browser plugin smoke | Login page loaded and DOM controls were inspectable; text entry was blocked by the Browser virtual clipboard, so the actual login/catalog interaction was covered by maintained Playwright/API gates instead. |
 | Playwright CLI smoke | Dealer login page opened and snapshot captured with stable controls; the standalone CLI session did not persist for chained fill commands, so maintained Playwright e2e remains the authoritative browser automation evidence. |
 | Browser plugin smoke | `@Browser` opened the local Pulse login page at `http://127.0.0.1:3101/auth/login` and confirmed the rendered login UI. Browser text-entry remains blocked by the local virtual clipboard limitation, so form-submission evidence still comes from maintained Playwright e2e. |
-| Mobile UAT hardening | `pnpm --filter @pulse/mobile test` now covers 18 mobile policy tests for session lifecycle, mobile-only access, route retry scheduling, training follow-up/proof truthfulness, sync review, and display-safe asset cache metadata. |
+| Mobile UAT hardening | `pnpm --filter @pulse/mobile test` now covers 22 mobile policy tests for session lifecycle, mobile-only access, approved API host controls, route retry scheduling, training follow-up/proof truthfulness, sync review, live-API section status, and display-safe asset cache metadata. |
 | Mobile typecheck | `pnpm --filter @pulse/mobile typecheck` passes after the session/route/training/asset changes. |
 
 Note: an earlier parallel test attempt caused false database deadlocks and fixture truncation because several suites reset the same `pulse_platform_test` database at the same time. The valid QA signal is the sequential rerun above.
@@ -72,16 +74,16 @@ Note: an earlier parallel test attempt caused false database deadlocks and fixtu
 | Product Management | 74% | Categories/families, catalog views, inclusions, rules, readiness, snapshots, and parked product-import boundary are covered, with clearer UAT-safe Acumatica/data-source boundaries in the UI. Authoritative product creation/import waits for Acumatica/data signoff. |
 | Digital Assets | 82% | Library, versions, managed storage adapter, Widen manifest preview/import traceability, collections, usage, share links, mobile display-safe metadata cache, and clearer UAT asset-flow guidance are covered. Real Widen migration strategy remains parked. |
 | Dealer Portal | 80% full scope, 92% dependency-free slice | Login, dashboard, account center, catalog visibility, favorites, active-snapshot direct-access safety, assignment-level file visibility, asset-open audit, internal preview, dealer admin invite/revoke/reactivate for non-admin company users, clearer self-admin/finance boundaries, and affinity/ownership/independent/hybrid persona boundaries are covered. Commerce, pricing, invoices, shipment tracking, payments, true impersonation, and hierarchy depth remain parked. |
-| Mobile | 70% | Login shell, field home, leads/accounts, route, training, ROSE, assets, notifications, sync review, approved-host API guardrails, and OCR preview exist. This pass added stored-session validation/refresh, mobile-scope gating, checked-in route draft persistence, stricter training proof/follow-up messaging, metadata-only asset cache, and clearer card/badge OCR review-only boundaries. Native simulator/live API depth, background sync, Android QA, and offline binary media remain open. |
+| Mobile | 71% | Login shell, field home, leads/accounts, route, training, ROSE, assets, notifications, sync review, approved-host API guardrails, live-API section status, and OCR preview exist. This pass added stored-session validation/refresh, mobile-scope gating, checked-in route draft persistence, stricter training proof/follow-up messaging, metadata-only asset cache, clearer card/badge OCR review-only boundaries, and field-home live CRM status for partial/unavailable API states. Native simulator depth, background sync, Android QA, and offline binary media remain open. |
 | Roles/Admin/Auth | 70% | Role catalog, admin user CRUD, login/session/recovery basics exist. MFA, lockout, production identity governance, and fine-grained entitlements remain parked. |
 
-Overall dependency-free readiness: approximately 76%.
+Overall dependency-free readiness: approximately 77%.
 
 ## UAT Blockers Dynamic AQS Could Still Hit
 
 - Mobile business-card/badge capture is intentionally preview-and-review only; full scan-to-committed-lead needs retention, duplicate-review, and offline media signoff before activation.
 - Mobile proof/photo offline durability remains intentionally metadata-only until encrypted media storage is implemented.
-- Mobile native simulator/live API depth still needs another pass, but stored-session validation, checked-in route-draft durability, and approved production API host controls now have implementation and unit coverage.
+- Mobile native simulator depth still needs another pass, but stored-session validation, checked-in route-draft durability, approved production API host controls, and live-API partial/unavailable dashboard status now have implementation and unit coverage.
 - Product CSV/prototype data can be previewed/mapped, but final apply remains parked until Acumatica/product source-of-truth signoff.
 - Consignment ERP execution remains parked: warehouse creation, inventory movement, transfers/receipts, PO creation, and financial settlement.
 - Current EC2 deployment is internal-UAT grade, not production-grade.

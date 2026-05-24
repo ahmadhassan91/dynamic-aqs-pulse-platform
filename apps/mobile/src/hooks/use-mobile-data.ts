@@ -3,6 +3,7 @@ import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { ConsignmentSiteSummary } from '@pulse/contracts/consignment';
 import type { LeadSummary, LeadWorkflowQueueSummary } from '@pulse/contracts/leads';
 import { fetchAccounts, fetchConsignmentOperationalQueue, fetchConsignmentSites, fetchLeads, fetchLeadWorkflowQueue } from '@/lib/api';
+import { summarizeMobileLiveApiStatus, type MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import { useSession } from '@/providers/session-provider';
 
 export function useFieldData(limit = 20) {
@@ -12,6 +13,7 @@ export function useFieldData(limit = 20) {
   const [consignmentSites, setConsignmentSites] = useState<ConsignmentSiteSummary[]>([]);
   const [consignmentWorkItems, setConsignmentWorkItems] = useState<ConsignmentSiteSummary[]>([]);
   const [queueSummary, setQueueSummary] = useState<LeadWorkflowQueueSummary | null>(null);
+  const [liveApiStatus, setLiveApiStatus] = useState<MobileLiveApiStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -33,6 +35,15 @@ export function useFieldData(limit = 20) {
     if (consignmentResponse.status === 'fulfilled') setConsignmentSites(consignmentResponse.value.items);
     if (consignmentOpsResponse.status === 'fulfilled') setConsignmentWorkItems(consignmentOpsResponse.value.items);
 
+    const nextLiveApiStatus = summarizeMobileLiveApiStatus([
+      { key: 'leads', label: 'Leads', result: leadResponse.status, count: leadResponse.status === 'fulfilled' ? leadResponse.value.items.length : 0 },
+      { key: 'accounts', label: 'Accounts', result: accountResponse.status, count: accountResponse.status === 'fulfilled' ? accountResponse.value.items.length : 0 },
+      { key: 'lead_queue', label: 'Lead queue', result: queueResponse.status, count: queueResponse.status === 'fulfilled' ? queueResponse.value.items.length : 0 },
+      { key: 'consignment_sites', label: 'Consignment sites', result: consignmentResponse.status, count: consignmentResponse.status === 'fulfilled' ? consignmentResponse.value.items.length : 0 },
+      { key: 'consignment_work', label: 'Consignment work', result: consignmentOpsResponse.status, count: consignmentOpsResponse.status === 'fulfilled' ? consignmentOpsResponse.value.items.length : 0 },
+    ]);
+    setLiveApiStatus(nextLiveApiStatus);
+
     const failedSections = [
       leadResponse.status === 'rejected' ? 'leads' : null,
       accountResponse.status === 'rejected' ? 'accounts' : null,
@@ -50,5 +61,5 @@ export function useFieldData(limit = 20) {
     void load();
   }, [load]);
 
-  return { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, queueSummary, reload: load };
+  return { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, liveApiStatus, queueSummary, reload: load };
 }

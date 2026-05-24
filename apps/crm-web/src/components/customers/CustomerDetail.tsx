@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Loader, Paper, Progress, SimpleGrid, Stack, Tabs, Text, Title } from '@mantine/core';
 import type { AccountDetail as AccountDetailRecord, TrainingCatalogResponse } from '@pulse/contracts';
@@ -18,6 +18,7 @@ import { canAccessModule, canPerformAction } from '@/lib/access';
 
 export function CustomerDetail({ accountId }: { accountId: string }) {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const accessToken = auth?.tokens.accessToken ?? '';
   const [account, setAccount] = useState<AccountDetailRecord | null>(null);
@@ -29,12 +30,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const canEditCustomer = auth ? canPerformAction(auth.identity.role, 'customer.edit') : false;
   const canViewFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_view') : false;
   const canManageFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_manage') : false;
-  const requestedTab = searchParams.get('tab');
-  const defaultTab = requestedTab === 'training-history' && canViewTraining
-    ? 'training'
-    : requestedTab === 'payment-methods' && canViewFinancials
-      ? 'payment-methods'
-      : 'overview';
+  const activeTab = resolveCustomerTab(searchParams.get('tab'), { canViewFinancials, canViewTraining });
 
   const reloadAccount = async () => {
     if (!auth) {
@@ -157,8 +153,22 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
         <Stack gap="md">
           <AccountReadinessBrief account={account} />
           <AccountUatHandoff account={account} />
+          <AccountFocusPanel account={account} canViewFinancials={canViewFinancials} />
           {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
-          <Tabs defaultValue={defaultTab}>
+          <Tabs
+            value={activeTab}
+            onChange={(value) => {
+              if (!value) return;
+              const next = new URLSearchParams(searchParams.toString());
+              const queryValue = customerTabToQuery(value as CustomerTabValue);
+              if (queryValue) {
+                next.set('tab', queryValue);
+              } else {
+                next.delete('tab');
+              }
+              router.replace(`/customers/${accountId}${next.size ? `?${next.toString()}` : ''}`, { scroll: false });
+            }}
+          >
             <Tabs.List>
               <Tabs.Tab value="overview">Profile</Tabs.Tab>
               <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
@@ -197,6 +207,115 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
         </Stack>
       ) : null}
     </Stack>
+  );
+}
+
+type CustomerTabValue = 'overview' | 'contacts' | 'locations' | 'payment-methods' | 'training' | 'portal';
+
+function resolveCustomerTab(
+  requestedTab: string | null,
+  permissions: { canViewFinancials: boolean; canViewTraining: boolean },
+): CustomerTabValue {
+  if (requestedTab === 'contacts') return 'contacts';
+  if (requestedTab === 'locations') return 'locations';
+  if (requestedTab === 'portal' || requestedTab === 'dealer-portal') return 'portal';
+  if ((requestedTab === 'payment-methods' || requestedTab === 'financials') && permissions.canViewFinancials) return 'payment-methods';
+  if ((requestedTab === 'training' || requestedTab === 'training-history') && permissions.canViewTraining) return 'training';
+  return 'overview';
+}
+
+function customerTabToQuery(tab: CustomerTabValue) {
+  return tab === 'overview' ? '' : tab;
+}
+
+function AccountFocusPanel({ account, canViewFinancials }: { account: AccountDetailRecord; canViewFinancials: boolean }) {
+  const primaryContact = account.contacts.find((contact) => contact.isPrimary) ?? account.contacts[0];
+  const primaryLocation = account.locations.find((location) => location.isPrimary) ?? account.locations[0];
+  const firstAttention = account.readiness.checks.find((check) => check.status === 'needs_attention');
+  const erpCheck = account.readiness.checks.find((check) => check.key === 'erp_activity');
+
+  return (
+    <Paper withBorder radius="md" p="lg">
+      <Group justify="space-between" align="flex-start" mb="md">
+        <Stack gap={4}>
+          <Title order={3}>Today&apos;s Account Focus</Title>
+          <Text size="sm" c="dimmed">
+            Fast lane for account review: contact, location, territory/dealer context, and parked ERP truth in one pass.
+          </Text>
+        </Stack>
+        <Badge color={firstAttention ? 'yellow' : 'green'} variant="light">
+          {firstAttention ? 'Follow-up needed' : 'Ready for UAT'}
+        </Badge>
+      </Group>
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
+        <FocusCard
+          title="Who to contact"
+          detail={primaryContact ? `${primaryContact.firstName} ${primaryContact.lastName}${primaryContact.email ? ` · ${primaryContact.email}` : ''}` : 'No contact saved yet.'}
+          actionLabel={primaryContact ? 'Review contacts' : 'Add contact'}
+          href={`/customers/${account.id}?tab=contacts`}
+          tone={primaryContact ? 'ready' : 'attention'}
+        />
+        <FocusCard
+          title="Where they operate"
+          detail={primaryLocation ? [primaryLocation.city, primaryLocation.state, primaryLocation.countryCode].filter(Boolean).join(', ') || primaryLocation.name || 'Primary location saved.' : 'No location saved yet.'}
+          actionLabel={primaryLocation ? 'Review locations' : 'Add location'}
+          href={`/customers/${account.id}?tab=locations`}
+          tone={primaryLocation ? 'ready' : 'attention'}
+        />
+        <FocusCard
+          title="Dealer visibility"
+          detail={[
+            account.groupClassification ? formatDisplayValue(account.groupClassification) : 'Group classification pending',
+            account.regionName ?? account.regionCode,
+          ].filter(Boolean).join(' · ')}
+          actionLabel="Preview portal"
+          href={`/customers/${account.id}?tab=portal`}
+          tone={account.groupClassification ? 'ready' : 'attention'}
+        />
+        <FocusCard
+          title="ERP boundary"
+          detail={erpCheck?.message ?? 'Orders, invoices, pricing, and revenue activity stay parked until Acumatica is connected.'}
+          actionLabel={canViewFinancials ? 'Review payment boundary' : 'Review profile'}
+          href={`/customers/${account.id}?tab=${canViewFinancials ? 'payment-methods' : 'overview'}`}
+          tone="parked"
+        />
+      </SimpleGrid>
+      {firstAttention ? (
+        <Alert color="yellow" variant="light" mt="md">
+          {firstAttention.message}
+        </Alert>
+      ) : null}
+    </Paper>
+  );
+}
+
+function FocusCard({
+  actionLabel,
+  detail,
+  href,
+  title,
+  tone,
+}: {
+  actionLabel: string;
+  detail: string;
+  href: string;
+  title: string;
+  tone: 'ready' | 'attention' | 'parked';
+}) {
+  const color = tone === 'ready' ? 'green' : tone === 'attention' ? 'yellow' : 'gray';
+  return (
+    <Card withBorder radius="md" p="md">
+      <Stack gap="sm">
+        <Group justify="space-between">
+          <Text fw={700}>{title}</Text>
+          <Badge color={color} variant="light">{tone === 'parked' ? 'Parked' : tone === 'ready' ? 'Ready' : 'Check'}</Badge>
+        </Group>
+        <Text size="sm" c="dimmed" lineClamp={3}>{detail}</Text>
+        <Button component={Link} href={href} variant="light" size="xs">
+          {actionLabel}
+        </Button>
+      </Stack>
+    </Card>
   );
 }
 
@@ -337,4 +456,12 @@ function formatReadinessStatus(status: AccountDetailRecord['readiness']['status'
     case 'parked':
       return 'Parked';
   }
+}
+
+function formatDisplayValue(value: string) {
+  return value
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
 }

@@ -44,6 +44,10 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 | `DATABASE_URL=... pnpm --filter @pulse/api test:consignment` | Passed, 15/15 |
 | `pnpm --filter @pulse/mobile test && pnpm --filter @pulse/mobile typecheck` | Passed, 6/6 plus typecheck |
 | `DATABASE_URL=... pnpm --filter @pulse/crm-web test:e2e` | Passed, 11/11 |
+| Production deploy smoke: `https://pulse-crm.theclustox.com/api/v1/health/ready` | Passed with app/database/queue/workers healthy; Acumatica reports the expected parked placeholder dependency |
+| Production UAT seed: `node scripts/seed-uat-readiness.mjs` on EC2 | Passed; reseeded 4 dealer accounts, 4 catalog views, 2 products, 3 assets, internal TM/RD/admin personas, and dealer personas |
+| Production Playwright UAT: `https://pulse-crm.theclustox.com` | Passed, 9/9 Dynamic-style flows: super admin leads, RD workspace coverage, TM workspace coverage, product management, digital assets, affinity catalog, ownership/PE catalog, independent catalog, hybrid review boundary, and dealer admin invite flow |
+| Production Browser visual smoke: `@Browser` at `https://pulse-crm.theclustox.com/auth/login` | Passed visual/DOM login-page inspection. Browser form typing is blocked by the local virtual clipboard limitation, so production form-submission evidence comes from the Playwright pass above. |
 | Browser plugin smoke | Login page loaded and DOM controls were inspectable; text entry was blocked by the Browser virtual clipboard, so the actual login/catalog interaction was covered by maintained Playwright/API gates instead. |
 | Playwright CLI smoke | Dealer login page opened and snapshot captured with stable controls; the standalone CLI session did not persist for chained fill commands, so maintained Playwright e2e remains the authoritative browser automation evidence. |
 | Browser plugin smoke | `@Browser` opened the local Pulse login page at `http://127.0.0.1:3101/auth/login` and confirmed the rendered login UI. Browser text-entry remains blocked by the local virtual clipboard limitation, so form-submission evidence still comes from maintained Playwright e2e. |

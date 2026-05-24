@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { ConsignmentSiteSummary } from '@pulse/contracts/consignment';
-import type { LeadSummary, LeadWorkflowQueueSummary } from '@pulse/contracts/leads';
+import type { LeadSummary, LeadWorkflowQueueItem, LeadWorkflowQueueSummary } from '@pulse/contracts/leads';
 import { fetchAccounts, fetchConsignmentOperationalQueue, fetchConsignmentSites, fetchLeads, fetchLeadWorkflowQueue } from '@/lib/api';
 import { summarizeMobileLiveApiStatus, type MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import { useSession } from '@/providers/session-provider';
@@ -12,6 +12,7 @@ export function useFieldData(limit = 20) {
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [consignmentSites, setConsignmentSites] = useState<ConsignmentSiteSummary[]>([]);
   const [consignmentWorkItems, setConsignmentWorkItems] = useState<ConsignmentSiteSummary[]>([]);
+  const [workflowQueueItems, setWorkflowQueueItems] = useState<LeadWorkflowQueueItem[]>([]);
   const [queueSummary, setQueueSummary] = useState<LeadWorkflowQueueSummary | null>(null);
   const [liveApiStatus, setLiveApiStatus] = useState<MobileLiveApiStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +32,10 @@ export function useFieldData(limit = 20) {
 
     if (leadResponse.status === 'fulfilled') setLeads(leadResponse.value.items);
     if (accountResponse.status === 'fulfilled') setAccounts(accountResponse.value.items);
-    if (queueResponse.status === 'fulfilled') setQueueSummary(queueResponse.value.summary);
+    if (queueResponse.status === 'fulfilled') {
+      setQueueSummary(queueResponse.value.summary);
+      setWorkflowQueueItems(queueResponse.value.items);
+    }
     if (consignmentResponse.status === 'fulfilled') setConsignmentSites(consignmentResponse.value.items);
     if (consignmentOpsResponse.status === 'fulfilled') setConsignmentWorkItems(consignmentOpsResponse.value.items);
 
@@ -61,5 +65,5 @@ export function useFieldData(limit = 20) {
     void load();
   }, [load]);
 
-  return { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, liveApiStatus, queueSummary, reload: load };
+  return { accounts, consignmentSites, consignmentWorkItems, errorMessage, isLoading, leads, liveApiStatus, queueSummary, reload: load, workflowQueueItems };
 }

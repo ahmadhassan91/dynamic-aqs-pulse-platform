@@ -13,9 +13,11 @@ import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
 
+type RouteVisitAccount = Pick<AccountSummary, 'id' | 'displayName'> & Partial<AccountSummary>;
+
 type ActiveVisit = {
   localVisitId: string;
-  account: AccountSummary;
+  account: RouteVisitAccount;
   checkedInAt: string;
   sessionId?: string | undefined;
   latitude?: number | undefined;
@@ -40,6 +42,7 @@ export default function RouteScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [visitSyncMessage, setVisitSyncMessage] = useState<string | null>(null);
   const [isSubmittingVisit, setIsSubmittingVisit] = useState(false);
+  const isVisitSyncSuccess = visitSyncMessage === 'CRM saved';
 
   const stops = useMemo(() => {
     return [...accounts]
@@ -52,24 +55,27 @@ export default function RouteScreen() {
   }, [accounts]);
 
   useEffect(() => {
-    if (activeVisit || !accounts.length) return;
+    if (activeVisit) return;
     const draft = getLatestCheckedInRouteVisitDraft();
     if (!draft) return;
-    const account = accounts.find((item) => item.id === draft.payload.accountId);
-    if (!account || !draft.payload.createRequest || !draft.payload.checkInRequest) return;
+    if (!draft.payload.createRequest || !draft.payload.checkInRequest) return;
+    const account = accounts.find((item) => item.id === draft.payload.accountId) ?? {
+      id: draft.payload.accountId,
+      displayName: draft.payload.accountName,
+    };
     setActiveVisit({
       account,
       checkedInAt: draft.payload.checkedInAt,
       checkInRequest: draft.payload.checkInRequest,
       createRequest: draft.payload.createRequest,
-      crmMessage: 'Checked-in visit restored from this phone. Complete it or retry CRM sync from Sync Status.',
+      crmMessage: 'Checked-in visit restored from this phone. Add checkout notes and complete it here.',
       crmStatus: draft.payload.sessionId ? 'checked_in' : 'local_only',
       latitude: draft.payload.latitude,
       localVisitId: draft.payload.localVisitId ?? draft.id,
       longitude: draft.payload.longitude,
       sessionId: draft.payload.sessionId,
     });
-    setNotes(draft.payload.notes);
+    setNotes(draft.payload.notes ?? '');
   }, [accounts, activeVisit]);
 
   async function startVisit(account: AccountSummary) {
@@ -221,7 +227,9 @@ export default function RouteScreen() {
 
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {locationError ? <ErrorState message={locationError} /> : null}
-      {visitSyncMessage ? <ErrorState message={visitSyncMessage} /> : null}
+      {visitSyncMessage ? (
+        isVisitSyncSuccess ? <SuccessNotice message={visitSyncMessage} /> : <ErrorState message={visitSyncMessage} />
+      ) : null}
       {isLoading ? <LoadingState label="Building route plan..." /> : null}
 
       {activeVisit ? (
@@ -318,7 +326,7 @@ function roundCoordinate(value: number) {
   return Math.round(value * 1000) / 1000;
 }
 
-function buildRouteVisitCreateRequest(account: AccountSummary, trainerUserId: string, checkedInAt: string): CreateTrainingSessionRequest {
+function buildRouteVisitCreateRequest(account: RouteVisitAccount, trainerUserId: string, checkedInAt: string): CreateTrainingSessionRequest {
   return {
     activityKind: 'site_visit',
     attendeeCount: 0,
@@ -520,5 +528,18 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
         {value}
       </Text>
     </View>
+  );
+}
+
+function SuccessNotice({ message }: { message: string }) {
+  return (
+    <Card style={{ borderColor: '#B7E4C7', backgroundColor: '#F3FFF7' }}>
+      <Text selectable style={{ ...typography.subtitle, color: colors.success }}>
+        Visit saved
+      </Text>
+      <Text selectable style={{ ...typography.callout, color: colors.text }}>
+        {message}
+      </Text>
+    </Card>
   );
 }

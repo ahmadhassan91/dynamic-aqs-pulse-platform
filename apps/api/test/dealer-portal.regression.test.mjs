@@ -3,6 +3,7 @@ import test from 'node:test';
 import { applyTestEnvironment, ensureTestDatabaseReady, resetDatabase } from './support/runtime.mjs';
 
 applyTestEnvironment();
+process.env.PULSE_ASSET_PUBLIC_BASE_URL = 'https://cdn.assets.example.test';
 ensureTestDatabaseReady();
 
 let prisma;
@@ -480,6 +481,67 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
       sortOrder: 10,
     },
   });
+  const managedAsset = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: 'dealer-fixed-mount-managed-install-guide',
+      title: 'Managed Install Guide',
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'APPROVED',
+      audience: 'dealer',
+      versions: {
+        create: {
+          versionNumber: 1,
+          storageKey: 'digital-assets/managed-install-guide/v1/install guide.pdf',
+          fileName: 'install guide.pdf',
+          isCurrent: true,
+        },
+      },
+    },
+    include: {
+      versions: true,
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: presentation.id,
+      assetId: managedAsset.id,
+      assetVersionId: managedAsset.versions[0].id,
+      role: 'INSTALL_GUIDE',
+      sortOrder: 15,
+    },
+  });
+  const missingDeliveryAsset = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: 'dealer-fixed-mount-missing-delivery',
+      title: 'Missing Delivery Sheet',
+      kind: 'DOCUMENT',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'APPROVED',
+      audience: 'dealer',
+      versions: {
+        create: {
+          versionNumber: 1,
+          fileName: 'missing-delivery.pdf',
+          isCurrent: true,
+        },
+      },
+    },
+    include: {
+      versions: true,
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: presentation.id,
+      assetId: missingDeliveryAsset.id,
+      assetVersionId: missingDeliveryAsset.versions[0].id,
+      role: 'BROCHURE',
+      sortOrder: 18,
+    },
+  });
   const pendingAsset = await prisma.digitalAsset.create({
     data: {
       stableSlug: 'dealer-fixed-mount-air-cleaner-pending',
@@ -535,9 +597,16 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(catalog.products[0].isFavorite, false);
   assert.equal(catalog.products[0].favoriteCount, 0);
   assert.equal(catalog.userFavorites.count, 0);
-  assert.equal(catalog.products[0].assets.length, 1);
+  assert.equal(catalog.products[0].assets.length, 3);
   assert.equal(catalog.products[0].assets[0].title, 'Fixed Mount Spec Sheet');
   assert.equal(catalog.products[0].assets[0].downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+  assert.equal(catalog.products[0].assets[0].deliverySource, 'external_url');
+  assert.equal(catalog.products[0].assets[1].title, 'Managed Install Guide');
+  assert.equal(catalog.products[0].assets[1].downloadUrl, 'https://cdn.assets.example.test/digital-assets/managed-install-guide/v1/install%20guide.pdf');
+  assert.equal(catalog.products[0].assets[1].deliverySource, 'cloudfront_storage_key');
+  assert.equal(catalog.products[0].assets[2].title, 'Missing Delivery Sheet');
+  assert.equal(catalog.products[0].assets[2].downloadUrl, undefined);
+  assert.equal(catalog.products[0].assets[2].deliverySource, 'missing_delivery_url');
   assert.equal(catalog.products[0].assets.some((item) => item.title === 'Pending Dealer Spec Sheet'), false);
 
   const favorite = await favoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
@@ -557,6 +626,18 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(assetOpen.presentationId, presentation.id);
   assert.equal(assetOpen.targetUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
   assert.equal(assetOpen.downloadUrl, 'https://assets.example.test/fixed-mount-spec.pdf');
+
+  const managedAssetOpen = await recordCurrentDealerPortalAssetOpen(dealerActor, managedAsset.id);
+  assert.equal(managedAssetOpen.ok, true);
+  assert.equal(managedAssetOpen.assetId, managedAsset.id);
+  assert.equal(managedAssetOpen.targetUrl, 'https://cdn.assets.example.test/digital-assets/managed-install-guide/v1/install%20guide.pdf');
+  assert.equal(managedAssetOpen.downloadUrl, 'https://cdn.assets.example.test/digital-assets/managed-install-guide/v1/install%20guide.pdf');
+
+  const missingDeliveryOpen = await recordCurrentDealerPortalAssetOpen(dealerActor, missingDeliveryAsset.id);
+  assert.equal(missingDeliveryOpen.ok, true);
+  assert.equal(missingDeliveryOpen.assetId, missingDeliveryAsset.id);
+  assert.equal(missingDeliveryOpen.targetUrl, undefined);
+  assert.equal(missingDeliveryOpen.downloadUrl, undefined);
 
   await assert.rejects(
     () => recordCurrentDealerPortalAssetOpen(dealerActor, pendingAsset.id),
@@ -582,7 +663,38 @@ test('dealer portal catalog exposes only published dealer-ready products and fil
   assert.equal(assetAudit.metadata.catalogViewName, 'Standard Dealer Catalog');
   assert.equal(assetAudit.metadata.assetVisibility, 'dealer_portal');
   assert.equal(assetAudit.metadata.deliveryOutcome, 'url_opened');
+  assert.equal(assetAudit.metadata.deliverySource, 'external_url');
   assert.equal(assetAudit.metadata.visibilitySource.source, 'dealer_catalog_view_assignment');
+
+  const managedAssetAudit = await prisma.auditEntry.findFirst({
+    where: {
+      actorUserId: dealerActor.userId,
+      action: 'EXPORT',
+      entityType: 'DEALER_PORTAL_CATALOG_ASSET',
+      entityId: managedAsset.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(managedAssetAudit);
+  assert.equal(managedAssetAudit.metadata.deliveryOutcome, 'url_opened');
+  assert.equal(managedAssetAudit.metadata.deliverySource, 'cloudfront_storage_key');
+
+  const missingDeliveryAudit = await prisma.auditEntry.findFirst({
+    where: {
+      actorUserId: dealerActor.userId,
+      action: 'EXPORT',
+      entityType: 'DEALER_PORTAL_CATALOG_ASSET',
+      entityId: missingDeliveryAsset.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  assert.ok(missingDeliveryAudit);
+  assert.equal(missingDeliveryAudit.metadata.deliveryOutcome, 'missing_delivery_url');
+  assert.equal(missingDeliveryAudit.metadata.deliverySource, 'missing_delivery_url');
 
   const unfavorite = await unfavoriteCurrentDealerPortalProduct(dealerActor, presentation.id);
   assert.equal(unfavorite.ok, true);

@@ -222,6 +222,11 @@ function AssetFileCard({
             <Text size="xs" c="dimmed">
               {[formatAssetRole(asset.role), asset.fileName, asset.kind.replace(/_/g, ' ')].filter(Boolean).join(' / ')}
             </Text>
+            {!asset.downloadUrl ? (
+              <Text size="xs" c="orange.7">
+                File delivery not ready
+              </Text>
+            ) : null}
           </Stack>
           <Badge size="sm" color={asset.visibility === 'public' ? 'green' : 'blue'} variant="light">
             {asset.visibility === 'public' ? 'Public' : 'Dealer'}
@@ -243,7 +248,7 @@ function AssetFileCard({
             }
           }}
         >
-          Open File
+          {asset.downloadUrl ? 'Open File' : 'Unavailable'}
         </Button>
       </Stack>
     </Card>

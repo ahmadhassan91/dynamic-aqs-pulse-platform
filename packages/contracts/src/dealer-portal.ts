@@ -194,6 +194,7 @@ export interface DealerPortalCatalogAssetSummary {
   stableSlug: string;
   fileName?: string;
   downloadUrl?: string;
+  deliverySource?: 'legacy_url' | 'external_url' | 'cloudfront_storage_key' | 'missing_delivery_url';
   brandScope?: string;
   regionScope?: string;
 }

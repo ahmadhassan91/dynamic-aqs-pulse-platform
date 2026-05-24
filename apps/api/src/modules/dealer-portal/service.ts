@@ -47,8 +47,10 @@ import type {
   UpdateDealerPortalUserStatusRequest,
   UpdateDealerPortalUserStatusResponse,
 } from '@pulse/contracts';
+import { loadAppConfig } from '@pulse/config';
 import { createAccountContact } from '../accounts/service.js';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildPublicAssetUrl } from '../digital-assets/storage.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 
 const DEALER_PORTAL_ACCOUNT_ENTITY = 'DEALER_PORTAL_ACCOUNT';
@@ -56,6 +58,7 @@ const DEALER_PORTAL_USER_ENTITY = 'DEALER_PORTAL_USER';
 const DEALER_PORTAL_CATALOG_ASSET_ENTITY = 'DEALER_PORTAL_CATALOG_ASSET';
 const DEALER_PORTAL_INTERNAL_PREVIEW_ENTITY = 'DEALER_PORTAL_INTERNAL_PREVIEW';
 const DEALER_PORTAL_INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+type DealerPortalAssetDeliverySource = 'legacy_url' | 'external_url' | 'cloudfront_storage_key' | 'missing_delivery_url';
 
 const DEALER_PORTAL_ACCOUNT_INCLUDE = {
   sourceLead: {
@@ -1319,6 +1322,7 @@ async function buildDealerPortalCatalogForAccount(
       .filter((assignment: any) => !activeSnapshot || snapshotAssetIds.has(assignment.assetId))
       .map((assignment: any) => {
         const version = assignment.assetVersion ?? assignment.asset.versions?.[0] ?? null;
+        const delivery = resolveDealerPortalAssetDelivery(assignment);
         return compact({
           id: assignment.assetId,
           title: assignment.asset.title,
@@ -1327,7 +1331,8 @@ async function buildDealerPortalCatalogForAccount(
           visibility: lower(assignment.asset.visibility),
           stableSlug: assignment.asset.stableSlug,
           fileName: version?.fileName ?? assignment.asset.legacyFileName ?? undefined,
-          downloadUrl: assignment.asset.legacyUrl ?? version?.externalUrl ?? undefined,
+          downloadUrl: delivery.downloadUrl,
+          deliverySource: delivery.deliverySource,
           brandScope: assignment.asset.brandScope ?? undefined,
           regionScope: assignment.asset.regionScope ?? undefined,
         });
@@ -1528,11 +1533,9 @@ export async function recordCurrentDealerPortalAssetOpen(
 
   const context = await loadVisibleDealerCatalogAsset(actor, assetId);
   const version = context.assignment.assetVersion ?? context.assignment.asset.versions?.[0] ?? null;
-  const targetUrl = context.assignment.asset.legacyUrl
-    ?? version?.externalUrl
-    ?? version?.sourceDownloadUrl
-    ?? undefined;
-  const downloadUrl = version?.sourceDownloadUrl ?? targetUrl;
+  const delivery = resolveDealerPortalAssetDelivery(context.assignment);
+  const targetUrl = delivery.targetUrl;
+  const downloadUrl = delivery.downloadUrl;
 
   await prisma.auditEntry.create({
     data: buildAuditEntryData({
@@ -1555,6 +1558,7 @@ export async function recordCurrentDealerPortalAssetOpen(
         assetVisibility: lower(context.assignment.asset.visibility),
         assetReviewStatus: lower(context.assignment.asset.reviewStatus),
         visibilitySource: buildAssetVisibilitySource(context.assignment, context.catalogView),
+        deliverySource: delivery.deliverySource,
         deliveryOutcome: targetUrl ? 'url_opened' : 'missing_delivery_url',
       },
       afterData: {
@@ -1563,6 +1567,7 @@ export async function recordCurrentDealerPortalAssetOpen(
         stableSlug: context.assignment.asset.stableSlug,
         targetUrl: targetUrl ?? null,
         downloadUrl: downloadUrl ?? null,
+        deliverySource: delivery.deliverySource,
       },
     }),
   });
@@ -1580,6 +1585,49 @@ export async function recordCurrentDealerPortalAssetOpen(
   }
 
   return response;
+}
+
+function resolveDealerPortalAssetDelivery(assignment: any): {
+  targetUrl?: string;
+  downloadUrl?: string;
+  deliverySource: DealerPortalAssetDeliverySource;
+} {
+  const version = assignment.assetVersion ?? assignment.asset?.versions?.[0] ?? null;
+  const legacyUrl = cleanDeliveryUrl(assignment.asset?.legacyUrl);
+  if (legacyUrl) {
+    return {
+      targetUrl: legacyUrl,
+      downloadUrl: legacyUrl,
+      deliverySource: 'legacy_url',
+    };
+  }
+
+  const externalUrl = cleanDeliveryUrl(version?.externalUrl);
+  if (externalUrl) {
+    return {
+      targetUrl: externalUrl,
+      downloadUrl: externalUrl,
+      deliverySource: 'external_url',
+    };
+  }
+
+  const managedStorageUrl = buildPublicAssetUrl(loadAppConfig(), version?.storageKey);
+  if (managedStorageUrl) {
+    return {
+      targetUrl: managedStorageUrl,
+      downloadUrl: managedStorageUrl,
+      deliverySource: 'cloudfront_storage_key',
+    };
+  }
+
+  return {
+    deliverySource: 'missing_delivery_url',
+  };
+}
+
+function cleanDeliveryUrl(value: string | null | undefined) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
 }
 
 function buildDealerPortalDashboardContext(account: DealerPortalAccountRecord) {

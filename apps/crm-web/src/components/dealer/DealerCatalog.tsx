@@ -406,6 +406,11 @@ function ProductCard({
                   <Text size="xs" c="dimmed">
                     {asset.role.replace(/_/g, ' ')}
                   </Text>
+                  {!asset.downloadUrl ? (
+                    <Text size="xs" c="orange.7">
+                      File delivery not ready
+                    </Text>
+                  ) : null}
                 </Stack>
                 <Button
                   size="xs"
@@ -423,7 +428,7 @@ function ProductCard({
                     }
                   }}
                 >
-                  Open
+                  {asset.downloadUrl ? 'Open' : 'Unavailable'}
                 </Button>
               </Group>
             ))

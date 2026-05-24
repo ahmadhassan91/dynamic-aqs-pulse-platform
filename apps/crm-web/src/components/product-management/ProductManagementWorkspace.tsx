@@ -609,6 +609,24 @@ export function ProductManagementWorkspace() {
         Final product master import, pricing, inventory, UOM, and item lifecycle stay parked until Acumatica mappings are certified.
       </Alert>
 
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
+        <ProductGuideCard
+          title="Catalog Setup"
+          detail="Use categories for where products appear in the Dealer Portal, and families for related sibling SKUs. These are catalog tools, not ERP item classes."
+          action="Start with the product shelf"
+        />
+        <ProductGuideCard
+          title="Products"
+          detail="Open a product to edit dealer-facing copy, attach approved files, and run the go-live checklist. Product identity and pricing still wait for certified Acumatica mappings."
+          action="Prepare the product story"
+        />
+        <ProductGuideCard
+          title="Who Sees It"
+          detail="Use catalog views for affinity, ownership/PE, independent, region, brand, private label, or account exceptions. Visibility is separate from price class."
+          action="Control dealer visibility"
+        />
+      </SimpleGrid>
+
       {error ? (
         <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Product API not ready">
           {error}
@@ -1414,6 +1432,21 @@ function Metric({ label, value }: { label: string; value: number }) {
     <Paper withBorder p="md">
       <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
       <Text size="xl" fw={700}>{value}</Text>
+    </Paper>
+  );
+}
+
+function ProductGuideCard({ action, detail, title }: { action: string; detail: string; title: string }) {
+  return (
+    <Paper withBorder p="md">
+      <Stack gap="xs">
+        <Group justify="space-between" align="flex-start">
+          <Text fw={800}>{title}</Text>
+          <Badge color="blue" variant="light">UAT</Badge>
+        </Group>
+        <Text size="sm" c="dimmed">{detail}</Text>
+        <Text size="xs" fw={700} c="blue">{action}</Text>
+      </Stack>
     </Paper>
   );
 }

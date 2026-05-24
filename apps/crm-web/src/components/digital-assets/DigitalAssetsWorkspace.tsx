@@ -1293,6 +1293,7 @@ function AssetDetailPanel({
   const currentUrl = asset.currentVersion?.publicUrl ?? asset.currentVersion?.externalUrl;
   const isShareable = asset.visibility === 'dealer_portal' || asset.visibility === 'public';
   const hasCurrentFile = Boolean(asset.currentVersion);
+  const [showAdvancedShareContext, setShowAdvancedShareContext] = useState(Boolean(shareForm.contextType || shareForm.contextId));
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-start">
@@ -1340,8 +1341,11 @@ function AssetDetailPanel({
       {canShare ? (
         <Paper withBorder p="md">
           <Stack gap="sm">
-            <Group justify="space-between">
-              <Title order={5}>Share With Prospect Or Customer</Title>
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={2}>
+                <Title order={5}>Share With Prospect Or Customer</Title>
+                <Text c="dimmed" size="sm">Create a revocable link for proposals, follow-ups, and dealer/customer conversations.</Text>
+              </Stack>
               <Button
                 data-testid="asset-share-create-link"
                 leftSection={<IconShare size={16} />}
@@ -1352,6 +1356,26 @@ function AssetDetailPanel({
                 Create Link
               </Button>
             </Group>
+            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              <AssetShareStep
+                label="1. File"
+                value={hasCurrentFile ? 'Ready' : 'Needs file'}
+                detail={hasCurrentFile ? asset.currentVersion?.fileName ?? 'Current file selected' : 'Add or upload a current version first'}
+                tone={hasCurrentFile ? 'ready' : 'attention'}
+              />
+              <AssetShareStep
+                label="2. Access"
+                value={isShareable ? 'Shareable' : 'Internal only'}
+                detail={isShareable ? 'Dealer/customer link creation is allowed' : 'Change access to Dealer Portal or Public before sharing'}
+                tone={isShareable ? 'ready' : 'attention'}
+              />
+              <AssetShareStep
+                label="3. Recipient"
+                value={shareForm.recipientEmail || shareForm.recipientName ? 'Named' : 'Optional'}
+                detail="Name/email help audit who received the link"
+                tone="ready"
+              />
+            </SimpleGrid>
             {!hasCurrentFile ? (
               <Alert color="yellow" icon={<IconAlertTriangle size={18} />}>
                 Add or upload a current file before creating a customer link.
@@ -1403,9 +1427,19 @@ function AssetDetailPanel({
               />
               <TextInput data-testid="asset-share-recipient-name" label="Recipient name" value={shareForm.recipientName} onChange={(event) => onShareFormChange({ ...shareForm, recipientName: event.currentTarget.value })} />
               <TextInput data-testid="asset-share-recipient-email" label="Recipient email" value={shareForm.recipientEmail} onChange={(event) => onShareFormChange({ ...shareForm, recipientEmail: event.currentTarget.value })} />
-              <TextInput label="Context type" value={shareForm.contextType} onChange={(event) => onShareFormChange({ ...shareForm, contextType: event.currentTarget.value })} />
-              <TextInput label="Context ID" value={shareForm.contextId} onChange={(event) => onShareFormChange({ ...shareForm, contextId: event.currentTarget.value })} />
             </SimpleGrid>
+            <Checkbox
+              label="Add CRM context for this share"
+              description="Optional. Use only when linking this share to a specific lead, account, proposal, or internal review."
+              checked={showAdvancedShareContext}
+              onChange={(event) => setShowAdvancedShareContext(event.currentTarget.checked)}
+            />
+            {showAdvancedShareContext ? (
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <TextInput label="Context type" placeholder="lead, account, proposal, internal review" value={shareForm.contextType} onChange={(event) => onShareFormChange({ ...shareForm, contextType: event.currentTarget.value })} />
+                <TextInput label="Context ID" placeholder="Paste the CRM record ID when available" value={shareForm.contextId} onChange={(event) => onShareFormChange({ ...shareForm, contextId: event.currentTarget.value })} />
+              </SimpleGrid>
+            ) : null}
             <Textarea data-testid="asset-share-note" label="Note" minRows={2} value={shareForm.note} onChange={(event) => onShareFormChange({ ...shareForm, note: event.currentTarget.value })} />
 
             <Table striped>
@@ -1784,6 +1818,30 @@ function Metric({ label, value }: { label: string; value: number }) {
     <Paper withBorder p="md">
       <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
       <Text size="xl" fw={700}>{value}</Text>
+    </Paper>
+  );
+}
+
+function AssetShareStep({
+  detail,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone: 'ready' | 'attention';
+  value: string;
+}) {
+  return (
+    <Paper withBorder p="sm">
+      <Stack gap={4}>
+        <Group justify="space-between" align="flex-start">
+          <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
+          <Badge color={tone === 'ready' ? 'green' : 'yellow'} variant="light">{value}</Badge>
+        </Group>
+        <Text size="xs" c="dimmed">{detail}</Text>
+      </Stack>
     </Paper>
   );
 }

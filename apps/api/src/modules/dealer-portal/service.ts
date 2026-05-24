@@ -838,6 +838,9 @@ export async function updateCurrentDealerPortalUser(
   if (existing.isPrimaryOwner) {
     throw new AuthorizationError('Primary owner access must be managed by Dynamic AQS');
   }
+  if (existing.accessRole === DealerPortalAccessRole.ADMIN) {
+    throw new AuthorizationError('Admin access must be managed by Dynamic AQS');
+  }
 
   const notes = input.notes?.trim();
   const changedAt = new Date();

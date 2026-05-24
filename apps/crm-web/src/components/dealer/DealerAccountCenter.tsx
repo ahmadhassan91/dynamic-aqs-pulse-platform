@@ -201,6 +201,17 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
               ) : null}
             </Group>
           </Group>
+          {canManageUsers ? (
+            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+              <AccessRuleCard title="You can invite" description="Purchasing, accounting, and viewer users for this dealer company." />
+              <AccessRuleCard title="You can pause" description="Non-admin users when someone leaves or should stop using the portal." />
+              <AccessRuleCard title="Dynamic manages" description="Primary owner, admin access, billing authority, and account-level changes." />
+            </SimpleGrid>
+          ) : (
+            <Alert color="gray" variant="light">
+              This page is read-only for your role. Ask your company portal admin or Dynamic AQS for user access changes.
+            </Alert>
+          )}
           {lastInvitePath ? (
             <Alert color="green" variant="light">
               Invite link created: {lastInvitePath}
@@ -241,8 +252,8 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     <Table.Td>{formatDateTime(user.activatedAt)}</Table.Td>
                     {canManageUsers ? (
                       <Table.Td>
-                        {user.id === currentDashboard.currentUser.id || user.isPrimaryOwner || user.accessRole === 'admin' ? (
-                          <Text size="xs" c="dimmed">Dynamic managed</Text>
+                        {getUserActionBlockReason(user, currentDashboard.currentUser.id) ? (
+                          <Text size="xs" c="dimmed">{getUserActionBlockReason(user, currentDashboard.currentUser.id)}</Text>
                         ) : user.status === 'active' ? (
                           <Button size="compact-xs" variant="light" color="red" onClick={() => void handleUserStatus(user.id, 'deactivated')}>
                             Revoke
@@ -475,6 +486,47 @@ function AccountHealthRow({ label, value }: { label: string; value: string }) {
       </Group>
     </Box>
   );
+}
+
+function AccessRuleCard({ title, description }: { title: string; description: string }) {
+  return (
+    <Box
+      p="md"
+      style={{
+        border: '1px solid var(--mantine-color-blue-1)',
+        background: 'var(--mantine-color-blue-0)',
+        borderRadius: 8,
+      }}
+    >
+      <Stack gap={4}>
+        <Text size="sm" fw={700}>
+          {title}
+        </Text>
+        <Text size="xs" c="dimmed">
+          {description}
+        </Text>
+      </Stack>
+    </Box>
+  );
+}
+
+function getUserActionBlockReason(
+  user: DealerPortalDashboardResponse['companyUsers'][number],
+  currentUserId: string,
+) {
+  if (user.id === currentUserId) {
+    return 'You cannot revoke yourself';
+  }
+
+  if (user.isPrimaryOwner) {
+    return 'Primary owner: Dynamic managed';
+  }
+
+  if (user.accessRole === 'admin') {
+    return 'Admin: Dynamic managed';
+  }
+
+  return null;
 }
 
 function MetadataRow({

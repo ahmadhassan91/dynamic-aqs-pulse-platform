@@ -273,6 +273,22 @@ test('dealer portal admins can invite and revoke non-admin company users only', 
     accessRole: 'admin',
     isPrimaryOwner: true,
   });
+  const adminContact = await prisma.contact.create({
+    data: {
+      accountId: fixture.account.id,
+      firstName: 'Annie',
+      lastName: 'Admin',
+      email: 'annie.admin-existing@portal.test',
+      title: 'Operations Admin',
+      isPrimary: false,
+      isActive: true,
+    },
+  });
+  const internalManagedAdmin = await provisionDealerPortalUser(actor, fixture.account.id, {
+    contactId: adminContact.id,
+    accessRole: 'admin',
+    isPrimaryOwner: false,
+  });
 
   const dealerAuth = await loginWithPassword(
     config,
@@ -294,7 +310,7 @@ test('dealer portal admins can invite and revoke non-admin company users only', 
   assert.equal(created.user.email, 'pat.purchaser@portal.test');
   assert.equal(created.user.accessRole, 'purchasing');
   assert.ok(created.invitePath.includes(encodeURIComponent(created.inviteToken)));
-  assert.equal(created.dashboard.companyUsers.length, 2);
+  assert.equal(created.dashboard.companyUsers.length, 3);
 
   await assert.rejects(
     () => createCurrentDealerPortalUser(dealerActor, {
@@ -311,6 +327,13 @@ test('dealer portal admins can invite and revoke non-admin company users only', 
       status: 'deactivated',
     }),
     /cannot deactivate their own portal access/i,
+  );
+
+  await assert.rejects(
+    () => updateCurrentDealerPortalUser(dealerActor, internalManagedAdmin.user.id, {
+      status: 'deactivated',
+    }),
+    /Admin access must be managed by Dynamic AQS/i,
   );
 
   const revoked = await updateCurrentDealerPortalUser(dealerActor, created.user.id, {

@@ -2,6 +2,7 @@ import { Text, View } from 'react-native';
 import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
 import { Card, HeroCard, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { clearDraft, clearSyncedDrafts, getMobileDraftReviewState, retryDraft, retryPendingDrafts, summarizeMobileDraftQueue, summarizeMobileDraftStatus, useMobileDraftQueue, type MobileDraft } from '@/lib/mobile-draft-queue';
+import { getMobileSyncUatGuidance, type MobileSyncUatGuidance } from '@/lib/mobile-sync-uat-guidance';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
@@ -18,6 +19,17 @@ export function SyncStatusContent() {
   const routeDrafts = pendingDrafts.filter((draft) => draft.kind === 'route_visit').length;
   const trainingDrafts = pendingDrafts.filter((draft) => draft.kind === 'training_session').length;
   const canRetry = Boolean(auth);
+  const guidance = getMobileSyncUatGuidance({
+    unsynced: summary.unsynced,
+    retryable: summary.retryable,
+    readyToRetry: summary.readyToRetry,
+    needsReview: summary.needsReview,
+    signInAgain: summary.signInAgain,
+    savedOnPhone: summary.savedOnPhone,
+    syncing: summary.syncing,
+    storageAvailable: summary.storageAvailable,
+    storageHydrated: summary.storageHydrated,
+  });
 
   return (
     <Screen>
@@ -45,6 +57,23 @@ export function SyncStatusContent() {
       </Card>
 
       <Card>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, gap: spacing.xs }}>
+            <Text selectable style={{ ...typography.caption, color: colors.subtle, fontWeight: '800', textTransform: 'uppercase' }}>
+              What should I do now?
+            </Text>
+            <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+              {guidance.title}
+            </Text>
+            <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+              {guidance.detail}
+            </Text>
+          </View>
+          <Pill label={guidance.action} tone={guidancePillTone(guidance)} />
+        </View>
+      </Card>
+
+      <Card>
         <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
           Saved only on this phone
         </Text>
@@ -65,6 +94,9 @@ export function SyncStatusContent() {
         </Text>
         <Text selectable style={{ ...typography.caption, color: summary.storageHydrated ? colors.subtle : colors.warning }}>
           Phone storage: {summary.storageHydrated ? 'Ready' : 'Loading'}
+        </Text>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          Manual sync only for UAT: background sync, conflict merging, and offline photo bytes remain parked until native storage/security rules are approved.
         </Text>
       </Card>
 
@@ -197,6 +229,12 @@ function DraftReviewMeta({ draft }: { draft: MobileDraft }) {
       {draft.lastAttemptAt ? <DraftMetric label="Last tried" value={formatShortDateTime(draft.lastAttemptAt)} tone={draft.status === 'failed' ? 'warning' : 'normal'} /> : null}
     </View>
   );
+}
+
+function guidancePillTone(guidance: MobileSyncUatGuidance) {
+  if (guidance.tone === 'ready') return 'active';
+  if (guidance.tone === 'blocked' || guidance.tone === 'review') return 'review';
+  return 'pending';
 }
 
 function ConflictGuidance({ message }: { message?: string }) {

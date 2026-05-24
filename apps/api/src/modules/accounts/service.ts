@@ -2,6 +2,9 @@ import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
+  AccountActivityReviewEvent,
+  AccountActivityReviewSummary,
+  AccountDocumentBoundary,
   AccountReadinessCheck,
   AccountReadinessSummary,
   AccountLifecycleStatusKey,
@@ -482,11 +485,14 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
     return null;
   }
 
+  const activityReview = await buildAccountActivityReview(account);
+
   return {
     ...toAccountSummary(account),
     locations: account.locations.map(toAccountLocationSummary),
     contacts: account.contacts.map(toContactSummary),
     readiness: buildAccountReadinessSummary(account),
+    activityReview,
   };
 }
 
@@ -1758,6 +1764,164 @@ function buildAccountReadinessSummary(account: {
     status: score >= 80 ? 'ready' : score >= 50 ? 'needs_attention' : 'parked',
     checks,
   };
+}
+
+async function buildAccountActivityReview(account: {
+  id: string;
+  sourceLeadId?: string | null;
+  lastOrderAt?: Date | null;
+  lastEngagementAt?: Date | null;
+  contacts: Array<{ id: string; isPrimary: boolean; isActive: boolean; email: string | null; phone: string | null; mobilePhone: string | null }>;
+  locations: Array<{ id: string; isPrimary: boolean; isActive: boolean; city: string | null; state: string | null; countryCode: string | null }>;
+}): Promise<AccountActivityReviewSummary> {
+  const contactIds = account.contacts.map((contact) => contact.id);
+  const locationIds = account.locations.map((location) => location.id);
+  const paymentMethodIds = await prisma.accountPaymentVaultReference.findMany({
+    where: { accountId: account.id },
+    select: { id: true },
+  });
+  const entityScopes = [
+    { entityType: ACCOUNT_ENTITY_TYPE, entityId: account.id },
+    ...contactIds.map((entityId) => ({ entityType: CONTACT_ENTITY_TYPE, entityId })),
+    ...locationIds.map((entityId) => ({ entityType: LOCATION_ENTITY_TYPE, entityId })),
+    ...paymentMethodIds.map((method) => ({ entityType: ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE, entityId: method.id })),
+  ];
+
+  const auditEntries = entityScopes.length
+    ? await prisma.auditEntry.findMany({
+        where: { OR: entityScopes },
+        orderBy: { createdAt: 'desc' },
+        take: 8,
+        include: {
+          actor: {
+            select: {
+              displayName: true,
+              email: true,
+            },
+          },
+        },
+      })
+    : [];
+
+  const recentEvents: AccountActivityReviewEvent[] = auditEntries.map((entry) => ({
+    id: entry.id,
+    occurredAt: entry.createdAt.toISOString(),
+    action: entry.action,
+    entityType: entry.entityType,
+    label: formatAccountActivityLabel(entry.action, entry.entityType),
+    detail: formatAccountActivityDetail(entry.entityType, entry.afterData, entry.beforeData),
+    source: entry.entityType === ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE ? 'payment_boundary' : 'pulse_crm',
+    ...(entry.actor ? { actorName: entry.actor.displayName || entry.actor.email } : {}),
+  }));
+
+  if (account.sourceLeadId) {
+    recentEvents.push({
+      id: `source-lead-${account.sourceLeadId}`,
+      occurredAt: account.lastEngagementAt?.toISOString() ?? new Date(0).toISOString(),
+      action: 'LINK',
+      entityType: 'LEAD',
+      label: 'Source lead linked',
+      detail: 'Original lead is available for intake, duplicate, routing, and handoff traceability.',
+      source: 'source_lead',
+    });
+  }
+
+  recentEvents.sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
+
+  const activeContacts = account.contacts.filter((contact) => contact.isActive);
+  const activeLocations = account.locations.filter((location) => location.isActive);
+  const documentBoundaries: AccountDocumentBoundary[] = [
+    {
+      key: 'source_lead',
+      label: 'Source lead',
+      status: account.sourceLeadId ? 'available' : 'needs_attention',
+      detail: account.sourceLeadId
+        ? 'Lead intake and conversion lineage are linked from this account.'
+        : 'No source lead is linked; use this only for bootstrap or migration records.',
+      ...(account.sourceLeadId ? { href: `/leads/${account.sourceLeadId}` } : {}),
+    },
+    {
+      key: 'contacts_locations',
+      label: 'Contacts and locations',
+      status: activeContacts.length && activeLocations.length ? 'available' : 'needs_attention',
+      detail: `${activeContacts.length} active contact${activeContacts.length === 1 ? '' : 's'} and ${activeLocations.length} active location${activeLocations.length === 1 ? '' : 's'} are saved in Pulse.`,
+    },
+    {
+      key: 'dealer_portal',
+      label: 'Dealer portal',
+      status: 'available',
+      detail: 'Portal access, catalog preview, and dealer-safe file visibility are managed in Pulse for dependency-free UAT.',
+      href: `/customers/${account.id}?tab=portal`,
+    },
+    {
+      key: 'payment_boundary',
+      label: 'Payment method boundary',
+      status: paymentMethodIds.length ? 'available' : 'parked',
+      detail: paymentMethodIds.length
+        ? `${paymentMethodIds.length} tokenized payment reference${paymentMethodIds.length === 1 ? '' : 's'} are available without exposing raw card data.`
+        : 'No tokenized payment reference is saved yet; raw payment capture remains outside the account review timeline.',
+      href: `/customers/${account.id}?tab=payment-methods`,
+    },
+    {
+      key: 'erp_documents',
+      label: 'ERP orders, invoices, and shipments',
+      status: account.lastOrderAt ? 'available' : 'parked',
+      detail: account.lastOrderAt
+        ? 'ERP recency is present on this account.'
+        : 'Orders, invoices, shipments, revenue, and pricing documents remain parked until Acumatica access and mappings are certified.',
+    },
+  ];
+
+  return {
+    recentEvents: recentEvents.slice(0, 8),
+    documentBoundaries,
+    parkedDependencies: documentBoundaries.filter((boundary) => boundary.status === 'parked').map((boundary) => boundary.detail),
+  };
+}
+
+function formatAccountActivityLabel(action: AuditAction, entityType: string) {
+  const entityLabel = entityType
+    .toLowerCase()
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (action === AuditAction.CREATE) return `${entityLabel} created`;
+  if (action === AuditAction.UPDATE) return `${entityLabel} updated`;
+  if (action === AuditAction.DELETE) return `${entityLabel} removed`;
+  return `${entityLabel} ${action.toLowerCase()}`;
+}
+
+function formatAccountActivityDetail(entityType: string, afterData: Prisma.JsonValue | null, beforeData: Prisma.JsonValue | null) {
+  const after = isJsonRecord(afterData) ? afterData : {};
+  const before = isJsonRecord(beforeData) ? beforeData : {};
+  if (entityType === CONTACT_ENTITY_TYPE) {
+    return [after.fullName, after.roleCode, formatPrimaryActive(after)].filter(Boolean).join(' · ') || 'Contact record changed.';
+  }
+  if (entityType === LOCATION_ENTITY_TYPE) {
+    return [after.name, after.city, after.state, formatPrimaryActive(after)].filter(Boolean).join(' · ') || 'Location record changed.';
+  }
+  if (entityType === ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE) {
+    return 'Tokenized payment reference changed; raw payment details are not stored in Pulse.';
+  }
+  if (entityType === ACCOUNT_ENTITY_TYPE) {
+    const displayName = typeof after.displayName === 'string' ? after.displayName : undefined;
+    const lifecycleStatus = typeof after.lifecycleStatus === 'string' ? after.lifecycleStatus : undefined;
+    const previousStatus = typeof before.lifecycleStatus === 'string' ? before.lifecycleStatus : undefined;
+    return [displayName, lifecycleStatus && previousStatus && lifecycleStatus !== previousStatus ? `${previousStatus} -> ${lifecycleStatus}` : lifecycleStatus]
+      .filter(Boolean)
+      .join(' · ') || 'Account profile changed.';
+  }
+  return 'Pulse CRM activity was recorded for this account.';
+}
+
+function formatPrimaryActive(value: Record<string, unknown>) {
+  const flags = [];
+  if (value.isPrimary === true) flags.push('Primary');
+  if (value.isActive === false) flags.push('Inactive');
+  return flags.join(' · ');
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function formatReadinessClassification(classification: import('@pulse/db').GroupClassification | null | undefined) {

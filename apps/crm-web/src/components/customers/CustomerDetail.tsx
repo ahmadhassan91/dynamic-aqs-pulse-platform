@@ -153,7 +153,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
         <Stack gap="md">
           <AccountReadinessBrief account={account} />
           <AccountUatHandoff account={account} />
-          <AccountFocusPanel account={account} canViewFinancials={canViewFinancials} />
+          <AccountFocusPanel account={account} />
           {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
           <Tabs
             value={activeTab}
@@ -173,6 +173,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
               <Tabs.Tab value="overview">Profile</Tabs.Tab>
               <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
               <Tabs.Tab value="locations">Locations</Tabs.Tab>
+              <Tabs.Tab value="activity-docs">Activity & Docs</Tabs.Tab>
               {canViewFinancials ? <Tabs.Tab value="payment-methods">Payment Methods</Tabs.Tab> : null}
               {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
               <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
@@ -185,6 +186,9 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
             </Tabs.Panel>
             <Tabs.Panel value="locations" pt="md">
               <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
+            </Tabs.Panel>
+            <Tabs.Panel value="activity-docs" pt="md">
+              <CustomerActivityDocs account={account} canViewFinancials={canViewFinancials} />
             </Tabs.Panel>
             {canViewFinancials ? (
               <Tabs.Panel value="payment-methods" pt="md">
@@ -210,7 +214,7 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   );
 }
 
-type CustomerTabValue = 'overview' | 'contacts' | 'locations' | 'payment-methods' | 'training' | 'portal';
+type CustomerTabValue = 'overview' | 'contacts' | 'locations' | 'activity-docs' | 'payment-methods' | 'training' | 'portal';
 
 function resolveCustomerTab(
   requestedTab: string | null,
@@ -218,6 +222,7 @@ function resolveCustomerTab(
 ): CustomerTabValue {
   if (requestedTab === 'contacts') return 'contacts';
   if (requestedTab === 'locations') return 'locations';
+  if (requestedTab === 'activity-docs' || requestedTab === 'activity' || requestedTab === 'documents') return 'activity-docs';
   if (requestedTab === 'portal' || requestedTab === 'dealer-portal') return 'portal';
   if ((requestedTab === 'payment-methods' || requestedTab === 'financials') && permissions.canViewFinancials) return 'payment-methods';
   if ((requestedTab === 'training' || requestedTab === 'training-history') && permissions.canViewTraining) return 'training';
@@ -228,7 +233,7 @@ function customerTabToQuery(tab: CustomerTabValue) {
   return tab === 'overview' ? '' : tab;
 }
 
-function AccountFocusPanel({ account, canViewFinancials }: { account: AccountDetailRecord; canViewFinancials: boolean }) {
+function AccountFocusPanel({ account }: { account: AccountDetailRecord }) {
   const primaryContact = account.contacts.find((contact) => contact.isPrimary) ?? account.contacts[0];
   const primaryLocation = account.locations.find((location) => location.isPrimary) ?? account.locations[0];
   const firstAttention = account.readiness.checks.find((check) => check.status === 'needs_attention');
@@ -275,8 +280,8 @@ function AccountFocusPanel({ account, canViewFinancials }: { account: AccountDet
         <FocusCard
           title="ERP boundary"
           detail={erpCheck?.message ?? 'Orders, invoices, pricing, and revenue activity stay parked until Acumatica is connected.'}
-          actionLabel={canViewFinancials ? 'Review payment boundary' : 'Review profile'}
-          href={`/customers/${account.id}?tab=${canViewFinancials ? 'payment-methods' : 'overview'}`}
+          actionLabel="Review activity & docs"
+          href={`/customers/${account.id}?tab=activity-docs`}
           tone="parked"
         />
       </SimpleGrid>
@@ -287,6 +292,96 @@ function AccountFocusPanel({ account, canViewFinancials }: { account: AccountDet
       ) : null}
     </Paper>
   );
+}
+
+function CustomerActivityDocs({ account, canViewFinancials }: { account: AccountDetailRecord; canViewFinancials: boolean }) {
+  const events = account.activityReview.recentEvents;
+  const boundaries = account.activityReview.documentBoundaries.filter((boundary) => canViewFinancials || boundary.key !== 'payment_boundary');
+
+  return (
+    <Stack gap="md">
+      <Paper withBorder radius="md" p="lg">
+        <Group justify="space-between" align="flex-start" mb="md">
+          <Stack gap={4}>
+            <Title order={3}>Activity & Document Review</Title>
+            <Text size="sm" c="dimmed">
+              CRM-owned account activity and document boundaries for UAT. ERP orders, invoices, shipments, revenue, and pricing stay parked until Acumatica is certified.
+            </Text>
+          </Stack>
+          <Badge color={account.activityReview.parkedDependencies.length ? 'gray' : 'green'} variant="light">
+            {account.activityReview.parkedDependencies.length ? `${account.activityReview.parkedDependencies.length} parked` : 'Clear'}
+          </Badge>
+        </Group>
+        <SimpleGrid cols={{ base: 1, md: 2 }}>
+          {boundaries.map((boundary) => (
+            <Card key={boundary.key} withBorder radius="md" p="md">
+              <Stack gap="xs">
+                <Group justify="space-between" align="flex-start">
+                  <Text fw={700}>{boundary.label}</Text>
+                  <Badge color={documentBoundaryColor(boundary.status)} variant="light">
+                    {formatDisplayValue(boundary.status)}
+                  </Badge>
+                </Group>
+                <Text size="sm" c="dimmed">{boundary.detail}</Text>
+                {boundary.href ? (
+                  <Button component={Link} href={boundary.href} variant="light" size="xs">
+                    Open
+                  </Button>
+                ) : null}
+              </Stack>
+            </Card>
+          ))}
+        </SimpleGrid>
+      </Paper>
+
+      <Paper withBorder radius="md" p="lg">
+        <Group justify="space-between" align="flex-start" mb="md">
+          <Stack gap={4}>
+            <Title order={3}>Recent CRM Activity</Title>
+            <Text size="sm" c="dimmed">
+              Account, contact, location, dealer/payment boundary, and source-lead signals captured by Pulse.
+            </Text>
+          </Stack>
+          <Badge color="blue" variant="light">{events.length}</Badge>
+        </Group>
+        <Stack gap="sm">
+          {events.length ? events.map((event) => (
+            <Card key={event.id} withBorder radius="md" p="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Group gap="xs">
+                    <Badge color={activitySourceColor(event.source)} variant="light">{formatDisplayValue(event.source)}</Badge>
+                    <Text fw={700}>{event.label}</Text>
+                  </Group>
+                  <Text size="sm" c="dimmed">{event.detail}</Text>
+                  {event.actorName ? <Text size="xs" c="dimmed">By {event.actorName}</Text> : null}
+                </Stack>
+                <Text size="xs" c="dimmed">{formatShortDateTime(event.occurredAt)}</Text>
+              </Group>
+            </Card>
+          )) : (
+            <Text size="sm" c="dimmed">
+              No recent CRM activity is available yet. New account, contact, location, portal, and payment-boundary changes will appear here.
+            </Text>
+          )}
+        </Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
+function documentBoundaryColor(status: AccountDetailRecord['activityReview']['documentBoundaries'][number]['status']) {
+  if (status === 'available') return 'green';
+  if (status === 'needs_attention') return 'yellow';
+  return 'gray';
+}
+
+function activitySourceColor(source: AccountDetailRecord['activityReview']['recentEvents'][number]['source']) {
+  if (source === 'source_lead') return 'blue';
+  if (source === 'payment_boundary') return 'grape';
+  if (source === 'dealer_portal') return 'cyan';
+  if (source === 'parked_dependency') return 'gray';
+  return 'green';
 }
 
 function FocusCard({
@@ -464,4 +559,15 @@ function formatDisplayValue(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ');
+}
+
+function formatShortDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown time';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 }

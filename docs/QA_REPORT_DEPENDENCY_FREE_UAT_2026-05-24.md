@@ -52,6 +52,8 @@ This QA cycle focused on what Dynamic AQS can test before Acumatica sandbox acce
 | `pnpm --filter @pulse/mobile typecheck && pnpm --filter @pulse/mobile build` after mobile sync UAT guidance slice | Passed; Expo web export completed |
 | `pnpm --filter @pulse/crm-web lint` after UAT polish slice | Passed |
 | `pnpm --filter @pulse/crm-web lint && pnpm --filter @pulse/crm-web typecheck && pnpm --filter @pulse/crm-web build` after account focus slice | Passed |
+| `pnpm --filter @pulse/contracts build && pnpm --filter @pulse/api build && DATABASE_URL=... node --test --test-concurrency=1 apps/api/test/accounts.regression.test.mjs` after account activity/document slice | Passed, 11/11 |
+| `pnpm --filter @pulse/crm-web lint && pnpm --filter @pulse/crm-web typecheck && pnpm --filter @pulse/crm-web build` after account activity/document slice | Passed |
 | `DATABASE_URL=... pnpm --filter @pulse/crm-web test:e2e` | Passed, 11/11 |
 | Production deploy smoke: `https://pulse-crm.theclustox.com/api/v1/health/ready` | Passed with app/database/queue/workers healthy; Acumatica reports the expected parked placeholder dependency |
 | Production UAT seed: `node scripts/seed-uat-readiness.mjs` on EC2 | Passed; reseeded 4 dealer accounts, 4 catalog views, 2 products, 3 assets, internal TM/RD/admin personas, and dealer personas |
@@ -70,7 +72,7 @@ Note: an earlier parallel test attempt caused false database deadlocks and fixtu
 | Module | Dependency-free requirement coverage | Notes |
 | --- | ---: | --- |
 | Leads | 78% | Intake, website forms, duplicate review, routing, workflow queues, OCR preview, readiness, and operational alerts are regression-covered. Mobile committed scan-to-lead remains a gap. |
-| Accounts / Customers | 76% | Live customer list/detail, profile edit, contacts, locations, lifecycle, territory ownership, source-lead lineage, dealer portal access, payment-method boundary, Account Readiness, day-one handoff guidance, and a Today&apos;s Account Focus lane with stable tab deep links are covered. Parent/child hierarchy, merge/import governance, ERP orders/invoices/shipments/pricing, and richer activity/document tabs remain parked or later. |
+| Accounts / Customers | 78% | Live customer list/detail, profile edit, contacts, locations, lifecycle, territory ownership, source-lead lineage, dealer portal access, payment-method boundary, Account Readiness, day-one handoff guidance, Today&apos;s Account Focus, stable tab deep links, and a CRM-owned Activity & Document Review tab are covered. Parent/child hierarchy, merge/import governance, ERP orders/invoices/shipments/pricing, and external document truth remain parked. |
 | Territory | 72% | TM/RD scoping, coverage, transfer, dashboard, map/read models, and ownership propagation are covered. Route optimization remains parked. |
 | Training | 77% | Training catalog, programs, sessions, check-in/out, proof metadata/upload backend, certification, exceptions, reporting, and mobile follow-up/proof-failure truthfulness are covered. Named attendee/technician depth remains limited. |
 | Consignment | 68% | Site master, document register, BLUE/ROSE flow, evidence upload, variance, queue, and Acumatica boundary are covered. ERP warehouse/inventory/PO truth remains parked. |
@@ -80,7 +82,7 @@ Note: an earlier parallel test attempt caused false database deadlocks and fixtu
 | Mobile | 72% | Login shell, field home, leads/accounts, route, training, ROSE, assets, notifications, sync review, approved-host API guardrails, live-API section status, and OCR preview exist. Recent passes added stored-session validation/refresh, mobile-scope gating, checked-in route draft persistence, stricter training proof/follow-up messaging, metadata-only asset cache, clearer card/badge OCR review-only boundaries, field-home live CRM status for partial/unavailable API states, and a Sync Status next-action card that tells field users whether to retry, sign in, keep the app open, or ask the office to review. Native simulator depth, true background sync, Android QA, and offline binary media remain open. |
 | Roles/Admin/Auth | 70% | Role catalog, admin user CRUD, login/session/recovery basics exist. MFA, lockout, production identity governance, and fine-grained entitlements remain parked. |
 
-Overall dependency-free readiness: approximately 78%.
+Overall dependency-free readiness: approximately 79%.
 
 ## UAT Blockers Dynamic AQS Could Still Hit
 

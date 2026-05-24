@@ -318,6 +318,13 @@ test('account detail exposes CRM-owned readiness checks without ERP assumptions'
   assert.equal(readyDetail.readiness.status, 'ready');
   assert.equal(readyDetail.readiness.score, 100);
   assert.equal(readyDetail.readiness.checks.find((check) => check.key === 'dealer_membership')?.status, 'ready');
+  assert.equal(readyDetail.activityReview.documentBoundaries.find((boundary) => boundary.key === 'source_lead')?.status, 'available');
+  assert.equal(readyDetail.activityReview.documentBoundaries.find((boundary) => boundary.key === 'erp_documents')?.status, 'parked');
+  assert.match(
+    readyDetail.activityReview.parkedDependencies.join(' '),
+    /Acumatica access and mappings are certified/i,
+  );
+  assert.ok(readyDetail.activityReview.recentEvents.some((event) => event.source === 'source_lead'));
   assert.match(
     readyDetail.readiness.checks.find((check) => check.key === 'source_lineage')?.message ?? '',
     /source lead is linked/i,

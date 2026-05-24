@@ -91,6 +91,7 @@ export interface AccountDetail extends AccountSummary {
   locations: AccountLocationSummary[];
   contacts: ContactSummary[];
   readiness: AccountReadinessSummary;
+  activityReview: AccountActivityReviewSummary;
 }
 
 export type AccountReadinessLevel = 'ready' | 'needs_attention' | 'parked';
@@ -106,6 +107,31 @@ export interface AccountReadinessSummary {
   score: number;
   status: AccountReadinessLevel;
   checks: AccountReadinessCheck[];
+}
+
+export interface AccountActivityReviewEvent {
+  id: string;
+  occurredAt: string;
+  action: string;
+  entityType: string;
+  label: string;
+  detail: string;
+  source: 'pulse_crm' | 'source_lead' | 'dealer_portal' | 'payment_boundary' | 'parked_dependency';
+  actorName?: string;
+}
+
+export interface AccountDocumentBoundary {
+  key: string;
+  label: string;
+  status: 'available' | 'needs_attention' | 'parked';
+  detail: string;
+  href?: string;
+}
+
+export interface AccountActivityReviewSummary {
+  recentEvents: AccountActivityReviewEvent[];
+  documentBoundaries: AccountDocumentBoundary[];
+  parkedDependencies: string[];
 }
 
 export interface AccountPaymentMethodSummary {

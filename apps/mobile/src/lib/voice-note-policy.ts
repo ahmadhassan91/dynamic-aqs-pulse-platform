@@ -1,11 +1,35 @@
-import type { CreateMobileVoiceNoteRequest, MobileVoiceNoteSummary } from '@pulse/contracts/mobile-voice-notes';
+import type { CreateMobileVoiceNoteRequest, MobileVoiceNoteContextTypeKey, MobileVoiceNoteSummary } from '@pulse/contracts/mobile-voice-notes';
+
+export type VoiceNoteEntityContextType = Exclude<MobileVoiceNoteContextTypeKey, 'general'>;
+
+export type VoiceNoteContextSelection =
+  | { type: 'general'; label?: string }
+  | { type: VoiceNoteEntityContextType; id: string; label?: string };
 
 export type VoiceNoteDraftInput = {
   title?: string;
   transcriptText?: string;
   audioUri?: string | null;
+  context?: VoiceNoteContextSelection;
   selectedAccountId?: string | null;
 };
+
+const voiceNoteContextIdFields = {
+  account: 'accountId',
+  consignment_site: 'consignmentSiteId',
+  lead: 'leadId',
+  route_visit: 'routeVisitLocalId',
+  training_session: 'trainingSessionId',
+} satisfies Record<VoiceNoteEntityContextType, keyof CreateMobileVoiceNoteRequest>;
+
+const voiceNoteContextLabels = {
+  account: 'account',
+  consignment_site: 'consignment site',
+  general: 'general',
+  lead: 'lead',
+  route_visit: 'route visit',
+  training_session: 'training session',
+} satisfies Record<MobileVoiceNoteContextTypeKey, string>;
 
 export function getVoiceNoteSubmitBlocker(input: VoiceNoteDraftInput) {
   const hasTranscript = Boolean(input.transcriptText?.trim());
@@ -16,12 +40,15 @@ export function getVoiceNoteSubmitBlocker(input: VoiceNoteDraftInput) {
   if (input.transcriptText && input.transcriptText.length > 12_000) {
     return 'Keep the transcript under 12,000 characters for this mobile slice.';
   }
+  const contextBlocker = getVoiceNoteContextBlocker(input.context ?? legacyAccountContext(input.selectedAccountId));
+  if (contextBlocker) return contextBlocker;
   return null;
 }
 
 export function buildVoiceNoteCreateRequest(input: {
-  accountId?: string;
   audio?: CreateMobileVoiceNoteRequest['audio'];
+  context?: VoiceNoteContextSelection;
+  accountId?: string;
   recordedAt: string;
   title?: string;
   transcriptText?: string;
@@ -29,13 +56,34 @@ export function buildVoiceNoteCreateRequest(input: {
   const title = input.title?.trim();
   const transcriptText = input.transcriptText?.trim();
   return {
-    contextType: input.accountId ? 'account' : 'general',
+    ...buildVoiceNoteContextPayload(input.context ?? legacyAccountContext(input.accountId)),
     recordedAt: input.recordedAt,
-    ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(title ? { title } : {}),
     ...(transcriptText ? { transcriptText } : {}),
     ...(input.audio ? { audio: input.audio } : {}),
   };
+}
+
+export function getVoiceNoteContextBlocker(context: VoiceNoteContextSelection | undefined) {
+  if (!context || context.type === 'general') return null;
+  if (context.id.trim()) return null;
+  return `Choose a ${voiceNoteContextLabels[context.type]} before syncing.`;
+}
+
+export function buildVoiceNoteContextPayload(context: VoiceNoteContextSelection | undefined): Pick<CreateMobileVoiceNoteRequest, 'accountId' | 'consignmentSiteId' | 'contextType' | 'leadId' | 'routeVisitLocalId' | 'trainingSessionId'> {
+  if (!context || context.type === 'general') {
+    return { contextType: 'general' };
+  }
+  const id = context.id.trim();
+  const idField = voiceNoteContextIdFields[context.type];
+  return {
+    contextType: context.type,
+    ...(id ? { [idField]: id } : {}),
+  };
+}
+
+function legacyAccountContext(accountId?: string | null): VoiceNoteContextSelection | undefined {
+  return accountId ? { type: 'account', id: accountId } : undefined;
 }
 
 export function describeVoiceNoteProcessing(status: string, provider?: string) {

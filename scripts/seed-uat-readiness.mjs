@@ -190,9 +190,26 @@ async function main() {
   })));
 
   await Promise.all(accounts.map((account) => upsertDealerPortalUser(account, actor.id)));
-  await seedTrainingScenario(accounts[0], tm.id, rd.id, actor.id);
+  const trainingSession = await seedTrainingScenario(accounts[0], tm.id, rd.id, actor.id);
+  const fieldLead = await seedFieldOperatingLead(accounts[0], tm.id, rd.id, territory.id, shippingCenter.id, actor.id);
+  await prisma.account.update({
+    where: { id: accounts[0].id },
+    data: {
+      sourceLeadId: fieldLead.id,
+      businessSegmentId: fieldLead.businessSegmentId,
+      lastEngagementAt: now,
+    },
+  });
+  const consignmentSite = await seedConsignmentRoseScenario(accounts[0], tm.id, rd.id, territory, region, shippingCenter, actor.id);
+  await seedFieldOperatingVoiceNotes({
+    lead: fieldLead,
+    account: accounts[0],
+    trainingSession,
+    consignmentSite,
+    createdByUserId: tm.id,
+  });
 
-  console.log(`Seeded dependency-free UAT data: ${accounts.length} dealer accounts, ${catalogViews.length} catalog views, ${products.length} products, ${assets.length} assets.`);
+  console.log(`Seeded dependency-free UAT data: ${accounts.length} dealer accounts, ${catalogViews.length} catalog views, ${products.length} products, ${assets.length} assets, 1 field-day lead, 1 ROSE site, 4 reviewable field notes.`);
   console.log(`UAT internal personas: ${actor.email}, ${tm.email}, ${rd.email} / password ${internalPassword}`);
   console.log(`UAT dealer personas: owner+nexstar@pulse-uat.local, owner+redwood@pulse-uat.local, owner+hybrid@pulse-uat.local, owner+independent@pulse-uat.local / password ${dealerPassword}`);
 }
@@ -785,6 +802,357 @@ async function seedTrainingScenario(account, tmUserId, rdUserId, actorUserId) {
     return prisma.trainingSession.update({ where: { id: existing.id }, data });
   }
   return prisma.trainingSession.create({ data });
+}
+
+async function seedFieldOperatingLead(account, tmUserId, rdUserId, territoryId, shippingCenterId, actorUserId) {
+  const businessSegment = await prisma.businessSegmentRef.upsert({
+    where: { code: 'UAT_RESIDENTIAL_DEALER' },
+    update: {
+      name: 'UAT Residential Dealer',
+      description: 'Seeded segment for dependency-free Field Operating Day validation.',
+      isActive: true,
+      sortOrder: 10,
+    },
+    create: {
+      code: 'UAT_RESIDENTIAL_DEALER',
+      name: 'UAT Residential Dealer',
+      description: 'Seeded segment for dependency-free Field Operating Day validation.',
+      isActive: true,
+      sortOrder: 10,
+    },
+  });
+  const leadSource = await prisma.leadSourceRef.upsert({
+    where: { code: 'UAT_FIELD_OPERATING_DAY' },
+    update: {
+      name: 'UAT Field Operating Day',
+      description: 'Seeded manual source for end-to-end TM/RD UAT without external dependencies.',
+      isActive: true,
+      sortOrder: 10,
+    },
+    create: {
+      code: 'UAT_FIELD_OPERATING_DAY',
+      name: 'UAT Field Operating Day',
+      description: 'Seeded manual source for end-to-end TM/RD UAT without external dependencies.',
+      isActive: true,
+      sortOrder: 10,
+    },
+  });
+
+  const leadData = {
+    companyName: 'UAT Nexstar Comfort Field Lead',
+    contactFirstName: 'UAT',
+    contactLastName: 'Owner',
+    contactDisplayName: 'UAT Owner',
+    email: 'owner+nexstar@pulse-uat.local',
+    phone: '555-010-1101',
+    state: 'TX',
+    countryCode: 'US',
+    businessSegmentId: businessSegment.id,
+    leadSourceId: leadSource.id,
+    leadCaptureMethod: 'MANUAL_ENTRY',
+    leadType: 'CONTRACTOR',
+    sourceDetail: 'uat-field-operating-day',
+    sourceCampaign: 'Dependency-free UAT',
+    serviceTechCount: 7,
+    installTechCount: 2,
+    truckCount: 5,
+    affinityGroupSelection: account.affinityGroupId ? 'GROUP' : 'NONE',
+    affinityGroupId: account.affinityGroupId,
+    ownershipGroupSelection: account.ownershipGroupId ? 'GROUP' : 'NONE',
+    ownershipGroupId: account.ownershipGroupId,
+    groupClassification: account.groupClassification,
+    routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+    routingThresholdSnapshot: 5,
+    routingTeam: 'NATIONAL_TM',
+    leadOwnerName: 'Tammy Territory Manager',
+    territoryId,
+    territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+    territoryAssignedAt: now,
+    shippingCenterId,
+    assignedTmUserId: tmUserId,
+    assignedRdUserId: rdUserId,
+    assignedTmName: 'Tammy Territory Manager',
+    stage: 'DISCOVERY_SCHEDULED',
+    lifecycleStatus: 'ACTIVE',
+    lifecycleChangedAt: now,
+    initialContactDueAt: addHours(now, 2),
+    initialContactedAt: addHours(now, -2),
+    discoveryScheduledAt: addDays(now, 1),
+    discoveryPainPoints: ['Needs IAQ quote follow-up', 'Interested in consignment starter shelf'],
+    discoveryCurrentIaqSetup: 'Manual IAQ inventory tracking',
+    discoveryDecisionMaker: 'Owner-led purchasing',
+    discoveryBuyingIntent: 'Near-term evaluation',
+    consignmentInterestStatus: 'INTERESTED',
+    consignmentEntryTiming: 'AT_ONBOARDING',
+    discoverySummary: 'Seeded lead anchors the field operating day: source lead, customer visit, training, consignment audit, and office review.',
+    notes: 'Dependency-free UAT lead. Acumatica order, pricing, and inventory truth remain parked until access is certified.',
+  };
+
+  const existing = await prisma.lead.findFirst({
+    where: {
+      companyName: leadData.companyName,
+      sourceDetail: leadData.sourceDetail,
+    },
+  });
+  const lead = existing
+    ? await prisma.lead.update({ where: { id: existing.id }, data: leadData })
+    : await prisma.lead.create({ data: leadData });
+
+  const existingContact = await prisma.leadContact.findFirst({
+    where: { leadId: lead.id, email: leadData.email },
+  });
+  const contactData = {
+    leadId: lead.id,
+    role: 'PRIMARY',
+    source: 'MANUAL',
+    displayName: leadData.contactDisplayName,
+    firstName: leadData.contactFirstName,
+    lastName: leadData.contactLastName,
+    title: 'Owner',
+    email: leadData.email,
+    phone: leadData.phone,
+    isPrimary: true,
+    isActive: true,
+    notes: 'Seeded primary contact for Field Operating Day UAT.',
+  };
+  if (existingContact) {
+    await prisma.leadContact.update({ where: { id: existingContact.id }, data: contactData });
+  } else {
+    await prisma.leadContact.create({ data: contactData });
+  }
+
+  const stageNote = 'Seeded discovery appointment for dependency-free Field Operating Day UAT.';
+  const existingStageEvent = await prisma.leadStageEvent.findFirst({
+    where: { leadId: lead.id, toStage: 'DISCOVERY_SCHEDULED', note: stageNote },
+  });
+  if (!existingStageEvent) {
+    await prisma.leadStageEvent.create({
+      data: {
+        leadId: lead.id,
+        actorUserId,
+        fromStage: 'NEW',
+        toStage: 'DISCOVERY_SCHEDULED',
+        note: stageNote,
+        metadata: {
+          source: 'seed:uat',
+          dependencyBoundary: 'No Acumatica order, pricing, or inventory data is required for this scenario.',
+        },
+        occurredAt: now,
+      },
+    });
+  }
+
+  return lead;
+}
+
+async function seedConsignmentRoseScenario(account, tmUserId, rdUserId, territory, region, shippingCenter, actorUserId) {
+  const location = await prisma.accountLocation.findFirst({
+    where: { accountId: account.id, isPrimary: true },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+  const contact = await prisma.contact.findFirst({
+    where: { accountId: account.id, isPrimary: true },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+  const siteData = {
+    accountId: account.id,
+    locationId: location?.id ?? null,
+    name: 'UAT Main Showroom Consignment',
+    status: 'ACTIVE',
+    acumaticaStatus: 'PARKED',
+    activeSince: addDays(now, -30),
+    baselineEstablishedAt: addDays(now, -30),
+    nextAuditDueAt: addDays(now, 3),
+    ownerTmUserId: tmUserId,
+    ownerRdUserId: rdUserId,
+    territoryId: territory.id,
+    regionId: region.id,
+    shippingCenterId: shippingCenter.id,
+    primaryContactName: contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'UAT Owner',
+    primaryContactEmail: contact?.email ?? 'owner+nexstar@pulse-uat.local',
+    primaryContactPhone: contact?.phone ?? '555-010-1101',
+    notes: 'Seeded ROSE audit site for mobile field UAT. Acumatica warehouse, inventory truth, transfers, and PO settlement remain parked.',
+    createdByUserId: actorUserId,
+  };
+
+  const existingSite = await prisma.consignmentSite.findFirst({
+    where: { accountId: account.id, name: siteData.name },
+  });
+  const site = existingSite
+    ? await prisma.consignmentSite.update({ where: { id: existingSite.id }, data: siteData })
+    : await prisma.consignmentSite.create({ data: siteData });
+
+  await Promise.all([
+    upsertConsignmentForm(site.id, 'AGREEMENT', 'SIGNED', 'UAT Signed Consignment Agreement', actorUserId, 'Seeded signed agreement; source PDF capture can be attached when production documents are available.'),
+    upsertConsignmentForm(site.id, 'BLUE', 'SIGNED', 'UAT Blue Form', actorUserId, 'Seeded signed blue form for dependency-free readiness.'),
+    upsertConsignmentForm(site.id, 'ROSE', 'CURRENT', 'UAT ROSE Count Sheet', actorUserId, 'Seeded current ROSE reference; audit lines are manual until Acumatica inventory is certified.'),
+  ]);
+
+  const auditData = {
+    siteId: site.id,
+    scheduledFor: addDays(now, 3),
+    status: 'SCHEDULED',
+    reconciliationStatus: 'NOT_STARTED',
+    expectedSource: 'manual_uat_seed',
+    sourceFreshnessLabel: 'acumatica_parked',
+    notes: 'UAT ROSE audit for dependency-free Field Operating Day. Expected quantities are manual placeholders until Acumatica access is certified.',
+    submittedByUserId: tmUserId,
+  };
+  const existingAudit = await prisma.consignmentAudit.findFirst({
+    where: { siteId: site.id, notes: auditData.notes },
+  });
+  const audit = existingAudit
+    ? await prisma.consignmentAudit.update({ where: { id: existingAudit.id }, data: auditData })
+    : await prisma.consignmentAudit.create({ data: auditData });
+
+  await prisma.consignmentAuditLine.deleteMany({ where: { auditId: audit.id } });
+  await prisma.consignmentAuditLine.createMany({
+    data: [
+      {
+        auditId: audit.id,
+        sku: 'UAT-IAQ-100',
+        productName: 'UAT Whole Home IAQ System',
+        expectedQuantity: 2,
+        notes: 'Manual seeded expected quantity; Acumatica inventory truth remains parked.',
+      },
+      {
+        auditId: audit.id,
+        sku: 'UAT-FLTR-200',
+        productName: 'UAT Replacement Filter Kit',
+        expectedQuantity: 6,
+        notes: 'Manual seeded expected quantity; confirm with warehouse once Acumatica is available.',
+      },
+    ],
+  });
+
+  return site;
+}
+
+async function upsertConsignmentForm(siteId, formType, status, title, actorUserId, notes) {
+  const existing = await prisma.consignmentForm.findFirst({
+    where: { siteId, formType, title },
+  });
+  const data = {
+    siteId,
+    formType,
+    status,
+    title,
+    version: 1,
+    isCurrent: true,
+    receivedAt: now,
+    signedAt: status === 'SIGNED' ? now : null,
+    approvedAt: status === 'SIGNED' || status === 'CURRENT' ? now : null,
+    notes,
+    createdByUserId: actorUserId,
+  };
+  if (existing) {
+    return prisma.consignmentForm.update({ where: { id: existing.id }, data });
+  }
+  return prisma.consignmentForm.create({ data });
+}
+
+async function seedFieldOperatingVoiceNotes({ lead, account, trainingSession, consignmentSite, createdByUserId }) {
+  const notes = [
+    {
+      title: 'UAT Field Day Lead Note',
+      contextType: 'LEAD',
+      leadId: lead.id,
+      rawTranscript: 'Lead asked for a fast IAQ quote and wants the first follow-up before tomorrow afternoon.',
+      structuredSummary: 'Lead needs a fast IAQ quote follow-up before tomorrow afternoon.',
+      structuredNextStep: 'TM should confirm quote owner and update the lead after office review.',
+      structuredSentiment: 'positive',
+      structuredTags: ['lead-follow-up', 'quote', 'uat-field-day'],
+    },
+    {
+      title: 'UAT Field Day Account Note',
+      contextType: 'ACCOUNT',
+      accountId: account.id,
+      rawTranscript: 'Owner confirmed the main office contact is correct and asked for dealer portal access to the IAQ spec sheet.',
+      structuredSummary: 'Owner confirmed contact data and requested dealer portal access to the IAQ spec sheet.',
+      structuredNextStep: 'Office reviewer should attach this as account activity and confirm dealer portal access.',
+      structuredSentiment: 'positive',
+      structuredTags: ['account-visit', 'dealer-portal', 'uat-field-day'],
+    },
+    {
+      title: 'UAT Field Day Training Note',
+      contextType: 'TRAINING_SESSION',
+      trainingSessionId: trainingSession.id,
+      rawTranscript: 'Four technicians attended IAQ certification. Two need a follow-up coaching session on filter replacement.',
+      structuredSummary: 'IAQ certification completed with four attendees; two technicians need filter replacement coaching.',
+      structuredNextStep: 'Create a training follow-up for filter replacement coaching.',
+      structuredSentiment: 'neutral',
+      structuredTags: ['training', 'coaching', 'uat-field-day'],
+    },
+    {
+      title: 'UAT Field Day Consignment Note',
+      contextType: 'CONSIGNMENT_SITE',
+      consignmentSiteId: consignmentSite.id,
+      rawTranscript: 'ROSE shelf count looks short by one IAQ unit. Ask office to create a manual work item until Acumatica inventory is available.',
+      structuredSummary: 'ROSE shelf count appears short by one IAQ unit; manual work item needed while Acumatica inventory is parked.',
+      structuredNextStep: 'Create a consignment work item for variance follow-up.',
+      structuredSentiment: 'concern',
+      structuredTags: ['consignment', 'rose-audit', 'uat-field-day'],
+    },
+  ];
+
+  for (const note of notes) {
+    const existing = await prisma.mobileVoiceNote.findFirst({
+      where: {
+        title: note.title,
+        ...(note.leadId ? { leadId: note.leadId } : {}),
+        ...(note.accountId ? { accountId: note.accountId } : {}),
+        ...(note.trainingSessionId ? { trainingSessionId: note.trainingSessionId } : {}),
+        ...(note.consignmentSiteId ? { consignmentSiteId: note.consignmentSiteId } : {}),
+      },
+    });
+    const data = {
+      createdByUserId,
+      contextType: note.contextType,
+      title: note.title,
+      rawTranscript: note.rawTranscript,
+      structuredSummary: note.structuredSummary,
+      structuredNextStep: note.structuredNextStep,
+      structuredSentiment: note.structuredSentiment,
+      structuredTags: note.structuredTags,
+      structuredData: {
+        summary: note.structuredSummary,
+        rawText: note.rawTranscript,
+        nextStep: note.structuredNextStep,
+        sentiment: note.structuredSentiment,
+        tags: note.structuredTags,
+        confidence: 'high',
+      },
+      processingStatus: 'STRUCTURED',
+      reviewStatus: 'PENDING_REVIEW',
+      reviewedByUserId: null,
+      reviewedAt: null,
+      reviewNotes: null,
+      rejectedReason: null,
+      writebackCompletedAt: null,
+      writebackTarget: null,
+      llmProvider: 'uat_seed',
+      llmModel: 'seeded_structured_note',
+      crmSyncedAt: now,
+      recordedAt: now,
+      ...(note.leadId ? { leadId: note.leadId } : { leadId: null }),
+      ...(note.accountId ? { accountId: note.accountId } : { accountId: null }),
+      ...(note.trainingSessionId ? { trainingSessionId: note.trainingSessionId } : { trainingSessionId: null }),
+      ...(note.consignmentSiteId ? { consignmentSiteId: note.consignmentSiteId } : { consignmentSiteId: null }),
+    };
+    if (existing) {
+      await prisma.mobileVoiceNote.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.mobileVoiceNote.create({ data });
+    }
+  }
+}
+
+function addHours(date, hours) {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+function addDays(date, days) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 function hashSecret(secret) {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { MobileVoiceNoteSummary } from '@pulse/contracts/mobile-voice-notes';
 import {
   Card,
@@ -16,14 +15,19 @@ import {
   SecondaryButton,
   SectionTitle,
 } from '@/components/native-kit';
-import { useFieldData } from '@/hooks/use-mobile-data';
-import { useMobileVoiceNotes } from '@/hooks/use-mobile-voice-notes';
+import { useMobileVoiceNoteContexts, useMobileVoiceNotes, type VoiceNoteContextOption } from '@/hooks/use-mobile-voice-notes';
 import { describeVoiceNoteReview } from '@/lib/voice-note-policy';
 import { colors, radius, spacing, typography } from '@/theme';
 
+const fallbackContextOption: VoiceNoteContextOption = {
+  key: 'general',
+  label: 'General',
+  type: 'general',
+};
+
 export default function VoiceNotesScreen() {
-  const { accounts } = useFieldData(12);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const { contextOptions, errorMessage: contextError, isLoading: isLoadingContexts } = useMobileVoiceNoteContexts(12);
+  const [selectedContextKey, setSelectedContextKey] = useState('general');
   const [title, setTitle] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
   const voiceNotes = useMobileVoiceNotes();
@@ -32,11 +36,16 @@ export default function VoiceNotesScreen() {
     void voiceNotes.loadNotes();
   }, [voiceNotes.loadNotes]);
 
-  const selectedAccount = accounts.find((account) => account.id === selectedAccountId);
+  useEffect(() => {
+    if (contextOptions.some((option) => option.key === selectedContextKey)) return;
+    setSelectedContextKey('general');
+  }, [contextOptions, selectedContextKey]);
+
+  const selectedContext = contextOptions.find((option) => option.key === selectedContextKey) ?? contextOptions[0] ?? fallbackContextOption;
 
   const submit = async () => {
     const saved = await voiceNotes.submitVoiceNote({
-      selectedAccountId,
+      context: selectedContext,
       title,
       transcriptText,
     });
@@ -50,11 +59,12 @@ export default function VoiceNotesScreen() {
     <Screen>
       <HeroCard title="Voice Notes" eyebrow="Field capture" icon={{ name: 'mic.circle.fill', fallback: 'V' }}>
         <Text selectable style={{ ...typography.callout, color: '#DBEAFE' }}>
-          Speak or type the visit note, attach it to an account, then sync it into Pulse CRM for review.
+          Speak or type the field note, attach it to the right CRM context, then sync it into Pulse CRM for review.
         </Text>
       </HeroCard>
 
       {voiceNotes.errorMessage ? <ErrorState message={voiceNotes.errorMessage} /> : null}
+      {contextError ? <ErrorState message={contextError} /> : null}
 
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
@@ -63,7 +73,7 @@ export default function VoiceNotesScreen() {
               Capture note
             </Text>
             <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-              {selectedAccount ? selectedAccount.displayName : 'General CRM note'}
+              {selectedContext.detail ? `${selectedContext.label} · ${selectedContext.detail}` : selectedContext.label}
             </Text>
           </View>
           <Pill label={voiceNotes.isRecording ? 'recording' : voiceNotes.audioUri ? 'ready' : 'idle'} tone={voiceNotes.isRecording ? 'warning' : voiceNotes.audioUri ? 'ready' : 'pending'} />
@@ -104,14 +114,14 @@ export default function VoiceNotesScreen() {
       </Card>
 
       <SectionTitle title="CRM context" detail="Attach the note where the office team will look first." />
+      {isLoadingContexts ? <LoadingState label="Loading CRM contexts..." /> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        <ContextChip label="General" selected={!selectedAccountId} onPress={() => setSelectedAccountId(null)} />
-        {accounts.slice(0, 8).map((account) => (
+        {contextOptions.map((option) => (
           <ContextChip
-            key={account.id}
-            label={shortAccountLabel(account)}
-            selected={selectedAccountId === account.id}
-            onPress={() => setSelectedAccountId(account.id)}
+            key={option.key}
+            label={option.label}
+            selected={selectedContext.key === option.key}
+            onPress={() => setSelectedContextKey(option.key)}
           />
         ))}
       </View>
@@ -216,7 +226,7 @@ function VoiceNoteCard({ note }: { note: MobileVoiceNoteSummary }) {
             {note.title}
           </Text>
           <Text selectable style={{ ...typography.caption, color: colors.muted }}>
-            {[note.accountName, formatDateTime(note.recordedAt)].filter(Boolean).join(' · ')}
+            {[voiceNoteContextLabel(note), formatDateTime(note.recordedAt)].filter(Boolean).join(' · ')}
           </Text>
         </View>
         <Pill label={review.label} tone={review.tone} />
@@ -238,8 +248,13 @@ function VoiceNoteCard({ note }: { note: MobileVoiceNoteSummary }) {
   );
 }
 
-function shortAccountLabel(account: AccountSummary) {
-  return account.displayName.length > 22 ? `${account.displayName.slice(0, 21)}...` : account.displayName;
+function voiceNoteContextLabel(note: MobileVoiceNoteSummary) {
+  if (note.leadName) return note.leadName;
+  if (note.accountName) return note.accountName;
+  if (note.trainingSessionTitle) return note.trainingSessionTitle;
+  if (note.consignmentSiteName) return note.consignmentSiteName;
+  if (note.contextType === 'route_visit') return 'Route visit';
+  return 'General';
 }
 
 function formatDuration(seconds: number) {

@@ -10,7 +10,7 @@ test('blocks empty voice-note syncs before creating CRM noise', () => {
 
 test('builds account-scoped voice note requests without leaking empty fields', () => {
   const request = buildVoiceNoteCreateRequest({
-    accountId: 'account-1',
+    context: { type: 'account', id: 'account-1' },
     recordedAt: '2026-05-24T12:00:00.000Z',
     title: ' Dealer recap ',
     transcriptText: ' Follow up with quote. ',
@@ -32,6 +32,65 @@ test('builds account-scoped voice note requests without leaking empty fields', (
     recordedAt: '2026-05-24T12:00:00.000Z',
     transcriptText: 'General reminder.',
   });
+});
+
+test('builds simple contextual voice-note requests for mobile work', () => {
+  const recordedAt = '2026-05-24T12:00:00.000Z';
+
+  assert.deepEqual(buildVoiceNoteCreateRequest({
+    context: { type: 'lead', id: 'lead-1' },
+    recordedAt,
+    transcriptText: 'Lead follow-up.',
+  }), {
+    contextType: 'lead',
+    leadId: 'lead-1',
+    recordedAt,
+    transcriptText: 'Lead follow-up.',
+  });
+
+  assert.deepEqual(buildVoiceNoteCreateRequest({
+    context: { type: 'training_session', id: 'training-1' },
+    recordedAt,
+    transcriptText: 'Training recap.',
+  }), {
+    contextType: 'training_session',
+    trainingSessionId: 'training-1',
+    recordedAt,
+    transcriptText: 'Training recap.',
+  });
+
+  assert.deepEqual(buildVoiceNoteCreateRequest({
+    context: { type: 'consignment_site', id: 'site-1' },
+    recordedAt,
+    transcriptText: 'Consignment note.',
+  }), {
+    consignmentSiteId: 'site-1',
+    contextType: 'consignment_site',
+    recordedAt,
+    transcriptText: 'Consignment note.',
+  });
+
+  assert.deepEqual(buildVoiceNoteCreateRequest({
+    context: { type: 'route_visit', id: 'route-local-1' },
+    recordedAt,
+    transcriptText: 'Route note.',
+  }), {
+    contextType: 'route_visit',
+    recordedAt,
+    routeVisitLocalId: 'route-local-1',
+    transcriptText: 'Route note.',
+  });
+});
+
+test('requires target ids for entity-scoped voice notes', () => {
+  assert.match(getVoiceNoteSubmitBlocker({
+    audioUri: 'file:///note.m4a',
+    context: { type: 'lead', id: ' ' },
+  }) ?? '', /Choose a lead/i);
+  assert.equal(getVoiceNoteSubmitBlocker({
+    audioUri: 'file:///note.m4a',
+    context: { type: 'general' },
+  }), null);
 });
 
 test('maps audio mime types and review copy for field users', () => {

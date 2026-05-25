@@ -35,6 +35,7 @@ output/
 
 # editor / system
 .DS_Store
+.claude/
 .idea/
 .vscode/
 

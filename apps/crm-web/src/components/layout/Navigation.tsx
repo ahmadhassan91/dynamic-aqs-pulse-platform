@@ -9,7 +9,6 @@ import {
   IconCalendar,
   IconChevronRight,
   IconClipboardList,
-  IconHome,
   IconMapPin,
   IconPackage,
   IconPhoto,
@@ -103,17 +102,19 @@ export function Navigation() {
   const navItems: LinksGroupProps[] = [];
   const territoryNavigationLinks = getTerritoryNavigationLinks();
 
+  // Calendar — single consistent slot at the top whenever the user has access,
+  // regardless of which other modules they can see.
+  if (!role || canAccessModule(role, 'calendar')) {
+    navItems.push({ label: 'Calendar', icon: IconCalendar, link: '/calendar' });
+  }
+
   if (!role || canAccessModule(role, 'leads')) {
-    navItems.push({ label: 'Home', icon: IconHome, link: '/leads' });
-    if (!role || canAccessModule(role, 'calendar')) {
-      navItems.push({ label: 'Calendar', icon: IconCalendar, link: '/calendar' });
-    }
     navItems.push({
-      label: 'Lead Management',
+      label: 'Leads',
       icon: IconUserPlus,
       initiallyOpened: true,
       links: [
-        { label: 'Lead Pipeline', link: '/leads' },
+        { label: 'Pipeline', link: '/leads' },
         { label: 'Website Forms', link: '/leads/forms' },
         { label: 'Workflow Queue', link: '/leads/activities' },
         ...(role && canAccessModule(role, 'cis') ? [{ label: 'Finance Queue', link: '/leads/finance' }] : []),
@@ -122,13 +123,9 @@ export function Navigation() {
     });
   }
 
-  if (role && !canAccessModule(role, 'leads') && canAccessModule(role, 'calendar')) {
-    navItems.push({ label: 'Calendar', icon: IconCalendar, link: '/calendar' });
-  }
-
   if (role && canAccessModule(role, 'territories')) {
     navItems.push({
-      label: 'Territory Management',
+      label: 'Territories',
       icon: IconMapPin,
       links: territoryNavigationLinks,
     });
@@ -136,28 +133,24 @@ export function Navigation() {
 
   if (role && canAccessModule(role, 'customers')) {
     navItems.push({
-      label: 'Account Management',
+      label: 'Accounts',
       icon: IconBuildingStore,
       links: [
         { label: 'All Accounts', link: '/customers' },
-        { label: 'Field Activity Review', link: '/customers/field-activity' },
+        { label: 'Field Activity', link: '/customers/field-activity' },
       ],
     });
   }
 
+  // Consignment is a single-screen module — flattened from a one-child collapsible
+  // into a direct link, so users reach it in one click.
   if (role && canAccessModule(role, 'consignment')) {
-    navItems.push({
-      label: 'Consignment',
-      icon: IconClipboardList,
-      links: [
-        { label: 'Dashboard & Sites', link: '/consignment' },
-      ],
-    });
+    navItems.push({ label: 'Consignment', icon: IconClipboardList, link: '/consignment' });
   }
 
   if (role && canAccessModule(role, 'product_management')) {
     navItems.push({
-      label: 'Product Management',
+      label: 'Products',
       icon: IconPackage,
       links: [
         { label: 'Who Sees It', link: '/product-management?tab=visibility' },
@@ -182,14 +175,10 @@ export function Navigation() {
     });
   }
 
+  // Training is a single-screen module — flattened from a one-child collapsible
+  // into a direct link.
   if (role && canAccessModule(role, 'training')) {
-    navItems.push({
-      label: 'Training',
-      icon: IconSchool,
-      links: [
-        { label: 'Training Dashboard', link: '/training' },
-      ],
-    });
+    navItems.push({ label: 'Training', icon: IconSchool, link: '/training' });
   }
 
   if (role && canAccessModule(role, 'admin')) {

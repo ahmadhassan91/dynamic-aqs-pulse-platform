@@ -12,6 +12,7 @@ import {
   Divider,
   FileInput,
   Group,
+  Menu,
   Modal,
   NumberInput,
   Paper,
@@ -32,6 +33,7 @@ import { useDisclosure } from '@mantine/hooks';
 import {
   IconArrowRight,
   IconChartBar,
+  IconChevronDown,
   IconChevronRight,
   IconClock,
   IconDownload,
@@ -76,6 +78,7 @@ import {
   previewLeadOcrCapture,
   transitionLeadStage,
 } from '@/lib/pulse-api';
+import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
 type LeadWorkspaceTab = 'overview' | 'pipeline' | 'analytics';
@@ -154,6 +157,7 @@ export function LeadWorkspace({
 }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const router = useRouter();
+  const canOpenFinanceQueue = Boolean(auth?.identity.role && canAccessModule(auth.identity.role, 'cis'));
   const [activeTab, setActiveTab] = useState<LeadWorkspaceTab>(initialTab);
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
@@ -627,8 +631,6 @@ export function LeadWorkspace({
               </Text>
               <Group gap="xs">
                 <Badge color="blue" variant="light">Residential Program</Badge>
-                <Badge color="cyan" variant="light">Pulse Website Intake</Badge>
-                <Badge color="blue" variant="light">Internal intake ready</Badge>
                 <Badge color="gray" variant="outline">Loaded {leads.length} of {totalLeads}</Badge>
               </Group>
             </Stack>
@@ -641,21 +643,51 @@ export function LeadWorkspace({
               >
                 New Intake
               </Button>
-              <Button component={Link} href="/leads/import" variant="light" leftSection={<IconFileUpload size={16} />}>
-                Import CSV
-              </Button>
-              <Button component={Link} href="/leads/forms" variant="light" color="cyan" leftSection={<IconWorld size={16} />}>
-                Website Forms
-              </Button>
-              <Button component={Link} href="/leads/activities" variant="light" color="orange" leftSection={<IconClock size={16} />}>
-                Workflow Queue
-              </Button>
-              <Button component={Link} href="/leads/finance" variant="light" color="indigo">
-                Open Finance Queue
-              </Button>
-              <Button variant="default" leftSection={<IconDownload size={16} />} onClick={exportVisibleLeads}>
-                Export Report
-              </Button>
+              <Menu position="bottom-end" withinPortal shadow="md" width={220}>
+                <Menu.Target>
+                  <Button variant="default" rightSection={<IconChevronDown size={14} />}>
+                    More actions
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>Intake</Menu.Label>
+                  <Menu.Item
+                    component={Link}
+                    href="/leads/import"
+                    leftSection={<IconFileUpload size={14} />}
+                  >
+                    Import CSV
+                  </Menu.Item>
+                  <Menu.Item
+                    component={Link}
+                    href="/leads/forms"
+                    leftSection={<IconWorld size={14} />}
+                  >
+                    Website Forms
+                  </Menu.Item>
+                  <Menu.Label>Workflow</Menu.Label>
+                  <Menu.Item
+                    component={Link}
+                    href="/leads/activities"
+                    leftSection={<IconClock size={14} />}
+                  >
+                    Workflow Queue
+                  </Menu.Item>
+                  {canOpenFinanceQueue ? (
+                    <Menu.Item
+                      component={Link}
+                      href="/leads/finance"
+                      leftSection={<IconClock size={14} />}
+                    >
+                      Finance Queue
+                    </Menu.Item>
+                  ) : null}
+                  <Menu.Divider />
+                  <Menu.Item leftSection={<IconDownload size={14} />} onClick={exportVisibleLeads}>
+                    Export Report
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
             </Group>
           </Group>
         </Paper>
@@ -718,7 +750,7 @@ export function LeadWorkspace({
                 <MetricCard label="Ready for first order" value={String(leads.filter((lead) => lead.stage === 'onboarding_completed').length)} icon={IconTarget} color="teal" />
               </SimpleGrid>
 
-              <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="md">
+              <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
                 <ActionCard
                   title="Kanban Workflow"
                   description="Run the residential workflow visually from new lead through first-order activation."
@@ -742,38 +774,6 @@ export function LeadWorkspace({
                   }}
                 />
                 <ActionCard
-                  title="Referral / Event Intake"
-                  description="Log a referral, phone-qualified, or trade-show lead into the same governed workflow."
-                  actionLabel="New Intake"
-                  icon={IconPlus}
-                  color="green"
-                  onClick={openCreateLead}
-                />
-                <ActionCard
-                  title="Website Forms"
-                  description="Review the branded homeowner and contractor forms, recent intake volume, and live embed coverage across the approved sites."
-                  actionLabel="Open Forms"
-                  icon={IconWorld}
-                  color="grape"
-                  href="/leads/forms"
-                />
-                <ActionCard
-                  title="Workflow Queue"
-                  description="Review calls, emails, and next actions generated from live lead stage, SLA, and CIS handoff state."
-                  actionLabel="Open Queue"
-                  icon={IconClock}
-                  color="orange"
-                  href="/leads/activities"
-                />
-                <ActionCard
-                  title="Lead Import"
-                  description="Upload CSV/XLSX files, map headers, and push rows into the governed lead import API."
-                  actionLabel="Open Import"
-                  icon={IconFileUpload}
-                  color="grape"
-                  href="/leads/import"
-                />
-                <ActionCard
                   title="Latest Intake"
                   description={latestLead ? `Open ${latestLead.companyName} and review the live lead record.` : 'New leads will appear here once intake starts landing in the production workspace.'}
                   actionLabel={latestLead ? 'Open Record' : 'Open Pipeline'}
@@ -786,14 +786,6 @@ export function LeadWorkspace({
                       setActiveTab('pipeline');
                     }
                   }}
-                />
-                <ActionCard
-                  title="Finance Queue"
-                  description="Open the live queue for CIS packages awaiting finance submission or decision."
-                  actionLabel="Open Queue"
-                  icon={IconClock}
-                  color="indigo"
-                  href="/leads/finance"
                 />
               </SimpleGrid>
             </Stack>

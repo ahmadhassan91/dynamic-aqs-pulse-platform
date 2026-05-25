@@ -16,6 +16,7 @@ import {
   Badge,
   Group,
   Paper,
+  Progress,
   SimpleGrid,
   Stack,
   Table,
@@ -443,20 +444,21 @@ function Metric({
 }
 
 function CoverageStat({ label, pct, threshold }: { label: string; pct: number; threshold: number }) {
-  const tone: 'teal' | 'orange' = pct >= threshold ? 'teal' : 'orange';
+  const tone: 'teal' | 'orange' | 'red' = pct >= threshold ? 'teal' : pct < threshold / 2 ? 'red' : 'orange';
   return (
-    <Stack gap={2}>
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-      <Group gap={6} align="baseline">
-        <Title order={4} c={tone}>
-          {pct}
-        </Title>
+    <Stack gap={4} style={{ flex: 1, minWidth: 72 }}>
+      <Group justify="space-between" gap={6} wrap="nowrap">
         <Text size="xs" c="dimmed">
-          %
+          {label}
+        </Text>
+        <Text size="xs" fw={700} c={tone}>
+          {pct}%
         </Text>
       </Group>
+      <Progress value={Math.min(pct, 100)} color={tone} size="sm" radius="xl" />
+      <Text size="10px" c="dimmed">
+        Target {threshold}%
+      </Text>
     </Stack>
   );
 }

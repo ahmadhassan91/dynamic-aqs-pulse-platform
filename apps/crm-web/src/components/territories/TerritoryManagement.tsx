@@ -876,106 +876,59 @@ export function TerritoryManagement({
               ownerMetrics={dashboardData.ownerMetrics}
             />
 
-            <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+            <SimpleGrid cols={{ base: 1, xl: canViewCustomers ? 2 : 1 }} spacing="lg">
               <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
                 <Stack gap="md">
-                  <Group gap="sm">
-                    <ThemeIcon radius="xl" color="blue" variant="light">
-                      <IconMapPin size={18} />
-                    </ThemeIcon>
-                    <div>
-                      <Title order={4}>Regional coverage snapshot</Title>
-                      <Text size="sm" c="dimmed">
-                        Server-owned rollups for director ownership, workload, and coverage posture.
-                      </Text>
-                    </div>
-                  </Group>
-                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                    {dashboardData.regionRollups.map((region) => (
-                      <Paper key={region.regionId} withBorder radius="lg" p="md">
-                        <Stack gap="xs">
-                          <Group justify="space-between" align="flex-start">
-                            <div>
-                              <Text fw={700}>{region.regionName}</Text>
-                              <Text size="xs" c="dimmed">
-                                {region.regionCode}
-                              </Text>
-                            </div>
-                            <Badge color="blue" variant="light">
-                              {region.territoryCount} territories
-                            </Badge>
-                          </Group>
-                          <Text size="sm" c="dimmed">
-                            Regional director: {region.directorUserName ?? 'Unassigned'}
-                          </Text>
-                          <Text size="sm" c="dimmed">
-                            {region.activeLeadCount} active leads · {region.activeAccountCount} active accounts · {region.coveredStates} covered states
-                          </Text>
-                          <Group gap={6} wrap="wrap">
-                            <Badge size="sm" radius="xl" variant="light" color={region.territoriesMissingManager > 0 ? 'orange' : 'teal'}>
-                              {region.territoriesMissingManager} missing TM
-                            </Badge>
-                            <Badge
-                              size="sm"
-                              radius="xl"
-                              variant="light"
-                              color={region.territoriesMissingShippingCenter > 0 ? 'orange' : 'teal'}
-                            >
-                              {region.territoriesMissingShippingCenter} missing shipping
-                            </Badge>
-                          </Group>
-                        </Stack>
-                      </Paper>
-                    ))}
-                  </SimpleGrid>
-                </Stack>
-              </Paper>
-
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group gap="sm">
-                  <ThemeIcon radius="xl" color="orange" variant="light">
-                    <IconUsers size={18} />
-                    </ThemeIcon>
-                    <div>
-                      <Title order={4}>Lead assignment watchlist</Title>
-                      <Text size="sm" c="dimmed">
-                        These live leads still need territory ownership cleanup or review.
-                      </Text>
-                    </div>
+                  <Group justify="space-between" align="flex-start">
+                    <Group gap="sm">
+                      <ThemeIcon radius="xl" color={unassignedLeads.length > 0 ? 'orange' : 'teal'} variant="light">
+                        <IconUsers size={18} />
+                      </ThemeIcon>
+                      <div>
+                        <Title order={4}>Lead assignment watchlist</Title>
+                        <Text size="sm" c="dimmed">
+                          Live leads still needing territory ownership.
+                        </Text>
+                      </div>
+                    </Group>
+                    {unassignedLeads.length > 0 ? (
+                      <Badge color="orange" variant="light" size="lg">
+                        {unassignedLeads.length}
+                      </Badge>
+                    ) : null}
                   </Group>
                   {unassignedLeads.length > 0 ? (
-                    <Stack gap="sm">
+                    <Stack gap={6}>
                       {unassignedLeads.slice(0, 6).map((lead) => (
-                        <Paper key={lead.id} withBorder radius="lg" p="md">
-                          <Group justify="space-between" align="flex-start" gap="md">
-                            <div>
-                              <Text fw={700}>{lead.companyName}</Text>
-                              <Text size="sm" c="dimmed">
+                        <Paper key={lead.id} withBorder radius="md" px="md" py="xs">
+                          <Group justify="space-between" align="center" gap="md" wrap="nowrap">
+                            <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+                              <Text fw={600} size="sm" lineClamp={1}>{lead.companyName}</Text>
+                              <Text size="xs" c="dimmed" lineClamp={1}>
                                 {lead.state ?? 'State missing'} · {formatRoutingTeam(lead.routingTeam)} · {lead.stage.replace(/_/g, ' ')}
                               </Text>
-                            </div>
-                            <Stack gap="xs" align="flex-end">
-                              <Badge color="orange" variant="light">
-                                Needs assignment
-                              </Badge>
-                              <Group gap="xs">
-                                <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="xs">
-                                  Open lead
-                                </Button>
-                                {canReassignTerritory ? (
-                                  <Button variant="light" size="xs" onClick={() => openReassignmentModal(lead)}>
-                                    Assign territory
-                                  </Button>
-                                ) : null}
-                                <Button variant="subtle" size="xs" onClick={() => setHistoryLead(lead)}>
-                                  History
-                                </Button>
-                              </Group>
                             </Stack>
+                            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+                              <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="xs">
+                                Open
+                              </Button>
+                              {canReassignTerritory ? (
+                                <Button variant="light" size="xs" onClick={() => openReassignmentModal(lead)}>
+                                  Assign
+                                </Button>
+                              ) : null}
+                              <Button variant="subtle" size="xs" onClick={() => setHistoryLead(lead)}>
+                                History
+                              </Button>
+                            </Group>
                           </Group>
                         </Paper>
                       ))}
+                      {unassignedLeads.length > 6 ? (
+                        <Text size="xs" c="dimmed" ta="center">
+                          Showing 6 of {unassignedLeads.length} — open the workflow queue to see the rest.
+                        </Text>
+                      ) : null}
                     </Stack>
                   ) : (
                     <Text size="sm" c="dimmed">
@@ -984,63 +937,70 @@ export function TerritoryManagement({
                   )}
                 </Stack>
               </Paper>
-            </SimpleGrid>
 
-            {canViewCustomers ? (
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group gap="sm">
-                    <ThemeIcon radius="xl" color="teal" variant="light">
-                      <IconBuilding size={18} />
-                    </ThemeIcon>
-                    <div>
-                      <Title order={4}>Customer ownership watchlist</Title>
-                      <Text size="sm" c="dimmed">
-                        Active customer accounts whose territory ownership still needs cleanup or verification.
-                      </Text>
-                    </div>
-                  </Group>
-                  {unassignedAccounts.length > 0 ? (
-                    <Stack gap="sm">
-                      {unassignedAccounts.slice(0, 6).map((account) => (
-                        <Paper key={account.id} withBorder radius="lg" p="md">
-                          <Group justify="space-between" align="flex-start" gap="md">
-                            <div>
-                              <Text fw={700}>{account.displayName}</Text>
-                              <Text size="sm" c="dimmed">
-                                {formatAccountLifecycle(account.lifecycleStatus)} · {account.accountType ?? 'Customer'}
-                              </Text>
-                            </div>
-                            <Stack gap="xs" align="flex-end">
-                              <Badge color="orange" variant="light">
-                                Needs assignment
-                              </Badge>
-                              <Group gap="xs">
+              {canViewCustomers ? (
+                <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+                  <Stack gap="md">
+                    <Group justify="space-between" align="flex-start">
+                      <Group gap="sm">
+                        <ThemeIcon radius="xl" color={unassignedAccounts.length > 0 ? 'orange' : 'teal'} variant="light">
+                          <IconBuilding size={18} />
+                        </ThemeIcon>
+                        <div>
+                          <Title order={4}>Customer ownership watchlist</Title>
+                          <Text size="sm" c="dimmed">
+                            Active customer accounts needing territory cleanup.
+                          </Text>
+                        </div>
+                      </Group>
+                      {unassignedAccounts.length > 0 ? (
+                        <Badge color="orange" variant="light" size="lg">
+                          {unassignedAccounts.length}
+                        </Badge>
+                      ) : null}
+                    </Group>
+                    {unassignedAccounts.length > 0 ? (
+                      <Stack gap={6}>
+                        {unassignedAccounts.slice(0, 6).map((account) => (
+                          <Paper key={account.id} withBorder radius="md" px="md" py="xs">
+                            <Group justify="space-between" align="center" gap="md" wrap="nowrap">
+                              <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+                                <Text fw={600} size="sm" lineClamp={1}>{account.displayName}</Text>
+                                <Text size="xs" c="dimmed" lineClamp={1}>
+                                  {formatAccountLifecycle(account.lifecycleStatus)} · {account.accountType ?? 'Customer'}
+                                </Text>
+                              </Stack>
+                              <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
                                 <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="xs">
-                                  Open account
+                                  Open
                                 </Button>
                                 {canReassignTerritory ? (
                                   <Button variant="light" size="xs" onClick={() => openAccountReassignmentModal(account)}>
-                                    Assign territory
+                                    Assign
                                   </Button>
                                 ) : null}
                                 <Button variant="subtle" size="xs" onClick={() => setHistoryAccount(account)}>
                                   History
                                 </Button>
                               </Group>
-                            </Stack>
-                          </Group>
-                        </Paper>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Text size="sm" c="dimmed">
-                      Active customer accounts currently have a maintained territory assignment.
-                    </Text>
-                  )}
-                </Stack>
-              </Paper>
-            ) : null}
+                            </Group>
+                          </Paper>
+                        ))}
+                        {unassignedAccounts.length > 6 ? (
+                          <Text size="xs" c="dimmed" ta="center">
+                            Showing 6 of {unassignedAccounts.length} — open the account list to see the rest.
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    ) : (
+                      <Text size="sm" c="dimmed">
+                        Active customer accounts currently have a maintained territory assignment.
+                      </Text>
+                    )}
+                  </Stack>
+                </Paper>
+              ) : null}
+            </SimpleGrid>
           </Stack>
         </Tabs.Panel>
 

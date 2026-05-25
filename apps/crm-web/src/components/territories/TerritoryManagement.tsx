@@ -797,41 +797,18 @@ export function TerritoryManagement({
     <Stack gap="lg">
       <Paper withBorder radius="xl" p="xl" className="premium-hero-panel">
         <Group justify="space-between" align="flex-start" gap="xl">
-          <Stack gap="sm" maw={840}>
-            <Text size="xs" fw={700} tt="uppercase" c="blue.7" style={{ letterSpacing: '0.12em' }}>
-              Pulse CRM / Territory Management
-            </Text>
+          <Stack gap="xs" maw={840}>
             <Title order={1}>Territory Management</Title>
-            <Text c="dimmed" size="lg">
-              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs •
-              {' '}Live coverage from account, lead, training, and consignment state
+            <Text c="dimmed" size="sm">
+              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs • Live coverage from account, lead, training, and consignment state.
             </Text>
-            <Group gap="sm" wrap="wrap">
-              <Badge size="lg" radius="xl" color="blue" variant="light">Live Territory Coverage</Badge>
-              <Badge size="lg" radius="xl" color="teal" variant="light">Lead + Account Routing</Badge>
-              <Badge size="lg" radius="xl" color="orange" variant="light">Audit + Training Signal</Badge>
-            </Group>
             {policy ? (
-              <Group gap="xs" wrap="wrap">
-                <PolicyBadge
-                  label="Pre-handoff TM visibility"
-                  active={policy.preHandoffTmVisibility}
-                  activeLabel="Visible"
-                  inactiveLabel="Hidden"
-                />
-                <PolicyBadge
-                  label="National TM default"
-                  active={policy.assignNationalTmLeadsByDefault}
-                  activeLabel="Enabled"
-                  inactiveLabel="Disabled"
-                />
-                <PolicyBadge
-                  label="Strategic Growth retention"
-                  active={policy.strategicGrowthRetainsOwnership}
-                  activeLabel="Retained"
-                  inactiveLabel="Released"
-                />
-              </Group>
+              <Text c="dimmed" size="xs" mt={4}>
+                <Text component="span" fw={600} c="dimmed">Workspace policy:</Text>{' '}
+                Pre-handoff TM visibility {policy.preHandoffTmVisibility ? 'visible' : 'hidden'} ·
+                National TM default {policy.assignNationalTmLeadsByDefault ? 'enabled' : 'disabled'} ·
+                Strategic Growth ownership {policy.strategicGrowthRetainsOwnership ? 'retained' : 'released'}
+              </Text>
             ) : null}
           </Stack>
 
@@ -842,10 +819,10 @@ export function TerritoryManagement({
               loading={isLoading}
               onClick={() => setRefreshNonce((value) => value + 1)}
             >
-              Refresh workspace
+              Refresh
             </Button>
             <Button component={Link} href="/leads/activities" rightSection={<IconArrowRight size={16} />}>
-              Open workflow queue
+              Workflow queue
             </Button>
           </Group>
         </Group>

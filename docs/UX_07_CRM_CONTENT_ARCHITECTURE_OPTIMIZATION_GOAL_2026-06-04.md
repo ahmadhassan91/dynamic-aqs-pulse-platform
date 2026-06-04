@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-H deployed and QA passed; Slice I Product Management clarity local QA passed; deploy pending`
+Status: `In Progress - Slices A-I deployed and QA passed; next consignment/table-density pass pending`
 
 ## Product Design Brief
 
@@ -40,7 +40,7 @@ Internal evidence is even stronger:
 | --- | --- | --- | --- |
 | Leads + Accounts | Lead Management and Account Management | Leads still expose metrics, tabs, filters, board/list, and attention surfaces together; Accounts are mostly improved after UX-06 Slice B. | Make Leads a list-first next-action queue; demote Kanban and metrics to modes/Insights. |
 | Territory | Territory Management | Territory remains the strongest mismatch: `Dashboard`, `Map View`, `Territory List`, metrics, and setup/reporting compete before RD/TM daily work. | Make `Needs attention` the default action queue; move map/list/performance/setup into More or drill-ins. |
-| Product + Assets + Dealer Portal | Product Management, Digital Assets, Dealer Portal | Slice I keeps Product Management readable as a product-review workspace: Products needing review, Who Sees What, Catalog sections, SKU families, and source-file review only under Setup. | Deploy Slice I and run live Product Management smoke, then move to Digital Assets/Consignment second-click density if first-paint clarity remains green. |
+| Product + Assets + Dealer Portal | Product Management, Digital Assets, Dealer Portal | Slice I keeps Product Management readable as a product-review workspace: Products needing review, Who Sees What, Catalog sections, SKU families, and source-file review only under Setup. | Move to Digital Assets/Consignment second-click density if first-paint clarity remains green during client UAT. |
 | Training + Consignment | Training, Consignment | Slice F now splits Training completion into guided steps and compacts Consignment site detail around the current site work. | Keep the guided flow; next pass should be role/persona signoff and any remaining deep-detail polish, not new parked dependency work. |
 | Admin + Calendar + Navigation | Admin, Roles/Permissions, Calendar, App Shell | Admin integrations stack multiple setup panels; Calendar is improved but still mixes schedule grid, health, and metrics; nav labels can drift from current defaults. | Add integration selector; keep Calendar schedule + Day Health only; align nav labels with default work surfaces. |
 | Requirements + Meeting Sentiment | Meetings and requirements maps | The strongest business requirement is not “show everything”; it is reduce manual work and friction while keeping truth/audit intact. | Optimize default hierarchy and language first, without weakening governance. |
@@ -365,7 +365,7 @@ Proof passed:
 
 Purpose: make Product Management understandable to client users as a governed dealer-catalog workbench, not a schema/admin/import screen.
 
-Status: `Implemented - local typecheck, focused Playwright, and critical clutter QA passed; deployment pending`
+Status: `Implemented - local typecheck, focused Playwright, critical clutter QA, deployed smoke, and live Product Management smoke passed`
 
 Delivered so far:
 
@@ -397,6 +397,9 @@ Proof passed:
 - `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "product" --workers=1 --max-failures=1`
 - `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "advanced tables" --workers=1 --max-failures=1`
 - `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- Manual EC2 release `manual-20260605025703-ux07-slice-i` deployed to `https://pulse-crm.theclustox.com`.
+- Deployed smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, expected parked Acumatica false/503, and `pulse-api`, `pulse-web`, and `nginx` were active.
+- Deployed live UI smoke passed for `/product-management` and `/product-management?tab=visibility` using an API-backed Super Admin session; results/screenshots: `output/playwright/ux-07-slice-i-live/`.
 
 Static proof for each slice:
 
@@ -424,6 +427,6 @@ These must not be pulled into first-paint UI while optimizing:
 
 ## Recommended Next Slice
 
-After Slice I deploys, move to a **targeted consignment/business-depth and table-density pass** only where operators still cannot scan the next action quickly.
+After Slice I deployed proof, move to a **targeted consignment/business-depth and table-density pass** only where operators still cannot scan the next action quickly.
 
-The local critical clutter report, focused Training/Consignment E2E flow, Admin flow, Dealer catalog personas, UX-07 role/persona signoff, public deploy probe, deployed Super Admin/RD/TM/dealer smoke, and local Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten the remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.
+The local critical clutter report, focused Training/Consignment E2E flow, Admin flow, Dealer catalog personas, UX-07 role/persona signoff, public deploy probe, deployed Super Admin/RD/TM/dealer smoke, and deployed Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten the remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.

@@ -31,6 +31,7 @@ export default function VoiceNotesScreen() {
   const [title, setTitle] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
   const voiceNotes = useMobileVoiceNotes();
+  const screenError = voiceNotes.errorMessage ?? contextError;
 
   useEffect(() => {
     void voiceNotes.loadNotes();
@@ -59,12 +60,11 @@ export default function VoiceNotesScreen() {
     <Screen>
       <HeroCard title="Voice Notes" eyebrow="Field capture" icon={{ name: 'mic.circle.fill', fallback: 'V' }}>
         <Text selectable style={{ ...typography.callout, color: '#DBEAFE' }}>
-          Speak or type the field note, attach it to the right CRM context, then sync it into Pulse CRM for review.
+          Record or type one field update, attach the right context, then send it to CRM for office review.
         </Text>
       </HeroCard>
 
-      {voiceNotes.errorMessage ? <ErrorState message={voiceNotes.errorMessage} /> : null}
-      {contextError ? <ErrorState message={contextError} /> : null}
+      {screenError ? <ErrorState message={screenError} /> : null}
 
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
@@ -73,7 +73,7 @@ export default function VoiceNotesScreen() {
               Capture note
             </Text>
             <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-              {selectedContext.detail ? `${selectedContext.label} · ${selectedContext.detail}` : selectedContext.label}
+              Next: record or type the update for {selectedContext.detail ? `${selectedContext.label} · ${selectedContext.detail}` : selectedContext.label}.
             </Text>
           </View>
           <Pill label={voiceNotes.isRecording ? 'recording' : voiceNotes.audioUri ? 'ready' : 'idle'} tone={voiceNotes.isRecording ? 'warning' : voiceNotes.audioUri ? 'ready' : 'pending'} />
@@ -111,9 +111,12 @@ export default function VoiceNotesScreen() {
             <SecondaryButton label="Clear" icon={{ name: 'xmark', fallback: 'X' }} onPress={voiceNotes.clearRecording} disabled={voiceNotes.isRecording || voiceNotes.isSubmitting} />
           </View>
         </View>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          Keep the app open while sending. Background upload, push reminders, and deep links remain parked for this mobile slice.
+        </Text>
       </Card>
 
-      <SectionTitle title="CRM context" detail="Attach the note where the office team will look first." />
+      <SectionTitle title="CRM context" detail="Choose the record the office team should review first. Leave General only when the note is not tied to a customer or visit." />
       {isLoadingContexts ? <LoadingState label="Loading CRM contexts..." /> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         {contextOptions.map((option) => (
@@ -132,13 +135,13 @@ export default function VoiceNotesScreen() {
           label="Transcript or quick note"
           value={transcriptText}
           onChangeText={setTranscriptText}
-          placeholder="Type a backup note or edit the transcript before sync."
+          placeholder="Type a backup note or short summary before sync."
           multiline
           textAlignVertical="top"
           style={{ minHeight: 116 }}
         />
         <PrimaryButton
-          label={voiceNotes.isSubmitting ? 'Syncing...' : 'Structure & sync'}
+          label={voiceNotes.isSubmitting ? 'Sending...' : 'Sync for office review'}
           icon={{ name: 'arrow.up.doc.fill', fallback: 'Sync' }}
           disabled={voiceNotes.isSubmitting || voiceNotes.isRecording}
           onPress={() => void submit()}
@@ -147,12 +150,12 @@ export default function VoiceNotesScreen() {
 
       {voiceNotes.savedNote ? <SavedNoteCard note={voiceNotes.savedNote} /> : null}
 
-      <SectionTitle title="Recent voice notes" detail="Notes created from this device session." />
+      <SectionTitle title="Recent voice notes" detail="Use the review label to see whether the office has approved the note or needs more detail." />
       {voiceNotes.isLoadingNotes ? <LoadingState label="Loading voice notes..." /> : null}
       <View style={{ gap: spacing.md }}>
         {voiceNotes.notes.map((note) => <VoiceNoteCard key={note.id} note={note} />)}
         {!voiceNotes.notes.length && !voiceNotes.isLoadingNotes ? (
-          <EmptyState title="No voice notes yet" detail="Captured notes will appear here after CRM sync." />
+          <EmptyState title="No synced voice notes yet" detail="Record or type a note above, choose a context, then sync it for office review." />
         ) : null}
       </View>
     </Screen>

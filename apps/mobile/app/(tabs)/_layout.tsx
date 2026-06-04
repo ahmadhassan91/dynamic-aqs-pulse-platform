@@ -1,7 +1,7 @@
 import { Tabs, router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { NativeIcon } from '@/components/native-kit';
-import { useMobileDraftQueue } from '@/lib/mobile-draft-queue';
+import { useMobileNextActions } from '@/hooks/use-mobile-next-actions';
 import { colors } from '@/theme';
 
 const icons: Record<string, { name: string; fallback: string }> = {
@@ -11,20 +11,20 @@ const icons: Record<string, { name: string; fallback: string }> = {
   route: { name: 'map.fill', fallback: 'R' },
   'voice-notes': { name: 'mic.circle.fill', fallback: 'V' },
   consignment: { name: 'shippingbox.fill', fallback: 'C' },
-  assets: { name: 'photo.on.rectangle.angled', fallback: 'M' },
+  more: { name: 'ellipsis.circle.fill', fallback: 'M' },
   training: { name: 'graduationcap.fill', fallback: 'T' },
 };
 
 export default function TabsLayout() {
-  const drafts = useMobileDraftQueue();
-  const unsyncedDraftCount = drafts.filter((draft) => draft.status !== 'synced').length;
+  const { nextActions } = useMobileNextActions();
+  const notificationCount = nextActions.badgeCount;
 
   return (
     <Tabs
       screenOptions={({ route }) => ({
         headerStyle: { backgroundColor: colors.background },
         headerShadowVisible: false,
-        headerRight: () => <HeaderBellButton count={unsyncedDraftCount} />,
+        headerRight: () => <HeaderBellButton count={notificationCount} />,
         headerTitleStyle: { color: colors.text, fontWeight: '800' },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
@@ -51,14 +51,14 @@ export default function TabsLayout() {
         ),
       })}
     >
-      <Tabs.Screen name="index" options={{ title: 'Field Home', tabBarLabel: 'Home' }} />
-      <Tabs.Screen name="leads" options={{ title: 'Lead Inbox', tabBarLabel: 'Leads' }} />
-      <Tabs.Screen name="accounts" options={{ title: 'Accounts', tabBarLabel: 'Accounts' }} />
+      <Tabs.Screen name="index" options={{ title: 'Today', tabBarLabel: 'Today' }} />
       <Tabs.Screen name="route" options={{ title: 'Route Plan', tabBarLabel: 'Route' }} />
-      <Tabs.Screen name="voice-notes" options={{ title: 'Voice Notes', tabBarLabel: 'Notes' }} />
-      <Tabs.Screen name="consignment" options={{ title: 'Consignment', tabBarLabel: 'Consign' }} />
-      <Tabs.Screen name="assets" options={{ title: 'Asset Library', tabBarLabel: 'Assets' }} />
-      <Tabs.Screen name="training" options={{ title: 'Training', tabBarLabel: 'Training' }} />
+      <Tabs.Screen name="more" options={{ title: 'More', tabBarLabel: 'More' }} />
+      <Tabs.Screen name="leads" options={{ title: 'Lead Inbox', href: null }} />
+      <Tabs.Screen name="accounts" options={{ title: 'Accounts', href: null }} />
+      <Tabs.Screen name="voice-notes" options={{ title: 'Voice Notes', href: null }} />
+      <Tabs.Screen name="consignment" options={{ title: 'Consignment', href: null }} />
+      <Tabs.Screen name="training" options={{ title: 'Training', href: null }} />
     </Tabs>
   );
 }
@@ -67,7 +67,7 @@ function HeaderBellButton({ count }: { count: number }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={count > 0 ? `${count} sync notification${count === 1 ? '' : 's'}` : 'Open notifications'}
+      accessibilityLabel={count > 0 ? `${count} field notification${count === 1 ? '' : 's'}` : 'Open notifications'}
       onPress={() => router.push('/notifications')}
       style={({ pressed }) => ({
         width: 44,

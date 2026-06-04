@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type {
   TerritoryDashboardAlert,
   TerritoryDashboardCoverageSummary,
@@ -14,17 +15,21 @@ import type {
 } from '@pulse/contracts';
 import {
   Badge,
+  Button,
   Group,
   Paper,
   Progress,
   SimpleGrid,
   Stack,
   Table,
+  Tabs,
   Text,
   ThemeIcon,
   Title,
 } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
+
+type TerritoryDetailView = 'workload' | 'regions' | 'owners';
 
 export function TerritoryCommandDashboard({
   stats,
@@ -37,6 +42,7 @@ export function TerritoryCommandDashboard({
   queue,
   regionRollups,
   ownerMetrics,
+  canManageTerritorySetup = false,
 }: {
   stats: TerritoryDashboardStats;
   coverage: TerritoryDashboardCoverageSummary;
@@ -48,11 +54,14 @@ export function TerritoryCommandDashboard({
   queue: TerritoryDashboardQueueSummary;
   regionRollups: TerritoryDashboardRegionRollupSummary[];
   ownerMetrics: TerritoryDashboardOwnerMetricSummary[];
+  canManageTerritorySetup?: boolean;
 }) {
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [activeDetailView, setActiveDetailView] = useState<TerritoryDetailView>('workload');
   const territoriesMissingManager = queue.territoriesMissingManager;
   const territoriesMissingShipping = queue.territoriesMissingShippingCenter;
   const regionsMissingDirector = queue.regionsMissingDirector;
-  const hygieneIssues = territoriesMissingManager + territoriesMissingShipping + regionsMissingDirector;
+  const hygieneIssues = canManageTerritorySetup ? territoriesMissingManager + territoriesMissingShipping + regionsMissingDirector : 0;
   const alertDetailByLabel = new Map(alerts.map((alert) => [alert.label, alert.detail]));
   const coveredAttentionLabels = new Set([
     'Unassigned active leads',
@@ -66,357 +75,399 @@ export function TerritoryCommandDashboard({
 
   return (
     <Stack gap="lg">
-      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
+      <Paper withBorder radius="xl" p="lg" data-testid="territory-action-queue">
+        <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <Group gap="sm" align="flex-start">
+              <ThemeIcon radius="xl" color={attentionItemCount > 0 ? 'orange' : 'teal'} variant="light">
+                <IconAlertTriangle size={18} />
+              </ThemeIcon>
               <div>
-                <Title order={3}>Lead routing posture</Title>
-                <Text c="dimmed" size="sm" mt={4}>
-                  Where new lead volume is sitting in territory ownership right now.
+                <Title order={3}>Territory Action Queue</Title>
+                <Text size="sm" c="dimmed" mt={4}>
+                  {canManageTerritorySetup
+                    ? 'Fix assignment gaps, territory hygiene, and unassigned work before reviewing performance.'
+                    : 'Review scoped routing gaps and unassigned work before opening reports or maps.'}
                 </Text>
               </div>
-              <Badge color="blue" variant="light">
-                Live data
-              </Badge>
             </Group>
+            <Badge color={attentionItemCount > 0 ? 'orange' : 'teal'} variant="light">
+              {attentionItemCount} {attentionItemCount === 1 ? 'item' : 'items'}
+            </Badge>
+          </Group>
 
-            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-              <Metric label="Active Leads" value={stats.activeLeads} />
-              <Metric label="Unassigned" value={stats.unassignedLeads} tone={stats.unassignedLeads > 0 ? 'orange' : 'teal'} />
-              <Metric label="Strategic Growth" value={stats.strategicGrowthLeads} />
-              <Metric label="National TM" value={stats.nationalTmLeads} />
-            </SimpleGrid>
-
-            <Stack gap={6}>
-              <Group justify="space-between">
-                <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-                  Customer engagement coverage
-                </Text>
-                <Text size="xs" c={coverage.overdue90DayCount > 0 ? 'orange' : 'dimmed'}>
-                  {coverage.overdue90DayCount} accounts stale 90d+
-                </Text>
-              </Group>
-              <Group gap="lg">
-                <CoverageStat label="30-day" pct={coverage.engaged30DayPercent} threshold={75} />
-                <CoverageStat label="60-day" pct={coverage.engaged60DayPercent} threshold={85} />
-                <CoverageStat label="90-day" pct={coverage.engaged90DayPercent} threshold={90} />
-              </Group>
+          {attentionItemCount === 0 ? (
+            <Text size="sm" c="dimmed">
+              Everything looks clean — no routing gaps, no unassigned work, no territory hygiene issues.
+            </Text>
+          ) : (
+            <Stack gap="xs">
+              {queue.unassignedLeads > 0 ? (
+                <AttentionRow
+                  label="Unassigned active leads"
+                  detail={alertDetailByLabel.get('Unassigned active leads')}
+                  value={queue.unassignedLeads}
+                  tone="orange"
+                />
+              ) : null}
+              {queue.unassignedAccounts > 0 ? (
+                <AttentionRow
+                  label="Unassigned active accounts"
+                  detail={alertDetailByLabel.get('Unassigned active accounts')}
+                  value={queue.unassignedAccounts}
+                  tone="orange"
+                />
+              ) : null}
+              {canManageTerritorySetup && territoriesMissingManager > 0 ? (
+                <AttentionRow
+                  label="Territories missing a Manager"
+                  detail={alertDetailByLabel.get('Territories missing a Manager')}
+                  value={territoriesMissingManager}
+                  tone="orange"
+                />
+              ) : null}
+              {canManageTerritorySetup && territoriesMissingShipping > 0 ? (
+                <AttentionRow
+                  label="Territories missing a Shipping Center"
+                  detail={alertDetailByLabel.get('Territories missing a Shipping Center')}
+                  value={territoriesMissingShipping}
+                  tone="red"
+                />
+              ) : null}
+              {canManageTerritorySetup && regionsMissingDirector > 0 ? (
+                <AttentionRow
+                  label="Regions missing a Director"
+                  detail={alertDetailByLabel.get('Regions missing a Director')}
+                  value={regionsMissingDirector}
+                  tone="blue"
+                />
+              ) : null}
+              {additionalAlerts.map((alert) => (
+                <AttentionRow key={alert.label} label={alert.label} detail={alert.detail} tone={alert.tone} />
+              ))}
             </Stack>
-          </Stack>
-        </Paper>
+          )}
+        </Stack>
+      </Paper>
 
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
-              <Group gap="sm">
-                <ThemeIcon radius="xl" color={attentionItemCount > 0 ? 'orange' : 'teal'} variant="light">
-                  <IconAlertTriangle size={18} />
-                </ThemeIcon>
-                <div>
-                  <Title order={4}>Needs attention</Title>
-                  <Text size="sm" c="dimmed">
-                    Routing gaps, territory hygiene, and unassigned work in one place.
-                  </Text>
-                </div>
-              </Group>
-              <Badge color={attentionItemCount > 0 ? 'orange' : 'teal'} variant="light">
-                {attentionItemCount} {attentionItemCount === 1 ? 'item' : 'items'}
-              </Badge>
-            </Group>
-
-            {attentionItemCount === 0 ? (
-              <Text size="sm" c="dimmed">
-                Everything looks clean — no routing gaps, no unassigned work, no territory hygiene issues.
+      <Paper withBorder radius="xl" p="lg">
+        <Stack gap="md">
+          <Group justify="space-between" align="flex-start">
+            <div>
+              <Title order={4}>Performance details</Title>
+              <Text size="sm" c="dimmed" mt={4}>
+                Training, lifecycle, pipeline, territory, regional, and owner detail stay tucked away until leaders need the next layer.
               </Text>
-            ) : (
-              <Stack gap="xs">
-                {queue.unassignedLeads > 0 ? (
-                  <AttentionRow
-                    label="Unassigned active leads"
-                    detail={alertDetailByLabel.get('Unassigned active leads')}
-                    value={queue.unassignedLeads}
-                    tone="orange"
-                  />
-                ) : null}
-                {queue.unassignedAccounts > 0 ? (
-                  <AttentionRow
-                    label="Unassigned active accounts"
-                    detail={alertDetailByLabel.get('Unassigned active accounts')}
-                    value={queue.unassignedAccounts}
-                    tone="orange"
-                  />
-                ) : null}
-                {territoriesMissingManager > 0 ? (
-                  <AttentionRow
-                    label="Territories missing a Manager"
-                    detail={alertDetailByLabel.get('Territories missing a Manager')}
-                    value={territoriesMissingManager}
-                    tone="orange"
-                  />
-                ) : null}
-                {territoriesMissingShipping > 0 ? (
-                  <AttentionRow
-                    label="Territories missing a Shipping Center"
-                    detail={alertDetailByLabel.get('Territories missing a Shipping Center')}
-                    value={territoriesMissingShipping}
-                    tone="red"
-                  />
-                ) : null}
-                {regionsMissingDirector > 0 ? (
-                  <AttentionRow
-                    label="Regions missing a Director"
-                    detail={alertDetailByLabel.get('Regions missing a Director')}
-                    value={regionsMissingDirector}
-                    tone="blue"
-                  />
-                ) : null}
-                {additionalAlerts.map((alert) => (
-                  <AttentionRow key={alert.label} label={alert.label} detail={alert.detail} tone={alert.tone} />
-                ))}
-              </Stack>
-            )}
-          </Stack>
-        </Paper>
-      </SimpleGrid>
-
-      <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Title order={4}>Training penetration</Title>
-            <Badge color="grape" variant="light">
-              CRM-owned signal
-            </Badge>
+            </div>
+            <Button variant="light" size="xs" onClick={() => setIsDetailsOpen((current) => !current)}>
+              {isDetailsOpen ? 'Hide Details' : 'Show Details'}
+            </Button>
           </Group>
 
-          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-            <Metric label="Total Accounts" value={trainingPenetration.totalAccounts} />
-            <Metric label="Trained Accounts" value={trainingPenetration.trainedAccounts} tone="teal" />
-            <Metric label="Active Programs" value={trainingPenetration.activeProgramsCount} tone="blue" />
-            <Metric label="Penetration %" value={trainingPenetration.penetrationPercent} tone={trainingPenetration.penetrationPercent >= 75 ? 'teal' : 'orange'} />
-          </SimpleGrid>
+          {isDetailsOpen ? (
+            <Stack gap="lg">
+              <SimpleGrid cols={{ base: 1, xl: 5 }} spacing="lg">
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={5}>Lead routing posture</Title>
+                      <Badge color="blue" variant="light">
+                        Live data
+                      </Badge>
+                    </Group>
 
-          <Text size="sm" c="dimmed">
-            This gives RDs and territory leadership a clean answer to how much of the active account base has actually received training, using the CRM-owned training history instead of waiting on ERP reporting.
-          </Text>
+                    <SimpleGrid cols={{ base: 2, xl: 2 }} spacing="sm">
+                      <Metric label="Active Leads" value={stats.activeLeads} />
+                      <Metric label="Unassigned" value={stats.unassignedLeads} tone={stats.unassignedLeads > 0 ? 'orange' : 'teal'} />
+                      <Metric label="Strategic Growth" value={stats.strategicGrowthLeads} />
+                      <Metric label="National TM" value={stats.nationalTmLeads} />
+                    </SimpleGrid>
+
+                    <Text size="sm" c={coverage.overdue90DayCount > 0 ? 'orange' : 'dimmed'}>
+                      {coverage.overdue90DayCount} active accounts need a 90-day engagement review.
+                    </Text>
+                  </Stack>
+                </Paper>
+
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={5}>Engagement coverage</Title>
+                      <Badge color={coverage.overdue90DayCount > 0 ? 'orange' : 'teal'} variant="light">
+                        {coverage.overdue90DayCount} stale
+                      </Badge>
+                    </Group>
+
+                    <Stack gap="sm">
+                      <CoverageStat label="30-day" pct={coverage.engaged30DayPercent} threshold={75} />
+                      <CoverageStat label="60-day" pct={coverage.engaged60DayPercent} threshold={85} />
+                      <CoverageStat label="90-day" pct={coverage.engaged90DayPercent} threshold={90} />
+                    </Stack>
+                  </Stack>
+                </Paper>
+
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={5}>Training penetration</Title>
+                      <Badge color="grape" variant="light">
+                        CRM signal
+                      </Badge>
+                    </Group>
+
+                    <SimpleGrid cols={{ base: 2, md: 4, xl: 2 }} spacing="sm">
+                      <Metric label="Total Accounts" value={trainingPenetration.totalAccounts} />
+                      <Metric label="Trained Accounts" value={trainingPenetration.trainedAccounts} tone="teal" />
+                      <Metric label="Active Programs" value={trainingPenetration.activeProgramsCount} tone="blue" />
+                      <Metric label="Penetration %" value={trainingPenetration.penetrationPercent} tone={trainingPenetration.penetrationPercent >= 75 ? 'teal' : 'orange'} />
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
+
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={5}>Lifecycle posture</Title>
+                      <Badge color="teal" variant="light">
+                        Account mix
+                      </Badge>
+                    </Group>
+
+                    <SimpleGrid cols={{ base: 2, xl: 2 }} spacing="sm">
+                      <Metric label="Active" value={lifecycle.activeAccountCount} tone="teal" />
+                      <Metric label="At Risk" value={lifecycle.atRiskAccountCount} tone={lifecycle.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
+                      <Metric label="Inactive" value={lifecycle.inactiveAccountCount} tone={lifecycle.inactiveAccountCount > 0 ? 'grape' : 'teal'} />
+                      <Metric label="Churned" value={lifecycle.churnedAccountCount} tone={lifecycle.churnedAccountCount > 0 ? 'red' : 'teal'} />
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
+
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Title order={5}>Pipeline posture</Title>
+                      <Badge color="blue" variant="light">
+                        Lead phases
+                      </Badge>
+                    </Group>
+
+                    <SimpleGrid cols={{ base: 2, xl: 2 }} spacing="sm">
+                      <Metric label="New" value={pipeline.newLeadCount} tone="blue" />
+                      <Metric label="Discovery" value={pipeline.discoveryLeadCount} tone="grape" />
+                      <Metric label="CIS" value={pipeline.cisLeadCount} tone="orange" />
+                      <Metric label="Onboarding" value={pipeline.onboardingLeadCount} tone="teal" />
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
+              </SimpleGrid>
+
+              <Tabs
+                value={activeDetailView}
+                onChange={(value) => setActiveDetailView((value as TerritoryDetailView | null) ?? 'workload')}
+                keepMounted={false}
+              >
+                <Group justify="space-between" align="center" mb="sm">
+                  <Tabs.List>
+                    <Tabs.Tab value="workload">Workload</Tabs.Tab>
+                    <Tabs.Tab value="regions">Regions</Tabs.Tab>
+                    <Tabs.Tab value="owners">Owners</Tabs.Tab>
+                  </Tabs.List>
+                  <Badge color="grape" variant="light">
+                    Focused details
+                  </Badge>
+                </Group>
+
+                <Tabs.Panel value="workload">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Title order={5}>Territory workload snapshot</Title>
+                      <Badge color="grape" variant="light">
+                        Top territories
+                      </Badge>
+                    </Group>
+
+                    <Table.ScrollContainer minWidth={640}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Territory</Table.Th>
+                            <Table.Th>Ownership</Table.Th>
+                            <Table.Th>Load</Table.Th>
+                            <Table.Th>Signals</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {workloads.map((item) => (
+                            <Table.Tr key={item.territoryId}>
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Text fw={700}>{item.territoryName}</Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.territoryCode} · {item.regionName}
+                                  </Text>
+                                  <StateBadges states={item.coveredStates} />
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <DataLine label="TM" value={item.managerName ?? 'Unassigned'} tone={item.managerName ? 'gray' : 'orange'} />
+                                  <DataLine label="RD" value={item.directorUserName ?? 'Unassigned'} tone={item.directorUserName ? 'gray' : 'orange'} />
+                                  <DataLine label="Ship" value={item.shippingCenterName ?? 'Unassigned'} tone={item.shippingCenterName ? 'gray' : 'orange'} />
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Group gap={6}>
+                                  <CompactCount label="Leads" value={item.activeLeadCount} tone="blue" />
+                                  <CompactCount label="Accounts" value={item.activeAccountCount} tone="teal" />
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Group gap={6}>
+                                    <CompactCount label="90d stale" value={item.overdue90DayAccountCount} tone={item.overdue90DayAccountCount > 0 ? 'orange' : 'teal'} />
+                                    <CompactCount label="At risk" value={item.atRiskAccountCount} tone={item.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
+                                  </Group>
+                                  <PipelineSummary
+                                    newCount={item.newLeadCount}
+                                    discoveryCount={item.discoveryLeadCount}
+                                    cisCount={item.cisLeadCount}
+                                    onboardingCount={item.onboardingLeadCount}
+                                  />
+                                </Stack>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  </Stack>
+                </Tabs.Panel>
+
+                <Tabs.Panel value="regions">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Title order={5}>Regional rollups</Title>
+                      <Badge color="blue" variant="light">
+                        Director view
+                      </Badge>
+                    </Group>
+
+                    <Table.ScrollContainer minWidth={640}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Region</Table.Th>
+                            <Table.Th>Director</Table.Th>
+                            <Table.Th>Territories</Table.Th>
+                            <Table.Th>Attention</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {regionRollups.map((item) => (
+                            <Table.Tr key={item.regionId}>
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Text fw={700}>{item.regionName}</Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.regionCode} · {item.coveredStates} covered states · {item.shippingCenterCount} shipping hubs
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.directorUserName ?? 'Unassigned'}</Table.Td>
+                              <Table.Td>
+                                <Group gap={6}>
+                                  <CompactCount label="Terr." value={item.territoryCount} tone="blue" />
+                                  <CompactCount label="Leads" value={item.activeLeadCount} tone="blue" />
+                                  <CompactCount label="Accounts" value={item.activeAccountCount} tone="teal" />
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Group gap={6}>
+                                    <CompactCount label="90d stale" value={item.overdue90DayAccountCount} tone={item.overdue90DayAccountCount > 0 ? 'orange' : 'teal'} />
+                                    <CompactCount label="At risk" value={item.atRiskAccountCount} tone={item.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
+                                  </Group>
+                                  <Group gap={6}>
+                                    <CompactCount label="Missing TM" value={item.territoriesMissingManager} tone={item.territoriesMissingManager > 0 ? 'orange' : 'teal'} />
+                                    <CompactCount label="Missing ship" value={item.territoriesMissingShippingCenter} tone={item.territoriesMissingShippingCenter > 0 ? 'orange' : 'teal'} />
+                                  </Group>
+                                </Stack>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  </Stack>
+                </Tabs.Panel>
+
+                <Tabs.Panel value="owners">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Title order={5}>Owner workload</Title>
+                      <Badge color="grape" variant="light">
+                        TM / RD rollups
+                      </Badge>
+                    </Group>
+
+                    <Table.ScrollContainer minWidth={640}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Owner</Table.Th>
+                            <Table.Th>Scope</Table.Th>
+                            <Table.Th>Coverage</Table.Th>
+                            <Table.Th>Attention</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {ownerMetrics.map((item) => (
+                            <Table.Tr key={`${item.ownerRole}:${item.ownerUserId ?? item.ownerName}`}>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Text fw={700}>{item.ownerName}</Text>
+                                  <Badge size="xs" variant="light" color={item.ownerRole === 'territory_manager' ? 'blue' : 'grape'}>
+                                    {item.ownerRole === 'territory_manager' ? 'TM' : 'RD'}
+                                  </Badge>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <Group gap={6}>
+                                    <CompactCount label="Regions" value={item.regionCount} tone="grape" />
+                                    <CompactCount label="Terr." value={item.territoryCount} tone="blue" />
+                                  </Group>
+                                  <Text size="xs" c="dimmed">
+                                    {item.activeLeadCount} leads · {item.activeAccountCount} accounts
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Group gap={6}>
+                                  <CompactCount label="30d" value={item.engaged30DayAccountCount} tone="teal" />
+                                  <CompactCount label="90d" value={item.engaged90DayAccountCount} tone="teal" />
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={4}>
+                                  <CompactCount label="Risk" value={item.atRiskAccountCount} tone={item.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
+                                  <Text size="xs" c="dimmed">
+                                    {item.coveredStates} states · {item.shippingCenterCount} shipping hubs
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  </Stack>
+                </Tabs.Panel>
+              </Tabs>
+            </Stack>
+          ) : null}
         </Stack>
       </Paper>
-
-      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between">
-              <Title order={4}>Lifecycle posture</Title>
-              <Badge color="teal" variant="light">
-                Account mix
-              </Badge>
-            </Group>
-
-            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-              <Metric label="Active" value={lifecycle.activeAccountCount} tone="teal" />
-              <Metric label="At Risk" value={lifecycle.atRiskAccountCount} tone={lifecycle.atRiskAccountCount > 0 ? 'orange' : 'teal'} />
-              <Metric label="Inactive" value={lifecycle.inactiveAccountCount} tone={lifecycle.inactiveAccountCount > 0 ? 'grape' : 'teal'} />
-              <Metric label="Churned" value={lifecycle.churnedAccountCount} tone={lifecycle.churnedAccountCount > 0 ? 'red' : 'teal'} />
-            </SimpleGrid>
-
-            <Text size="sm" c="dimmed">
-              This gives RDs and leadership a clean account-status posture from the CRM-owned lifecycle data, without pretending we already have ERP revenue truth in the territory kernel.
-            </Text>
-          </Stack>
-        </Paper>
-
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between">
-              <Title order={4}>Pipeline posture</Title>
-              <Badge color="blue" variant="light">
-                Lead phases
-              </Badge>
-            </Group>
-
-            <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-              <Metric label="New" value={pipeline.newLeadCount} tone="blue" />
-              <Metric label="Discovery" value={pipeline.discoveryLeadCount} tone="grape" />
-              <Metric label="CIS" value={pipeline.cisLeadCount} tone="orange" />
-              <Metric label="Onboarding" value={pipeline.onboardingLeadCount} tone="teal" />
-            </SimpleGrid>
-
-            <Text size="sm" c="dimmed">
-              Territory pipeline is grouped by real workflow phase so TMs and RDs can see where prospecting load is accumulating before first-order conversion.
-            </Text>
-          </Stack>
-        </Paper>
-      </SimpleGrid>
-
-      <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Title order={4}>Territory workload snapshot</Title>
-            <Badge color="grape" variant="light">
-              Top territories
-            </Badge>
-          </Group>
-
-          <Table.ScrollContainer minWidth={760}>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Territory</Table.Th>
-                  <Table.Th>Region</Table.Th>
-                  <Table.Th>Manager</Table.Th>
-                  <Table.Th>Shipping</Table.Th>
-                  <Table.Th>States</Table.Th>
-                  <Table.Th>Leads</Table.Th>
-                  <Table.Th>Accounts</Table.Th>
-                  <Table.Th>30d Coverage</Table.Th>
-                  <Table.Th>90d Stale</Table.Th>
-                  <Table.Th>At Risk</Table.Th>
-                  <Table.Th>Pipeline</Table.Th>
-                  <Table.Th>Total</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {workloads.map((item) => (
-                  <Table.Tr key={item.territoryId}>
-                    <Table.Td>
-                      <Stack gap={2}>
-                        <Text fw={700}>{item.territoryName}</Text>
-                        <Text size="xs" c="dimmed">
-                          {item.territoryCode}
-                        </Text>
-                      </Stack>
-                    </Table.Td>
-                    <Table.Td>{item.regionName}</Table.Td>
-                    <Table.Td>{item.managerName ?? 'Unassigned'}</Table.Td>
-                    <Table.Td>{item.shippingCenterName ?? 'Unassigned'}</Table.Td>
-                    <Table.Td>
-                      <Group gap={6}>
-                        {item.coveredStates.length > 0 ? item.coveredStates.map((state) => (
-                          <Badge key={state} size="xs" variant="light" color="blue">
-                            {state}
-                          </Badge>
-                        )) : <Text size="sm" c="dimmed">No coverage</Text>}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>{item.activeLeadCount}</Table.Td>
-                    <Table.Td>{item.activeAccountCount}</Table.Td>
-                    <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
-                    <Table.Td>{item.overdue90DayAccountCount}</Table.Td>
-                    <Table.Td>{item.atRiskAccountCount}</Table.Td>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        N {item.newLeadCount} · D {item.discoveryLeadCount} · C {item.cisLeadCount} · O {item.onboardingLeadCount}
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>{item.totalWorkloadCount}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        </Stack>
-      </Paper>
-
-      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between">
-              <Title order={4}>Regional rollups</Title>
-              <Badge color="blue" variant="light">
-                Director view
-              </Badge>
-            </Group>
-
-            <Table.ScrollContainer minWidth={720}>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Region</Table.Th>
-                    <Table.Th>Director</Table.Th>
-                  <Table.Th>Territories</Table.Th>
-                  <Table.Th>Leads</Table.Th>
-                  <Table.Th>Accounts</Table.Th>
-                  <Table.Th>30d Coverage</Table.Th>
-                  <Table.Th>At Risk</Table.Th>
-                  <Table.Th>Pipeline</Table.Th>
-                  <Table.Th>Coverage</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-                <Table.Tbody>
-                  {regionRollups.map((item) => (
-                    <Table.Tr key={item.regionId}>
-                      <Table.Td>
-                        <Stack gap={2}>
-                          <Text fw={700}>{item.regionName}</Text>
-                          <Text size="xs" c="dimmed">
-                            {item.regionCode}
-                          </Text>
-                        </Stack>
-                      </Table.Td>
-                      <Table.Td>{item.directorUserName ?? 'Unassigned'}</Table.Td>
-                      <Table.Td>{item.territoryCount}</Table.Td>
-                      <Table.Td>{item.activeLeadCount}</Table.Td>
-                      <Table.Td>{item.activeAccountCount}</Table.Td>
-                      <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
-                      <Table.Td>{item.atRiskAccountCount}</Table.Td>
-                      <Table.Td>
-                        <Text size="sm" c="dimmed">
-                          N {item.newLeadCount} · D {item.discoveryLeadCount} · C {item.cisLeadCount} · O {item.onboardingLeadCount}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td>{item.coveredStates} states</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </Stack>
-        </Paper>
-
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-          <Stack gap="md">
-            <Group justify="space-between">
-              <Title order={4}>Owner coverage</Title>
-              <Badge color="grape" variant="light">
-                TM / RD rollups
-              </Badge>
-            </Group>
-
-            <Table.ScrollContainer minWidth={720}>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Owner</Table.Th>
-                    <Table.Th>Role</Table.Th>
-                  <Table.Th>Territories</Table.Th>
-                  <Table.Th>Leads</Table.Th>
-                  <Table.Th>Accounts</Table.Th>
-                  <Table.Th>30d Coverage</Table.Th>
-                  <Table.Th>90d Coverage</Table.Th>
-                  <Table.Th>At Risk</Table.Th>
-                  <Table.Th>Coverage</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-                <Table.Tbody>
-                  {ownerMetrics.map((item) => (
-                    <Table.Tr key={`${item.ownerRole}:${item.ownerUserId ?? item.ownerName}`}>
-                      <Table.Td>{item.ownerName}</Table.Td>
-                      <Table.Td>{item.ownerRole === 'territory_manager' ? 'TM' : 'RD'}</Table.Td>
-                      <Table.Td>{item.territoryCount}</Table.Td>
-                      <Table.Td>{item.activeLeadCount}</Table.Td>
-                      <Table.Td>{item.activeAccountCount}</Table.Td>
-                      <Table.Td>{item.engaged30DayAccountCount}</Table.Td>
-                      <Table.Td>{item.engaged90DayAccountCount}</Table.Td>
-                      <Table.Td>{item.atRiskAccountCount}</Table.Td>
-                      <Table.Td>{item.coveredStates} states</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </Stack>
-        </Paper>
-      </SimpleGrid>
 
     </Stack>
   );
@@ -440,6 +491,98 @@ function Metric({
         {value}
       </Title>
     </Paper>
+  );
+}
+
+type CompactTone = 'blue' | 'teal' | 'orange' | 'grape' | 'red' | 'gray';
+
+function CompactCount({
+  label,
+  value,
+  tone = 'blue',
+}: {
+  label: string;
+  value: number;
+  tone?: CompactTone;
+}) {
+  return (
+    <Group gap={4} wrap="nowrap">
+      <Badge color={tone} variant="light" size="sm">
+        {value}
+      </Badge>
+      <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+        {label}
+      </Text>
+    </Group>
+  );
+}
+
+function DataLine({
+  label,
+  value,
+  tone = 'gray',
+}: {
+  label: string;
+  value: string;
+  tone?: CompactTone;
+}) {
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Text size="xs" c="dimmed" w={32}>
+        {label}
+      </Text>
+      <Badge color={tone} variant="light" size="sm" style={{ maxWidth: 180 }}>
+        <Text span size="xs" lineClamp={1}>
+          {value}
+        </Text>
+      </Badge>
+    </Group>
+  );
+}
+
+function StateBadges({ states }: { states: string[] }) {
+  if (states.length === 0) {
+    return (
+      <Text size="xs" c="orange">
+        No state coverage
+      </Text>
+    );
+  }
+
+  const visibleStates = states.slice(0, 4);
+  const hiddenCount = states.length - visibleStates.length;
+
+  return (
+    <Group gap={4}>
+      {visibleStates.map((state) => (
+        <Badge key={state} size="xs" variant="light" color="blue">
+          {state}
+        </Badge>
+      ))}
+      {hiddenCount > 0 ? (
+        <Badge size="xs" variant="light" color="gray">
+          +{hiddenCount}
+        </Badge>
+      ) : null}
+    </Group>
+  );
+}
+
+function PipelineSummary({
+  newCount,
+  discoveryCount,
+  cisCount,
+  onboardingCount,
+}: {
+  newCount: number;
+  discoveryCount: number;
+  cisCount: number;
+  onboardingCount: number;
+}) {
+  return (
+    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+      N {newCount} · D {discoveryCount} · CIS {cisCount} · O {onboardingCount}
+    </Text>
   );
 }
 

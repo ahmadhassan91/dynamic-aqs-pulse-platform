@@ -72,7 +72,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'pnpm start --port 3101',
+      command: 'pnpm build && pnpm start --port 3101',
       cwd: crmWebAppDir,
       env: {
         ...sharedEnv,
@@ -81,7 +81,7 @@ export default defineConfig({
       },
       url: 'http://127.0.0.1:3101/auth/login',
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
     },
   ],
 });

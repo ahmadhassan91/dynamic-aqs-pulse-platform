@@ -4,28 +4,30 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
+  Box,
   Button,
-  Divider,
   Group,
   Loader,
+  Menu,
   NumberInput,
   Paper,
   Select,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   TextInput,
   Textarea,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconChecks, IconEye, IconPlus, IconShieldCheck } from '@tabler/icons-react';
+import { IconChecks, IconDotsVertical, IconEye, IconPlus, IconShieldCheck } from '@tabler/icons-react';
 import type {
   CatalogRuleConditionFieldKey,
   CatalogRuleConditionOption,
   CatalogRuleConditionOperatorKey,
+  CatalogRuleCatalogViewImpact,
   CatalogRuleDraftInput,
+  CatalogRulePreviewRow,
   CatalogRulePreviewResponse,
   CatalogRuleSetSummary,
   DealerCatalogViewSummary,
@@ -40,6 +42,15 @@ import {
   updateCatalogRuleSet,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchHeader,
+  WorkbenchMetricStrip,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
+
+type RuleWizardStep = 'draft' | 'preview' | 'publish';
 
 type EditableRule = {
   name: string;
@@ -89,6 +100,13 @@ const ruleTemplates: Array<{ label: string; description: string; rule: EditableR
   },
 ];
 
+const ruleWizardSteps: RuleWizardStep[] = ['draft', 'preview', 'publish'];
+const ruleWizardStepMeta: Record<RuleWizardStep, { label: string; description: string }> = {
+  draft: { label: 'Draft', description: 'Build rules' },
+  preview: { label: 'Preview', description: 'Check accounts' },
+  publish: { label: 'Publish', description: 'Activate safely' },
+};
+
 export function AdminCatalogRulesWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const accessToken = auth?.tokens.accessToken;
@@ -106,6 +124,7 @@ export function AdminCatalogRulesWorkspace() {
   const [rules, setRules] = useState<EditableRule[]>([newBlankRule()]);
   const [preview, setPreview] = useState<CatalogRulePreviewResponse | null>(null);
   const [lastPreviewDraft, setLastPreviewDraft] = useState('');
+  const [wizardStep, setWizardStep] = useState<RuleWizardStep>('draft');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -118,7 +137,16 @@ export function AdminCatalogRulesWorkspace() {
     ? conditionOptions.dealerCatalogViews.map((view) => ({ value: view.value, label: view.helper ? `${view.label} (${view.helper})` : view.label }))
     : catalogViews.map((view) => ({ value: view.id, label: view.name }));
   const currentDraft = useMemo(() => JSON.stringify({ name, description, rules }), [description, name, rules]);
-  const publishBlocked = !preview || lastPreviewDraft !== currentDraft || preview.unmatchedCount > 0 || preview.reviewRequiredCount > 0;
+  const previewIsStale = Boolean(preview && lastPreviewDraft !== currentDraft);
+  const publishBlockers = [
+    !selectedRuleSetId ? 'Save a draft before publishing.' : null,
+    !preview ? 'Run preview before publishing.' : null,
+    previewIsStale ? 'Preview is stale. Run preview again after draft changes.' : null,
+    preview?.unmatchedCount ? 'Some sampled accounts do not match any rule.' : null,
+    preview?.reviewRequiredCount ? 'Some sampled accounts still require review.' : null,
+  ].filter((blocker): blocker is string => Boolean(blocker));
+  const publishBlocked = publishBlockers.length > 0;
+  const wizardStepIndex = Math.max(0, ruleWizardSteps.indexOf(wizardStep));
 
   useEffect(() => {
     if (!isHydrated || !accessToken) return;
@@ -159,7 +187,7 @@ export function AdminCatalogRulesWorkspace() {
       field: rule.conditions[0]?.field ?? 'affinity_group',
       operator: rule.conditions[0]?.operator ?? 'is',
       value: String(rule.conditions[0]?.value ?? ''),
-      result: rule.dealerCatalogViewId ?? '',
+      result: rule.resultAction === 'require_review' ? 'review' : rule.dealerCatalogViewId ?? '',
       priority: rule.priority,
     })) : [newBlankRule()]);
     setPreview(null);
@@ -168,6 +196,15 @@ export function AdminCatalogRulesWorkspace() {
 
   async function saveDraft() {
     if (!accessToken) return;
+    const duplicatePriorities = findDuplicatePriorities(rules);
+    if (duplicatePriorities.length) {
+      notifications.show({
+        color: 'yellow',
+        title: 'Fix duplicate priorities',
+        message: `Each rule needs a unique priority. Duplicate values: ${duplicatePriorities.join(', ')}.`,
+      });
+      return;
+    }
     const payload = { name, description, rules: buildRulePayload() };
     setSaving(true);
     try {
@@ -176,6 +213,7 @@ export function AdminCatalogRulesWorkspace() {
         : await createCatalogRuleSet(apiBaseUrl, accessToken, payload);
       setRuleSets((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       loadRuleSetIntoForm(saved);
+      setWizardStep('preview');
       notifications.show({ color: 'green', title: 'Draft saved', message: 'Catalog rules are ready to preview.' });
     } catch (error) {
       notifications.show({ color: 'red', title: 'Draft was not saved', message: error instanceof Error ? error.message : String(error) });
@@ -196,7 +234,14 @@ export function AdminCatalogRulesWorkspace() {
     setSaving(true);
     try {
       const result = await runPreview();
-      if (result) notifications.show({ color: result.warnings.length ? 'yellow' : 'green', title: 'Preview complete', message: `${result.matchedCount} sampled accounts matched.` });
+      if (result) {
+        setWizardStep('preview');
+        notifications.show({
+          color: result.warnings.length ? 'yellow' : 'green',
+          title: 'Preview ran',
+          message: `${result.matchedCount} matched, ${result.reviewRequiredCount} need review, ${result.unmatchedCount} have no rule.`,
+        });
+      }
     } catch (error) {
       notifications.show({ color: 'red', title: 'Preview failed', message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -220,12 +265,23 @@ export function AdminCatalogRulesWorkspace() {
       const result = await activateCatalogRuleSet(apiBaseUrl, accessToken, selectedRuleSetId);
       setRuleSets((current) => [result.activeRuleSet, ...current.filter((item) => item.id !== result.activeRuleSet.id).map((item) => result.retiredRuleSetIds.includes(item.id) ? { ...item, status: 'retired' as const, isActive: false } : item)]);
       loadRuleSetIntoForm(result.activeRuleSet);
-      notifications.show({ color: 'green', title: 'Catalog rules published', message: 'This rule set is now active.' });
+      setWizardStep('publish');
+      notifications.show({ color: 'green', title: 'Rule set is active', message: 'Pulse will use it to resolve dealer groups.' });
     } catch (error) {
       notifications.show({ color: 'red', title: 'Rules were not published', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setSaving(false);
     }
+  }
+
+  function resetDraft() {
+    setSelectedRuleSetId('');
+    setName('Dealer Group Rules');
+    setDescription('Simple rules for which dealer group each account belongs to.');
+    setRules([newBlankRule()]);
+    setPreview(null);
+    setLastPreviewDraft('');
+    setWizardStep('draft');
   }
 
   function buildRulePayload(): CatalogRuleDraftInput[] {
@@ -245,56 +301,98 @@ export function AdminCatalogRulesWorkspace() {
   }
 
   if (loading) {
-    return <Loader />;
+    return <Loader aria-label="Loading catalog rules" />;
   }
 
   return (
-    <Stack gap="lg">
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={1}>Catalog Rules</Title>
-          <Text c="dimmed">Decide who sees each dealer catalog view. Pricing stays in Acumatica.</Text>
-        </div>
-        <Button leftSection={<IconPlus size={16} />} variant="light" onClick={() => {
-          setSelectedRuleSetId('');
-          setName('Dealer Catalog Rules');
-          setDescription('Simple rules for who sees each dealer catalog view.');
-          setRules([newBlankRule()]);
-          setPreview(null);
-        }}>
-          New Draft
-        </Button>
-      </Group>
+    <Stack gap="lg" data-testid="admin-catalog-rules-workspace">
+      <WorkbenchHeader
+        eyebrow="Admin setup"
+        title="Dealer Group Rules"
+        description="Create rules that resolve each account to a dealer group. Preview before publishing so unclear accounts go to review instead of the wrong catalog."
+        policyText="Dealer groups control product, file, branding, and portal visibility. Price class stays in pricing/reporting and is not used here."
+      />
 
-      <Alert color="blue" title="Keep it simple">
-        Rules use the same inputs Dynamic discussed: affinity group, ownership/PE group, independent, region, and portal eligibility. Price class is not used for catalog or file visibility.
-      </Alert>
-      <Alert color="gray" title="How to think about it">
-        Choose from approved reference lists. Independent is the fallback only when neither affinity/franchise nor ownership/PE is confirmed; hybrid accounts should go to review unless a higher-priority rule handles them.
-      </Alert>
-      <Alert color="yellow" title="Brand/private-label rule conditions are parked">
-        Brand and private-label presentation is still handled on Dealer Catalog Views, products, and assets. We will add it as a rule condition after Dynamic confirms the account-level matching source.
-      </Alert>
+      <Paper withBorder p="lg" radius="md" className="premium-detail-card">
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm" data-testid="catalog-rules-step-indicator">
+          {ruleWizardSteps.map((step, index) => {
+            const meta = ruleWizardStepMeta[step];
+            const isActive = step === wizardStep;
+            const isDone = index < wizardStepIndex;
+            return (
+              <Box
+                key={step}
+                p="sm"
+                style={(theme) => ({
+                  background: isActive ? theme.colors.blue[0] : isDone ? theme.colors.green[0] : theme.colors.gray[0],
+                  border: `1px solid ${isActive ? theme.colors.blue[3] : theme.colors.gray[3]}`,
+                  borderRadius: theme.radius.md,
+                })}
+              >
+                <Group gap="sm" wrap="nowrap">
+                  <Box
+                    aria-hidden="true"
+                    style={(theme) => ({
+                      alignItems: 'center',
+                      background: isActive ? theme.colors.blue[6] : isDone ? theme.colors.green[6] : theme.colors.gray[5],
+                      borderRadius: 999,
+                      color: theme.white,
+                      display: 'flex',
+                      flex: '0 0 28px',
+                      fontSize: theme.fontSizes.xs,
+                      fontWeight: 800,
+                      height: 28,
+                      justifyContent: 'center',
+                      width: 28,
+                    })}
+                  >
+                    {index + 1}
+                  </Box>
+                  <Stack gap={0}>
+                    <Text fw={800}>{meta.label}</Text>
+                    <Text size="xs" c="dimmed">{meta.description}</Text>
+                  </Stack>
+                </Group>
+              </Box>
+            );
+          })}
+        </SimpleGrid>
+      </Paper>
 
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
-        <Metric label="Rule Sets" value={ruleSets.length} />
-        <Metric label="Active Set" value={activeRuleSet ? '1' : '0'} {...(activeRuleSet?.name ? { helper: activeRuleSet.name } : {})} />
-        <Metric label="Catalog Views" value={catalogViews.length} />
-        <Metric label="Preview Matches" value={preview?.matchedCount ?? 0} />
+      <SimpleGrid cols={{ base: 1, md: 4 }} spacing="md">
+        <MetricCard label="Active rule set" value={activeRuleSet ? '1' : '0'} helper={activeRuleSet?.name ?? 'No active rules'} />
+        <MetricCard label="Drafts" value={String(ruleSets.filter((ruleSet) => ruleSet.status !== 'active').length)} helper="Saved rule versions" />
+        <MetricCard label="Dealer groups" value={String(catalogViews.length)} helper="Available visibility targets" />
+        <MetricCard label="Preview status" value={preview ? (publishBlocked ? 'Needs work' : 'Clean') : 'Not run'} helper={previewIsStale ? 'Preview is stale' : preview ? `${preview.matchedCount} matched` : 'Save, then preview'} />
       </SimpleGrid>
 
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
-        <Paper withBorder p="lg" radius="md">
-          <Stack>
+      {wizardStep === 'draft' ? (
+        <Paper withBorder p="lg" radius="md" data-testid="catalog-rules-draft-step">
+          <Stack gap="md">
             <Group justify="space-between">
-              <Title order={2}>Draft Rules</Title>
+              <Title order={2}>Draft Rule Set</Title>
               {selectedRuleSet ? <Badge>{selectedRuleSet.status.replace(/_/g, ' ')}</Badge> : <Badge color="gray">new draft</Badge>}
             </Group>
-            <TextInput label="Rule set name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
-            <Textarea label="Notes" minRows={2} value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
-            <Paper withBorder p="md" radius="md" bg="gray.0">
-              <Stack gap="xs">
-                <Text fw={700}>Start from a simple rule</Text>
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput
+                label="Rule set name"
+                value={name}
+                onChange={(event) => setName(event.currentTarget.value)}
+                data-testid="catalog-rule-set-name"
+              />
+              <Textarea
+                label="Notes"
+                minRows={1}
+                value={description}
+                onChange={(event) => setDescription(event.currentTarget.value)}
+                data-testid="catalog-rule-set-notes"
+              />
+            </SimpleGrid>
+            <WorkbenchAdvancedSection
+              title="Use template"
+              description="Optional starting points for affinity, ownership/PE, independent, and review rules."
+            >
+              <Stack gap="xs" mt="sm">
                 <SimpleGrid cols={{ base: 1, md: 2 }}>
                   {ruleTemplates.map((template) => (
                     <Paper key={template.label} withBorder p="sm" radius="sm">
@@ -306,6 +404,7 @@ export function AdminCatalogRulesWorkspace() {
                         <Button
                           size="xs"
                           variant="light"
+                          aria-label={`Add ${template.label} rule template`}
                           onClick={() => setRules((current) => [...current, { ...template.rule, priority: (current.length + 1) * 10 }])}
                         >
                           Add
@@ -314,23 +413,59 @@ export function AdminCatalogRulesWorkspace() {
                     </Paper>
                   ))}
                 </SimpleGrid>
-                <Text size="sm" c="dimmed">Templates only fill the rule shape. Choose the actual group value and catalog view before saving.</Text>
+                <Text size="sm" c="dimmed">Templates only fill the rule shape. Choose the actual group value and dealer group before saving.</Text>
               </Stack>
-            </Paper>
-            <Divider />
+            </WorkbenchAdvancedSection>
             {rules.map((rule, index) => (
-              <Paper key={index} withBorder p="md" radius="md">
+              <Paper key={index} withBorder p="md" radius="md" data-testid={`catalog-rule-card-${index}`}>
                 <Stack gap="sm">
                   <Group justify="space-between">
-                    <Text fw={700}>Rule {index + 1}</Text>
-                    <Button size="xs" variant="subtle" color="red" disabled={rules.length === 1} onClick={() => setRules((current) => current.filter((_, currentIndex) => currentIndex !== index))}>
-                      Remove
-                    </Button>
+                    <Stack gap={2}>
+                      <Text fw={700}>Rule {index + 1}</Text>
+                      <Text size="sm" c="dimmed">
+                        {formatRuleSentence(rule, resultOptions)}
+                      </Text>
+                    </Stack>
+                    <Menu position="bottom-end" withinPortal shadow="md" width={180}>
+                      <Menu.Target>
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          aria-label={`Rule ${index + 1} actions`}
+                          rightSection={<IconDotsVertical size={14} />}
+                        >
+                          More
+                        </Button>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          color="red"
+                          disabled={rules.length === 1}
+                          onClick={() => setRules((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                        >
+                          Remove rule
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
                   </Group>
                   <TextInput label="Rule name" value={rule.name} onChange={(event) => updateRule(index, { name: event.currentTarget.value })} />
                   <SimpleGrid cols={{ base: 1, md: 3 }}>
-                    <Select label="When" data={conditionFields} value={rule.field} onChange={(value) => changeRuleField(index, (value as CatalogRuleConditionFieldKey) ?? 'affinity_group')} />
-                    <Select label="Match" data={operators} value={rule.operator} onChange={(value) => updateRule(index, { operator: (value as CatalogRuleConditionOperatorKey) ?? 'is' })} />
+                    <Select
+                      label="When"
+                      aria-label={`Rule ${index + 1} account condition`}
+                      data={conditionFields}
+                      value={rule.field}
+                      onChange={(value) => changeRuleField(index, (value as CatalogRuleConditionFieldKey) ?? 'affinity_group')}
+                      data-testid={`catalog-rule-field-${index}`}
+                    />
+                    <Select
+                      label="Match"
+                      aria-label={`Rule ${index + 1} match operator`}
+                      data={operators}
+                      value={rule.operator}
+                      onChange={(value) => updateRule(index, { operator: (value as CatalogRuleConditionOperatorKey) ?? 'is' })}
+                      data-testid={`catalog-rule-operator-${index}`}
+                    />
                     {renderConditionValueControl(rule, index)}
                   </SimpleGrid>
                   <Text size="xs" c="dimmed">
@@ -339,122 +474,315 @@ export function AdminCatalogRulesWorkspace() {
                       : 'Values come from approved reference lists so catalog matching does not depend on spelling.'}
                   </Text>
                   <SimpleGrid cols={{ base: 1, md: 2 }}>
-                    <Select label="Then assign Dealer Catalog View" data={[...resultOptions, { value: 'review', label: 'Require Review - independent or hybrid check' }]} value={rule.result} onChange={(value) => updateRule(index, { result: value ?? '' })} />
-                    <NumberInput label="Order" value={rule.priority} min={1} onChange={(value) => updateRule(index, { priority: Number(value) || 100 })} />
+                    <Select
+                      label="Then assign dealer group"
+                      data={[...resultOptions, { value: 'review', label: 'Require review - unclear catalog context' }]}
+                      value={rule.result}
+                      onChange={(value) => updateRule(index, { result: value ?? '' })}
+                      data-testid={`catalog-rule-decision-${index}`}
+                    />
+                    <NumberInput
+                      label="Priority"
+                      value={rule.priority}
+                      min={1}
+                      onChange={(value) => updateRule(index, { priority: Number(value) || 100 })}
+                      data-testid={`catalog-rule-priority-${index}`}
+                    />
                   </SimpleGrid>
                 </Stack>
               </Paper>
             ))}
-            <Group>
-              <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setRules((current) => [...current, newBlankRule(current.length)])}>Add Rule</Button>
-              <Button leftSection={<IconChecks size={16} />} loading={saving} onClick={saveDraft}>Save Draft</Button>
-              <Button variant="outline" leftSection={<IconEye size={16} />} disabled={!selectedRuleSetId} loading={saving} onClick={previewImpact}>Preview Impact</Button>
-              <Button color="green" leftSection={<IconShieldCheck size={16} />} disabled={!selectedRuleSetId || publishBlocked} loading={saving} onClick={publishRules}>Publish</Button>
+            <Group justify="space-between">
+              <Button variant="default" leftSection={<IconPlus size={16} />} onClick={() => setRules((current) => [...current, newBlankRule(current.length)])}>
+                Add rule
+              </Button>
+              <Group gap="sm">
+                <Button variant="default" onClick={resetDraft}>New draft</Button>
+                <Button leftSection={<IconChecks size={16} />} loading={saving} onClick={saveDraft} data-testid="catalog-rules-save-draft">
+                  Save and continue
+                </Button>
+              </Group>
             </Group>
-            {publishBlocked ? (
-              <Text size="sm" c="dimmed">Preview must show no unmatched accounts and no review-required accounts before publishing.</Text>
+            <WorkbenchAdvancedSection
+              title="Version history"
+              description="Load a saved draft or active rule set without crowding the rule editor."
+            >
+              <Box mt="md" data-testid="catalog-rule-sets-table">
+                <WorkbenchTable<CatalogRuleSetSummary>
+                  ariaLabel="Catalog rule sets"
+                  rows={ruleSets}
+                  getRowKey={(ruleSet) => ruleSet.id}
+                  minWidth={560}
+                  withContainer={false}
+                  onRowClick={(ruleSet) => {
+                    loadRuleSetIntoForm(ruleSet);
+                    setWizardStep('draft');
+                  }}
+                  columns={[
+                    {
+                      key: 'name',
+                      header: 'Name',
+                      render: (ruleSet) => <Text fw={700}>{ruleSet.name}</Text>,
+                    },
+                    {
+                      key: 'status',
+                      header: 'Status',
+                      render: (ruleSet) => <Badge color={ruleSet.isActive ? 'green' : 'gray'}>{ruleSet.status}</Badge>,
+                    },
+                    {
+                      key: 'rules',
+                      header: 'Rules',
+                      render: (ruleSet) => ruleSet.rules.length,
+                      align: 'right',
+                    },
+                  ]}
+                  emptyState={(
+                    <EmptyStateMessage
+                      kind="no-data"
+                      title="No rule sets yet"
+                      description="Save the first draft to start dealer group rules."
+                    />
+                  )}
+                />
+              </Box>
+            </WorkbenchAdvancedSection>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {wizardStep === 'preview' ? (
+        <Paper withBorder p="lg" radius="md" data-testid="catalog-rules-preview-step">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Title order={2}>Preview Account Decisions</Title>
+                <Text size="sm" c="dimmed">
+                  Check sampled accounts before publishing. Publish still runs the full account check on the server.
+                </Text>
+              </Stack>
+              <Button
+                leftSection={<IconEye size={16} />}
+                loading={saving}
+                disabled={!selectedRuleSetId}
+                onClick={() => void previewImpact()}
+                data-testid="catalog-rules-preview-decisions"
+              >
+                Preview Account Decisions
+              </Button>
+            </Group>
+            {!selectedRuleSetId ? (
+              <Alert color="yellow" title="Save this draft first">Save this draft before preview or publish.</Alert>
             ) : null}
+            {previewIsStale ? (
+              <Alert color="yellow" title="Preview is stale">This draft changed after preview. Run preview again.</Alert>
+            ) : null}
+            {preview?.warnings.length ? (
+              <Alert color="yellow" title="Needs review">{preview.warnings.join(' ')}</Alert>
+            ) : null}
+            {preview && !preview.warnings.length ? (
+              <Alert color="green" title="No review flags in this preview">Publish will still run the full account check.</Alert>
+            ) : null}
+            {preview ? (
+              <WorkbenchMetricStrip
+                metrics={[
+                  { label: 'Sample size', value: preview.sampleAccountCount, tone: 'blue' },
+                  { label: 'Matched', value: preview.matchedCount, tone: 'green' },
+                  {
+                    label: 'Needs review',
+                    value: preview.reviewRequiredCount,
+                    tone: preview.reviewRequiredCount ? 'orange' : 'green',
+                  },
+                  {
+                    label: 'No rule matched',
+                    value: preview.unmatchedCount,
+                    tone: preview.unmatchedCount ? 'red' : 'green',
+                  },
+                ]}
+              />
+            ) : null}
+            <Box data-testid="catalog-rule-preview-decisions-table">
+              <WorkbenchTable<CatalogRulePreviewRow>
+                ariaLabel="Sample catalog rule account decisions"
+                rows={preview?.rows ?? []}
+                getRowKey={(row) => row.accountId}
+                minWidth={920}
+                withContainer={false}
+                columns={[
+                  {
+                    key: 'account',
+                    header: 'Account',
+                    render: (row) => (
+                      <Stack gap={2}>
+                        <Text fw={700}>{row.accountName}</Text>
+                        <Text size="xs" c="dimmed">
+                          {row.classification ?? 'Unclassified'} · {row.region ?? 'No region'} · {row.portalEligible ? 'Portal eligible' : 'Not portal eligible'}
+                        </Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'relationship',
+                    header: 'Relationship',
+                    render: (row) => (
+                      <Stack gap={2}>
+                        <Text size="sm">{row.affinityGroup ?? 'No affinity group'}</Text>
+                        <Text size="xs" c="dimmed">{row.ownershipGroup ?? 'No ownership / PE group'}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'rule',
+                    header: 'Rule result',
+                    render: (row) => (
+                      <Stack gap={2}>
+                        <Text size="sm">{row.matchedRuleName ?? 'No match'}</Text>
+                        <Text size="xs" c="dimmed">{formatRuleAction(row.resultAction)}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'catalog-view',
+                    header: 'Dealer group',
+                    render: (row) => row.dealerCatalogViewName ?? 'Review needed',
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (row) => (
+                      <Stack gap={2}>
+                        <Badge color={row.warning ? 'yellow' : 'green'}>{row.warning ? 'Needs review' : 'Ready'}</Badge>
+                        {row.warning ? <Text size="xs" c="dimmed">{row.warning}</Text> : null}
+                      </Stack>
+                    ),
+                  },
+                ]}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No preview run yet"
+                    description="Save the rule set, then preview account decisions."
+                  />
+                )}
+              />
+            </Box>
+            {preview?.catalogViewImpacts.length ? (
+              <WorkbenchAdvancedSection
+                title="Affected products and files"
+                description="Review sampled dealer group impact after account decisions are checked."
+              >
+                <Box mt="md" data-testid="catalog-rule-preview-impact-table">
+                  <WorkbenchTable<CatalogRuleCatalogViewImpact>
+                    ariaLabel="Sampled catalog view impact"
+                    rows={preview.catalogViewImpacts}
+                    getRowKey={(impact) => impact.dealerCatalogViewId}
+                    minWidth={840}
+                    withContainer={false}
+                    columns={[
+                      {
+                        key: 'catalog-view',
+                        header: 'Dealer group',
+                        render: (impact) => <Text fw={700}>{impact.dealerCatalogViewName}</Text>,
+                      },
+                      {
+                        key: 'accounts',
+                        header: 'Sampled accounts',
+                        render: (impact) => impact.matchedAccountCount,
+                        align: 'right',
+                      },
+                      {
+                        key: 'products',
+                        header: 'Products',
+                        render: (impact) => `${impact.readyProductCount}/${impact.visibleProductCount} ready`,
+                        align: 'right',
+                      },
+                      {
+                        key: 'files',
+                        header: 'Files linked',
+                        render: (impact) => impact.linkedFileCount,
+                        align: 'right',
+                      },
+                      {
+                        key: 'missing-setup',
+                        header: 'Missing setup',
+                        render: (impact) => (
+                          <Badge color={impact.missingSetupCount ? 'yellow' : 'green'}>
+                            {impact.missingSetupCount}
+                          </Badge>
+                        ),
+                        align: 'right',
+                      },
+                    ]}
+                  />
+                </Box>
+              </WorkbenchAdvancedSection>
+            ) : null}
+            <Group justify="space-between">
+              <Button variant="default" onClick={() => setWizardStep('draft')}>Back to Draft</Button>
+              <Button
+                color="blue"
+                disabled={!preview || previewIsStale}
+                onClick={() => setWizardStep('publish')}
+              >
+                Continue to Publish
+              </Button>
+            </Group>
           </Stack>
         </Paper>
+      ) : null}
 
-        <Paper withBorder p="lg" radius="md">
-          <Stack>
-            <Title order={2}>Rule Sets</Title>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Rules</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {ruleSets.map((ruleSet) => (
-                  <Table.Tr key={ruleSet.id} style={{ cursor: 'pointer' }} onClick={() => loadRuleSetIntoForm(ruleSet)}>
-                    <Table.Td>{ruleSet.name}</Table.Td>
-                    <Table.Td><Badge color={ruleSet.isActive ? 'green' : 'gray'}>{ruleSet.status}</Badge></Table.Td>
-                    <Table.Td>{ruleSet.rules.length}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+      {wizardStep === 'publish' ? (
+        <Paper withBorder p="lg" radius="md" data-testid="catalog-rules-publish-step">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Title order={2}>Publish Rule Set</Title>
+                <Text size="sm" c="dimmed">
+                  This publishes rules only. It does not publish products, files, prices, orders, or inventory.
+                </Text>
+              </Stack>
+              {selectedRuleSet ? <Badge color={selectedRuleSet.isActive ? 'green' : 'blue'}>{selectedRuleSet.status.replace(/_/g, ' ')}</Badge> : null}
+            </Group>
+            <SimpleGrid cols={{ base: 1, md: 4 }}>
+              <MetricCard label="Rule set" value={name || 'Untitled'} helper={selectedRuleSetId ? 'Saved draft' : 'Not saved'} />
+              <MetricCard label="Matched" value={String(preview?.matchedCount ?? 0)} helper="Sampled accounts" />
+              <MetricCard label="Needs review" value={String(preview?.reviewRequiredCount ?? 0)} helper="Must be zero" />
+              <MetricCard label="No rule matched" value={String(preview?.unmatchedCount ?? 0)} helper="Must be zero" />
+            </SimpleGrid>
+            {publishBlocked ? (
+              <Alert color="yellow" title="Publish is blocked">
+                <Stack gap={4}>
+                  {publishBlockers.map((blocker) => <Text key={String(blocker)} size="sm">{blocker}</Text>)}
+                </Stack>
+              </Alert>
+            ) : (
+              <Alert color="green" title="Ready to publish">
+                Preview is clean. Pulse will still run the full account check before activation.
+              </Alert>
+            )}
+            <WorkbenchAdvancedSection
+              title="Parked boundaries"
+              description="Open when you need to confirm what this rule set does not control."
+            >
+              <Text size="sm" c="dimmed" mt="md">
+                Rules use affinity group, ownership/PE group, independent status, region, and portal eligibility. Pricing, ordering, inventory, and brand/private-label account matching stay parked until Dynamic confirms the source of truth.
+              </Text>
+            </WorkbenchAdvancedSection>
+            <Group justify="space-between">
+              <Button variant="default" onClick={() => setWizardStep(preview ? 'preview' : 'draft')}>Back</Button>
+              <Button
+                color="green"
+                leftSection={<IconShieldCheck size={16} />}
+                loading={saving}
+                disabled={publishBlocked || saving}
+                onClick={() => void publishRules()}
+                data-testid="catalog-rules-publish-rule-set"
+              >
+                Publish Rule Set
+              </Button>
+            </Group>
           </Stack>
         </Paper>
-      </SimpleGrid>
-
-      <Paper withBorder p="lg" radius="md">
-        <Group justify="space-between">
-          <Title order={2}>Preview</Title>
-          {preview ? <Badge color={preview.warnings.length ? 'yellow' : 'green'}>{preview.sampleAccountCount} sampled accounts</Badge> : null}
-        </Group>
-        {preview?.warnings.length ? (
-          <Alert color="yellow" mt="md" title="Needs review">{preview.warnings.join(' ')}</Alert>
-        ) : null}
-        {preview && !preview.warnings.length ? (
-          <Alert color="green" mt="md" title="Ready to publish">All sampled accounts matched a catalog view without review warnings.</Alert>
-        ) : null}
-        <Table mt="md">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Account</Table.Th>
-              <Table.Th>Affinity</Table.Th>
-              <Table.Th>Ownership / PE</Table.Th>
-              <Table.Th>Classification</Table.Th>
-              <Table.Th>Rule</Table.Th>
-              <Table.Th>Catalog View</Table.Th>
-              <Table.Th>Decision</Table.Th>
-              <Table.Th>Status</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {(preview?.rows ?? []).map((row) => (
-              <Table.Tr key={row.accountId}>
-                <Table.Td>{row.accountName}</Table.Td>
-                <Table.Td>{row.affinityGroup ?? '-'}</Table.Td>
-                <Table.Td>{row.ownershipGroup ?? '-'}</Table.Td>
-                <Table.Td>{row.classification ?? '-'}</Table.Td>
-                <Table.Td>{row.matchedRuleName ?? 'No match'}</Table.Td>
-                <Table.Td>{row.dealerCatalogViewName ?? 'Review needed'}</Table.Td>
-                <Table.Td>{row.warning ?? 'Catalog view assigned'}</Table.Td>
-                <Table.Td><Badge color={row.warning ? 'yellow' : 'green'}>{row.warning ? 'Needs Review' : 'Ready'}</Badge></Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-        {preview?.catalogViewImpacts.length ? (
-          <>
-            <Title order={3} mt="lg">Products and Files Affected</Title>
-            <Table mt="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Catalog View</Table.Th>
-                  <Table.Th>Accounts</Table.Th>
-                  <Table.Th>Products shown</Table.Th>
-                  <Table.Th>Ready products</Table.Th>
-                  <Table.Th>Files linked</Table.Th>
-                  <Table.Th>Missing setup</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {preview.catalogViewImpacts.map((impact) => (
-                  <Table.Tr key={impact.dealerCatalogViewId}>
-                    <Table.Td>{impact.dealerCatalogViewName}</Table.Td>
-                    <Table.Td>{impact.matchedAccountCount}</Table.Td>
-                    <Table.Td>{impact.visibleProductCount}</Table.Td>
-                    <Table.Td>{impact.readyProductCount}</Table.Td>
-                    <Table.Td>{impact.linkedFileCount}</Table.Td>
-                    <Table.Td>
-                      <Badge color={impact.missingSetupCount ? 'yellow' : 'green'}>
-                        {impact.missingSetupCount}
-                      </Badge>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </>
-        ) : null}
-      </Paper>
+      ) : null}
     </Stack>
   );
 
@@ -476,6 +804,7 @@ export function AdminCatalogRulesWorkspace() {
       return (
         <Select
           label="Value"
+          aria-label={`Rule ${index + 1} value`}
           data={[
             { value: 'yes', label: 'Yes' },
             { value: 'no', label: 'No' },
@@ -484,6 +813,7 @@ export function AdminCatalogRulesWorkspace() {
           disabled={disabled}
           onChange={(value) => updateRule(index, { value: value ?? 'yes' })}
           allowDeselect={false}
+          data-testid={`catalog-rule-value-${index}`}
         />
       );
     }
@@ -496,8 +826,10 @@ export function AdminCatalogRulesWorkspace() {
         data={options.map((option) => ({ value: option.value, label: option.helper ? `${option.label} (${option.helper})` : option.label }))}
         value={rule.value || null}
         disabled={disabled || !options.length}
-        placeholder={options.length ? 'Choose from approved list' : 'No approved options available'}
+        placeholder={options.length ? 'Choose from approved list' : getConditionValuePlaceholder(rule.field)}
+        aria-label={`Rule ${index + 1} value`}
         onChange={(value) => updateRule(index, { value: value ?? '' })}
+        data-testid={`catalog-rule-value-${index}`}
       />
     );
   }
@@ -508,16 +840,6 @@ export function AdminCatalogRulesWorkspace() {
     if (field === 'region') return conditionOptions.regions;
     return [];
   }
-}
-
-function Metric({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
-  return (
-    <Paper withBorder p="md" radius="md">
-      <Text size="xs" fw={700} c="dimmed" tt="uppercase">{label}</Text>
-      <Text fz={28} fw={800}>{value}</Text>
-      {helper ? <Text size="sm" c="dimmed" lineClamp={1}>{helper}</Text> : null}
-    </Paper>
-  );
 }
 
 function newBlankRule(index = 0): EditableRule {
@@ -547,4 +869,62 @@ function getConditionValueLabel(field: CatalogRuleConditionFieldKey) {
   if (field === 'ownership_group') return 'Choose ownership / PE group';
   if (field === 'region') return 'Choose region';
   return 'Value';
+}
+
+function getConditionValuePlaceholder(field: CatalogRuleConditionFieldKey) {
+  if (field === 'affinity_group') return 'No approved affinity groups available';
+  if (field === 'ownership_group') return 'No approved ownership / PE groups available';
+  if (field === 'region') return 'No approved regions available';
+  return 'No approved options available';
+}
+
+function formatRuleSentence(rule: EditableRule, resultOptions: Array<{ value: string; label: string }>) {
+  const field = conditionFields.find((entry) => entry.value === rule.field)?.label ?? 'account field';
+  const operator = operators.find((entry) => entry.value === rule.operator)?.label ?? rule.operator;
+  const needsValue = !['is_any', 'is_empty', 'is_not_empty'].includes(rule.operator);
+  const value = needsValue ? (rule.value || 'choose a value') : '';
+  const result = rule.result === 'review'
+    ? 'send the account to review'
+    : `assign ${resultOptions.find((entry) => entry.value === rule.result)?.label ?? 'choose a dealer group'}`;
+
+  return `When ${field} ${operator}${value ? ` ${value}` : ''}, ${result}.`;
+}
+
+function findDuplicatePriorities(rules: EditableRule[]) {
+  const counts = new Map<number, number>();
+  for (const rule of rules) {
+    counts.set(rule.priority, (counts.get(rule.priority) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([priority]) => priority)
+    .sort((left, right) => left - right);
+}
+
+function formatRuleAction(value?: string) {
+  if (!value) {
+    return 'No action';
+  }
+
+  return value.replace(/_/g, ' ');
+}
+
+function MetricCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
+  return (
+    <Paper withBorder p="md" radius="md" className="premium-stat-card">
+      <Stack gap={4}>
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+          {label}
+        </Text>
+        <Text fw={800} size="lg" lineClamp={1}>
+          {value}
+        </Text>
+        {helper ? (
+          <Text size="xs" c="dimmed" lineClamp={1}>
+            {helper}
+          </Text>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
 }

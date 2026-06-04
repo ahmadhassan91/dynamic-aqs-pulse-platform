@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import {
   Badge,
@@ -22,6 +21,7 @@ import { notifications } from '@mantine/notifications';
 import type { AccountDetail, AccountLifecycleStatusKey } from '@pulse/contracts';
 import { updateAccountLifecycle, updateAccountRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
 export function CustomerOverview(
   { account, onUpdated, canEdit }: { account: AccountDetail; onUpdated: () => Promise<void> | void; canEdit: boolean },
@@ -43,6 +43,32 @@ export function CustomerOverview(
     [account.locations],
   );
   const primaryLocation = activeLocations.find((location) => location.isPrimary) ?? activeLocations[0];
+  const lifecycleActions = canEdit ? [
+    ...(account.lifecycleStatus !== 'at_risk' ? [{
+      id: 'mark-at-risk',
+      label: 'Mark at risk',
+      color: 'warning' as const,
+      onClick: () => openLifecycleModal('at_risk'),
+    }] : []),
+    ...(account.lifecycleStatus !== 'inactive' ? [{
+      id: 'mark-inactive',
+      label: 'Mark inactive',
+      color: 'neutral' as const,
+      onClick: () => openLifecycleModal('inactive'),
+    }] : []),
+    ...(account.lifecycleStatus !== 'churned' ? [{
+      id: 'confirm-churn',
+      label: 'Confirm churn',
+      color: 'danger' as const,
+      onClick: () => openLifecycleModal('churned'),
+    }] : []),
+    ...(account.lifecycleStatus !== 'active' ? [{
+      id: 'reactivate',
+      label: 'Reactivate',
+      color: 'success' as const,
+      onClick: () => openLifecycleModal('active'),
+    }] : []),
+  ] : [];
 
   async function handleSave() {
     if (!auth) {
@@ -161,11 +187,7 @@ export function CustomerOverview(
           <Title order={4}>Account Lifecycle</Title>
           <Group gap="xs">
             <Badge color={lifecycleColor(account.lifecycleStatus)} variant="light">{formatLifecycle(account.lifecycleStatus)}</Badge>
-            {account.sourceLeadId ? (
-              <Button component={Link} href={`/leads/${account.sourceLeadId}`} variant="light" size="xs">
-                View Source Lead
-              </Button>
-            ) : null}
+            <WorkbenchMoreMenu label="Lifecycle actions" items={lifecycleActions} />
           </Group>
         </Group>
         <Group gap="xs" mb="md">
@@ -181,34 +203,9 @@ export function CustomerOverview(
           <MetadataRow label="Last Engagement" value={formatDate(account.lastEngagementAt)} />
           <MetadataRow label="Lifecycle Note" value={account.lifecycleReasonNote ?? 'Not recorded'} />
         </Stack>
-        {canEdit ? (
-          <Group gap="xs" mb="md">
-            {account.lifecycleStatus !== 'at_risk' ? (
-              <Button size="xs" variant="light" color="yellow" onClick={() => openLifecycleModal('at_risk')}>
-                Mark At Risk
-              </Button>
-            ) : null}
-            {account.lifecycleStatus !== 'inactive' ? (
-              <Button size="xs" variant="light" color="gray" onClick={() => openLifecycleModal('inactive')}>
-                Mark Inactive
-              </Button>
-            ) : null}
-            {account.lifecycleStatus !== 'churned' ? (
-              <Button size="xs" variant="light" color="red" onClick={() => openLifecycleModal('churned')}>
-                Confirm Churn
-              </Button>
-            ) : null}
-            {account.lifecycleStatus !== 'active' ? (
-              <Button size="xs" variant="light" color="green" onClick={() => openLifecycleModal('active')}>
-                Reactivate
-              </Button>
-            ) : null}
-          </Group>
-        ) : null}
         <List spacing="xs" size="sm">
           <List.Item>Customer activation now lives in Pulse from lead conversion through first-order confirmation.</List.Item>
           <List.Item>Lifecycle state is tracked separately from archive/inactive record status so churn and operating risk stay visible.</List.Item>
-          <List.Item>ERP-backed order automation is still parked, so lifecycle changes are manually governed in Pulse for now.</List.Item>
         </List>
       </Card>
 

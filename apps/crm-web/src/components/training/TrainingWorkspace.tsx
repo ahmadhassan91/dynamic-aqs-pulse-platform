@@ -1,9 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -16,18 +14,26 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Stepper,
   Table,
   Tabs,
   Text,
   TextInput,
   Textarea,
   Title,
-  Tooltip,
 } from '@mantine/core';
 import { IconCalendarPlus, IconClipboardCheck, IconClockEdit } from '@tabler/icons-react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  RowActionMenu,
+  WorkbenchAdvancedSection,
+  WorkbenchHeader,
+  WorkbenchMoreMenu,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
 import {
   createTrainingCategoryRecord,
   createTrainingTemplateRecord,
@@ -69,6 +75,26 @@ type CatalogForms = {
   trainingType: CreateTrainingTypeRequest;
   template: CreateTrainingTemplateRequest;
 };
+type TrainingOpsQueueView = 'recertification' | 'coaching' | 'proof' | 'cadence' | 'exceptions';
+type TrainingCoachingSessionRow = TrainingCoachingWorkloadResponse['upcomingSessions'][number];
+type TrainingOverdueProgramRow = ListTrainingOperationalQueueResponse['overduePrograms'][number];
+
+const TRAINING_OPS_QUEUE_OPTIONS: Array<{ value: TrainingOpsQueueView; label: string }> = [
+  { value: 'recertification', label: 'Recertification' },
+  { value: 'coaching', label: 'Coaching' },
+  { value: 'proof', label: 'Proof Review' },
+  { value: 'cadence', label: 'Overdue Cadence' },
+  { value: 'exceptions', label: 'Session Issues' },
+];
+
+const TRAINING_WORKSPACE_TABS = new Set(['ops', 'sessions', 'accounts', 'overview', 'reports', 'admin']);
+
+function resolveTrainingWorkspaceTab(value: string | null) {
+  if (value === 'catalog') {
+    return 'admin';
+  }
+  return value && TRAINING_WORKSPACE_TABS.has(value) ? value : 'ops';
+}
 
 const DEFAULT_CATEGORY_FORM: CreateTrainingCategoryRequest = {
   kind: 'custom',
@@ -338,6 +364,42 @@ function trainingStatusColor(session: TrainingSessionSummary) {
   return 'blue';
 }
 
+function formatTrainingLabel(value?: string | null) {
+  if (!value) {
+    return 'Not set';
+  }
+
+  const labels: Record<string, string> = {
+    attendance_and_notes: 'Attendance and notes',
+    cancelled: 'Cancelled',
+    certification_decision_pending: 'Needs proof decision',
+    checked_in: 'Checked in',
+    completed: 'Completed',
+    custom: 'Custom',
+    no_show: 'No show',
+    proof_missing: 'Needs proof',
+    proof_rejected: 'Proof needs follow-up',
+    scheduled: 'Scheduled',
+    site_visit: 'Site visit',
+  };
+
+  return labels[value] ?? value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatCertificationOutcome(value?: string | null) {
+  const labels: Record<string, string> = {
+    approved: 'Certified',
+    failed: 'Not certified',
+    not_applicable: 'Not applicable',
+    pending: 'Needs decision',
+    revoked: 'Revoked',
+  };
+
+  return value ? labels[value] ?? formatTrainingLabel(value) : 'Not set';
+}
+
 function exceptionSeverityColor(severity: TrainingOperationalExceptionQueueItem['severity']) {
   if (severity === 'high') {
     return 'red';
@@ -358,12 +420,25 @@ function certificationQueueColor(item: TrainingOperationalCertificationQueueItem
   return 'blue';
 }
 
+function TrainingQueueAllClear() {
+  return (
+    <EmptyStateMessage
+      kind="all-clear"
+      title="No training work needs attention"
+      description="Adjust filters if you need to review a narrower owner or due window."
+    />
+  );
+}
+
 export function TrainingWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'overview';
+  const requestedTab = searchParams.get('tab');
+  const initialTab = resolveTrainingWorkspaceTab(requestedTab);
   const [activeTab, setActiveTab] = useState<string | null>(initialTab);
+  const [opsQueueView, setOpsQueueView] = useState<TrainingOpsQueueView>('recertification');
   const [overview, setOverview] = useState<TrainingOverviewResponse | null>(null);
   const [catalog, setCatalog] = useState<TrainingCatalogResponse | null>(null);
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof fetchTrainingAccounts>> | null>(null);
@@ -383,6 +458,7 @@ export function TrainingWorkspace() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [catalogSetupStep, setCatalogSetupStep] = useState(0);
   const [forms, setForms] = useState<CatalogForms>({
     category: DEFAULT_CATEGORY_FORM,
     trainingType: DEFAULT_TYPE_FORM,
@@ -508,9 +584,38 @@ export function TrainingWorkspace() {
       .map((entry) => ({ value: entry.userId, label: entry.displayName }))
   ), [trainers]);
 
-  const pendingDecisionItems = useMemo(
-    () => (operationalQueue?.unresolvedExecutionExceptions ?? []).filter((entry) => entry.type === 'certification_decision_pending'),
+  const proofExceptionItems = useMemo(
+    () => (operationalQueue?.unresolvedExecutionExceptions ?? []).filter((entry) => (
+      entry.type === 'certification_decision_pending'
+      || entry.type === 'proof_missing'
+      || entry.type === 'proof_rejected'
+    )),
     [operationalQueue],
+  );
+
+  const trainingOpsQueueOptions = useMemo(
+    () => TRAINING_OPS_QUEUE_OPTIONS.map((option) => {
+      if (option.value === 'recertification') {
+        return { ...option, count: recertificationQueue?.summary.totalDueCount ?? 0 };
+      }
+      if (option.value === 'coaching') {
+        return { ...option, count: coachingWorkload?.summary.upcomingSessionCount ?? 0 };
+      }
+      if (option.value === 'proof') {
+        return { ...option, count: proofExceptionItems.length };
+      }
+      if (option.value === 'cadence') {
+        return { ...option, count: operationalQueue?.summary.overdueProgramCount ?? 0 };
+      }
+      return { ...option, count: operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0 };
+    }),
+    [
+      coachingWorkload?.summary.upcomingSessionCount,
+      operationalQueue?.summary.overdueProgramCount,
+      operationalQueue?.summary.unresolvedExecutionExceptionCount,
+      proofExceptionItems.length,
+      recertificationQueue?.summary.totalDueCount,
+    ],
   );
 
   const sessionItems = sessions?.items ?? [];
@@ -610,23 +715,21 @@ export function TrainingWorkspace() {
 
   return (
     <Stack gap="md">
-      <Paper shadow="sm" p="md" style={{ background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
-        <Group justify="space-between" align="flex-start">
-          <Stack gap="xs">
-            <Title order={1}>Training Management</Title>
-            <Text size="sm" c="dimmed">
-              Manage the Dynamic AQS training catalog, account coverage, certification tracks, scheduled sessions, and follow-up work under the approved Pulse shell.
-            </Text>
-          </Stack>
-          <Group gap="xs">
-            {certificationTrackSummary.map((entry) => (
-              <Badge key={entry.id} color="violet" variant="light">
-                {entry.name}
-              </Badge>
-            ))}
-          </Group>
-        </Group>
-      </Paper>
+      <WorkbenchHeader
+        eyebrow="Field training"
+        title="Training Workbench"
+        description="Run scheduled sessions, proof review, recertification work, and training exceptions from one workbench."
+        policyText="Priority work stays first. Coverage, reports, and setup stay in More."
+        primaryAction={(
+          <Button
+            leftSection={<IconCalendarPlus size={16} />}
+            onClick={() => setActiveTab('accounts')}
+            disabled={!canSchedule}
+          >
+            Schedule Training
+          </Button>
+        )}
+      />
 
       {errorMessage ? <Alert color="red" variant="light">{errorMessage}</Alert> : null}
 
@@ -640,64 +743,44 @@ export function TrainingWorkspace() {
 
       {overview ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Accounts tracked</Text>
-              <Text fw={700} size="xl">{overview.totalAccountsTracked}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active programs</Text>
-              <Text fw={700} size="xl">{overview.activePrograms}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue programs</Text>
-              <Text fw={700} size="xl" {...(overview.overduePrograms > 0 ? { c: 'red' as const } : {})}>{overview.overduePrograms}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Scheduled sessions</Text>
-              <Text fw={700} size="xl">{overview.scheduledSessions}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
-              <Text fw={700} size="xl">{overview.openFollowUpTasks}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Certification tracks</Text>
-              <Text fw={700} size="xl">{overview.certificationTrackCount}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active certifications</Text>
-              <Text fw={700} size="xl">{overview.activeCertificationCount}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Pending certification decisions</Text>
-              <Text
-                fw={700}
-                size="xl"
-                {...(overview.pendingCertificationDecisionCount > 0 ? { c: 'orange' as const } : {})}
-              >
-                {overview.pendingCertificationDecisionCount}
-              </Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Execution exceptions</Text>
-              <Text
-                fw={700}
-                size="xl"
-                {...(overview.executionExceptionCount > 0 ? { c: 'red' as const } : {})}
-              >
-                {overview.executionExceptionCount}
-              </Text>
-            </Card>
-          </SimpleGrid>
-
           <Tabs value={activeTab} onChange={setActiveTab}>
             <Tabs.List>
-              <Tabs.Tab value="overview">Overview</Tabs.Tab>
-              <Tabs.Tab value="accounts">Accounts &amp; Training</Tabs.Tab>
-              <Tabs.Tab value="sessions">Sessions</Tabs.Tab>
-              <Tabs.Tab value="ops">Exceptions &amp; Recertification</Tabs.Tab>
-              <Tabs.Tab value="catalog">Catalog</Tabs.Tab>
+              <Tabs.Tab value="ops">Priority Queue</Tabs.Tab>
+              <WorkbenchMoreMenu
+                label={activeTab === 'sessions' ? 'Scheduled Sessions' : activeTab === 'accounts' ? 'Account Coverage' : activeTab === 'overview' ? 'Coverage Summary' : activeTab === 'reports' ? 'Compliance Reports' : activeTab === 'admin' ? 'Catalog Setup' : 'More'}
+                items={[
+                  {
+                    id: 'training-sessions',
+                    label: 'Scheduled Sessions',
+                    description: 'Review and update scheduled training.',
+                    onClick: () => setActiveTab('sessions'),
+                  },
+                  {
+                    id: 'training-accounts',
+                    label: 'Account Coverage',
+                    description: 'Find accounts and schedule training.',
+                    onClick: () => setActiveTab('accounts'),
+                  },
+                  {
+                    id: 'training-overview',
+                    label: 'Coverage Summary',
+                    description: 'Certified tracks and session snapshot.',
+                    onClick: () => setActiveTab('overview'),
+                  },
+                  {
+                    id: 'training-reports',
+                    label: 'Compliance Reports',
+                    description: 'Owner rollups and compliance export.',
+                    onClick: () => setActiveTab('reports'),
+                  },
+                  {
+                    id: 'training-admin',
+                    label: 'Catalog Setup',
+                    description: 'Guided category, type, and template setup.',
+                    onClick: () => setActiveTab('admin'),
+                  },
+                ]}
+              />
             </Tabs.List>
 
             <Tabs.Panel value="overview" pt="lg" data-testid="training-overview-panel">
@@ -705,6 +788,20 @@ export function TrainingWorkspace() {
                 <Paper withBorder radius="md" p="lg">
                   <Stack gap="sm">
                     <Title order={4}>Current certified tracks</Title>
+                    <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Accounts tracked</Text>
+                        <Text fw={700} size="xl">{overview.totalAccountsTracked}</Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active programs</Text>
+                        <Text fw={700} size="xl">{overview.activePrograms}</Text>
+                      </Card>
+                      <Card withBorder radius="md" p="md">
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active certifications</Text>
+                        <Text fw={700} size="xl">{overview.activeCertificationCount}</Text>
+                      </Card>
+                    </SimpleGrid>
                     {(catalog?.trainingTypes ?? []).filter((entry) => entry.isCertificationTrack).map((entry) => (
                       <Card key={entry.id} withBorder radius="md" p="md">
                         <Stack gap={4}>
@@ -791,23 +888,24 @@ export function TrainingWorkspace() {
                           </Table.Td>
                           <Table.Td>{account.totalTrainingHours.toFixed(1)} hrs</Table.Td>
                           <Table.Td>
-                            <Group gap={6} wrap="nowrap">
-                              <Button component={Link} href={`/customers/${account.accountId}?tab=training-history`} variant="default" size="xs">
-                                Open Account
-                              </Button>
-                              {canSchedule ? (
-                                <Button
-                                  size="xs"
-                                  leftSection={<IconCalendarPlus size={14} />}
-                                  onClick={() => setSchedulerContext({
+                            <RowActionMenu
+                              items={[
+                                {
+                                  id: 'open-account',
+                                  label: 'Open account',
+                                  onClick: () => router.push(`/customers/${account.accountId}?tab=training-history`),
+                                },
+                                ...(canSchedule ? [{
+                                  id: 'schedule-session',
+                                  label: 'Schedule session',
+                                  icon: <IconCalendarPlus size={14} />,
+                                  onClick: () => setSchedulerContext({
                                     accountId: account.accountId,
                                     accountName: account.accountName,
-                                  })}
-                                >
-                                  Schedule
-                                </Button>
-                              ) : null}
-                            </Group>
+                                  }),
+                                }] : []),
+                              ]}
+                            />
                           </Table.Td>
                         </Table.Tr>
                       )) : (
@@ -863,8 +961,6 @@ export function TrainingWorkspace() {
                         <Table.Th>Trainer</Table.Th>
                         <Table.Th>Scheduled</Table.Th>
                         <Table.Th>Status</Table.Th>
-                        <Table.Th>Follow-ups</Table.Th>
-                        <Table.Th>Field Notes</Table.Th>
                         {canSchedule ? <Table.Th>Actions</Table.Th> : null}
                       </Table.Tr>
                     </Table.Thead>
@@ -880,56 +976,49 @@ export function TrainingWorkspace() {
                           <Table.Td>
                             <Stack gap={0}>
                               <Text fw={600}>{session.title}</Text>
-                              <Text size="sm" c="dimmed">{session.activityKind.replace(/_/g, ' ')}</Text>
+                              <Text size="sm" c="dimmed">{formatTrainingLabel(session.activityKind)}</Text>
                             </Stack>
                           </Table.Td>
                           <Table.Td>{session.trainerName ?? 'Unassigned'}</Table.Td>
                           <Table.Td>{formatDateTime(session.scheduledAt ?? session.completedAt)}</Table.Td>
                           <Table.Td>
                             <Badge color={trainingStatusColor(session)} variant="light">
-                              {session.executionState.replace(/_/g, ' ')}
+                              {formatTrainingLabel(session.executionState)}
                             </Badge>
                             {session.isCertificationTrack ? (
                               <Badge color="violet" variant="light" ml={6}>
-                                {session.certificationOutcome.replace(/_/g, ' ')}
+                                {formatCertificationOutcome(session.certificationOutcome)}
                               </Badge>
                             ) : null}
-                          </Table.Td>
-                          <Table.Td>{session.openFollowUpTaskCount}</Table.Td>
-                          <Table.Td>
-                            {session.fieldActivity.length > 0 ? (
-                              <Badge color="blue" variant="light">{session.fieldActivity.length} reviewed</Badge>
-                            ) : (
-                              <Text size="sm" c="dimmed">None</Text>
-                            )}
+                            {session.openFollowUpTaskCount > 0 || session.fieldActivity.length > 0 ? (
+                              <Text size="xs" c="dimmed" mt={4}>
+                                {session.openFollowUpTaskCount} follow-ups · {session.fieldActivity.length} field notes
+                              </Text>
+                            ) : null}
                           </Table.Td>
                           {canSchedule ? (
                             <Table.Td>
                               {session.status === 'scheduled' ? (
-                                <Group gap={4} wrap="nowrap">
-                                  <Tooltip label="Reschedule">
-                                    <ActionIcon
-                                      variant="light"
-                                      color="blue"
-                                      onClick={() => setSchedulerContext({
+                                <RowActionMenu
+                                  items={[
+                                    {
+                                      id: 'reschedule',
+                                      label: 'Reschedule',
+                                      icon: <IconClockEdit size={16} />,
+                                      onClick: () => setSchedulerContext({
                                         accountId: session.accountId,
                                         accountName: session.accountName ?? 'Account',
                                         existingSession: session,
-                                      })}
-                                    >
-                                      <IconClockEdit size={16} />
-                                    </ActionIcon>
-                                  </Tooltip>
-                                  <Tooltip label="Complete / cancel">
-                                    <ActionIcon
-                                      variant="light"
-                                      color="green"
-                                      onClick={() => setExecutionSession(session)}
-                                    >
-                                      <IconClipboardCheck size={16} />
-                                    </ActionIcon>
-                                  </Tooltip>
-                                </Group>
+                                      }),
+                                    },
+                                    {
+                                      id: 'complete-cancel',
+                                      label: 'Update session',
+                                      icon: <IconClipboardCheck size={16} />,
+                                      onClick: () => setExecutionSession(session),
+                                    },
+                                  ]}
+                                />
                               ) : (
                                 <Text size="sm" c="dimmed">Logged</Text>
                               )}
@@ -938,7 +1027,7 @@ export function TrainingWorkspace() {
                         </Table.Tr>
                       )) : (
                         <Table.Tr>
-                          <Table.Td colSpan={canSchedule ? 7 : 6}>
+                          <Table.Td colSpan={canSchedule ? 6 : 5}>
                             <Text c="dimmed">No training sessions match the current filters yet.</Text>
                           </Table.Td>
                         </Table.Tr>
@@ -947,44 +1036,336 @@ export function TrainingWorkspace() {
                   </Table>
                 </Paper>
 
-                {sessions && sessions.executionExceptions.length > 0 ? (
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Execution exceptions</Title>
-                        <Badge color="red" variant="light">{sessions.executionExceptions.length}</Badge>
-                      </Group>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Session</Table.Th>
-                            <Table.Th>Issue</Table.Th>
-                            <Table.Th>Severity</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {sessions.executionExceptions.map((entry) => (
-                            <Table.Tr key={`${entry.sessionId}-${entry.type}`}>
-                              <Table.Td>{entry.accountName ?? 'Account'}</Table.Td>
-                              <Table.Td>{entry.title}</Table.Td>
-                              <Table.Td>{entry.detail}</Table.Td>
-                              <Table.Td>
-                                <Badge color={entry.severity === 'high' ? 'red' : 'orange'} variant="light">
-                                  {entry.severity}
-                                </Badge>
-                              </Table.Td>
-                            </Table.Tr>
-                          ))}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
+                {(sessions?.executionExceptions.length ?? 0) > 0 ? (
+                  <Text size="sm" c="dimmed">
+                    Session issues are handled in the Priority Queue so this list stays focused on scheduled training.
+                  </Text>
                 ) : null}
               </Stack>
             </Tabs.Panel>
 
             <Tabs.Panel value="ops" pt="lg" data-testid="training-ops-panel">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-end">
+                  <WorkbenchAdvancedSection
+                    title="Filters"
+                    description="Narrow by owner or due window when the queue is too broad."
+                  >
+                    <Group align="flex-end">
+                      <Select
+                        label="Territory manager"
+                        placeholder="All TMs"
+                        clearable
+                        data={tmFilterOptions}
+                        value={opsTmFilter}
+                        onChange={setOpsTmFilter}
+                        searchable
+                      />
+                      <Select
+                        label="Regional director"
+                        placeholder="All RDs"
+                        clearable
+                        data={rdFilterOptions}
+                        value={opsRdFilter}
+                        onChange={setOpsRdFilter}
+                        searchable
+                      />
+                      <Select
+                        label="Due window"
+                        value={opsCertificationWindowDays}
+                        onChange={(value) => setOpsCertificationWindowDays(value ?? '45')}
+                        data={[
+                          { value: '30', label: 'Next 30 days' },
+                          { value: '45', label: 'Next 45 days' },
+                          { value: '60', label: 'Next 60 days' },
+                          { value: '90', label: 'Next 90 days' },
+                        ]}
+                      />
+                    </Group>
+                  </WorkbenchAdvancedSection>
+                </Group>
+
+                <Group gap="xs" role="tablist" aria-label="Training priority queues">
+                  {trainingOpsQueueOptions.map((option) => (
+                    <Button
+                      key={option.value}
+                      size="xs"
+                      variant={opsQueueView === option.value ? 'light' : 'default'}
+                      role="tab"
+                      aria-selected={opsQueueView === option.value}
+                      onClick={() => setOpsQueueView(option.value)}
+                      rightSection={(
+                        <Badge size="xs" color={option.count > 0 ? (option.value === 'exceptions' ? 'red' : 'orange') : 'gray'} variant="light">
+                          {option.count}
+                        </Badge>
+                      )}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, xl: 2 }}>
+                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'recertification' ? undefined : 'none' }}>
+                    <Stack gap="sm">
+                      <Title order={4}>Recertification queue</Title>
+                      <Text size="sm" c="dimmed">
+                        Accounts with certifications due inside the current window or already expired.
+                      </Text>
+                      <WorkbenchTable<TrainingOperationalCertificationQueueItem>
+                        ariaLabel="Recertification queue"
+                        rows={(recertificationQueue?.items ?? []).slice(0, 6)}
+                        getRowKey={(item) => item.certificationId}
+                        minWidth={680}
+                        withContainer={false}
+                        columns={[
+                          {
+                            key: 'account',
+                            header: 'Account',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'certification',
+                            header: 'Certification',
+                            render: (item) => item.title,
+                          },
+                          {
+                            key: 'due',
+                            header: 'Due',
+                            render: (item) => (
+                              <Badge color={certificationQueueColor(item)} variant="light">
+                                {item.daysUntilExpiry >= 0 ? `${item.daysUntilExpiry} days` : `${Math.abs(item.daysUntilExpiry)} days past`}
+                              </Badge>
+                            ),
+                          },
+                        ]}
+                        emptyState={(
+                          <TrainingQueueAllClear />
+                        )}
+                      />
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'coaching' ? undefined : 'none' }}>
+                    <Stack gap="sm">
+                      <Title order={4}>Coaching workload</Title>
+                      <Text size="sm" c="dimmed">
+                        Upcoming field coaching sessions in your current scope.
+                      </Text>
+                      <WorkbenchTable<TrainingCoachingSessionRow>
+                        ariaLabel="Coaching workload upcoming sessions"
+                        rows={(coachingWorkload?.upcomingSessions ?? []).slice(0, 6)}
+                        getRowKey={(item) => item.sessionId}
+                        minWidth={680}
+                        withContainer={false}
+                        columns={[
+                          {
+                            key: 'account',
+                            header: 'Account',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'session',
+                            header: 'Upcoming session',
+                            render: (item) => item.title,
+                          },
+                          {
+                            key: 'scheduled',
+                            header: 'Scheduled',
+                            render: (item) => formatDateTime(item.scheduledAt),
+                          },
+                        ]}
+                        emptyState={(
+                          <TrainingQueueAllClear />
+                        )}
+                      />
+                    </Stack>
+                  </Paper>
+                </SimpleGrid>
+
+                <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'proof' ? undefined : 'none' }}>
+                  <Stack gap="sm">
+                    <Title order={4}>Proof and certification review</Title>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Account</Table.Th>
+                          <Table.Th>Session</Table.Th>
+                          <Table.Th>Detail</Table.Th>
+                          {canSchedule ? <Table.Th>Action</Table.Th> : null}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {proofExceptionItems.length > 0 ? proofExceptionItems.map((item) => (
+                          <Table.Tr key={`${item.sessionId}-${item.type}`}>
+                            <Table.Td>
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName ?? 'Account'}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>{item.title}</Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text size="sm">{item.detail}</Text>
+                                <Badge size="xs" color={exceptionSeverityColor(item.severity)} variant="light">
+                                  {formatTrainingLabel(item.type)}
+                                </Badge>
+                              </Stack>
+                            </Table.Td>
+		                            {canSchedule ? (
+		                              <Table.Td>
+		                                <RowActionMenu
+		                                  items={[
+                                      ...(item.type === 'certification_decision_pending' ? [{
+                                        id: 'resolve-decision',
+                                        label: 'Resolve decision',
+                                        onClick: () => setPendingDecisionException(item),
+                                      }] : []),
+                                      {
+                                        id: 'open-account',
+                                        label: 'Open account',
+                                        onClick: () => router.push(`/customers/${item.accountId}?tab=training-history`),
+                                      },
+                                    ]}
+		                                />
+		                              </Table.Td>
+		                            ) : null}
+                          </Table.Tr>
+                        )) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={canSchedule ? 4 : 3}>
+                              <TrainingQueueAllClear />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Stack>
+                </Paper>
+
+                <SimpleGrid cols={{ base: 1, xl: 2 }}>
+                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'cadence' ? undefined : 'none' }}>
+                    <Stack gap="sm">
+                      <Title order={4}>Overdue cadence queue</Title>
+                      <WorkbenchTable<TrainingOverdueProgramRow>
+                        ariaLabel="Overdue cadence queue"
+                        rows={operationalQueue?.overduePrograms ?? []}
+                        getRowKey={(item) => item.programId}
+                        minWidth={760}
+                        withContainer={false}
+                        columns={[
+                          {
+                            key: 'account',
+                            header: 'Account',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'program',
+                            header: 'Program',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.title}</Text>
+                                <Text size="sm" c="dimmed">{item.trainingTypeName ?? item.trainingTypeCode ?? 'Training program'}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'next-due',
+                            header: 'Next due',
+                            render: (item) => (
+                              <Stack gap={4}>
+                                <Text>{formatDate(item.nextDueAt)}</Text>
+                                <Badge color="orange" variant="light">
+                                  {item.daysOverdue} days overdue
+                                </Badge>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'owner',
+                            header: 'Owner',
+                            render: (item) => item.ownerTmName ?? item.ownerRdName ?? 'Unassigned',
+                          },
+                        ]}
+                        emptyState={(
+                          <TrainingQueueAllClear />
+                        )}
+                      />
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'exceptions' ? undefined : 'none' }}>
+                    <Stack gap="sm">
+                      <Title order={4}>Session issues</Title>
+                      <WorkbenchTable<TrainingOperationalExceptionQueueItem>
+                        ariaLabel="Training execution exceptions"
+                        rows={operationalQueue?.unresolvedExecutionExceptions ?? []}
+                        getRowKey={(item) => `${item.sessionId}-${item.type}`}
+                        minWidth={760}
+                        withContainer={false}
+                        columns={[
+                          {
+                            key: 'account',
+                            header: 'Account',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{item.accountName ?? 'Account'}</Text>
+                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'issue',
+                            header: 'Issue',
+                            render: (item) => (
+                              <Stack gap={0}>
+                                <Text fw={600}>{formatTrainingLabel(item.type)}</Text>
+                                <Text size="sm" c="dimmed">{item.detail}</Text>
+                              </Stack>
+                            ),
+                          },
+                          {
+                            key: 'severity',
+                            header: 'Severity',
+                            render: (item) => (
+                              <Badge color={exceptionSeverityColor(item.severity)} variant="light">
+                                {item.severity}
+                              </Badge>
+                            ),
+                          },
+                        ]}
+                        rowActions={(item) => [{
+                          id: 'open-account',
+                          label: 'Open account',
+                          onClick: () => router.push(`/customers/${item.accountId}?tab=training-history`),
+                        }]}
+                        emptyState={(
+                          <TrainingQueueAllClear />
+                        )}
+                      />
+                    </Stack>
+                  </Paper>
+                </SimpleGrid>
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="reports" pt="lg" data-testid="training-reports-panel">
               <Stack gap="md">
                 <Group justify="space-between" align="flex-end">
                   <Group align="flex-end">
@@ -1007,7 +1388,7 @@ export function TrainingWorkspace() {
                       searchable
                     />
                     <Select
-                      label="Expiry window"
+                      label="Certification window"
                       value={opsCertificationWindowDays}
                       onChange={(value) => setOpsCertificationWindowDays(value ?? '45')}
                       data={[
@@ -1018,433 +1399,14 @@ export function TrainingWorkspace() {
                       ]}
                     />
                   </Group>
-                  <Group gap="sm" align="center">
-                    <Badge color={(operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? 'red' : 'blue'} variant="light">
-                      {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0} unresolved exceptions
-                    </Badge>
-                    <Button
-                      variant="default"
-                      onClick={() => complianceReport ? downloadTrainingComplianceCsv(complianceReport) : null}
-                      disabled={!complianceReport}
-                    >
-                      Export reporting CSV
-                    </Button>
-                  </Group>
+                  <Button
+                    variant="default"
+                    onClick={() => complianceReport ? downloadTrainingComplianceCsv(complianceReport) : null}
+                    disabled={!complianceReport}
+                  >
+                    Export reporting CSV
+                  </Button>
                 </Group>
-
-                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-                  <Card withBorder radius="md" p="md">
-                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expiring certifications</Text>
-                    <Text fw={700} size="xl">{operationalQueue?.summary.expiringCertificationCount ?? 0}</Text>
-                  </Card>
-                  <Card withBorder radius="md" p="md">
-                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expired certifications</Text>
-                    <Text
-                      fw={700}
-                      size="xl"
-                      {...((operationalQueue?.summary.expiredCertificationCount ?? 0) > 0 ? { c: 'red' as const } : {})}
-                    >
-                      {operationalQueue?.summary.expiredCertificationCount ?? 0}
-                    </Text>
-                  </Card>
-                  <Card withBorder radius="md" p="md">
-                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue cadence</Text>
-                    <Text
-                      fw={700}
-                      size="xl"
-                      {...((operationalQueue?.summary.overdueProgramCount ?? 0) > 0 ? { c: 'orange' as const } : {})}
-                    >
-                      {operationalQueue?.summary.overdueProgramCount ?? 0}
-                    </Text>
-                  </Card>
-                  <Card withBorder radius="md" p="md">
-                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Execution exceptions</Text>
-                    <Text
-                      fw={700}
-                      size="xl"
-                      {...((operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0) > 0 ? { c: 'red' as const } : {})}
-                    >
-                      {operationalQueue?.summary.unresolvedExecutionExceptionCount ?? 0}
-                    </Text>
-                  </Card>
-                </SimpleGrid>
-
-                <SimpleGrid cols={{ base: 1, xl: 2 }}>
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Recertification queue</Title>
-                        <Badge color="blue" variant="light">
-                          {recertificationQueue?.summary.totalDueCount ?? 0} due
-                        </Badge>
-                      </Group>
-                      <Text size="sm" c="dimmed">
-                        Accounts with certifications due inside the current window or already expired.
-                      </Text>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Certification</Table.Th>
-                            <Table.Th>Due</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(recertificationQueue?.items ?? []).length > 0 ? recertificationQueue?.items.slice(0, 6).map((item) => (
-                            <Table.Tr key={item.certificationId}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.title}</Table.Td>
-                              <Table.Td>
-                                <Badge color={certificationQueueColor(item)} variant="light">
-                                  {item.daysUntilExpiry >= 0 ? `${item.daysUntilExpiry} days` : `${Math.abs(item.daysUntilExpiry)} days past`}
-                                </Badge>
-                              </Table.Td>
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={3}>
-                                <Text c="dimmed">No accounts are currently in the recertification queue.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Coaching workload</Title>
-                        <Badge color="grape" variant="light">
-                          {coachingWorkload?.summary.upcomingSessionCount ?? 0} upcoming
-                        </Badge>
-                      </Group>
-                      <SimpleGrid cols={{ base: 2, sm: 4 }}>
-                        <Card withBorder radius="md" p="sm">
-                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Upcoming</Text>
-                          <Text fw={700} size="lg">{coachingWorkload?.summary.upcomingSessionCount ?? 0}</Text>
-                        </Card>
-                        <Card withBorder radius="md" p="sm">
-                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue cadence</Text>
-                          <Text fw={700} size="lg">{coachingWorkload?.summary.overdueProgramCount ?? 0}</Text>
-                        </Card>
-                        <Card withBorder radius="md" p="sm">
-                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Open follow-ups</Text>
-                          <Text fw={700} size="lg">{coachingWorkload?.summary.openFollowUpTaskCount ?? 0}</Text>
-                        </Card>
-                        <Card withBorder radius="md" p="sm">
-                          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Expiring certs</Text>
-                          <Text fw={700} size="lg">{coachingWorkload?.summary.expiringCertificationCount ?? 0}</Text>
-                        </Card>
-                      </SimpleGrid>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Upcoming session</Table.Th>
-                            <Table.Th>Scheduled</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(coachingWorkload?.upcomingSessions ?? []).length > 0 ? coachingWorkload?.upcomingSessions.slice(0, 6).map((item) => (
-                            <Table.Tr key={item.sessionId}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.title}</Table.Td>
-                              <Table.Td>{formatDateTime(item.scheduledAt)}</Table.Td>
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={3}>
-                                <Text c="dimmed">No upcoming coaching sessions are currently in your scoped queue.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-                </SimpleGrid>
-
-                <Paper withBorder radius="md" p="lg">
-                  <Stack gap="sm">
-                    <Group justify="space-between">
-                      <Title order={4}>Pending certification decisions</Title>
-                      <Badge color={pendingDecisionItems.length > 0 ? 'orange' : 'blue'} variant="light">
-                        {pendingDecisionItems.length}
-                      </Badge>
-                    </Group>
-                    <Table striped highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Account</Table.Th>
-                          <Table.Th>Session</Table.Th>
-                          <Table.Th>Detail</Table.Th>
-                          {canSchedule ? <Table.Th>Action</Table.Th> : null}
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {pendingDecisionItems.length > 0 ? pendingDecisionItems.map((item) => (
-                          <Table.Tr key={`${item.sessionId}-${item.type}`}>
-                            <Table.Td>
-                              <Stack gap={0}>
-                                <Text fw={600}>{item.accountName ?? 'Account'}</Text>
-                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>{item.title}</Table.Td>
-                            <Table.Td>{item.detail}</Table.Td>
-                            {canSchedule ? (
-                              <Table.Td>
-                                <Button size="xs" onClick={() => setPendingDecisionException(item)}>
-                                  Resolve
-                                </Button>
-                              </Table.Td>
-                            ) : null}
-                          </Table.Tr>
-                        )) : (
-                          <Table.Tr>
-                            <Table.Td colSpan={canSchedule ? 4 : 3}>
-                              <Text c="dimmed">No pending certification decisions are in the queue right now.</Text>
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Table.Tbody>
-                    </Table>
-                  </Stack>
-                </Paper>
-
-                <SimpleGrid cols={{ base: 1, xl: 2 }}>
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Expiring certifications</Title>
-                        <Badge color="blue" variant="light">{operationalQueue?.expiringCertifications.length ?? 0}</Badge>
-                      </Group>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Certification</Table.Th>
-                            <Table.Th>Expires</Table.Th>
-                            <Table.Th>Owner</Table.Th>
-                            {canSchedule ? <Table.Th>Action</Table.Th> : null}
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(operationalQueue?.expiringCertifications ?? []).length > 0 ? operationalQueue?.expiringCertifications.map((item) => (
-                            <Table.Tr key={item.certificationId}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.title}</Text>
-                                  <Text size="sm" c="dimmed">{item.trainingTypeName ?? item.trainingTypeCode ?? 'Certification track'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={4}>
-                                  <Text>{formatDate(item.expiresAt)}</Text>
-                                  <Badge color={certificationQueueColor(item)} variant="light">
-                                    {item.daysUntilExpiry} days
-                                  </Badge>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
-                              {canSchedule ? (
-                                <Table.Td>
-                                  <Button size="xs" variant="default" onClick={() => setRevocationCertification(item)}>
-                                    Revoke
-                                  </Button>
-                                </Table.Td>
-                              ) : null}
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={canSchedule ? 5 : 4}>
-                                <Text c="dimmed">No certifications are nearing expiry in the current window.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Expired certifications</Title>
-                        <Badge color="red" variant="light">{operationalQueue?.expiredCertifications.length ?? 0}</Badge>
-                      </Group>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Certification</Table.Th>
-                            <Table.Th>Expired</Table.Th>
-                            <Table.Th>Owner</Table.Th>
-                            {canSchedule ? <Table.Th>Action</Table.Th> : null}
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(operationalQueue?.expiredCertifications ?? []).length > 0 ? operationalQueue?.expiredCertifications.map((item) => (
-                            <Table.Tr key={item.certificationId}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.title}</Table.Td>
-                              <Table.Td>
-                                <Stack gap={4}>
-                                  <Text>{formatDate(item.expiresAt)}</Text>
-                                  <Badge color="red" variant="light">
-                                    {Math.abs(item.daysUntilExpiry)} days past due
-                                  </Badge>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
-                              {canSchedule ? (
-                                <Table.Td>
-                                  <Button size="xs" variant="default" onClick={() => setRevocationCertification(item)}>
-                                    Revoke
-                                  </Button>
-                                </Table.Td>
-                              ) : null}
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={canSchedule ? 5 : 4}>
-                                <Text c="dimmed">No expired certifications are currently in queue.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Overdue cadence queue</Title>
-                        <Badge color="orange" variant="light">{operationalQueue?.overduePrograms.length ?? 0}</Badge>
-                      </Group>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Program</Table.Th>
-                            <Table.Th>Next due</Table.Th>
-                            <Table.Th>Owner</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(operationalQueue?.overduePrograms ?? []).length > 0 ? operationalQueue?.overduePrograms.map((item) => (
-                            <Table.Tr key={item.programId}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.title}</Text>
-                                  <Text size="sm" c="dimmed">{item.trainingTypeName ?? item.trainingTypeCode ?? 'Training program'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={4}>
-                                  <Text>{formatDate(item.nextDueAt)}</Text>
-                                  <Badge color="orange" variant="light">
-                                    {item.daysOverdue} days overdue
-                                  </Badge>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>{item.ownerTmName ?? item.ownerRdName ?? 'Unassigned'}</Table.Td>
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={4}>
-                                <Text c="dimmed">No overdue training cadence items are currently in queue.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Title order={4}>Execution exceptions</Title>
-                        <Badge color="red" variant="light">{operationalQueue?.unresolvedExecutionExceptions.length ?? 0}</Badge>
-                      </Group>
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Account</Table.Th>
-                            <Table.Th>Issue</Table.Th>
-                            <Table.Th>Severity</Table.Th>
-                            <Table.Th>Action</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {(operationalQueue?.unresolvedExecutionExceptions ?? []).length > 0 ? operationalQueue?.unresolvedExecutionExceptions.map((item) => (
-                            <Table.Tr key={`${item.sessionId}-${item.type}`}>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.accountName ?? 'Account'}</Text>
-                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={0}>
-                                  <Text fw={600}>{item.title}</Text>
-                                  <Text size="sm" c="dimmed">{item.detail}</Text>
-                                </Stack>
-                              </Table.Td>
-                              <Table.Td>
-                                <Badge color={exceptionSeverityColor(item.severity)} variant="light">
-                                  {item.severity}
-                                </Badge>
-                              </Table.Td>
-                              <Table.Td>
-                                <Button component={Link} href={`/customers/${item.accountId}?tab=training-history`} size="xs" variant="default">
-                                  Open Account
-                                </Button>
-                              </Table.Td>
-                            </Table.Tr>
-                          )) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={4}>
-                                <Text c="dimmed">No unresolved training execution exceptions are currently in queue.</Text>
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Stack>
-                  </Paper>
-                </SimpleGrid>
 
                 <Paper withBorder radius="md" p="lg">
                   <Stack gap="md">
@@ -1586,175 +1548,197 @@ export function TrainingWorkspace() {
               </Stack>
             </Tabs.Panel>
 
-            <Tabs.Panel value="catalog" pt="lg" data-testid="training-catalog-panel">
+            <Tabs.Panel value="admin" pt="lg" data-testid="training-catalog-panel">
               <Stack gap="md">
-                <SimpleGrid cols={{ base: 1, lg: 3 }}>
-                  <Paper withBorder radius="md" p="lg" data-testid="training-category-form">
-                    <Stack gap="sm">
-                      <Title order={4}>Add category</Title>
-                      <Select
-                        label="Kind"
-                        data={[
-                          { value: 'onboarding', label: 'Onboarding' },
-                          { value: 'product', label: 'Product' },
-                          { value: 'technical', label: 'Technical' },
-                          { value: 'sales', label: 'Sales' },
-                          { value: 'compliance', label: 'Compliance' },
-                          { value: 'certification', label: 'Certification' },
-                          { value: 'custom', label: 'Custom' },
-                          { value: 'visit', label: 'Visit' },
-                        ]}
-                        value={forms.category.kind}
-                        disabled={!canManageCatalog}
-                        onChange={(value) => setForms((current) => ({
-                          ...current,
-                          category: {
-                            ...current.category,
-                            kind: (value as CreateTrainingCategoryRequest['kind'] | null) ?? 'custom',
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Code"
-                        aria-label="Training category code"
-                        data-testid="training-category-code"
-                        value={forms.category.code}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          category: {
-                            ...current.category,
-                            code: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Name"
-                        aria-label="Training category name"
-                        data-testid="training-category-name"
-                        value={forms.category.name}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          category: {
-                            ...current.category,
-                            name: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <Textarea
-                        label="Description"
-                        aria-label="Training category description"
-                        data-testid="training-category-description"
-                        minRows={2}
-                        value={forms.category.description ?? ''}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          category: {
-                            ...current.category,
-                            description: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <Button data-testid="training-category-save" onClick={() => void handleCategoryCreate()} disabled={!canManageCatalog} loading={isSaving}>
-                        Save Category
-                      </Button>
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="md">
+                    <Stack gap={4}>
+                      <Title order={4}>Catalog Setup</Title>
+                      <Text size="sm" c="dimmed">
+                        Create the catalog in order: category, training type, then reusable session template.
+                      </Text>
                     </Stack>
-                  </Paper>
+                    <Stepper active={catalogSetupStep} onStepClick={setCatalogSetupStep} allowNextStepsSelect={false}>
+                      <Stepper.Step label="Category" description="Organize training" data-testid="training-category-form">
+                        <Stack gap="sm" mt="md">
+                          <Select
+                            label="Kind"
+                            data={[
+                              { value: 'onboarding', label: 'Onboarding' },
+                              { value: 'product', label: 'Product' },
+                              { value: 'technical', label: 'Technical' },
+                              { value: 'sales', label: 'Sales' },
+                              { value: 'compliance', label: 'Compliance' },
+                              { value: 'certification', label: 'Certification' },
+                              { value: 'custom', label: 'Custom' },
+                              { value: 'visit', label: 'Visit' },
+                            ]}
+                            value={forms.category.kind}
+                            disabled={!canManageCatalog}
+                            onChange={(value) => setForms((current) => ({
+                              ...current,
+                              category: {
+                                ...current.category,
+                                kind: (value as CreateTrainingCategoryRequest['kind'] | null) ?? 'custom',
+                              },
+                            }))}
+                          />
+                          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                            <TextInput
+                              label="Code"
+                              aria-label="Training category code"
+                              data-testid="training-category-code"
+                              value={forms.category.code}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                category: {
+                                  ...current.category,
+                                  code: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                            <TextInput
+                              label="Name"
+                              aria-label="Training category name"
+                              data-testid="training-category-name"
+                              value={forms.category.name}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                category: {
+                                  ...current.category,
+                                  name: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                          </SimpleGrid>
+                          <Textarea
+                            label="Description"
+                            aria-label="Training category description"
+                            data-testid="training-category-description"
+                            minRows={2}
+                            value={forms.category.description ?? ''}
+                            disabled={!canManageCatalog}
+                            onChange={(event) => setForms((current) => ({
+                              ...current,
+                              category: {
+                                ...current.category,
+                                description: event.currentTarget.value,
+                              },
+                            }))}
+                          />
+                          <Group justify="space-between">
+                            <Text size="sm" c="dimmed">Save this category, then move to Training Type.</Text>
+                            <Button data-testid="training-category-save" onClick={() => void handleCategoryCreate()} disabled={!canManageCatalog} loading={isSaving}>
+                              Save Category
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Stepper.Step>
 
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Title order={4}>Add training type</Title>
-                      <Select
-                        label="Category"
-                        data={categoryOptions}
-                        value={forms.trainingType.categoryId}
-                        disabled={!canManageCatalog}
-                        onChange={(value) => setForms((current) => ({
-                          ...current,
-                          trainingType: {
-                            ...current.trainingType,
-                            categoryId: value ?? '',
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Code"
-                        value={forms.trainingType.code}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          trainingType: {
-                            ...current.trainingType,
-                            code: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Name"
-                        value={forms.trainingType.name}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          trainingType: {
-                            ...current.trainingType,
-                            name: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <Button onClick={() => void handleTypeCreate()} disabled={!canManageCatalog || !forms.trainingType.categoryId} loading={isSaving}>
-                        Save Training Type
-                      </Button>
-                    </Stack>
-                  </Paper>
+                      <Stepper.Step label="Training Type" description="Define delivery">
+                        <Stack gap="sm" mt="md">
+                          <Select
+                            label="Category"
+                            data={categoryOptions}
+                            value={forms.trainingType.categoryId}
+                            disabled={!canManageCatalog}
+                            onChange={(value) => setForms((current) => ({
+                              ...current,
+                              trainingType: {
+                                ...current.trainingType,
+                                categoryId: value ?? '',
+                              },
+                            }))}
+                          />
+                          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                            <TextInput
+                              label="Code"
+                              value={forms.trainingType.code}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                trainingType: {
+                                  ...current.trainingType,
+                                  code: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                            <TextInput
+                              label="Name"
+                              value={forms.trainingType.name}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                trainingType: {
+                                  ...current.trainingType,
+                                  name: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                          </SimpleGrid>
+                          <Group justify="space-between">
+                            <Button variant="default" onClick={() => setCatalogSetupStep(0)}>Back</Button>
+                            <Button onClick={() => void handleTypeCreate()} disabled={!canManageCatalog || !forms.trainingType.categoryId} loading={isSaving}>
+                              Save Training Type
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Stepper.Step>
 
-                  <Paper withBorder radius="md" p="lg">
-                    <Stack gap="sm">
-                      <Title order={4}>Add template</Title>
-                      <Select
-                        label="Training type"
-                        data={trainingTypeOptions}
-                        value={forms.template.trainingTypeId}
-                        disabled={!canManageCatalog}
-                        onChange={(value) => setForms((current) => ({
-                          ...current,
-                          template: {
-                            ...current.template,
-                            trainingTypeId: value ?? '',
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Code"
-                        value={forms.template.code}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          template: {
-                            ...current.template,
-                            code: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <TextInput
-                        label="Title"
-                        value={forms.template.title}
-                        disabled={!canManageCatalog}
-                        onChange={(event) => setForms((current) => ({
-                          ...current,
-                          template: {
-                            ...current.template,
-                            title: event.currentTarget.value,
-                          },
-                        }))}
-                      />
-                      <Button onClick={() => void handleTemplateCreate()} disabled={!canManageCatalog || !forms.template.trainingTypeId} loading={isSaving}>
-                        Save Template
-                      </Button>
-                    </Stack>
-                  </Paper>
-                </SimpleGrid>
+                      <Stepper.Step label="Template" description="Reusable session">
+                        <Stack gap="sm" mt="md">
+                          <Select
+                            label="Training type"
+                            data={trainingTypeOptions}
+                            value={forms.template.trainingTypeId}
+                            disabled={!canManageCatalog}
+                            onChange={(value) => setForms((current) => ({
+                              ...current,
+                              template: {
+                                ...current.template,
+                                trainingTypeId: value ?? '',
+                              },
+                            }))}
+                          />
+                          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                            <TextInput
+                              label="Code"
+                              value={forms.template.code}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                template: {
+                                  ...current.template,
+                                  code: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                            <TextInput
+                              label="Title"
+                              value={forms.template.title}
+                              disabled={!canManageCatalog}
+                              onChange={(event) => setForms((current) => ({
+                                ...current,
+                                template: {
+                                  ...current.template,
+                                  title: event.currentTarget.value,
+                                },
+                              }))}
+                            />
+                          </SimpleGrid>
+                          <Group justify="space-between">
+                            <Button variant="default" onClick={() => setCatalogSetupStep(1)}>Back</Button>
+                            <Button onClick={() => void handleTemplateCreate()} disabled={!canManageCatalog || !forms.template.trainingTypeId} loading={isSaving}>
+                              Save Template
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Stepper.Step>
+                    </Stepper>
+                  </Stack>
+                </Paper>
               </Stack>
             </Tabs.Panel>
           </Tabs>

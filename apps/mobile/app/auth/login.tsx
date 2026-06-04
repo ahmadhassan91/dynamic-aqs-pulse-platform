@@ -21,7 +21,7 @@ export default function LoginScreen() {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     await signIn({ email: email.trim(), password });
-    router.replace('/(tabs)');
+    router.replace('/');
   }
 
   return (

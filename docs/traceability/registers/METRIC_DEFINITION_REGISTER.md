@@ -97,7 +97,7 @@ These labels should be carried as reporting metadata and reused in UAT, dashboar
 | **Aggregation** | Territory → Region → Org (weighted by lead count) |
 | **Refresh** | KPI snapshot nightly; real-time on dashboard via query |
 | **Target** | 35-45% (configurable per team) |
-| **Consumers** | Executive Dashboard, Pipeline Dashboard, TM Dashboard |
+| **Consumers** | Executive Dashboard, Lead Insights, TM Dashboard |
 
 ### MET-002: Average Lead Cycle Time
 
@@ -111,7 +111,7 @@ These labels should be carried as reporting metadata and reused in UAT, dashboar
 | **Aggregation** | Territory → Region → Org (simple average) |
 | **Refresh** | Nightly |
 | **Target** | ≤30 business days |
-| **Consumers** | Executive Dashboard, Pipeline Dashboard |
+| **Consumers** | Executive Dashboard, Lead Insights |
 
 ### MET-003: Pipeline Value
 
@@ -124,7 +124,7 @@ These labels should be carried as reporting metadata and reused in UAT, dashboar
 | **Dimensions** | Stage, territory, owner, source, affinity group |
 | **Aggregation** | Stage → Territory → Region → Org |
 | **Refresh** | Real-time (query) |
-| **Consumers** | Pipeline Dashboard, Executive Dashboard |
+| **Consumers** | Lead Insights, Executive Dashboard |
 
 ### MET-004: SLA Breach Count
 
@@ -138,7 +138,7 @@ These labels should be carried as reporting metadata and reused in UAT, dashboar
 | **Aggregation** | Owner → Territory → Region → Org |
 | **Refresh** | SLA check job every 15 min |
 | **Target** | 0 (any breach is a failure) |
-| **Consumers** | Pipeline Dashboard, Leadership Alerts |
+| **Consumers** | Lead Work Queue attention chips, Lead Insights, Leadership Alerts |
 
 ### MET-005: SLA Compliance Rate
 
@@ -165,7 +165,7 @@ These labels should be carried as reporting metadata and reused in UAT, dashboar
 | **Dimensions** | Stage, territory, owner, source |
 | **Aggregation** | Territory → Region → Org |
 | **Refresh** | Real-time (query) |
-| **Consumers** | Pipeline Dashboard (Kanban view) |
+| **Consumers** | Pipeline board, Lead Insights |
 
 ### MET-007: Lead Source Attribution
 
@@ -803,10 +803,10 @@ ORDER BY ks.value DESC;
 |------|--------|----------|---------|-----------------|
 | MET-001 | Lead Conversion Rate | Lead & Pipeline | Nightly | Executive Dashboard |
 | MET-002 | Average Lead Cycle Time | Lead & Pipeline | Nightly | Executive Dashboard |
-| MET-003 | Pipeline Value | Lead & Pipeline | Real-time | Pipeline Dashboard |
-| MET-004 | SLA Breach Count | Lead & Pipeline | 15 min | Pipeline Dashboard |
+| MET-003 | Pipeline Value | Lead & Pipeline | Real-time | Lead Insights |
+| MET-004 | SLA Breach Count | Lead & Pipeline | 15 min | Lead Work Queue attention chips |
 | MET-005 | SLA Compliance Rate | Lead & Pipeline | Nightly | Executive Dashboard |
-| MET-006 | Leads by Stage | Lead & Pipeline | Real-time | Pipeline Dashboard |
+| MET-006 | Leads by Stage | Lead & Pipeline | Real-time | Pipeline board |
 | MET-007 | Lead Source Attribution | Lead & Pipeline | Nightly | Marketing Dashboard |
 | MET-008 | Average Stage Duration | Lead & Pipeline | Nightly | Pipeline Analytics |
 | MET-010 | Revenue (YTD/MTD/QTD) | Revenue & Customer | Nightly | Executive Dashboard |

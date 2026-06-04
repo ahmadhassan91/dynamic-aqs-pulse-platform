@@ -1,21 +1,18 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
-  Card,
   Divider,
   Group,
   Loader,
   Modal,
   Paper,
-  Progress,
   Select,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Table,
@@ -31,20 +28,13 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowRight,
-  IconBuilding,
-  IconBuildingWarehouse,
   IconCalendar,
   IconChartBar,
   IconChecklist,
-  IconHistory,
   IconMap,
-  IconMapPin,
-  IconPencil,
   IconRefresh,
   IconRouteSquare,
   IconSettings,
-  IconTargetArrow,
-  IconUsers,
 } from '@tabler/icons-react';
 import type {
   AccountSummary,
@@ -78,15 +68,16 @@ import { canPerformAction } from '@/lib/access';
 import {
   buildTerritoryAssignmentImpactSummary,
   getTerritoryPrototypeTabs,
-  resolvePaperMapTerritoryStyle,
 } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
 import { TerritoryCalendarFeed } from './TerritoryCalendarFeed';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
 import { TerritoryCommandDashboard } from './TerritoryCommandDashboard';
 import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
+import { RowActionMenu, WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list' | 'admin' | 'calendar';
+type TerritoryRegistryView = 'territories' | 'regions' | 'gaps' | 'leads' | 'accounts';
 
 function normalizeTerritoryTabParam(value: string | null | undefined): TerritoryTab | null {
   if (value === 'operations') {
@@ -143,6 +134,7 @@ export function TerritoryManagement({
   const searchParams = useSearchParams();
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<TerritoryTab>(initialTab === 'operations' ? 'admin' : initialTab);
+  const [territoryRegistryView, setTerritoryRegistryView] = useState<TerritoryRegistryView>('territories');
   const [policy, setPolicy] = useState<TerritoryPolicySummary | null>(null);
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
@@ -328,6 +320,7 @@ export function TerritoryManagement({
   const canReassignTerritory = auth ? canPerformAction(auth.identity.role, 'territory.reassign') : false;
   const canAdminTerritory = auth ? canPerformAction(auth.identity.role, 'territory.admin') : false;
   const canViewCustomers = auth ? canPerformAction(auth.identity.role, 'customer.view') : false;
+  const isReadOnlyTerritoryUser = !canAdminTerritory && !canReassignTerritory;
   const activeAccounts = useMemo(() => accounts.filter((account) => account.isActive), [accounts]);
 
   const unassignedLeads = useMemo(
@@ -492,6 +485,53 @@ export function TerritoryManagement({
     [canAdminTerritory, canReassignTerritory],
   );
 
+  const primaryPrototypeTabs = useMemo(
+    () => prototypeTabs.filter((tab) => tab.value === 'dashboard'),
+    [prototypeTabs],
+  );
+
+  const secondaryPrototypeTabs = useMemo(
+    () => prototypeTabs.filter((tab) => tab.value !== 'dashboard'),
+    [prototypeTabs],
+  );
+
+  const territoryRegistryOptions = useMemo(
+    () => [
+      { value: 'territories', label: `Territories (${territories.length})` },
+      { value: 'regions', label: `Regions (${regions.length})` },
+      { value: 'gaps', label: `Assignment gaps (${unassignedLeads.length})` },
+      { value: 'leads', label: `Lead ledger (${territoryLeadRoster.length})` },
+      ...(canViewCustomers ? [{ value: 'accounts', label: `Account ledger (${territoryAccountRoster.length})` }] : []),
+    ],
+    [canViewCustomers, regions.length, territories.length, territoryAccountRoster.length, territoryLeadRoster.length, unassignedLeads.length],
+  );
+
+  useEffect(() => {
+    if (!canViewCustomers && territoryRegistryView === 'accounts') {
+      setTerritoryRegistryView('territories');
+    }
+  }, [canViewCustomers, territoryRegistryView]);
+
+  function getTerritoryTabLabel(tab: { value: string; label: string }) {
+    if (tab.value === 'dashboard') {
+      return 'Action Queue';
+    }
+
+    if (tab.value === 'admin' && !canAdminTerritory) {
+      return 'Work Queues';
+    }
+
+    if (tab.value === 'admin') {
+      return 'Setup & Transfers';
+    }
+
+    if (tab.value === 'list') {
+      return 'Territory Registry';
+    }
+
+    return tab.label;
+  }
+
   useEffect(() => {
     if (!prototypeTabs.some((tab) => tab.value === activeTab)) {
       setActiveTab('dashboard');
@@ -501,23 +541,6 @@ export function TerritoryManagement({
   const mapPins = useMemo(
     () => mapWorkspace ? [...mapWorkspace.accountPins, ...mapWorkspace.leadPins] : [],
     [mapWorkspace],
-  );
-
-  const adminTerritoryCards = useMemo(
-    () =>
-      dashboardData.workloads.map((workload) => {
-        const territory = territories.find((entry) => entry.id === workload.territoryId);
-        return {
-          ...workload,
-          territory,
-        };
-      }),
-    [dashboardData.workloads, territories],
-  );
-
-  const maxAdminWorkloadCount = useMemo(
-    () => Math.max(1, ...adminTerritoryCards.map((item) => item.totalWorkloadCount)),
-    [adminTerritoryCards],
   );
 
   const territoryCalendarFeedItems = useMemo(
@@ -800,30 +823,36 @@ export function TerritoryManagement({
           <Stack gap="xs" maw={840}>
             <Title order={1}>Territory Management</Title>
             <Text c="dimmed" size="sm">
-              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs • Live coverage from account, lead, training, and consignment state.
+              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs • Scoped territory work from account, lead, training, and consignment state.
             </Text>
             {policy ? (
               <Text c="dimmed" size="xs" mt={4}>
-                <Text component="span" fw={600} c="dimmed">Workspace policy:</Text>{' '}
-                Pre-handoff TM visibility {policy.preHandoffTmVisibility ? 'visible' : 'hidden'} ·
-                National TM default {policy.assignNationalTmLeadsByDefault ? 'enabled' : 'disabled'} ·
-                Strategic Growth ownership {policy.strategicGrowthRetainsOwnership ? 'retained' : 'released'}
+                <Text component="span" fw={600} c="dimmed">Workspace scope:</Text>{' '}
+                {canAdminTerritory
+                  ? 'Coverage, owner, and shipping-center changes write through the territory kernel.'
+                  : 'You are seeing the territories, customers, leads, and history available to your role.'}
               </Text>
             ) : null}
           </Stack>
 
           <Group gap="sm" align="center">
-            <Button
-              variant="light"
-              leftSection={<IconRefresh size={16} />}
-              loading={isLoading}
-              onClick={() => setRefreshNonce((value) => value + 1)}
-            >
-              Refresh
-            </Button>
-            <Button component={Link} href="/leads/activities" rightSection={<IconArrowRight size={16} />}>
-              Workflow queue
-            </Button>
+            <WorkbenchMoreMenu
+              items={[
+                {
+                  id: 'refresh-territory-dashboard',
+                  label: isLoading ? 'Refreshing...' : 'Refresh workspace',
+                  icon: <IconRefresh size={16} />,
+                  disabled: isLoading,
+                  onClick: () => setRefreshNonce((value) => value + 1),
+                },
+                ...((canAdminTerritory || canReassignTerritory) ? [{
+                  id: 'setup-transfers',
+                  label: 'Setup & transfers',
+                  icon: <IconArrowRight size={16} />,
+                  onClick: () => handleTabChange('admin'),
+                }] : []),
+              ]}
+            />
           </Group>
         </Group>
       </Paper>
@@ -834,31 +863,30 @@ export function TerritoryManagement({
         </Alert>
       ) : null}
 
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
-        <MetricCard label="Active Accounts" value={dashboardData.stats.activeAccounts} color="teal" />
-        <MetricCard label="Leads in Pipeline" value={dashboardData.stats.activeLeads} color="blue" />
-        <MetricCard
-          label="Coverage Gaps"
-          value={dashboardData.alerts.length + dashboardData.queue.territoriesMissingManager + dashboardData.queue.territoriesMissingShippingCenter}
-          color={dashboardData.alerts.length + dashboardData.queue.territoriesMissingManager + dashboardData.queue.territoriesMissingShippingCenter > 0 ? 'orange' : 'teal'}
-        />
-        <MetricCard
-          label="Trained Accounts"
-          value={dashboardData.trainingPenetration.trainedAccounts}
-          color="grape"
-        />
-      </SimpleGrid>
-
-      <Tabs value={activeTab} onChange={handleTabChange} className="premium-tabs-shell">
+      <Tabs value={activeTab} onChange={handleTabChange} className="premium-tabs-shell" keepMounted={false}>
         <Tabs.List>
-          {prototypeTabs.map((tab) => {
+          {primaryPrototypeTabs.map((tab) => {
             const Icon = TERRITORY_TAB_ICONS[tab.value];
             return (
               <Tabs.Tab key={tab.value} value={tab.value} leftSection={<Icon size={16} />}>
-                {tab.label}
+                {getTerritoryTabLabel(tab)}
               </Tabs.Tab>
             );
           })}
+          <WorkbenchMoreMenu
+            label={activeTab !== 'dashboard'
+              ? getTerritoryTabLabel(prototypeTabs.find((tab) => tab.value === activeTab) ?? { value: activeTab, label: 'More' })
+              : 'More'}
+            items={secondaryPrototypeTabs.map((tab) => {
+              const Icon = TERRITORY_TAB_ICONS[tab.value];
+              return {
+                id: `territory-${tab.value}`,
+                label: getTerritoryTabLabel(tab),
+                icon: <Icon size={14} />,
+                onClick: () => handleTabChange(tab.value),
+              };
+            })}
+          />
         </Tabs.List>
 
         <Tabs.Panel value="dashboard" pt="lg">
@@ -874,139 +902,14 @@ export function TerritoryManagement({
               queue={dashboardData.queue}
               regionRollups={dashboardData.regionRollups}
               ownerMetrics={dashboardData.ownerMetrics}
+              canManageTerritorySetup={canAdminTerritory}
             />
-
-            <SimpleGrid cols={{ base: 1, xl: canViewCustomers ? 2 : 1 }} spacing="lg">
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group justify="space-between" align="flex-start">
-                    <Group gap="sm">
-                      <ThemeIcon radius="xl" color={unassignedLeads.length > 0 ? 'orange' : 'teal'} variant="light">
-                        <IconUsers size={18} />
-                      </ThemeIcon>
-                      <div>
-                        <Title order={4}>Lead assignment watchlist</Title>
-                        <Text size="sm" c="dimmed">
-                          Live leads still needing territory ownership.
-                        </Text>
-                      </div>
-                    </Group>
-                    {unassignedLeads.length > 0 ? (
-                      <Badge color="orange" variant="light" size="lg">
-                        {unassignedLeads.length}
-                      </Badge>
-                    ) : null}
-                  </Group>
-                  {unassignedLeads.length > 0 ? (
-                    <Stack gap={6}>
-                      {unassignedLeads.slice(0, 6).map((lead) => (
-                        <Paper key={lead.id} withBorder radius="md" px="md" py="xs">
-                          <Group justify="space-between" align="center" gap="md" wrap="nowrap">
-                            <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-                              <Text fw={600} size="sm" lineClamp={1}>{lead.companyName}</Text>
-                              <Text size="xs" c="dimmed" lineClamp={1}>
-                                {lead.state ?? 'State missing'} · {formatRoutingTeam(lead.routingTeam)} · {lead.stage.replace(/_/g, ' ')}
-                              </Text>
-                            </Stack>
-                            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-                              <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="xs">
-                                Open
-                              </Button>
-                              {canReassignTerritory ? (
-                                <Button variant="light" size="xs" onClick={() => openReassignmentModal(lead)}>
-                                  Assign
-                                </Button>
-                              ) : null}
-                              <Button variant="subtle" size="xs" onClick={() => setHistoryLead(lead)}>
-                                History
-                              </Button>
-                            </Group>
-                          </Group>
-                        </Paper>
-                      ))}
-                      {unassignedLeads.length > 6 ? (
-                        <Text size="xs" c="dimmed" ta="center">
-                          Showing 6 of {unassignedLeads.length} — open the workflow queue to see the rest.
-                        </Text>
-                      ) : null}
-                    </Stack>
-                  ) : (
-                    <Text size="sm" c="dimmed">
-                      All active pipeline leads currently have a territory assignment.
-                    </Text>
-                  )}
-                </Stack>
-              </Paper>
-
-              {canViewCustomers ? (
-                <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                  <Stack gap="md">
-                    <Group justify="space-between" align="flex-start">
-                      <Group gap="sm">
-                        <ThemeIcon radius="xl" color={unassignedAccounts.length > 0 ? 'orange' : 'teal'} variant="light">
-                          <IconBuilding size={18} />
-                        </ThemeIcon>
-                        <div>
-                          <Title order={4}>Customer ownership watchlist</Title>
-                          <Text size="sm" c="dimmed">
-                            Active customer accounts needing territory cleanup.
-                          </Text>
-                        </div>
-                      </Group>
-                      {unassignedAccounts.length > 0 ? (
-                        <Badge color="orange" variant="light" size="lg">
-                          {unassignedAccounts.length}
-                        </Badge>
-                      ) : null}
-                    </Group>
-                    {unassignedAccounts.length > 0 ? (
-                      <Stack gap={6}>
-                        {unassignedAccounts.slice(0, 6).map((account) => (
-                          <Paper key={account.id} withBorder radius="md" px="md" py="xs">
-                            <Group justify="space-between" align="center" gap="md" wrap="nowrap">
-                              <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-                                <Text fw={600} size="sm" lineClamp={1}>{account.displayName}</Text>
-                                <Text size="xs" c="dimmed" lineClamp={1}>
-                                  {formatAccountLifecycle(account.lifecycleStatus)} · {account.accountType ?? 'Customer'}
-                                </Text>
-                              </Stack>
-                              <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-                                <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="xs">
-                                  Open
-                                </Button>
-                                {canReassignTerritory ? (
-                                  <Button variant="light" size="xs" onClick={() => openAccountReassignmentModal(account)}>
-                                    Assign
-                                  </Button>
-                                ) : null}
-                                <Button variant="subtle" size="xs" onClick={() => setHistoryAccount(account)}>
-                                  History
-                                </Button>
-                              </Group>
-                            </Group>
-                          </Paper>
-                        ))}
-                        {unassignedAccounts.length > 6 ? (
-                          <Text size="xs" c="dimmed" ta="center">
-                            Showing 6 of {unassignedAccounts.length} — open the account list to see the rest.
-                          </Text>
-                        ) : null}
-                      </Stack>
-                    ) : (
-                      <Text size="sm" c="dimmed">
-                        Active customer accounts currently have a maintained territory assignment.
-                      </Text>
-                    )}
-                  </Stack>
-                </Paper>
-              ) : null}
-            </SimpleGrid>
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="map" pt="lg">
           <Stack gap="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+            <Paper withBorder radius="xl" p="lg">
               <Stack gap="xs">
                 <Group gap="sm">
                   <ThemeIcon radius="xl" color="grape" variant="light">
@@ -1023,7 +926,7 @@ export function TerritoryManagement({
               </Stack>
             </Paper>
 
-            <Paper withBorder radius="xl" p="md" className="premium-stat-card">
+            <Paper withBorder radius="xl" p="md">
               <Stack gap="sm">
                 <Group justify="space-between" align="center">
                   <Text fw={700}>Live territory coverage map</Text>
@@ -1044,121 +947,119 @@ export function TerritoryManagement({
                 </Paper>
               </Stack>
             </Paper>
-
-            <SimpleGrid cols={{ base: 1, xl: 3 }} spacing="lg">
-              {adminTerritoryCards.slice(0, 6).map((item) => (
-                <Paper key={item.territoryId} withBorder radius="xl" p="lg" className="premium-stat-card">
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="flex-start">
-                      <div>
-                        <Text fw={700}>{item.managerName ?? item.territoryName}</Text>
-                        <Text size="sm" c="dimmed">
-                          {item.coveredStates.join(', ') || 'No assigned states'}
-                        </Text>
-                      </div>
-                      <Badge color="blue" variant="light">
-                        {item.shippingCenterName ?? 'No hub'}
-                      </Badge>
-                    </Group>
-
-                    <SimpleGrid cols={3} spacing="xs">
-                      <MetricMini label="Accounts" value={item.activeAccountCount} />
-                      <MetricMini label="Leads" value={item.activeLeadCount} />
-                      <MetricMini label="Programs" value={item.activeProgramsCount} />
-                    </SimpleGrid>
-
-                    <Stack gap={4}>
-                      <Group justify="space-between">
-                        <Text size="sm" fw={600}>Workload</Text>
-                        <Text size="sm" c="dimmed">
-                          {Math.round((item.totalWorkloadCount / maxAdminWorkloadCount) * 100)}%
-                        </Text>
-                      </Group>
-                      <Progress value={(item.totalWorkloadCount / maxAdminWorkloadCount) * 100} radius="xl" />
-                    </Stack>
-                  </Stack>
-                </Paper>
-              ))}
-            </SimpleGrid>
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="list" pt="lg">
           <Stack gap="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+            {isReadOnlyTerritoryUser ? (
+              <Alert icon={<IconAlertCircle size={18} />} color="blue" radius="xl" variant="light">
+                Territory ownership is read-only for this role. Open records and assignment history from the row menus;
+                reassignment and setup changes stay with territory operators.
+              </Alert>
+            ) : null}
+
+            <Paper withBorder radius="xl" p="lg">
               <Stack gap="md">
                 <Group justify="space-between" align="center">
                   <div>
                     <Title order={4}>Territory registry</Title>
                     <Text size="sm" c="dimmed">
-                      Live territory, region, and shipping records in the production kernel.
+                      Choose one operating ledger at a time: territory truth, regional rollups, assignment gaps, leads, or accounts.
                     </Text>
                   </div>
-                  <Badge color="blue" variant="light">
-                    {territories.length} records
+                  <Badge color={territoryRegistryView === 'gaps' && unassignedLeads.length > 0 ? 'orange' : 'blue'} variant="light">
+                    {territoryRegistryOptions.find((option) => option.value === territoryRegistryView)?.label ?? 'Territory registry'}
                   </Badge>
                 </Group>
 
-                <Table.ScrollContainer minWidth={960}>
-                  <Table striped highlightOnHover>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Territory</Table.Th>
-                        <Table.Th>Region</Table.Th>
-                        <Table.Th>TM</Table.Th>
-                        <Table.Th>RD</Table.Th>
-                        <Table.Th>Shipping</Table.Th>
-                        <Table.Th>States</Table.Th>
-                        <Table.Th>Active Leads</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {territories.map((territory) => (
-                        <Table.Tr key={territory.id}>
-                          <Table.Td>
-                            <Stack gap={2}>
-                              <Text fw={700}>{territory.name}</Text>
-                              <Text size="xs" c="dimmed">
-                                {territory.code}
-                              </Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>{territory.regionName}</Table.Td>
-                          <Table.Td>{territory.managerUserName ?? 'Unassigned'}</Table.Td>
-                          <Table.Td>{territory.directorUserName ?? 'Unassigned'}</Table.Td>
-                          <Table.Td>{territory.shippingCenterName ?? 'Unassigned'}</Table.Td>
-                          <Table.Td>
-                            <Group gap={6}>
-                              {territory.coverageStates.map((state) => (
-                                <Badge key={`${territory.id}-${state}`} size="xs" variant="light" color="grape">
-                                  {state}
-                                </Badge>
-                              ))}
-                            </Group>
-                          </Table.Td>
-                          <Table.Td>{territoryLeadCounts.get(territory.id) ?? 0}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              </Stack>
-            </Paper>
+                <SegmentedControl
+                  value={territoryRegistryView}
+                  onChange={(value) => setTerritoryRegistryView(value as TerritoryRegistryView)}
+                  data={territoryRegistryOptions}
+                  fullWidth
+                />
 
-            <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group gap="sm">
-                    <ThemeIcon radius="xl" color="blue" variant="light">
-                      <IconMapPin size={18} />
-                    </ThemeIcon>
-                    <div>
-                      <Title order={4}>Regional registry</Title>
-                      <Text size="sm" c="dimmed">
-                        Directors and territory counts per region.
-                      </Text>
-                    </div>
-                  </Group>
+                {territoryRegistryView === 'territories' ? (
+                  <Table.ScrollContainer minWidth={880}>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Territory</Table.Th>
+                          <Table.Th>Owner</Table.Th>
+                          <Table.Th>Region</Table.Th>
+                          <Table.Th>Coverage</Table.Th>
+                          <Table.Th>Work</Table.Th>
+                          {canAdminTerritory ? <Table.Th>Actions</Table.Th> : null}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {territories.map((territory) => (
+                          <Table.Tr key={territory.id}>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text fw={700}>{territory.name}</Text>
+                                <Text size="xs" c="dimmed">
+                                  {territory.code}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text size="sm">{territory.managerUserName ?? 'TM unassigned'}</Text>
+                                <Text size="xs" c="dimmed">
+                                  RD: {territory.directorUserName ?? 'Unassigned'}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>{territory.regionName}</Table.Td>
+                            <Table.Td>
+                              <Stack gap={4}>
+                                <Group gap={6}>
+                                  {territory.coverageStates.slice(0, 6).map((state) => (
+                                    <Badge key={`${territory.id}-${state}`} size="xs" variant="light" color="grape">
+                                      {state}
+                                    </Badge>
+                                  ))}
+                                  {territory.coverageStates.length > 6 ? (
+                                    <Badge size="xs" variant="light" color="gray">
+                                      +{territory.coverageStates.length - 6}
+                                    </Badge>
+                                  ) : null}
+                                </Group>
+                                <Text size="xs" c="dimmed">
+                                  Hub: {territory.shippingCenterName ?? 'Unassigned'}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text size="sm">{territoryLeadCounts.get(territory.id) ?? 0} active leads</Text>
+                                <Text size="xs" c="dimmed">
+                                  {territory.isActive ? 'Active territory' : 'Inactive territory'}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            {canAdminTerritory ? (
+                              <Table.Td>
+                                <RowActionMenu
+                                  label={`Actions for ${territory.name}`}
+                                  items={[{
+                                    id: 'edit-territory',
+                                    label: 'Edit territory',
+                                    onClick: () => openAdminTerritoryModal(territory.id),
+                                  }]}
+                                />
+                              </Table.Td>
+                            ) : null}
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : null}
+
+                {territoryRegistryView === 'regions' ? (
                   <Table.ScrollContainer minWidth={520}>
                     <Table striped highlightOnHover>
                       <Table.Thead>
@@ -1192,24 +1093,10 @@ export function TerritoryManagement({
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
-                </Stack>
-              </Paper>
+                ) : null}
 
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group gap="sm">
-                    <ThemeIcon radius="xl" color="orange" variant="light">
-                      <IconBuildingWarehouse size={18} />
-                    </ThemeIcon>
-                    <div>
-                      <Title order={4}>Open assignment gaps</Title>
-                      <Text size="sm" c="dimmed">
-                        Active leads without territory ownership so the team can clean them up quickly.
-                      </Text>
-                    </div>
-                  </Group>
-
-                  {unassignedLeads.length > 0 ? (
+                {territoryRegistryView === 'gaps' ? (
+                  unassignedLeads.length > 0 ? (
                     <Table.ScrollContainer minWidth={520}>
                       <Table striped highlightOnHover>
                         <Table.Thead>
@@ -1236,19 +1123,26 @@ export function TerritoryManagement({
                               <Table.Td>{formatRoutingTeam(lead.routingTeam)}</Table.Td>
                               <Table.Td>{formatStageLabel(lead.stage)}</Table.Td>
                               <Table.Td>
-                                <Group gap="xs" wrap="nowrap">
-                                  <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="compact-sm">
-                                    Open
-                                  </Button>
-                                  {canReassignTerritory ? (
-                                    <Button variant="light" size="compact-sm" onClick={() => openReassignmentModal(lead)}>
-                                      Reassign
-                                    </Button>
-                                  ) : null}
-                                  <Button variant="subtle" size="compact-sm" onClick={() => setHistoryLead(lead)}>
-                                    History
-                                  </Button>
-                                </Group>
+                                <RowActionMenu
+                                  label={`Actions for ${lead.companyName}`}
+                                  items={[
+                                    {
+                                      id: 'open',
+                                      label: 'Open lead',
+                                      onClick: () => router.push(`/leads/${lead.id}`),
+                                    },
+                                    ...(canReassignTerritory ? [{
+                                      id: 'reassign',
+                                      label: 'Reassign territory',
+                                      onClick: () => openReassignmentModal(lead),
+                                    }] : []),
+                                    {
+                                      id: 'history',
+                                      label: 'Assignment history',
+                                      onClick: () => setHistoryLead(lead),
+                                    },
+                                  ]}
+                                />
                               </Table.Td>
                             </Table.Tr>
                           ))}
@@ -1259,25 +1153,10 @@ export function TerritoryManagement({
                     <Text size="sm" c="dimmed">
                       There are no active leads waiting for territory assignment right now.
                     </Text>
-                  )}
-                </Stack>
-              </Paper>
-            </SimpleGrid>
+                  )
+                ) : null}
 
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group justify="space-between" align="center">
-                  <div>
-                    <Title order={4}>Lead territory roster</Title>
-                    <Text size="sm" c="dimmed">
-                      Live assignment ledger for active pipeline leads, including manual override controls and history.
-                    </Text>
-                  </div>
-                  <Badge color="grape" variant="light">
-                    {territoryLeadRoster.length} active leads
-                  </Badge>
-                </Group>
-
+                {territoryRegistryView === 'leads' ? (
                 <Table.ScrollContainer minWidth={980}>
                   <Table striped highlightOnHover>
                     <Table.Thead>
@@ -1308,43 +1187,35 @@ export function TerritoryManagement({
                           <Table.Td>{formatAssignmentMethod(lead.territoryAssignmentMethod)}</Table.Td>
                           <Table.Td>{formatRoutingTeam(lead.routingTeam)}</Table.Td>
                           <Table.Td>
-                            <Group gap="xs" wrap="nowrap">
-                              <Button component={Link} href={`/leads/${lead.id}`} variant="subtle" size="compact-sm">
-                                Open
-                              </Button>
-                              {canReassignTerritory ? (
-                                <Button variant="light" size="compact-sm" onClick={() => openReassignmentModal(lead)}>
-                                  Override
-                                </Button>
-                              ) : null}
-                              <Button variant="subtle" size="compact-sm" onClick={() => setHistoryLead(lead)}>
-                                History
-                              </Button>
-                            </Group>
+                            <RowActionMenu
+                              label={`Actions for ${lead.companyName}`}
+                              items={[
+                                {
+                                  id: 'open',
+                                  label: 'Open lead',
+                                  onClick: () => router.push(`/leads/${lead.id}`),
+                                },
+                                ...(canReassignTerritory ? [{
+                                  id: 'override',
+                                  label: 'Override territory',
+                                  onClick: () => openReassignmentModal(lead),
+                                }] : []),
+                                {
+                                  id: 'history',
+                                  label: 'Assignment history',
+                                  onClick: () => setHistoryLead(lead),
+                                },
+                              ]}
+                            />
                           </Table.Td>
                         </Table.Tr>
                       ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              </Stack>
-            </Paper>
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : null}
 
-            {canViewCustomers ? (
-              <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-                <Stack gap="md">
-                  <Group justify="space-between" align="center">
-                    <div>
-                      <Title order={4}>Customer territory roster</Title>
-                      <Text size="sm" c="dimmed">
-                        Active customer territory ownership, account propagation status, and manual override controls.
-                      </Text>
-                    </div>
-                    <Badge color="teal" variant="light">
-                      {territoryAccountRoster.length} active accounts
-                    </Badge>
-                  </Group>
-
+                {territoryRegistryView === 'accounts' && canViewCustomers ? (
                   <Table.ScrollContainer minWidth={980}>
                     <Table striped highlightOnHover>
                       <Table.Thead>
@@ -1375,131 +1246,57 @@ export function TerritoryManagement({
                             <Table.Td>{formatAssignmentMethod(account.territoryAssignmentMethod)}</Table.Td>
                             <Table.Td>{account.shippingCenterName ?? 'Unassigned'}</Table.Td>
                             <Table.Td>
-                              <Group gap="xs" wrap="nowrap">
-                                <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="compact-sm">
-                                  Open
-                                </Button>
-                                {canReassignTerritory ? (
-                                  <Button variant="light" size="compact-sm" onClick={() => openAccountReassignmentModal(account)}>
-                                    Override
-                                  </Button>
-                                ) : null}
-                                <Button variant="subtle" size="compact-sm" onClick={() => setHistoryAccount(account)}>
-                                  History
-                                </Button>
-                              </Group>
+                                <RowActionMenu
+                                  label={`Actions for ${account.displayName}`}
+                                  items={[
+                                    {
+                                      id: 'open',
+                                      label: 'Open account',
+                                      onClick: () => router.push(`/customers/${account.id}`),
+                                    },
+                                    ...(canReassignTerritory ? [{
+                                      id: 'override',
+                                      label: 'Override territory',
+                                      onClick: () => openAccountReassignmentModal(account),
+                                    }] : []),
+                                    {
+                                      id: 'history',
+                                      label: 'Assignment history',
+                                      onClick: () => setHistoryAccount(account),
+                                    },
+                                  ]}
+                                />
                             </Table.Td>
                           </Table.Tr>
                         ))}
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
-                </Stack>
-              </Paper>
-            ) : null}
+                ) : null}
+              </Stack>
+            </Paper>
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="admin" pt="lg">
           <Stack gap="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+            <Paper withBorder radius="xl" p="lg">
               <Stack gap="xs">
                 <Group gap="sm">
                   <ThemeIcon radius="xl" color="blue" variant="light">
                     <IconChecklist size={18} />
                   </ThemeIcon>
                   <div>
-                    <Title order={4}>Admin Config</Title>
+                    <Title order={4}>{canAdminTerritory ? 'Admin Config' : 'Territory Work Queues'}</Title>
                     <Text size="sm" c="dimmed">
-                      Save updates once the state coverage is correct. Changes write through to map coloring, territory
-                      list counts, shipping alignment, and record ownership.
+                      {canAdminTerritory
+                        ? 'Save updates once the state coverage is correct. Changes write through to map coloring, territory list counts, shipping alignment, and record ownership.'
+                        : 'Use this lane for scoped lead and account reassignment work. Region, shipping, and coverage setup remains read-only here.'}
                     </Text>
                   </div>
                 </Group>
               </Stack>
             </Paper>
-
-            <SimpleGrid cols={{ base: 1, xl: 3 }} spacing="lg">
-              {adminTerritoryCards.map((item) => (
-                <Card key={item.territoryId} withBorder radius="xl" p="lg" className="premium-stat-card">
-                  <Stack gap="md">
-                    <Group justify="space-between" align="flex-start">
-                      <Group gap="sm" align="flex-start">
-                        <div
-                          style={{
-                            width: 14,
-                            height: 14,
-                            borderRadius: 4,
-                            marginTop: 5,
-                            backgroundColor: resolvePaperMapTerritoryStyle({
-                              managerName: item.managerName,
-                              shippingCenterName: item.shippingCenterName,
-                            }).color,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <div>
-                          <Text fw={700}>{item.managerName ?? item.territoryName}</Text>
-                          <Text size="sm" c="dimmed">
-                            {item.coveredStates.join(', ') || 'No assigned states'}
-                          </Text>
-                        </div>
-                      </Group>
-                      {canAdminTerritory ? (
-                        <ActionIcon
-                          variant="light"
-                          radius="xl"
-                          color="blue"
-                          aria-label={`Edit ${item.territoryName}`}
-                          onClick={() => openAdminTerritoryModal(item.territoryId)}
-                        >
-                          <IconPencil size={16} />
-                        </ActionIcon>
-                      ) : null}
-                    </Group>
-
-                    <Group gap="md" wrap="wrap">
-                      <Text size="sm">
-                        <Text component="span" c="dimmed">Accounts:</Text> {item.activeAccountCount}
-                      </Text>
-                      <Text size="sm">
-                        <Text component="span" c="dimmed">Leads:</Text> {item.activeLeadCount}
-                      </Text>
-                      <Text size="sm">
-                        <Text component="span" c="dimmed">Programs:</Text> {item.activeProgramsCount}
-                      </Text>
-                      <Text size="sm">
-                        <Text component="span" c="dimmed">Trained:</Text> {item.trainingPenetrationPercent}%
-                      </Text>
-                    </Group>
-
-                    <Stack gap={4}>
-                      <Group justify="space-between">
-                        <Text size="sm" fw={600}>Workload</Text>
-                        <Text size="sm" c="dimmed">
-                          {Math.round((item.totalWorkloadCount / maxAdminWorkloadCount) * 100)}%
-                        </Text>
-                      </Group>
-                      <Progress
-                        value={(item.totalWorkloadCount / maxAdminWorkloadCount) * 100}
-                        radius="xl"
-                        color={
-                          (item.totalWorkloadCount / maxAdminWorkloadCount) >= 0.85
-                            ? 'red'
-                            : (item.totalWorkloadCount / maxAdminWorkloadCount) >= 0.6
-                              ? 'orange'
-                              : 'teal'
-                        }
-                      />
-                    </Stack>
-
-                    <Text size="sm" c="dimmed">
-                      Hub: {item.shippingCenterName ?? 'Unassigned'} · RD: {item.directorUserName ?? 'Unassigned'}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
-            </SimpleGrid>
 
             {(canAdminTerritory || canReassignTerritory) ? (
               <TerritoryOperationsPanel
@@ -1515,6 +1312,7 @@ export function TerritoryManagement({
                 canReassignTerritory={canReassignTerritory}
                 onRefresh={() => setRefreshNonce((value) => value + 1)}
                 onOpenAccountHistory={(account) => setHistoryAccount(account)}
+                onOpenLeadHistory={(lead) => setHistoryLead(lead)}
               />
             ) : null}
           </Stack>
@@ -1957,47 +1755,6 @@ async function fetchTerritoryMapWorkspace(apiBaseUrl: string, accessToken: strin
   }
 
   return (await response.json()) as TerritoryMapWorkspaceResponse;
-}
-
-function PolicyBadge({
-  label,
-  active,
-  activeLabel,
-  inactiveLabel,
-}: {
-  label: string;
-  active: boolean;
-  activeLabel: string;
-  inactiveLabel: string;
-}) {
-  return (
-    <Badge size="lg" radius="xl" color={active ? 'teal' : 'gray'} variant="light">
-      {label}: {active ? activeLabel : inactiveLabel}
-    </Badge>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: 'blue' | 'teal' | 'orange' | 'grape';
-}) {
-  return (
-    <Paper withBorder radius="xl" p="md" className="premium-stat-card">
-      <Stack gap={4}>
-        <Text size="xs" fw={600} c="dimmed">
-          {label}
-        </Text>
-        <Title order={3} c={color}>
-          {value}
-        </Title>
-      </Stack>
-    </Paper>
-  );
 }
 
 function MetricMini({

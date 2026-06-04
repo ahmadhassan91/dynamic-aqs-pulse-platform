@@ -441,26 +441,28 @@ export function GroupRosterImportWorkbench({
             <Paper withBorder radius="md" p="md">
               <Stack gap="sm">
                 <Title order={5}>Preview rows</Title>
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Row</Table.Th>
-                      {preview.columns.slice(0, 4).map((column) => (
-                        <Table.Th key={column.sourceHeader}>{column.sourceHeader}</Table.Th>
-                      ))}
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {preview.previewRows.map((row) => (
-                      <Table.Tr key={row.rowNumber}>
-                        <Table.Td>{row.rowNumber}</Table.Td>
+                <Table.ScrollContainer minWidth={760}>
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Row</Table.Th>
                         {preview.columns.slice(0, 4).map((column) => (
-                          <Table.Td key={`${row.rowNumber}-${column.sourceHeader}`}>{row.values[column.sourceHeader] || '—'}</Table.Td>
+                          <Table.Th key={column.sourceHeader}>{column.sourceHeader}</Table.Th>
                         ))}
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {preview.previewRows.map((row) => (
+                        <Table.Tr key={row.rowNumber}>
+                          <Table.Td>{row.rowNumber}</Table.Td>
+                          {preview.columns.slice(0, 4).map((column) => (
+                            <Table.Td key={`${row.rowNumber}-${column.sourceHeader}`}>{row.values[column.sourceHeader] || '—'}</Table.Td>
+                          ))}
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
               </Stack>
             </Paper>
 
@@ -490,17 +492,18 @@ export function GroupRosterImportWorkbench({
               <Badge color="orange" variant="light">{reviewResult.attentionRowCount} need review</Badge>
             </Group>
 
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Row</Table.Th>
-                  <Table.Th>Signals</Table.Th>
-                  <Table.Th>Review detail</Table.Th>
-                  <Table.Th>Candidates</Table.Th>
-                  <Table.Th>Decision</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
+            <Table.ScrollContainer minWidth={1040}>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Row</Table.Th>
+                    <Table.Th>Signals</Table.Th>
+                    <Table.Th>Review detail</Table.Th>
+                    <Table.Th>Candidates</Table.Th>
+                    <Table.Th>Decision</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
                 {reviewResult.rows.map((row: GroupRosterImportReviewRow) => {
                   const persistedCandidates = row.candidates.filter((candidate) => candidate.entityType !== 'import_row');
                   return (
@@ -588,8 +591,9 @@ export function GroupRosterImportWorkbench({
                     </Table.Tr>
                   );
                 })}
-              </Table.Tbody>
-            </Table>
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
 
             <Group justify="flex-end">
               <Button

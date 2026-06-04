@@ -24,7 +24,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { IconAlertTriangle, IconCloudUpload, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch, IconShare } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCloudUpload, IconFilter, IconHistory, IconLink, IconPhoto, IconPlus, IconSearch, IconShare } from '@tabler/icons-react';
 import {
   type DigitalAssetDetail,
   type DigitalAssetKindKey,
@@ -55,9 +55,23 @@ import {
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchDetailRail,
+  WorkbenchHeader,
+  WorkbenchMoreMenu,
+  WorkbenchTable,
+  type WorkbenchMenuItem,
+} from '@/components/ui/Workbench';
 
 type AssetTab = 'library' | 'collections' | 'migration' | 'delivery-health';
 type LibraryViewMode = 'cards' | 'list';
+type BulkUploadStep = 'select' | 'review' | 'defaults';
+type DigitalAssetLibraryRow = ListDigitalAssetsResponse['items'][number];
+type DigitalAssetShareLinkRow = NonNullable<DigitalAssetDetail['shareLinks']>[number];
+type DigitalAssetProductUsageRow = NonNullable<DigitalAssetDetail['productUsages']>[number];
+type DigitalAssetVersionRow = DigitalAssetDetail['versions'][number];
 
 type CreateAssetFormState = {
   title: string;
@@ -211,7 +225,8 @@ export function DigitalAssetsWorkspace() {
   const searchParams = useSearchParams();
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<AssetTab>('library');
-  const [viewMode, setViewMode] = useState<LibraryViewMode>('cards');
+  const [viewMode, setViewMode] = useState<LibraryViewMode>('list');
+  const [showAllAssets, setShowAllAssets] = useState(false);
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<DigitalAssetKindKey | null>(null);
   const [visibilityFilter, setVisibilityFilter] = useState<DigitalAssetVisibilityKey | null>(null);
@@ -226,8 +241,11 @@ export function DigitalAssetsWorkspace() {
   const [shareForm, setShareForm] = useState<ShareFormState>(defaultShareForm);
   const [bulkUploadForm, setBulkUploadForm] = useState<BulkUploadFormState>(defaultBulkUploadForm);
   const [bulkUploadFiles, setBulkUploadFiles] = useState<File[]>([]);
+  const [bulkUploadStep, setBulkUploadStep] = useState<BulkUploadStep>('select');
   const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [isCollectionModalOpen, setIsCollectionModalOpen] = useState(false);
+  const [isCollectionItemsModalOpen, setIsCollectionItemsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
@@ -255,6 +273,19 @@ export function DigitalAssetsWorkspace() {
     if (visibilityFilter && asset.visibility !== visibilityFilter) return false;
     return true;
   }), [assets.items, kindFilter, visibilityFilter]);
+  const shareReadyAssets = useMemo(() => visibleAssets.filter((asset) => (
+    asset.status === 'active'
+    && asset.reviewStatus === 'approved'
+    && Boolean(asset.currentVersion)
+    && (asset.visibility === 'dealer_portal' || asset.visibility === 'public')
+  )), [visibleAssets]);
+  const displayedAssets = showAllAssets ? visibleAssets : shareReadyAssets;
+  const deliveryHealthAssets = useMemo(
+    () => assets.items.filter(
+      (asset) => asset.reviewStatus !== 'approved' || !asset.currentVersion || (asset.activeShareLinkCount ?? 0) > 0,
+    ),
+    [assets.items],
+  );
   const assetMetrics = useMemo(() => ({
     total: assets.total,
     ready: assets.items.filter((asset) => asset.status === 'active' && asset.reviewStatus === 'approved').length,
@@ -263,6 +294,17 @@ export function DigitalAssetsWorkspace() {
   }), [assets.items, assets.total]);
   const canEditAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.edit') : false;
   const canShareAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.share') : false;
+  const canUploadAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.upload') : false;
+  const canSyncAssets = auth ? canPerformAction(auth.identity.role, 'digital_asset.sync') : false;
+  const selectedAssetActiveShareLink = useMemo(() => (
+    selectedAsset?.shareLinks?.find((shareLink) => !shareLink.revokedAt && (!shareLink.expiresAt || new Date(shareLink.expiresAt) > new Date())) ?? null
+  ), [selectedAsset]);
+  const selectedAssetCanShare = Boolean(
+    selectedAsset
+      && selectedAsset.currentVersion
+      && (selectedAsset.visibility === 'dealer_portal' || selectedAsset.visibility === 'public')
+      && (selectedAsset.reviewStatus === 'approved' || selectedAsset.reviewStatus === 'not_required'),
+  );
 
   useEffect(() => {
     const tab = searchParams.get('tab') as AssetTab | null;
@@ -395,6 +437,7 @@ export function DigitalAssetsWorkspace() {
       }
       setBulkUploadFiles([]);
       setBulkUploadForm(defaultBulkUploadForm);
+      setBulkUploadStep('select');
       setIsBulkUploadOpen(false);
       await reloadAssets();
     } catch (uploadError) {
@@ -481,6 +524,14 @@ export function DigitalAssetsWorkspace() {
     }
   };
 
+  const handleCopyOrCreateCustomerLink = async () => {
+    if (selectedAssetActiveShareLink) {
+      await copyToClipboard(selectedAssetActiveShareLink.shareUrl);
+      return;
+    }
+    await handleCreateShareLink();
+  };
+
   const handleRevokeShareLink = async (shareLinkId: string) => {
     if (!auth || !selectedAsset) return;
     setRevokingShareLinkId(shareLinkId);
@@ -508,12 +559,14 @@ export function DigitalAssetsWorkspace() {
       dealerGroupId: collection.dealerGroupId ?? '',
       isActive: collection.isActive,
     });
-    setActiveTab('collections');
+    setIsCollectionModalOpen(true);
+    goToAssetTab('collections');
   };
 
   const handleResetCollection = () => {
     setSelectedCollectionId(null);
     setCollectionForm(defaultCollectionForm);
+    setIsCollectionModalOpen(false);
   };
 
   const handleSaveCollection = async () => {
@@ -604,116 +657,245 @@ export function DigitalAssetsWorkspace() {
     }
   };
 
+  const goToAssetTab = (nextTab: AssetTab) => {
+    setActiveTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set('tab', nextTab);
+    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+  };
+
+  const openBulkUpload = () => {
+    setBulkUploadStep('select');
+    setIsBulkUploadOpen(true);
+  };
+
+  const closeBulkUpload = () => {
+    setIsBulkUploadOpen(false);
+    if (!isBulkUploading) {
+      setBulkUploadStep('select');
+    }
+  };
+
+  const handleBulkFileSelection = (files: File[]) => {
+    setBulkUploadFiles(files);
+    setBulkUploadStep(files.length ? 'review' : 'select');
+  };
+
+  const openCreateShareSet = () => {
+    setSelectedCollectionId(null);
+    setCollectionForm(defaultCollectionForm);
+    setIsCollectionModalOpen(true);
+  };
+
+  const selectCollection = (collection: DigitalAssetCollectionSummary) => {
+    setSelectedCollectionId(collection.id);
+    setCollectionForm({
+      code: collection.code,
+      name: collection.name,
+      description: collection.description ?? '',
+      visibility: collection.visibility,
+      brandScope: collection.brandScope ?? '',
+      regionScope: collection.regionScope ?? '',
+      dealerGroupType: collection.dealerGroupType ?? '',
+      dealerGroupId: collection.dealerGroupId ?? '',
+      isActive: collection.isActive,
+    });
+  };
+
+  const openCollectionItems = (collection: DigitalAssetCollectionSummary) => {
+    selectCollection(collection);
+    setIsCollectionItemsModalOpen(true);
+  };
+
+  const handleReviewDeliveryHealthAsset = (assetId: string) => {
+    goToAssetTab('library');
+    void loadAssetDetail(assetId);
+  };
+
+  const handleReviewFirstDeliveryHealthItem = () => {
+    const [firstAsset] = deliveryHealthAssets;
+    if (!firstAsset) return;
+    handleReviewDeliveryHealthAsset(firstAsset.id);
+  };
+
+  const headerPrimaryAction = activeTab === 'library' ? (
+    <Button
+      variant="filled"
+      leftSection={<IconShare size={16} />}
+      onClick={() => void handleCopyOrCreateCustomerLink()}
+      loading={isCreatingShareLink}
+      disabled={!canShareAssets || !selectedAsset || !selectedAssetCanShare}
+    >
+      {selectedAssetActiveShareLink ? 'Copy customer link' : 'Create share link'}
+    </Button>
+  ) : activeTab === 'collections' && canEditAssets ? (
+    <Button variant="filled" leftSection={<IconPlus size={16} />} onClick={openCreateShareSet}>
+      Create Share Set
+    </Button>
+  ) : activeTab === 'delivery-health' ? (
+    <Button
+      variant="filled"
+      leftSection={<IconAlertTriangle size={16} />}
+      onClick={handleReviewFirstDeliveryHealthItem}
+      disabled={!deliveryHealthAssets.length}
+    >
+      Review Items
+    </Button>
+  ) : activeTab === 'migration' && canSyncAssets ? (
+    <Button variant="filled" leftSection={<IconCloudUpload size={16} />} onClick={handlePreviewImport} loading={isPreviewingImport}>
+      Preview Import
+    </Button>
+  ) : null;
+
+  const headerMoreItems: WorkbenchMenuItem[] = [
+    ...(canUploadAssets
+      ? [{
+        id: 'upload-files',
+        label: 'Upload Files',
+        icon: <IconCloudUpload size={16} />,
+        onClick: openBulkUpload,
+      }]
+      : []),
+    ...(canUploadAssets ? [{
+      id: 'add-file-link',
+      label: 'Add File Link',
+      icon: <IconPlus size={16} />,
+      onClick: () => setIsAddLinkOpen(true),
+    }] : []),
+    ...(activeTab === 'library' ? [{
+      id: 'review-all-files',
+      label: showAllAssets ? 'Show Share-Ready Files' : 'Review All Files',
+      icon: <IconFilter size={16} />,
+      onClick: () => setShowAllAssets((current) => !current),
+    }] : []),
+    ...(canEditAssets && activeTab !== 'collections'
+      ? [{
+        id: 'create-share-set',
+        label: 'Create Share Set',
+        icon: <IconShare size={16} />,
+        onClick: openCreateShareSet,
+      }]
+      : []),
+    ...(activeTab !== 'delivery-health'
+      ? [{
+        id: 'delivery-health',
+        label: 'Needs Attention',
+        icon: <IconAlertTriangle size={16} />,
+        onClick: () => goToAssetTab('delivery-health'),
+      }]
+      : []),
+    ...(canSyncAssets && activeTab === 'migration'
+      ? [{
+        id: 'load-import-runs',
+        label: isLoadingRuns ? 'Loading Previous Runs...' : 'Load Previous Runs',
+        icon: <IconHistory size={16} />,
+        disabled: isLoadingRuns,
+        onClick: handleLoadImportRuns,
+      }]
+      : canSyncAssets ? [{
+        id: 'migration-review',
+        label: 'Migration Review',
+        icon: <IconHistory size={16} />,
+        onClick: () => goToAssetTab('migration'),
+      }] : []),
+  ];
+
   return (
     <Stack gap="lg">
-      <Stack gap={4}>
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Title order={2}>Digital Assets</Title>
-            <Text c="dimmed">Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library.</Text>
-          </Stack>
-          <Group>
-            <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setIsAddLinkOpen(true)}>
-              Add Link
-            </Button>
-            <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>
-              Bulk Upload
-            </Button>
-          </Group>
-        </Group>
-      </Stack>
-
-      <Alert color="blue" title="UAT-ready asset flow">
-        Add files or links, approve the asset, set who can access it, then create customer/prospect share links from the asset detail panel.
-        Widen redirect cutover and full legacy migration remain parked until the migration plan is approved.
-      </Alert>
+      <WorkbenchHeader
+        title="Digital Assets"
+        description="Manage product photos, brochures, spec sheets, videos, and shareable customer links from one library."
+        policyText="Customer links are revocable and access-aware."
+        primaryAction={headerPrimaryAction}
+        secondaryActions={<WorkbenchMoreMenu items={headerMoreItems} />}
+      />
 
       {error ? (
-        <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Digital Assets API not ready">
+        <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Asset library unavailable">
           {error}
         </Alert>
       ) : null}
 
       <Tabs
         value={activeTab}
-        onChange={(value) => {
-          const nextTab = (value as AssetTab | null) ?? 'library';
-          setActiveTab(nextTab);
-          const nextParams = new URLSearchParams(searchParams.toString());
-          nextParams.set('tab', nextTab);
-          router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
-        }}
+        onChange={(value) => goToAssetTab((value as AssetTab | null) ?? 'library')}
+        keepMounted={false}
       >
         <Tabs.List>
           <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Library</Tabs.Tab>
-          <Tabs.Tab value="collections">Asset Sets</Tabs.Tab>
-          <Tabs.Tab value="migration" leftSection={<IconCloudUpload size={16} />}>Widen Import</Tabs.Tab>
-          <Tabs.Tab value="delivery-health">Delivery Health</Tabs.Tab>
+          <Tabs.Tab value="collections">Share Sets</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="library" pt="md">
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md" mb="md">
-            <Metric label="Assets" value={assetMetrics.total} />
-            <Metric label="Ready To Use" value={assetMetrics.ready} />
-            <Metric label="Shared Links" value={assetMetrics.shared} />
-            <Metric label="Linked To Products" value={assetMetrics.productLinked} />
-          </SimpleGrid>
-
-          <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-            <Stack gap="md">
-              <Paper withBorder p="md">
-                <Stack gap="md">
-                  <Group justify="space-between" align="flex-start">
-                    <Stack gap={2}>
-                      <Title order={4}>Library</Title>
-                      <Text c="dimmed" size="sm">Find approved content by name, type, access, usage, or sharing status.</Text>
-                    </Stack>
-                    <SegmentedControl
-                      value={viewMode}
-                      onChange={(value) => setViewMode(value as LibraryViewMode)}
-                      data={[
-                        { label: 'Cards', value: 'cards' },
-                        { label: 'List', value: 'list' },
-                      ]}
-                    />
-                  </Group>
-                  <SimpleGrid cols={{ base: 1, sm: 3 }}>
-                    <TextInput
-                      leftSection={<IconSearch size={16} />}
-                      placeholder="Search assets"
-                      value={search}
-                      onChange={(event) => setSearch(event.currentTarget.value)}
-                    />
-                    <Select
-                      placeholder="All types"
-                      data={kindOptions}
-                      value={kindFilter}
-                      onChange={(value) => setKindFilter(value as DigitalAssetKindKey | null)}
-                      clearable
-                    />
-                    <Select
-                      placeholder="All access"
-                      data={visibilityOptions}
-                      value={visibilityFilter}
-                      onChange={(value) => setVisibilityFilter(value as DigitalAssetVisibilityKey | null)}
-                      clearable
-                    />
-                  </SimpleGrid>
-                </Stack>
-              </Paper>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+              <Stack gap="md">
+                <Paper withBorder p="md">
+                  <Stack gap="md">
+                    <Group justify="space-between" align="flex-start">
+                      <Stack gap={2}>
+                        <Title order={4}>Find and share approved files</Title>
+                        <Text c="dimmed" size="sm">
+                          Showing approved dealer/customer files first. Use More for upload cleanup, internal files, and review work.
+                        </Text>
+                      </Stack>
+                      <Group gap="xs">
+                        <SegmentedControl
+                          value={viewMode}
+                          onChange={(value) => setViewMode(value as LibraryViewMode)}
+                          data={[
+                            { label: 'Cards', value: 'cards' },
+                            { label: 'List', value: 'list' },
+                          ]}
+                        />
+                      </Group>
+                    </Group>
+                    <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                      <TextInput
+                        leftSection={<IconSearch size={16} />}
+                        placeholder="Search approved files"
+                        value={search}
+                        onChange={(event) => setSearch(event.currentTarget.value)}
+                      />
+                      <Select
+                        placeholder="All types"
+                        data={kindOptions}
+                        value={kindFilter}
+                        onChange={(value) => setKindFilter(value as DigitalAssetKindKey | null)}
+                        clearable
+                      />
+                      {showAllAssets ? (
+                        <Select
+                          placeholder="All visibility"
+                          data={visibilityOptions}
+                          value={visibilityFilter}
+                          onChange={(value) => setVisibilityFilter(value as DigitalAssetVisibilityKey | null)}
+                          clearable
+                        />
+                      ) : null}
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
 
               <Paper withBorder p={viewMode === 'cards' ? 'md' : 0}>
                 {isLoading ? (
                   <Group justify="center" p="xl"><Loader /></Group>
                 ) : viewMode === 'cards' ? (
                   <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                    {visibleAssets.map((asset) => (
-                      <Paper key={asset.id} withBorder p="md">
+                    {displayedAssets.map((asset) => (
+                      <Paper
+                        key={asset.id}
+                        withBorder
+                        p="md"
+                        data-testid={`asset-open-${asset.stableSlug}`}
+                        onClick={() => loadAssetDetail(asset.id)}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <Stack gap="sm">
                           <Group justify="space-between" align="flex-start">
                             <Stack gap={2}>
                               <Text fw={700}>{asset.title}</Text>
-                              <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? `/${asset.stableSlug}`}</Text>
+                              <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? 'No file attached'}</Text>
                             </Stack>
                             <Badge variant="light">{formatLabel(asset.kind)}</Badge>
                           </Group>
@@ -731,194 +913,200 @@ export function DigitalAssetsWorkspace() {
                           </SimpleGrid>
                           <Group justify="space-between">
                             <Text size="xs" c="dimmed">{[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Text>
-                            <Button data-testid={`asset-open-${asset.stableSlug}`} size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
-                              Open
-                            </Button>
+                            <Badge color={selectedAsset?.id === asset.id ? 'blue' : 'gray'} variant="light">
+                              {isLoadingDetail && selectedAsset?.id === asset.id ? 'Loading' : selectedAsset?.id === asset.id ? 'Selected' : 'Select'}
+                            </Badge>
                           </Group>
                         </Stack>
                       </Paper>
                     ))}
-                    {!visibleAssets.length ? (
+                    {!displayedAssets.length ? (
                       <Paper withBorder p="xl">
-                        <Stack gap="xs" align="center">
-                          <IconPhoto size={28} />
-                          <Text fw={700}>No assets found</Text>
-                          <Text size="sm" c="dimmed" ta="center">Upload files in bulk or add a file link to start the library.</Text>
-                          <Group>
-                            <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setIsAddLinkOpen(true)}>Add Link</Button>
-                            <Button leftSection={<IconCloudUpload size={16} />} onClick={() => setIsBulkUploadOpen(true)}>Bulk Upload</Button>
-                          </Group>
-                        </Stack>
+                        <EmptyStateMessage
+                          kind={search || kindFilter || visibilityFilter ? 'filtered-out' : 'no-data'}
+                          title="No assets found"
+                          description={search || kindFilter || visibilityFilter ? 'Adjust the search or filters to see more library assets.' : showAllAssets ? 'Upload files or add a file link to start the library.' : 'Approved share-ready files will appear here after review.'}
+                          action={(
+                            <Group>
+                              <Button variant="light" leftSection={<IconFilter size={16} />} onClick={() => setShowAllAssets(true)}>Review all files</Button>
+                            </Group>
+                          )}
+                        />
                       </Paper>
                     ) : null}
                   </SimpleGrid>
                 ) : (
-                  <Table striped highlightOnHover>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Asset</Table.Th>
-                        <Table.Th>Type</Table.Th>
-                        <Table.Th>Visibility</Table.Th>
-                        <Table.Th>Brand / Region</Table.Th>
-                        <Table.Th>Usage</Table.Th>
-                        <Table.Th>Shares</Table.Th>
-                        <Table.Th />
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {visibleAssets.map((asset) => (
-                        <Table.Tr key={asset.id}>
-                          <Table.Td>
+                  <WorkbenchTable<DigitalAssetLibraryRow>
+                    ariaLabel="Digital asset library list"
+                    minWidth={880}
+                    rows={displayedAssets}
+                    getRowKey={(asset) => asset.id}
+                    onRowClick={(asset) => loadAssetDetail(asset.id)}
+                    columns={[
+                      {
+                        key: 'asset',
+                        header: 'Asset',
+                        render: (asset) => (
+                          <Stack gap={2}>
                             <Text fw={600}>{asset.title}</Text>
-                            <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? `/${asset.stableSlug}`}</Text>
-                          </Table.Td>
-                          <Table.Td>{asset.kind}</Table.Td>
-                          <Table.Td><Badge variant="light">{asset.visibility}</Badge></Table.Td>
-                          <Table.Td>{[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
-                          <Table.Td>{asset.productUsageCount ?? 0}</Table.Td>
-                          <Table.Td>{asset.activeShareLinkCount ?? 0} active / {asset.totalShareLinkAccessCount ?? 0} views</Table.Td>
-                          <Table.Td>
-                            <Button size="xs" variant="subtle" onClick={() => loadAssetDetail(asset.id)} loading={isLoadingDetail && selectedAsset?.id === asset.id}>
-                              Details
-                            </Button>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))}
-                      {!visibleAssets.length ? (
-                        <Table.Tr><Table.Td colSpan={7}><Text ta="center" c="dimmed" py="lg">No assets found.</Text></Table.Td></Table.Tr>
-                      ) : null}
-                    </Table.Tbody>
-                  </Table>
-                )}
-              </Paper>
-            </Stack>
-
-            <Stack gap="md">
-              <Paper withBorder p="md">
-                {detailError ? (
-                  <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="sm">
-                    {detailError}
-                  </Alert>
-                ) : null}
-
-                {isLoadingDetail && !selectedAsset ? (
-                  <Group justify="center" p="xl"><Loader /></Group>
-                ) : selectedAsset ? (
-                  <AssetDetailPanel
-                    asset={selectedAsset}
-                    editForm={assetEditForm}
-                    form={versionForm}
-                    canEdit={canEditAssets}
-                    canShare={canShareAssets}
-                    isAddingVersion={isAddingVersion}
-                    isUpdatingAsset={isUpdatingAsset}
-                    isCreatingShareLink={isCreatingShareLink}
-                    revokingShareLinkId={revokingShareLinkId}
-                    shareForm={shareForm}
-                    statusOptions={statusOptions}
-                    visibilityOptions={visibilityOptions}
-                    reviewStatusOptions={reviewStatusOptions}
-                    onEditFormChange={setAssetEditForm}
-                    onFormChange={setVersionForm}
-                    onShareFormChange={setShareForm}
-                    onUpdateAsset={handleUpdateAsset}
-                    onCreateShareLink={handleCreateShareLink}
-                    onRevokeShareLink={handleRevokeShareLink}
-                    onSubmit={handleAddVersion}
+                            <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? 'No file attached'}</Text>
+                          </Stack>
+                        ),
+                      },
+                      {
+                        key: 'type-access',
+                        header: 'Type / Access',
+                        render: (asset) => (
+                          <Stack gap={4}>
+                            <Text size="sm">{formatLabel(asset.kind)}</Text>
+                            <Badge variant="light">{formatLabel(asset.visibility)}</Badge>
+                          </Stack>
+                        ),
+                      },
+                      {
+                        key: 'scope',
+                        header: 'Brand / Region',
+                        render: (asset) => [asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped',
+                      },
+                      {
+                        key: 'usage',
+                        header: 'Usage',
+                        align: 'right',
+                        render: (asset) => asset.productUsageCount ?? 0,
+                      },
+                      {
+                        key: 'shares',
+                        header: 'Shares',
+                        render: (asset) => `${asset.activeShareLinkCount ?? 0} active / ${asset.totalShareLinkAccessCount ?? 0} views`,
+                      },
+                    ]}
+                    emptyState={(
+                      <EmptyStateMessage
+                        kind={search || kindFilter || visibilityFilter ? 'filtered-out' : 'no-data'}
+                        title="No assets found"
+                        description={search || kindFilter || visibilityFilter ? 'Adjust the search or filters to see more library assets.' : showAllAssets ? 'Upload files or add a file link to start the library.' : 'Approved share-ready files will appear here after review.'}
+                      />
+                    )}
                   />
-                ) : (
-                  <Stack gap="xs">
-                    <Title order={4}>Asset detail</Title>
-                    <Text c="dimmed" size="sm">Select an asset to review files, product usage, and share links.</Text>
-                  </Stack>
                 )}
               </Paper>
-            </Stack>
-          </SimpleGrid>
+              </Stack>
+
+              <Stack gap="md">
+                <WorkbenchDetailRail
+                  title="Asset detail"
+                  description="Review files, product usage, and share links for the selected asset."
+                >
+                  {detailError ? (
+                    <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="sm">
+                      {detailError}
+                    </Alert>
+                  ) : null}
+
+                  {isLoadingDetail && !selectedAsset ? (
+                    <Group justify="center" p="xl"><Loader /></Group>
+                  ) : selectedAsset ? (
+                    <AssetDetailPanel
+                      asset={selectedAsset}
+                      editForm={assetEditForm}
+                      form={versionForm}
+                      canEdit={canEditAssets}
+                      canShare={canShareAssets}
+                      isAddingVersion={isAddingVersion}
+                      isUpdatingAsset={isUpdatingAsset}
+                      isCreatingShareLink={isCreatingShareLink}
+                      revokingShareLinkId={revokingShareLinkId}
+                      shareForm={shareForm}
+                      statusOptions={statusOptions}
+                      visibilityOptions={visibilityOptions}
+                      reviewStatusOptions={reviewStatusOptions}
+                      onEditFormChange={setAssetEditForm}
+                      onFormChange={setVersionForm}
+                      onShareFormChange={setShareForm}
+                      onUpdateAsset={handleUpdateAsset}
+                      onCreateShareLink={handleCreateShareLink}
+                      onRevokeShareLink={handleRevokeShareLink}
+                      onSubmit={handleAddVersion}
+                    />
+                  ) : (
+                    <EmptyStateMessage
+                      kind="no-data"
+                      title="Select an asset"
+                      description="Select an approved file to copy a customer link, create a revocable share link, or review product usage."
+                    />
+                  )}
+                </WorkbenchDetailRail>
+              </Stack>
+            </SimpleGrid>
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="collections" pt="md">
-          <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
+          <Stack gap="lg">
             <Paper withBorder p="md">
-              <Stack gap="sm">
-                <Group justify="space-between">
-                  <Title order={4}>{selectedCollectionId ? 'Edit Asset Set' : 'Create Asset Set'}</Title>
-                  <Button onClick={handleSaveCollection} loading={isSavingCollection} disabled={!collectionForm.code.trim() || !collectionForm.name.trim()}>
-                    {selectedCollectionId ? 'Save' : 'Create'}
-                  </Button>
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <TextInput label="Set code" value={collectionForm.code} onChange={(event) => setCollectionForm((current) => ({ ...current, code: event.currentTarget.value }))} />
-                  <TextInput label="Set name" value={collectionForm.name} onChange={(event) => setCollectionForm((current) => ({ ...current, name: event.currentTarget.value }))} />
-                  <Select label="Who can access" data={visibilityOptions} value={collectionForm.visibility} onChange={(value) => setCollectionForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))} allowDeselect={false} />
-                  <TextInput label="Brand" value={collectionForm.brandScope} onChange={(event) => setCollectionForm((current) => ({ ...current, brandScope: event.currentTarget.value }))} />
-                  <TextInput label="Region" value={collectionForm.regionScope} onChange={(event) => setCollectionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
-                  <TextInput label="Dealer group type" value={collectionForm.dealerGroupType} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
-                  <TextInput label="Dealer group ID" value={collectionForm.dealerGroupId} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
-                  <Checkbox mt="xl" label="Active" checked={collectionForm.isActive} onChange={(event) => setCollectionForm((current) => ({ ...current, isActive: event.currentTarget.checked }))} />
-                </SimpleGrid>
-                <Textarea label="Description" minRows={2} value={collectionForm.description} onChange={(event) => setCollectionForm((current) => ({ ...current, description: event.currentTarget.value }))} />
-                <Group justify="flex-end">
-                  <Button variant="subtle" onClick={handleResetCollection}>Reset</Button>
-                </Group>
-              </Stack>
+              <Group justify="space-between">
+                <Stack gap={2}>
+                  <Title order={4}>Share Sets</Title>
+                  <Text size="sm" c="dimmed">Review grouped files first; create, edit, and membership changes stay in More or setup drawers.</Text>
+                </Stack>
+                <WorkbenchMoreMenu
+                  items={[
+                    {
+                      id: 'open-library',
+                      label: 'Select Assets From Library',
+                      onClick: () => goToAssetTab('library'),
+                    },
+                  ]}
+                />
+              </Group>
             </Paper>
-
-            <Paper withBorder>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Collection</Table.Th>
-                    <Table.Th>Visibility</Table.Th>
-                    <Table.Th>Items</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {collections.items.map((collection) => (
-                    <Table.Tr key={collection.id}>
-                      <Table.Td>
+            <WorkbenchTable<DigitalAssetCollectionSummary>
+              ariaLabel="Digital asset share sets"
+              rows={collections.items}
+              getRowKey={(collection) => collection.id}
+              onRowClick={selectCollection}
+              columns={[
+                {
+                  key: 'share-set',
+                  header: 'Share Set',
+                  render: (collection) => (
+                    <Stack gap={2}>
                         <Text fw={600}>{collection.name}</Text>
                         <Text size="xs" c="dimmed">{collection.code}</Text>
-                      </Table.Td>
-                      <Table.Td>{collection.visibility}</Table.Td>
-                      <Table.Td>{collection.itemCount ?? 0}</Table.Td>
-                      <Table.Td><Badge color={collection.isActive ? 'green' : 'gray'} variant="light">{collection.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
-                      <Table.Td><Button size="xs" variant="light" onClick={() => handleEditCollection(collection)}>Edit</Button></Table.Td>
-                    </Table.Tr>
-                  ))}
-                  {!collections.items.length ? (
-                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No asset sets configured yet.</Text></Table.Td></Table.Tr>
-                  ) : null}
-                </Table.Tbody>
-              </Table>
-            </Paper>
-          </SimpleGrid>
-
-          <Paper withBorder p="md" mt="md">
-            <Stack gap="sm">
-              <Title order={4}>Add Selected Asset To Set</Title>
-              <Text size="sm" c="dimmed">{selectedAsset ? selectedAsset.title : 'Select an asset in the library tab before adding it to a collection.'}</Text>
-              <Group align="flex-end">
-                <Select
-                  label="Asset set"
-                  data={collections.items.map((collection) => ({ value: collection.id, label: collection.name }))}
-                  value={selectedCollectionId}
-                  onChange={setSelectedCollectionId}
-                  searchable
-                  clearable
-                  w={320}
+                    </Stack>
+                  ),
+                },
+                { key: 'access', header: 'Access', render: (collection) => formatLabel(collection.visibility) },
+                { key: 'items', header: 'Items', align: 'right', render: (collection) => collection.itemCount ?? 0 },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (collection) => (
+                    <Badge color={collection.isActive ? 'green' : 'gray'} variant="light">{collection.isActive ? 'Active' : 'Inactive'}</Badge>
+                  ),
+                },
+              ]}
+              rowActions={(collection) => ([
+                {
+                  id: 'edit-share-set',
+                  label: 'Edit share set',
+                  onClick: () => handleEditCollection(collection),
+                },
+                {
+                  id: 'manage-items',
+                  label: 'Manage share set items',
+                  onClick: () => openCollectionItems(collection),
+                },
+              ])}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="no-data"
+                  title="No share sets configured yet"
+                  description="Create a share set when several files should be sent together."
                 />
-                <Button onClick={handleAddSelectedAssetToCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
-                  Add Asset
-                </Button>
-                <Button variant="light" color="red" onClick={handleRemoveSelectedAssetFromCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
-                  Remove Asset
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
+              )}
+            />
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="migration" pt="md">
@@ -927,25 +1115,17 @@ export function DigitalAssetsWorkspace() {
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <Stack gap={4}>
-                    <Title order={4}>Widen Import Review</Title>
+                    <Title order={4}>Migration Review</Title>
                     <Text c="dimmed">Preview Widen files before they are added to the Pulse asset library.</Text>
                   </Stack>
-                  <Group>
-                    <Button leftSection={<IconHistory size={16} />} variant="subtle" onClick={handleLoadImportRuns} loading={isLoadingRuns}>
-                      Load Runs
-                    </Button>
-                    <Button leftSection={<IconCloudUpload size={16} />} onClick={handlePreviewImport} loading={isPreviewingImport}>
-                      Preview Import
-                    </Button>
-                  </Group>
                 </Group>
 
-                <Alert color="gray" title="Import only, no redirect cutover yet">
-                  This checks Widen IDs, asset names, original URLs, and issue counts. Public Widen redirect cutover stays parked until the migration plan is approved.
+                <Alert color="gray" title="Advanced migration trace">
+                  This checks Widen IDs, asset names, original URLs, and issue counts. Public Widen redirect cutover is held for the approved migration plan.
                 </Alert>
 
                 {migrationError ? (
-                  <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Widen import API not ready">
+                  <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Legacy import unavailable">
                     {migrationError}
                   </Alert>
                 ) : null}
@@ -996,81 +1176,142 @@ export function DigitalAssetsWorkspace() {
               <Metric label="Missing Files" value={assets.items.filter((asset) => !asset.currentVersion).length} />
               <Metric label="Active Shares" value={assetMetrics.shared} />
             </SimpleGrid>
-            <Alert color="blue" title="Delivery health keeps Widen replacement safe">
-              Review assets that are not approved, do not have a current file/version, or are shared externally. This view is intentionally focused on operational risk, not migration internals.
+            <Alert color="blue" title="Asset delivery checks">
+              Review assets that are not approved, do not have a current file, or are being shared externally.
             </Alert>
-            <Paper withBorder>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Asset</Table.Th>
-                    <Table.Th>File</Table.Th>
-                    <Table.Th>Review</Table.Th>
-                    <Table.Th>Sharing</Table.Th>
-                    <Table.Th>Action</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {assets.items
-                    .filter((asset) => asset.reviewStatus !== 'approved' || !asset.currentVersion || (asset.activeShareLinkCount ?? 0) > 0)
-                    .map((asset) => (
-                      <Table.Tr key={asset.id}>
-                        <Table.Td>
-                          <Text fw={600}>{asset.title}</Text>
-                          <Text size="xs" c="dimmed">/{asset.stableSlug}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          {asset.currentVersion ? (
-                            <Badge color="green" variant="light">Current file ready</Badge>
-                          ) : (
-                            <Badge color="red" variant="light">Missing file</Badge>
-                          )}
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge color={asset.reviewStatus === 'approved' ? 'green' : 'yellow'} variant="light">
-                            {formatLabel(asset.reviewStatus)}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>{asset.activeShareLinkCount ?? 0} active links</Table.Td>
-                        <Table.Td>
-                          <Button size="xs" variant="light" onClick={() => loadAssetDetail(asset.id)}>
-                            Review
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  {!assets.items.filter((asset) => asset.reviewStatus !== 'approved' || !asset.currentVersion || (asset.activeShareLinkCount ?? 0) > 0).length ? (
-                    <Table.Tr>
-                      <Table.Td colSpan={5}>
-                        <Text ta="center" c="dimmed" py="lg">No delivery health items need attention.</Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  ) : null}
-                </Table.Tbody>
-              </Table>
-            </Paper>
+            <WorkbenchTable<DigitalAssetLibraryRow>
+              ariaLabel="Digital asset delivery health"
+              rows={deliveryHealthAssets}
+              getRowKey={(asset) => asset.id}
+              onRowClick={(asset) => handleReviewDeliveryHealthAsset(asset.id)}
+              columns={[
+                {
+                  key: 'asset',
+                  header: 'Asset',
+                  render: (asset) => (
+                    <Stack gap={2}>
+                      <Text fw={600}>{asset.title}</Text>
+                      <Text size="xs" c="dimmed">{asset.currentVersion?.fileName ?? 'No file attached'}</Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: 'file',
+                  header: 'File',
+                  render: (asset) => asset.currentVersion ? (
+                    <Badge color="green" variant="light">Current file ready</Badge>
+                  ) : (
+                    <Badge color="red" variant="light">Missing file</Badge>
+                  ),
+                },
+                {
+                  key: 'review',
+                  header: 'Review',
+                  render: (asset) => (
+                    <Badge color={asset.reviewStatus === 'approved' ? 'green' : 'yellow'} variant="light">
+                      {formatLabel(asset.reviewStatus)}
+                    </Badge>
+                  ),
+                },
+                {
+                  key: 'sharing',
+                  header: 'Sharing',
+                  render: (asset) => `${asset.activeShareLinkCount ?? 0} active links`,
+                },
+              ]}
+              rowActions={(asset) => [{
+                id: 'review-asset',
+                label: 'Review asset',
+                onClick: () => handleReviewDeliveryHealthAsset(asset.id),
+              }]}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="all-clear"
+                  title="No delivery health items need attention"
+                />
+              )}
+            />
           </Stack>
         </Tabs.Panel>
       </Tabs>
 
-      <Modal opened={isAddLinkOpen} onClose={() => setIsAddLinkOpen(false)} title="Add Asset Link" size="lg" centered>
+      <Modal
+        opened={isCollectionModalOpen}
+        onClose={handleResetCollection}
+        title={selectedCollectionId ? 'Edit Share Set' : 'Create Share Set'}
+        size="xl"
+        centered
+      >
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">Name the file set, choose who can see it, then add the brand or region when the set is scoped.</Text>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput label="Set name" value={collectionForm.name} onChange={(event) => setCollectionForm((current) => ({ ...current, name: event.currentTarget.value }))} />
+            <Select label="Who can see this set" data={visibilityOptions} value={collectionForm.visibility} onChange={(value) => setCollectionForm((current) => ({ ...current, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' }))} allowDeselect={false} />
+            <TextInput label="Set code" value={collectionForm.code} onChange={(event) => setCollectionForm((current) => ({ ...current, code: event.currentTarget.value }))} />
+            <TextInput label="Brand" value={collectionForm.brandScope} onChange={(event) => setCollectionForm((current) => ({ ...current, brandScope: event.currentTarget.value }))} />
+            <TextInput label="Region" value={collectionForm.regionScope} onChange={(event) => setCollectionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+            <Checkbox mt="xl" label="Active" checked={collectionForm.isActive} onChange={(event) => setCollectionForm((current) => ({ ...current, isActive: event.currentTarget.checked }))} />
+          </SimpleGrid>
+          <WorkbenchAdvancedSection
+            title="Advanced catalog visibility"
+            description="Use only when this share set is limited to a specific dealer group or scoped audience."
+          >
+            <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+              <TextInput label="Catalog audience type" value={collectionForm.dealerGroupType} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupType: event.currentTarget.value }))} />
+              <TextInput label="Catalog audience code" value={collectionForm.dealerGroupId} onChange={(event) => setCollectionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+            </SimpleGrid>
+          </WorkbenchAdvancedSection>
+          <Textarea label="Description" minRows={2} value={collectionForm.description} onChange={(event) => setCollectionForm((current) => ({ ...current, description: event.currentTarget.value }))} />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={handleResetCollection}>Cancel</Button>
+            <Button onClick={handleSaveCollection} loading={isSavingCollection} disabled={!collectionForm.code.trim() || !collectionForm.name.trim()}>
+              {selectedCollectionId ? 'Save Share Set' : 'Create Share Set'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={isCollectionItemsModalOpen}
+        onClose={() => setIsCollectionItemsModalOpen(false)}
+        title="Manage Share Set Items"
+        size="lg"
+        centered
+      >
+        <Stack gap="sm">
+          <Title order={4}>Selected File</Title>
+          <Text size="sm" c="dimmed">{selectedAsset ? selectedAsset.title : 'Choose a file in the Library tab before changing share set membership.'}</Text>
+          <Select
+            label="Share set"
+            data={collections.items.map((collection) => ({ value: collection.id, label: collection.name }))}
+            value={selectedCollectionId}
+            onChange={setSelectedCollectionId}
+            searchable
+            clearable
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setIsCollectionItemsModalOpen(false)}>Close</Button>
+            <Button onClick={handleAddSelectedAssetToCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
+              Add File
+            </Button>
+            <Button variant="light" color="red" onClick={handleRemoveSelectedAssetFromCollection} loading={isUpdatingCollectionItem} disabled={!selectedAsset || !selectedCollectionId}>
+              Remove File
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={isAddLinkOpen} onClose={() => setIsAddLinkOpen(false)} title="Add File Link" size="lg" centered>
         <form onSubmit={handleCreateAsset}>
           <Stack gap="sm" data-testid="asset-share-panel">
-            <Text c="dimmed" size="sm">Paste a file link for one asset. Use Bulk Upload when you have files from your computer.</Text>
+            <Text c="dimmed" size="sm">Paste a file link, choose who can access it, then save it to the library.</Text>
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
               <TextInput
-                label="Asset name"
+                label="File name"
                 data-testid="asset-link-name"
                 value={assetForm.title}
                 onChange={(event) => setAssetForm((current) => ({ ...current, title: event.currentTarget.value }))}
                 required
-              />
-              <Select
-                label="Type"
-                value={assetForm.kind}
-                data={kindOptions}
-                onChange={(value) => setAssetForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey) ?? 'image' }))}
-                allowDeselect={false}
               />
               <Select
                 label="Who can access"
@@ -1088,8 +1329,15 @@ export function DigitalAssetsWorkspace() {
                 onChange={(event) => setAssetForm((current) => ({ ...current, externalUrl: event.currentTarget.value }))}
                 placeholder="https://..."
               />
+              <Select
+                label="Type"
+                value={assetForm.kind}
+                data={kindOptions}
+                onChange={(value) => setAssetForm((current) => ({ ...current, kind: (value as DigitalAssetKindKey) ?? 'image' }))}
+                allowDeselect={false}
+              />
               <TextInput
-                label="File name"
+                label="Attached file name"
                 data-testid="asset-link-file-name"
                 value={assetForm.fileName}
                 onChange={(event) => setAssetForm((current) => ({ ...current, fileName: event.currentTarget.value }))}
@@ -1109,8 +1357,10 @@ export function DigitalAssetsWorkspace() {
               onChange={(event) => setAssetForm((current) => ({ ...current, description: event.currentTarget.value }))}
               minRows={2}
             />
-            <details>
-              <summary>Advanced details</summary>
+            <WorkbenchAdvancedSection
+              title="Advanced file details"
+              description="Use when preserving a custom slug, file type, brand/region scope, or original Widen link."
+            >
               <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
                 <TextInput
                   label="Custom URL slug"
@@ -1139,24 +1389,50 @@ export function DigitalAssetsWorkspace() {
                   onChange={(event) => setAssetForm((current) => ({ ...current, legacyUrl: event.currentTarget.value }))}
                 />
               </SimpleGrid>
-            </details>
+            </WorkbenchAdvancedSection>
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setIsAddLinkOpen(false)}>Cancel</Button>
               <Button leftSection={<IconPlus size={16} />} type="submit" loading={isCreatingAsset} disabled={!assetForm.title.trim() || Boolean(assetForm.externalUrl.trim() && !assetForm.fileName.trim())}>
-                Add Link
+                Add File Link
               </Button>
             </Group>
           </Stack>
         </form>
       </Modal>
 
-      <Modal opened={isBulkUploadOpen} onClose={() => setIsBulkUploadOpen(false)} title="Bulk Upload Assets" size="xl" centered>
+      <Modal opened={isBulkUploadOpen} onClose={closeBulkUpload} title="Upload Files" size="xl" centered>
         <Stack gap="md">
-          <Paper withBorder p="lg">
+          <SegmentedControl
+            value={bulkUploadStep}
+            onChange={(value) => {
+              const nextStep = value as BulkUploadStep;
+              if (nextStep === 'select' || bulkUploadFiles.length) {
+                setBulkUploadStep(nextStep);
+              }
+            }}
+            data={[
+              { value: 'select', label: '1. Select files' },
+              { value: 'review', label: '2. Review details' },
+              { value: 'defaults', label: '3. Apply defaults' },
+            ]}
+            fullWidth
+          />
+
+          {bulkUploadStep === 'select' ? (
+          <Paper
+            withBorder
+            p="lg"
+            style={{ borderStyle: 'dashed' }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleBulkFileSelection(Array.from(event.dataTransfer.files ?? []));
+            }}
+          >
             <Stack gap="sm" align="center">
               <IconCloudUpload size={32} />
               <Stack gap={2} align="center">
-                <Title order={4}>Choose multiple files</Title>
+                <Title order={4}>Drop files here or choose from your computer</Title>
                 <Text size="sm" c="dimmed" ta="center">Upload product photos, brochures, spec sheets, presentations, or videos in one batch.</Text>
               </Stack>
               <input
@@ -1164,14 +1440,14 @@ export function DigitalAssetsWorkspace() {
                 type="file"
                 multiple
                 hidden
-                onChange={(event) => setBulkUploadFiles(Array.from(event.currentTarget.files ?? []))}
+                onChange={(event) => handleBulkFileSelection(Array.from(event.currentTarget.files ?? []))}
               />
               <Group>
                 <Button variant="light" onClick={() => bulkFileInputRef.current?.click()}>
                   Choose Files
                 </Button>
                 {bulkUploadFiles.length ? (
-                  <Button variant="subtle" color="red" onClick={() => setBulkUploadFiles([])}>
+                  <Button variant="subtle" color="red" onClick={() => handleBulkFileSelection([])}>
                     Clear
                   </Button>
                 ) : null}
@@ -1179,7 +1455,65 @@ export function DigitalAssetsWorkspace() {
               <Text size="sm" c="dimmed">{bulkUploadFiles.length ? `${bulkUploadFiles.length} file${bulkUploadFiles.length === 1 ? '' : 's'} selected` : 'No files selected yet'}</Text>
             </Stack>
           </Paper>
+          ) : null}
 
+          {bulkUploadStep === 'review' ? (
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Stack gap={2}>
+                <Title order={4}>Review file details</Title>
+                <Text size="sm" c="dimmed">Pulse detected file type and size. Confirm the batch before applying shared defaults.</Text>
+              </Stack>
+              <Badge variant="light">{bulkUploadFiles.length} selected</Badge>
+            </Group>
+            <WorkbenchTable<File>
+              ariaLabel="Bulk upload file review"
+              rows={bulkUploadFiles}
+              getRowKey={(file) => `${file.name}-${file.size}-${file.lastModified}`}
+              minWidth={680}
+              columns={[
+                {
+                  key: 'file',
+                  header: 'File',
+                  render: (file) => (
+                    <Stack gap={2}>
+                      <Text fw={600}>{file.name}</Text>
+                      <Text size="xs" c="dimmed">{file.type || 'Unknown MIME type'}</Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: 'detected-type',
+                  header: 'Detected type',
+                  render: (file) => formatLabel(inferAssetKind(file.type, bulkUploadForm.kind)),
+                },
+                {
+                  key: 'size',
+                  header: 'Size',
+                  render: (file) => formatBytes(file.size),
+                  align: 'right',
+                },
+              ]}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="no-data"
+                  title="No files selected"
+                  description="Choose files first, then review detected details."
+                />
+              )}
+            />
+          </Stack>
+          ) : null}
+
+          {bulkUploadStep === 'defaults' ? (
+          <Stack gap="sm">
+          <Group justify="space-between">
+            <Stack gap={2}>
+              <Title order={4}>Apply defaults</Title>
+              <Text size="sm" c="dimmed">These defaults will be applied to every selected file. You can edit individual assets after upload.</Text>
+            </Stack>
+            <Badge variant="light">{bulkUploadFiles.length} ready to upload</Badge>
+          </Group>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Select
               label="Default type"
@@ -1211,35 +1545,34 @@ export function DigitalAssetsWorkspace() {
               onChange={(event) => setBulkUploadForm((current) => ({ ...current, regionScope: event.currentTarget.value }))}
             />
           </SimpleGrid>
-
-          {bulkUploadFiles.length ? (
-            <Paper withBorder>
-              <Table striped>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>File</Table.Th>
-                    <Table.Th>Detected type</Table.Th>
-                    <Table.Th>Size</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {bulkUploadFiles.map((file) => (
-                    <Table.Tr key={`${file.name}-${file.size}-${file.lastModified}`}>
-                      <Table.Td>{file.name}</Table.Td>
-                      <Table.Td>{formatLabel(inferAssetKind(file.type, bulkUploadForm.kind))}</Table.Td>
-                      <Table.Td>{formatBytes(file.size)}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Paper>
+          </Stack>
           ) : null}
 
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => setIsBulkUploadOpen(false)}>Cancel</Button>
+            <Button variant="default" onClick={closeBulkUpload}>Cancel</Button>
+            {bulkUploadStep !== 'select' ? (
+              <Button
+                variant="subtle"
+                onClick={() => setBulkUploadStep(bulkUploadStep === 'defaults' ? 'review' : 'select')}
+              >
+                Back
+              </Button>
+            ) : null}
+            {bulkUploadStep === 'select' ? (
+              <Button onClick={() => setBulkUploadStep('review')} disabled={!bulkUploadFiles.length}>
+                Review Details
+              </Button>
+            ) : null}
+            {bulkUploadStep === 'review' ? (
+              <Button onClick={() => setBulkUploadStep('defaults')} disabled={!bulkUploadFiles.length}>
+                Apply Defaults
+              </Button>
+            ) : null}
+            {bulkUploadStep === 'defaults' ? (
             <Button leftSection={<IconCloudUpload size={16} />} onClick={handleBulkUpload} loading={isBulkUploading} disabled={!bulkUploadFiles.length}>
-              Upload {bulkUploadFiles.length || ''} Asset{bulkUploadFiles.length === 1 ? '' : 's'}
+              Upload {bulkUploadFiles.length || ''} File{bulkUploadFiles.length === 1 ? '' : 's'}
             </Button>
+            ) : null}
           </Group>
         </Stack>
       </Modal>
@@ -1293,29 +1626,33 @@ function AssetDetailPanel({
   const currentUrl = asset.currentVersion?.publicUrl ?? asset.currentVersion?.externalUrl;
   const isShareable = asset.visibility === 'dealer_portal' || asset.visibility === 'public';
   const hasCurrentFile = Boolean(asset.currentVersion);
+  const reviewAllowsSharing = asset.reviewStatus === 'approved' || asset.reviewStatus === 'not_required';
+  const activeShareLink = asset.shareLinks?.find((shareLink) => !shareLink.revokedAt && (!shareLink.expiresAt || new Date(shareLink.expiresAt) > new Date())) ?? null;
   const [showAdvancedShareContext, setShowAdvancedShareContext] = useState(Boolean(shareForm.contextType || shareForm.contextId));
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-start">
         <Stack gap={2}>
           <Title order={4}>{asset.title}</Title>
-          <Text c="dimmed" size="sm">/{asset.stableSlug}</Text>
+          <Text c="dimmed" size="sm">{asset.currentVersion?.fileName ?? 'No current file'}</Text>
         </Stack>
-        <Badge variant="light">{asset.status} / {asset.reviewStatus}</Badge>
+        <Badge variant="light">{formatLabel(asset.status)} / {formatLabel(asset.reviewStatus)}</Badge>
       </Group>
 
-      <SimpleGrid cols={{ base: 1, sm: 2 }}>
-        <CountLine label="Kind" value={asset.kind} />
-        <CountLine label="Visibility" value={asset.visibility} />
-        <CountLine label="Audience" value={asset.audience} />
-        <CountLine label="Scope" value={[asset.brandScope, asset.regionScope].filter(Boolean).join(' / ') || 'Unscoped'} />
-        <CountLine label="Product usage" value={String(asset.productUsageCount ?? 0)} />
-        <CountLine label="Active shares" value={`${asset.activeShareLinkCount ?? 0} links / ${asset.totalShareLinkAccessCount ?? 0} views`} />
-      </SimpleGrid>
-
-      {asset.description ? <Text size="sm">{asset.description}</Text> : null}
-      {currentUrl ? (
-        <Group gap="xs">
+      <Group gap="xs">
+        {canShare ? (
+          <Button
+            data-testid="asset-share-create-link"
+            size="xs"
+            leftSection={<IconShare size={14} />}
+            onClick={() => activeShareLink ? copyToClipboard(activeShareLink.shareUrl) : onCreateShareLink()}
+            loading={!activeShareLink && isCreatingShareLink}
+            disabled={!hasCurrentFile || !isShareable || !reviewAllowsSharing}
+          >
+            {activeShareLink ? 'Copy customer link' : 'Create share link'}
+          </Button>
+        ) : null}
+        {currentUrl ? (
           <Button
             component="a"
             href={currentUrl}
@@ -1325,36 +1662,30 @@ function AssetDetailPanel({
             variant="light"
             leftSection={<IconLink size={14} />}
           >
-            Open Current Link
+            Open file
           </Button>
-          <Button size="xs" variant="subtle" onClick={() => copyToClipboard(currentUrl)}>
-            Copy Current Link
-          </Button>
-        </Group>
-      ) : null}
-      {asset.legacyUrl ? (
-        <Text component="a" href={asset.legacyUrl} target="_blank" rel="noreferrer" size="sm" c="blue">
-          {asset.legacyUrl}
-        </Text>
-      ) : null}
+        ) : null}
+      </Group>
 
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+        <CountLine label="Type" value={formatLabel(asset.kind)} />
+        <CountLine label="Access" value={formatLabel(asset.visibility)} />
+        <CountLine label="Used by products" value={String(asset.productUsageCount ?? 0)} />
+        <CountLine label="Active shares" value={`${asset.activeShareLinkCount ?? 0} links / ${asset.totalShareLinkAccessCount ?? 0} views`} />
+      </SimpleGrid>
+
+      {asset.description ? <Text size="sm">{asset.description}</Text> : null}
       {canShare ? (
-        <Paper withBorder p="md">
+        <WorkbenchAdvancedSection
+          title="Share options and link history"
+          description="Name a recipient, set expiry, add CRM context, or revoke links when needed."
+        >
           <Stack gap="sm">
             <Group justify="space-between" align="flex-start">
               <Stack gap={2}>
-                <Title order={5}>Share With Prospect Or Customer</Title>
-                <Text c="dimmed" size="sm">Create a revocable link for proposals, follow-ups, and dealer/customer conversations.</Text>
+                <Title order={5}>Share this file</Title>
+                <Text c="dimmed" size="sm">Choose who receives the link, set an expiry, then create a revocable customer or dealer link.</Text>
               </Stack>
-              <Button
-                data-testid="asset-share-create-link"
-                leftSection={<IconShare size={16} />}
-                onClick={onCreateShareLink}
-                loading={isCreatingShareLink}
-                disabled={!hasCurrentFile || !isShareable}
-              >
-                Create Link
-              </Button>
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
               <AssetShareStep
@@ -1365,14 +1696,14 @@ function AssetDetailPanel({
               />
               <AssetShareStep
                 label="2. Access"
-                value={isShareable ? 'Shareable' : 'Internal only'}
-                detail={isShareable ? 'Dealer/customer link creation is allowed' : 'Change access to Dealer Portal or Public before sharing'}
-                tone={isShareable ? 'ready' : 'attention'}
+                value={isShareable && reviewAllowsSharing ? 'Shareable' : !reviewAllowsSharing ? 'Needs approval' : 'Internal only'}
+                detail={isShareable && reviewAllowsSharing ? 'Dealer/customer link creation is allowed' : !reviewAllowsSharing ? 'Approve the asset before sharing externally' : 'Change access to Dealer Portal or Public before sharing'}
+                tone={isShareable && reviewAllowsSharing ? 'ready' : 'attention'}
               />
               <AssetShareStep
                 label="3. Recipient"
                 value={shareForm.recipientEmail || shareForm.recipientName ? 'Named' : 'Optional'}
-                detail="Name/email help audit who received the link"
+                detail="Name or email keeps the share auditable"
                 tone="ready"
               />
             </SimpleGrid>
@@ -1402,6 +1733,11 @@ function AssetDetailPanel({
                     </Group>
                   ) : null}
                 </Stack>
+              </Alert>
+            ) : null}
+            {hasCurrentFile && isShareable && !reviewAllowsSharing ? (
+              <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Approval needed before sharing">
+                Customer links can be created after this asset is approved or marked review-not-required.
               </Alert>
             ) : null}
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -1442,84 +1778,126 @@ function AssetDetailPanel({
             ) : null}
             <Textarea data-testid="asset-share-note" label="Note" minRows={2} value={shareForm.note} onChange={(event) => onShareFormChange({ ...shareForm, note: event.currentTarget.value })} />
 
-            <Table striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Recipient</Table.Th>
-                  <Table.Th>Expires</Table.Th>
-                  <Table.Th>Access</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {(asset.shareLinks ?? []).map((shareLink) => (
-                  <Table.Tr key={shareLink.id}>
-                    <Table.Td>
+            <WorkbenchTable<DigitalAssetShareLinkRow>
+              ariaLabel="Asset share links"
+              rows={asset.shareLinks ?? []}
+              getRowKey={(shareLink) => shareLink.id}
+              minWidth={680}
+              withContainer={false}
+              columns={[
+                {
+                  key: 'recipient',
+                  header: 'Recipient',
+                  render: (shareLink) => (
+                    <Stack gap={2}>
                       <Text size="sm" fw={600}>{shareLink.recipientName || shareLink.recipientEmail || formatLabel(shareLink.recipientType)}</Text>
-                      <Text size="xs" c="dimmed">{shareLink.shareUrl}</Text>
-                    </Table.Td>
-                    <Table.Td>{shareLink.expiresAt ? formatDate(shareLink.expiresAt) : 'No expiry'}</Table.Td>
-                    <Table.Td>{shareLink.accessCount}</Table.Td>
-                    <Table.Td><Badge color={shareLink.revokedAt ? 'gray' : 'green'} variant="light">{shareLink.revokedAt ? 'Revoked' : 'Active'}</Badge></Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" justify="flex-end">
-                        <Button size="xs" variant="subtle" onClick={() => copyToClipboard(shareLink.shareUrl)}>Copy</Button>
-                        {!shareLink.revokedAt ? (
-                          <Button size="xs" color="red" variant="subtle" loading={revokingShareLinkId === shareLink.id} onClick={() => onRevokeShareLink(shareLink.id)}>
-                            Revoke
-                          </Button>
-                        ) : null}
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-                {!(asset.shareLinks ?? []).length ? (
-                  <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="md">No share links created yet.</Text></Table.Td></Table.Tr>
-                ) : null}
-              </Table.Tbody>
-            </Table>
+                      <Text size="xs" c="dimmed" lineClamp={1}>{shareLink.shareUrl}</Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: 'expires',
+                  header: 'Expires',
+                  render: (shareLink) => shareLink.expiresAt ? formatDate(shareLink.expiresAt) : 'No expiry',
+                },
+                {
+                  key: 'access',
+                  header: 'Access',
+                  render: (shareLink) => shareLink.accessCount,
+                  align: 'right',
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (shareLink) => (
+                    <Badge color={shareLink.revokedAt ? 'gray' : 'green'} variant="light">
+                      {shareLink.revokedAt ? 'Revoked' : 'Active'}
+                    </Badge>
+                  ),
+                },
+              ]}
+              rowActions={(shareLink) => [
+                {
+                  id: 'copy-share-link',
+                  label: 'Copy link',
+                  onClick: () => copyToClipboard(shareLink.shareUrl),
+                },
+                ...(!shareLink.revokedAt ? [{
+                  id: 'revoke-share-link',
+                  label: revokingShareLinkId === shareLink.id ? 'Revoking...' : 'Revoke link',
+                  color: 'red' as const,
+                  disabled: revokingShareLinkId === shareLink.id,
+                  onClick: () => onRevokeShareLink(shareLink.id),
+                }] : []),
+              ]}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="no-data"
+                  title="No share links created yet"
+                  description="Create a link when a prospect, customer, or dealer needs this file."
+                />
+              )}
+            />
           </Stack>
-        </Paper>
+        </WorkbenchAdvancedSection>
       ) : null}
 
-      <Paper withBorder p="md">
-        <Stack gap="sm">
-          <Title order={5}>Product Usage</Title>
-          <Table striped>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Product</Table.Th>
-                <Table.Th>Role</Table.Th>
-                <Table.Th>Scope</Table.Th>
-                <Table.Th>Required</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {(asset.productUsages ?? []).map((usage) => (
-                <Table.Tr key={usage.id}>
-                  <Table.Td>
+      <WorkbenchAdvancedSection
+        title="Product usage"
+        description={`${asset.productUsageCount ?? 0} linked product presentation${asset.productUsageCount === 1 ? '' : 's'}. Expand when reviewing catalog impact.`}
+      >
+          <WorkbenchTable<DigitalAssetProductUsageRow>
+            ariaLabel="Asset product usage"
+            rows={asset.productUsages ?? []}
+            getRowKey={(usage) => usage.id}
+            minWidth={680}
+            withContainer={false}
+            columns={[
+              {
+                key: 'product',
+                header: 'Product',
+                render: (usage) => (
+                  <Stack gap={2}>
                     <Text size="sm" fw={600}>{usage.presentationName}</Text>
                     <Text size="xs" c="dimmed">{usage.productSku} / {usage.productName}</Text>
-                  </Table.Td>
-                  <Table.Td>{formatLabel(usage.role)}</Table.Td>
-                  <Table.Td>{[usage.brandLabel, usage.regionScope, usage.dealerGroupId].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
-                  <Table.Td>{usage.isRequired ? 'Yes' : 'No'}</Table.Td>
-                </Table.Tr>
-              ))}
-              {!(asset.productUsages ?? []).length ? (
-                <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="md">This asset is not linked to any product presentation yet.</Text></Table.Td></Table.Tr>
-              ) : null}
-            </Table.Tbody>
-          </Table>
-        </Stack>
-      </Paper>
+                  </Stack>
+                ),
+              },
+              {
+                key: 'role',
+                header: 'Role',
+                render: (usage) => formatLabel(usage.role),
+              },
+              {
+                key: 'scope',
+                header: 'Scope',
+                render: (usage) => [usage.brandLabel, usage.regionScope, usage.dealerGroupId].filter(Boolean).join(' / ') || 'Unscoped',
+              },
+              {
+                key: 'required',
+                header: 'Required',
+                render: (usage) => usage.isRequired ? 'Yes' : 'No',
+              },
+            ]}
+            emptyState={(
+              <EmptyStateMessage
+                kind="no-data"
+                title="This asset is not linked to any product presentation yet"
+                description="Attach it from Product Management when it should appear in catalog or dealer portal content."
+              />
+            )}
+          />
+      </WorkbenchAdvancedSection>
 
       {canEdit ? (
+        <WorkbenchAdvancedSection
+          title="Marketing details"
+          description="Edit the business-facing title, access, audience, and review state."
+        >
         <Paper withBorder p="md">
           <Stack gap="sm">
             <Group justify="space-between">
-              <Title order={5}>Governance</Title>
+              <Title order={5}>File Details</Title>
               <Button onClick={onUpdateAsset} loading={isUpdatingAsset} disabled={!editForm.title.trim()}>
                 Save Asset
               </Button>
@@ -1528,22 +1906,173 @@ function AssetDetailPanel({
               <TextInput label="Title" value={editForm.title} onChange={(event) => onEditFormChange({ ...editForm, title: event.currentTarget.value })} />
               <TextInput label="Audience" value={editForm.audience} onChange={(event) => onEditFormChange({ ...editForm, audience: event.currentTarget.value })} />
               <Select label="Status" data={statusOptions} value={editForm.status} onChange={(value) => onEditFormChange({ ...editForm, status: (value as DigitalAssetStatusKey | null) ?? 'draft' })} allowDeselect={false} />
-              <Select label="Visibility" data={visibilityOptions} value={editForm.visibility} onChange={(value) => onEditFormChange({ ...editForm, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' })} allowDeselect={false} />
+              <Select label="Who can see this asset" data={visibilityOptions} value={editForm.visibility} onChange={(value) => onEditFormChange({ ...editForm, visibility: (value as DigitalAssetVisibilityKey | null) ?? 'internal_only' })} allowDeselect={false} />
               <Select label="Review" data={reviewStatusOptions} value={editForm.reviewStatus} onChange={(value) => onEditFormChange({ ...editForm, reviewStatus: (value as DigitalAssetReviewStatusKey | null) ?? 'pending_review' })} allowDeselect={false} />
-              <TextInput label="Brand scope" value={editForm.brandScope} onChange={(event) => onEditFormChange({ ...editForm, brandScope: event.currentTarget.value })} />
-              <TextInput label="Region scope" value={editForm.regionScope} onChange={(event) => onEditFormChange({ ...editForm, regionScope: event.currentTarget.value })} />
-              <TextInput label="Dealer group type" value={editForm.dealerGroupType} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupType: event.currentTarget.value })} />
-              <TextInput label="Dealer group ID" value={editForm.dealerGroupId} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupId: event.currentTarget.value })} />
+              <TextInput label="Brand" value={editForm.brandScope} onChange={(event) => onEditFormChange({ ...editForm, brandScope: event.currentTarget.value })} />
+              <TextInput label="Region" value={editForm.regionScope} onChange={(event) => onEditFormChange({ ...editForm, regionScope: event.currentTarget.value })} />
             </SimpleGrid>
+            <WorkbenchAdvancedSection
+              title="Advanced catalog visibility"
+              description="Use only when this asset is limited to a specific dealer group or scoped audience."
+            >
+              <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+                <TextInput label="Catalog audience type" value={editForm.dealerGroupType} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupType: event.currentTarget.value })} />
+                <TextInput label="Catalog audience code" value={editForm.dealerGroupId} onChange={(event) => onEditFormChange({ ...editForm, dealerGroupId: event.currentTarget.value })} />
+              </SimpleGrid>
+            </WorkbenchAdvancedSection>
             <Textarea label="Description" minRows={2} value={editForm.description} onChange={(event) => onEditFormChange({ ...editForm, description: event.currentTarget.value })} />
           </Stack>
         </Paper>
+        </WorkbenchAdvancedSection>
       ) : null}
 
-      {(asset.legacyMetadataFields?.length || asset.migrationIssues?.length || asset.legacyMetadata) ? (
-        <Paper withBorder p="md">
+      <WorkbenchAdvancedSection
+        title="File versions"
+        description="Attach or replace the current file and review version history when needed."
+      >
+      <form onSubmit={onSubmit}>
+        <Stack gap="sm">
+          <Group justify="space-between">
+            <Title order={5}>Attach File</Title>
+            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim() && !(form.ingestSourceDownload && form.sourceDownloadUrl.trim()))}>
+              Save File
+            </Button>
+          </Group>
+          <Paper withBorder p="md">
+            <Group justify="space-between" align="center">
+              <Stack gap={2}>
+                <Text fw={600}>Upload from computer</Text>
+                <Text size="sm" c="dimmed">{form.fileBase64 ? form.fileName || 'File selected' : 'Choose a replacement file or add an external URL below.'}</Text>
+              </Stack>
+              <FileButton
+                onChange={(file) => {
+                if (!file) {
+                  onFormChange({ ...form, fileBase64: '' });
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => onFormChange({
+                  ...form,
+                  fileBase64: String(reader.result ?? ''),
+                  fileName: form.fileName || file.name,
+                  mimeType: form.mimeType || file.type,
+                });
+                reader.readAsDataURL(file);
+              }}
+              >
+                {(props) => <Button {...props} variant="light" leftSection={<IconCloudUpload size={16} />}>Choose File</Button>}
+              </FileButton>
+            </Group>
+          </Paper>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput
+              label="Paste file link"
+              value={form.externalUrl}
+              onChange={(event) => onFormChange({ ...form, externalUrl: event.currentTarget.value })}
+            />
+            <TextInput
+              label="File name"
+              value={form.fileName}
+              onChange={(event) => onFormChange({ ...form, fileName: event.currentTarget.value })}
+              required
+            />
+            <Checkbox
+              mt="xl"
+              label="Make current version"
+              checked={form.makeCurrent}
+              onChange={(event) => onFormChange({ ...form, makeCurrent: event.currentTarget.checked })}
+            />
+          </SimpleGrid>
+          <WorkbenchAdvancedSection
+            title="Advanced file source details"
+            description="Use when preserving source IDs or copying a source URL into managed storage."
+          >
+            <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+              <TextInput
+                label="MIME type"
+                value={form.mimeType}
+                onChange={(event) => onFormChange({ ...form, mimeType: event.currentTarget.value })}
+                placeholder="image/png"
+              />
+              <TextInput
+                label="Source version ID"
+                value={form.sourceVersionId}
+                onChange={(event) => onFormChange({ ...form, sourceVersionId: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Source download URL"
+                value={form.sourceDownloadUrl}
+                onChange={(event) => onFormChange({ ...form, sourceDownloadUrl: event.currentTarget.value })}
+              />
+              <Checkbox
+                mt="xl"
+                label="Copy source URL into managed storage"
+                checked={form.ingestSourceDownload}
+                onChange={(event) => onFormChange({ ...form, ingestSourceDownload: event.currentTarget.checked })}
+              />
+            </SimpleGrid>
+          </WorkbenchAdvancedSection>
+        </Stack>
+      </form>
+
+        <WorkbenchTable<DigitalAssetVersionRow>
+          ariaLabel="Asset file history"
+          rows={asset.versions}
+          getRowKey={(version) => version.id}
+          minWidth={680}
+          columns={[
+            {
+              key: 'version',
+              header: 'Version',
+              render: (version) => <Badge color={version.isCurrent ? 'green' : 'gray'}>v{version.versionNumber}</Badge>,
+              width: 110,
+            },
+            {
+              key: 'file',
+              header: 'File',
+              render: (version) => (
+                <Stack gap={2}>
+                  <Text fw={600} size="sm">{version.fileName}</Text>
+                  <Text c="dimmed" size="xs">{version.mimeType ?? 'Unknown type'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'delivery',
+              header: 'Delivery',
+              render: (version) => (
+                <Text size="xs" c="dimmed">
+                  {version.publicUrl || version.externalUrl ? 'Link available' : version.storageKey ? 'Managed storage' : 'No delivery location'}
+                </Text>
+              ),
+            },
+            {
+              key: 'created',
+              header: 'Created',
+              render: (version) => formatDate(version.createdAt),
+            },
+          ]}
+          emptyState={(
+            <EmptyStateMessage
+              kind="no-data"
+              title="No versions attached yet"
+              description="Upload a file or paste a managed file link to create the first version."
+            />
+          )}
+        />
+      </WorkbenchAdvancedSection>
+
+      {(asset.legacyUrl || asset.legacyMetadataFields?.length || asset.migrationIssues?.length || asset.legacyMetadata) ? (
+        <WorkbenchAdvancedSection
+          title="Source and migration trace"
+          description="Legacy Widen links, source metadata, and import issues stay available for audit after the daily asset tasks."
+        >
           <Stack gap="md">
-            <Title order={5}>Migration Trace</Title>
+            {asset.legacyUrl ? (
+              <Text component="a" href={asset.legacyUrl} target="_blank" rel="noreferrer" size="sm" c="blue">
+                Original Widen link
+              </Text>
+            ) : null}
             {asset.legacyMetadataFields?.length ? (
               <Table striped>
                 <Table.Thead>
@@ -1587,125 +2116,8 @@ function AssetDetailPanel({
               </Table>
             ) : null}
           </Stack>
-        </Paper>
+        </WorkbenchAdvancedSection>
       ) : null}
-
-      <form onSubmit={onSubmit}>
-        <Stack gap="sm">
-          <Group justify="space-between">
-            <Title order={5}>Add or replace file version</Title>
-            <Button leftSection={<IconLink size={16} />} type="submit" loading={isAddingVersion} disabled={!form.fileName.trim() || (!form.externalUrl.trim() && !form.fileBase64.trim() && !(form.ingestSourceDownload && form.sourceDownloadUrl.trim()))}>
-              Add Version
-            </Button>
-          </Group>
-          <Paper withBorder p="md">
-            <Group justify="space-between" align="center">
-              <Stack gap={2}>
-                <Text fw={600}>Upload from computer</Text>
-                <Text size="sm" c="dimmed">{form.fileBase64 ? form.fileName || 'File selected' : 'Choose a replacement file or add an external URL below.'}</Text>
-              </Stack>
-              <FileButton
-                onChange={(file) => {
-                if (!file) {
-                  onFormChange({ ...form, fileBase64: '' });
-                  return;
-                }
-                const reader = new FileReader();
-                reader.onload = () => onFormChange({
-                  ...form,
-                  fileBase64: String(reader.result ?? ''),
-                  fileName: form.fileName || file.name,
-                  mimeType: form.mimeType || file.type,
-                });
-                reader.readAsDataURL(file);
-              }}
-              >
-                {(props) => <Button {...props} variant="light" leftSection={<IconCloudUpload size={16} />}>Choose File</Button>}
-              </FileButton>
-            </Group>
-          </Paper>
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <TextInput
-              label="External URL"
-              value={form.externalUrl}
-              onChange={(event) => onFormChange({ ...form, externalUrl: event.currentTarget.value })}
-            />
-            <TextInput
-              label="File name"
-              value={form.fileName}
-              onChange={(event) => onFormChange({ ...form, fileName: event.currentTarget.value })}
-              required
-            />
-            <TextInput
-              label="MIME type"
-              value={form.mimeType}
-              onChange={(event) => onFormChange({ ...form, mimeType: event.currentTarget.value })}
-              placeholder="image/png"
-            />
-            <TextInput
-              label="Source version ID"
-              value={form.sourceVersionId}
-              onChange={(event) => onFormChange({ ...form, sourceVersionId: event.currentTarget.value })}
-            />
-            <TextInput
-              label="Source download URL"
-              value={form.sourceDownloadUrl}
-              onChange={(event) => onFormChange({ ...form, sourceDownloadUrl: event.currentTarget.value })}
-            />
-            <Checkbox
-              mt="xl"
-              label="Copy source URL into managed storage"
-              checked={form.ingestSourceDownload}
-              onChange={(event) => onFormChange({ ...form, ingestSourceDownload: event.currentTarget.checked })}
-            />
-            <Checkbox
-              mt="xl"
-              label="Make current version"
-              checked={form.makeCurrent}
-              onChange={(event) => onFormChange({ ...form, makeCurrent: event.currentTarget.checked })}
-            />
-          </SimpleGrid>
-        </Stack>
-      </form>
-
-      <Paper withBorder>
-        <Table striped>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Version</Table.Th>
-              <Table.Th>File</Table.Th>
-              <Table.Th>Location</Table.Th>
-              <Table.Th>Created</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {asset.versions.map((version) => (
-              <Table.Tr key={version.id}>
-                <Table.Td>
-                  <Badge color={version.isCurrent ? 'green' : 'gray'}>v{version.versionNumber}</Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Text fw={600} size="sm">{version.fileName}</Text>
-                  <Text c="dimmed" size="xs">{version.mimeType ?? 'Unknown type'}</Text>
-                </Table.Td>
-                <Table.Td>
-                  {version.publicUrl || version.externalUrl ? (
-                    <Text component="a" href={version.publicUrl ?? version.externalUrl} target="_blank" rel="noreferrer" size="xs" c="blue">
-                      {version.publicUrl ?? version.externalUrl}
-                    </Text>
-                  ) : (
-                    <Text size="xs" c="dimmed">{version.storageKey ?? 'No location'}</Text>
-                  )}
-                </Table.Td>
-                <Table.Td>{formatDate(version.createdAt)}</Table.Td>
-              </Table.Tr>
-            ))}
-            {!asset.versions.length ? (
-              <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="md">No versions attached yet.</Text></Table.Td></Table.Tr>
-            ) : null}
-          </Table.Tbody>
-        </Table>
-      </Paper>
     </Stack>
   );
 }

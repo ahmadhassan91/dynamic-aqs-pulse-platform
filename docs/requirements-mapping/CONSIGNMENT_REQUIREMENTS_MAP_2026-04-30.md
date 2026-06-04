@@ -47,6 +47,18 @@ Pulse must not fake Acumatica-owned truth. Warehouse creation, transfer/receipt 
 | Mobile offline audit and barcode scan | `Build Later In Pulse` | Can design around stored audit lines and manual fallback | Barcode standard/product identity and mobile offline policy need approval | Barcode decision and mobile slice start |
 | Dealer/customer consignment visibility | `Decision` | Keep internal-only in Phase 1 | Not all dealers should see consignment; portal visibility needs explicit approval | Dealer portal consignment policy decision |
 
+## UX-05 Slice E Trace - 2026-06-04
+
+This slice keeps Samantha/Ops workflow visible without exposing Acumatica mechanics on the default CRM screen. The goal is a simple operator queue for work Pulse can own now: due ROSE audits, manual follow-up, site issues, and document/setup readiness.
+
+| Requirement area | Slice E response | Evidence | Boundary kept honest |
+| --- | --- | --- | --- |
+| Samantha/Ops alert boundary and shared mailbox style follow-up | `/consignment` now defaults to one ranked `Next Site Work` list that combines due audits, follow-ups, and site issues | `apps/crm-web/src/components/consignment/ConsignmentWorkspace.tsx`, `apps/crm-web/e2e/ux-depth.spec.mjs` | Mailbox provider automation remains parked; Pulse-owned work items are shown instead |
+| ROSE 90-day audit scheduler and on-site audit capture | Due/overdue audits appear as the first-class work row, and site detail exposes a single `Finish audit` decision modal | `ConsignmentWorkspace.tsx`, `apps/crm-web/src/components/consignment/ConsignmentSiteDetail.tsx` | Authoritative SKU/barcode inventory remains parked until product/Acumatica mappings are certified |
+| Audit vs reconciliation split | The modal separates `No issue` completion from `Log site issue`, preserving the manual reconciliation path only when needed | `ConsignmentSiteDetail.tsx`, `apps/api/src/modules/consignment/service.ts` | PO creation/posting remains a manual/parked Acumatica boundary |
+| Reporting and Samantha workbook replacement over available data | Reports remain reachable behind More rather than being mixed into the first screen | `ConsignmentWorkspace.tsx` | Live sales/inventory/revenue truth remains parked until Acumatica read models are certified |
+| Parked warehouse/setup boundary | UI copy now uses `Setup handoff` instead of leading with Acumatica terminology | `apps/api/src/modules/consignment/service.ts` | Warehouse creation, transfer/receipt, PO, and financial truth stay parked |
+
 ## Build-Now Slice Order
 
 | Slice | Name | Status | Acceptance Criteria |

@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Alert, Badge, Button, Group, Loader, NumberInput, Paper, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Loader, Modal, NumberInput, Paper, Popover, Select, SimpleGrid, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import {
   type ProductDetail,
   type DealerCatalogViewSummary,
@@ -36,8 +35,20 @@ import {
 } from '@/lib/pulse-api';
 import { APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchDetailRail,
+  WorkbenchHeader,
+  WorkbenchMetricStrip,
+  WorkbenchMoreMenu,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
+import { canPerformAction } from '@/lib/access';
 
-type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'readiness' | 'publish';
+type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'admin';
+type CatalogViewWizardStep = 'audience' | 'scope' | 'review';
+type ImportPreviewProductRow = ProductReferenceImportPreviewResponse['sampleProducts'][number];
 type CatalogViewRow = {
   key: string;
   catalogViewId?: string | undefined;
@@ -51,6 +62,7 @@ type CatalogViewRow = {
   isConfigured: boolean;
   activeSnapshot?: DealerCatalogSnapshotSummary | undefined;
 };
+type ProductCatalogRow = ListProductsResponse['items'][number];
 type CategoryFormState = {
   code: string;
   name: string;
@@ -112,15 +124,15 @@ const emptyFamilyForm: FamilyFormState = {
 };
 
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
-const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'readiness', 'publish'];
+const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'admin'];
 const CATALOG_VIEW_KIND_OPTIONS: Array<{ value: DealerCatalogViewSummary['kind']; label: string; helper: string; precedence: number }> = [
-  { value: 'standard', label: 'Standard dealers', helper: 'Default eligible dealer catalog', precedence: 100 },
-  { value: 'affinity', label: 'Affinity catalog', helper: 'Nexstar, EGIA, CertainPath, and similar networks', precedence: 50 },
-  { value: 'ownership', label: 'Ownership / PE catalog', helper: 'Common-owner or private-equity overlay', precedence: 40 },
-  { value: 'independent', label: 'Independent catalog', helper: 'Dealers without affinity/franchise or ownership overlay', precedence: 80 },
-  { value: 'region', label: 'Regional catalog', helper: 'US, Canada, province/state, or region-specific view', precedence: 70 },
-  { value: 'brand', label: 'Brand catalog', helper: 'Brand-specific presentation and files', precedence: 30 },
-  { value: 'private_label', label: 'Private-label catalog', helper: 'Dealer/private-label presentation layer', precedence: 20 },
+  { value: 'standard', label: 'Standard dealers', helper: 'Default eligible Dealer group', precedence: 100 },
+  { value: 'affinity', label: 'Approved relationship dealers', helper: 'Known dealer network or buying-group relationship', precedence: 50 },
+  { value: 'ownership', label: 'Ownership group dealers', helper: 'Common-owner relationship overlay', precedence: 40 },
+  { value: 'independent', label: 'Independent dealers', helper: 'Dealers without a relationship or ownership overlay', precedence: 80 },
+  { value: 'region', label: 'Regional dealers', helper: 'US, Canada, province/state, or region-specific view', precedence: 70 },
+  { value: 'brand', label: 'Brand-specific dealers', helper: 'Brand-specific presentation and files', precedence: 30 },
+  { value: 'private_label', label: 'Private-label dealers', helper: 'Dealer/private-label presentation layer', precedence: 20 },
   { value: 'account_override', label: 'Account override', helper: 'Specific dealer/account exception', precedence: 10 },
 ];
 const CATEGORY_TYPE_OPTIONS = [
@@ -140,13 +152,23 @@ const CATEGORY_REGION_OPTIONS = [
     label: `${option.group}: ${option.label} (${option.value})`,
   })),
 ];
+const SETUP_AREA_OPTIONS = [
+  { value: 'categories', label: 'Categories' },
+  { value: 'families', label: 'Families' },
+  { value: 'admin', label: 'Advanced setup' },
+];
+const CATALOG_VIEW_WIZARD_STEPS: Array<{ value: CatalogViewWizardStep; label: string; helper: string }> = [
+  { value: 'audience', label: 'Who is this for?', helper: 'Name the dealer audience.' },
+  { value: 'scope', label: 'What should they see?', helper: 'Add region or brand only when needed.' },
+  { value: 'review', label: 'Review before publish', helper: 'Confirm visibility before saving.' },
+];
 
 export function ProductManagementWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<ProductTab>('visibility');
+  const [activeTab, setActiveTab] = useState<ProductTab>('products');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [familyFilter, setFamilyFilter] = useState<string | null>(null);
@@ -169,12 +191,19 @@ export function ProductManagementWorkspace() {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCatalogViewId, setEditingCatalogViewId] = useState<string | null>(null);
   const [editingFamilyId, setEditingFamilyId] = useState<string | null>(null);
+  const [isCategoryFormOpen, setIsCategoryFormOpen] = useState(false);
+  const [isCatalogViewModalOpen, setIsCatalogViewModalOpen] = useState(false);
+  const [isFamilyFormOpen, setIsFamilyFormOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
   const [catalogViewForm, setCatalogViewForm] = useState<CatalogViewFormState>(emptyCatalogViewForm);
+  const [catalogViewWizardStep, setCatalogViewWizardStep] = useState<CatalogViewWizardStep>('audience');
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(emptyFamilyForm);
   const [selectedSnapshotCatalogView, setSelectedSnapshotCatalogView] = useState<DealerCatalogViewSummary | null>(null);
   const [catalogSnapshots, setCatalogSnapshots] = useState<DealerCatalogSnapshotSummary[]>([]);
   const [snapshotCompare, setSnapshotCompare] = useState<DealerCatalogSnapshotCompareResponse | null>(null);
+  const [selectedCatalogViewKey, setSelectedCatalogViewKey] = useState<string | null>(null);
+  const canManageProducts = auth ? canPerformAction(auth.identity.role, 'product.manage') : false;
+  const canPublishProducts = auth ? canPerformAction(auth.identity.role, 'product.publish') : false;
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -258,7 +287,7 @@ export function ProductManagementWorkspace() {
       product.category ? null : 'Missing category',
       hasContent ? null : 'Missing dealer-facing content',
       hasPrimaryImage ? null : 'Missing approved primary image',
-      hasDealerVisibility ? null : 'Missing dealer catalog view rule',
+      hasDealerVisibility ? null : 'Missing catalog view',
     ].filter(Boolean) as string[];
     const warnings = [
       product.family ? null : 'No family assigned',
@@ -273,17 +302,8 @@ export function ProductManagementWorkspace() {
       warnings,
     };
   }), [productDetails]);
-  const publishRows = useMemo(() => productDetails.map((product) => {
-    const presentation = product.presentations[0];
-    const readiness = readinessRows.find((row) => row.product.id === product.id);
-    return {
-      product,
-      presentation,
-      readinessStatus: readiness?.status ?? 'blocked',
-      visibilityCount: product.inclusions.filter((inclusion) => inclusion.isVisible).length,
-      assetCount: product.assetAssignments.length,
-    };
-  }), [productDetails, readinessRows]);
+  const readinessIssueRows = useMemo(() => readinessRows.filter((row) => row.status !== 'pass'), [readinessRows]);
+  const firstReadinessIssue = readinessIssueRows[0];
   const visibilityRows = useMemo(() => productDetails.flatMap((product) => {
     const presentation = product.presentations[0];
     if (!product.inclusions.length) {
@@ -350,6 +370,36 @@ export function ProductManagementWorkspace() {
     }
     return Array.from(grouped.values()).sort((left, right) => left.catalogView.localeCompare(right.catalogView));
   }, [catalogViews, visibilityRows]);
+  const selectedCatalogViewRow = selectedCatalogViewKey
+    ? catalogViewRows.find((row) => row.key === selectedCatalogViewKey) ?? null
+    : null;
+  const selectedCatalogView = selectedCatalogViewRow?.catalogViewId
+    ? catalogViews.find((item) => item.id === selectedCatalogViewRow.catalogViewId) ?? null
+    : null;
+  const editingCatalogViewRow = editingCatalogViewId
+    ? catalogViewRows.find((row) => row.catalogViewId === editingCatalogViewId) ?? null
+    : null;
+  const handleSelectCatalogViewRow = (row: CatalogViewRow) => {
+    setSelectedCatalogViewKey(row.key);
+    if (!row.catalogViewId || selectedSnapshotCatalogView?.id !== row.catalogViewId) {
+      setSelectedSnapshotCatalogView(null);
+      setCatalogSnapshots([]);
+      setSnapshotCompare(null);
+    }
+  };
+  const selectedCatalogVisibilityRows = useMemo(() => {
+    if (!selectedCatalogViewRow) {
+      return [];
+    }
+
+    return visibilityRows.filter((row) => {
+      if (selectedCatalogViewRow.catalogViewId) {
+        return row.catalogViewId === selectedCatalogViewRow.catalogViewId;
+      }
+
+      return `${row.audience}|${row.region}|${row.brand}` === selectedCatalogViewRow.key;
+    });
+  }, [selectedCatalogViewRow, visibilityRows]);
 
   const reloadCatalog = async () => {
     if (!auth) return;
@@ -388,12 +438,14 @@ export function ProductManagementWorkspace() {
       isActive: category.isActive,
       sortOrder: category.sortOrder,
     });
+    setIsCategoryFormOpen(true);
     setActiveTab('categories');
   };
 
   const handleResetCategoryForm = () => {
     setEditingCategoryId(null);
     setCategoryForm(emptyCategoryForm);
+    setIsCategoryFormOpen(false);
   };
 
   const handleSaveCategory = async () => {
@@ -434,6 +486,7 @@ export function ProductManagementWorkspace() {
       isActive: family.isActive,
       sortOrder: family.sortOrder,
     });
+    setIsFamilyFormOpen(true);
     setActiveTab('families');
   };
 
@@ -451,12 +504,16 @@ export function ProductManagementWorkspace() {
       isActive: catalogView.isActive,
       precedence: catalogView.precedence,
     });
+    setCatalogViewWizardStep('audience');
+    setIsCatalogViewModalOpen(true);
     setActiveTab('visibility');
   };
 
   const resetCatalogViewForm = () => {
     setEditingCatalogViewId(null);
     setCatalogViewForm(emptyCatalogViewForm);
+    setCatalogViewWizardStep('audience');
+    setIsCatalogViewModalOpen(false);
   };
 
   const handleSaveCatalogView = async () => {
@@ -515,7 +572,7 @@ export function ProductManagementWorkspace() {
     setError(null);
     try {
       await publishDealerCatalogSnapshot(apiBaseUrl, auth.tokens.accessToken, catalogView.id, {
-        notes: 'Published from Product Management catalog view screen',
+        notes: 'Published from Product Catalog screen',
       });
       await reloadCatalog();
       await loadCatalogSnapshots(catalogView);
@@ -546,6 +603,7 @@ export function ProductManagementWorkspace() {
   const handleResetFamilyForm = () => {
     setEditingFamilyId(null);
     setFamilyForm(emptyFamilyForm);
+    setIsFamilyFormOpen(false);
   };
 
   const handleSaveFamily = async () => {
@@ -588,47 +646,51 @@ export function ProductManagementWorkspace() {
     }
   };
 
+  const goToProductTab = (nextTab: ProductTab) => {
+    setActiveTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set('tab', nextTab);
+    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+  };
+
+  const setupAreaHeader = (
+    <Group justify="space-between" mb="md" align="flex-end">
+      <Stack gap={2}>
+        <Title order={4}>Setup</Title>
+        <Text size="sm" c="dimmed">
+          Categories are the sections products appear under. Families group sibling SKUs. Neither decides who sees a product — that is set in Who Sees What.
+        </Text>
+      </Stack>
+      <Select
+        label="Section"
+        w={260}
+        value={activeTab}
+        data={SETUP_AREA_OPTIONS}
+        onChange={(value) => goToProductTab((value as ProductTab | null) ?? 'categories')}
+        allowDeselect={false}
+      />
+    </Group>
+  );
+
   return (
     <Stack gap="lg">
-      <Group justify="space-between" align="flex-start">
-        <Stack gap={4}>
-          <Title order={2}>Product Management</Title>
-          <Text c="dimmed">Prepare dealer catalog views: organize products, attach approved files, resolve dealer context, and publish only when each catalog view is ready.</Text>
-        </Stack>
-      </Group>
+      <WorkbenchHeader
+        title="Product Catalog"
+        description="Three steps: (1) open Products to fix gaps and attach files, (2) use Who Sees What to choose which dealers see each product and publish, (3) use Setup for categories and families. Open any product to edit its content, files, visibility, and readiness in one place."
+        policyText="Commercial details stay governed separately until the approved integration is ready."
+      />
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-        <Metric label="Dealer Catalog Views" value={catalogViewRows.length} />
-        <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
-        <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
-        <Metric label="Ready To Publish" value={readinessRows.filter((row) => row.status === 'pass').length} />
-      </SimpleGrid>
-
-      <Alert color="blue" title="Dependency-free UAT boundary">
-        Pulse can manage catalog views, readiness, files, dealer visibility, snapshots, and portal publish now.
-        Final product master import, pricing, inventory, UOM, and item lifecycle stay parked until Acumatica mappings are certified.
-      </Alert>
-
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
-        <ProductGuideCard
-          title="Catalog Setup"
-          detail="Use categories for where products appear in the Dealer Portal, and families for related sibling SKUs. These are catalog tools, not ERP item classes."
-          action="Start with the product shelf"
-        />
-        <ProductGuideCard
-          title="Products"
-          detail="Open a product to edit dealer-facing copy, attach approved files, and run the go-live checklist. Product identity and pricing still wait for certified Acumatica mappings."
-          action="Prepare the product story"
-        />
-        <ProductGuideCard
-          title="Who Sees It"
-          detail="Use catalog views for affinity, ownership/PE, independent, region, brand, private label, or account exceptions. Visibility is separate from price class."
-          action="Control dealer visibility"
-        />
-      </SimpleGrid>
+      <WorkbenchMetricStrip
+        metrics={[
+          { label: 'Missing dealer visibility', value: visibilityRows.filter((row) => !row.isVisible).length, tone: 'orange' },
+          { label: 'Ready for Dealers', value: readinessRows.filter((row) => row.status === 'pass').length, tone: 'green' },
+          { label: 'Products', value: metrics.totalProducts },
+          { label: 'Dealer groups', value: catalogViewRows.length },
+        ]}
+      />
 
       {error ? (
-        <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Product API not ready">
+        <Alert color="yellow" icon={<IconAlertTriangle size={18} />} title="Catalog workspace unavailable">
           {error}
         </Alert>
       ) : null}
@@ -636,30 +698,115 @@ export function ProductManagementWorkspace() {
       <Tabs
         value={activeTab}
         onChange={(value) => {
-          const nextTab = (value as ProductTab | null) ?? 'visibility';
-          setActiveTab(nextTab);
-          const nextParams = new URLSearchParams(searchParams.toString());
-          nextParams.set('tab', nextTab);
-          router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+          const nextTab = (value as ProductTab | null) ?? 'products';
+          goToProductTab(nextTab);
         }}
       >
         <Tabs.List>
-          <Tabs.Tab value="visibility">Who Sees It</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
-          <Tabs.Tab value="readiness">Files & Readiness</Tabs.Tab>
-          <Tabs.Tab value="publish">Ready To Publish</Tabs.Tab>
-          <Tabs.Tab value="categories" leftSection={<IconShieldCheck size={16} />}>Catalog Setup</Tabs.Tab>
-          <Tabs.Tab value="families">Families Setup</Tabs.Tab>
+          <Tabs.Tab value="visibility" leftSection={<IconShieldCheck size={16} />}>Who Sees What</Tabs.Tab>
+          <WorkbenchMoreMenu
+            label="Setup"
+            items={[
+              {
+                id: 'catalog-placement',
+                label: 'Catalog Placement',
+                description: 'Categories and families used for dealer catalog organization.',
+                onClick: () => goToProductTab('categories'),
+              },
+              {
+                id: 'source-review',
+                label: 'Source Review',
+                description: 'Preview source files without changing the active catalog.',
+                onClick: () => goToProductTab('admin'),
+              },
+            ]}
+          />
         </Tabs.List>
 
         <Tabs.Panel value="categories" pt="md">
-          <Alert color="blue" mb="md" title="Catalog setup, not dealer groups">
-            Categories organize navigation and reporting. Families group related SKUs. Dealer-specific visibility belongs in Who Sees It.
-          </Alert>
-          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <Paper withBorder p="md" data-testid="product-category-form">
+          {setupAreaHeader}
+          <Stack gap="md">
+            <Paper withBorder p="md">
+              <Group justify="space-between">
+                <Stack gap={2}>
+                  <Title order={4}>Categories</Title>
+                  <Text size="sm" c="dimmed">Review dealer catalog sections before adding new setup.</Text>
+                </Stack>
+                <Button
+                  variant={isCategoryFormOpen ? 'default' : 'light'}
+                  onClick={() => {
+                    if (isCategoryFormOpen) {
+                      handleResetCategoryForm();
+                    } else {
+                      setEditingCategoryId(null);
+                      setCategoryForm(emptyCategoryForm);
+                      setIsCategoryFormOpen(true);
+                    }
+                  }}
+                >
+                  {isCategoryFormOpen ? 'Close Setup' : 'Add Category'}
+                </Button>
+              </Group>
+            </Paper>
+            {isLoading ? (
+              <Paper withBorder p="xl">
+                <Group justify="center"><Loader /></Group>
+              </Paper>
+            ) : (
+              <WorkbenchTable<ProductCategorySummary>
+                ariaLabel="Product catalog categories"
+                rows={categories}
+                getRowKey={(category) => category.id}
+                columns={[
+                  {
+                    key: 'category',
+                    header: 'Category',
+                    render: (category) => (
+                      <Stack gap={2}>
+                        <Text fw={600}>{category.name}</Text>
+                        <Text size="xs" c="dimmed">{category.code}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'scope',
+                    header: 'Scope',
+                    render: (category) => (
+                      <Stack gap={2}>
+                        <Text size="sm">{category.categoryType ?? 'General'}</Text>
+                        <Text size="xs" c="dimmed">{category.regionScope ?? 'All regions'}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (category) => (
+                      <Badge color={category.isActive ? 'green' : 'gray'} variant="light">{category.isActive ? 'Active' : 'Inactive'}</Badge>
+                    ),
+                  },
+                ]}
+                rowActions={(category) => ([{
+                  id: 'edit-category',
+                  label: 'Edit category',
+                  onClick: () => handleEditCategory(category),
+                }])}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No categories configured yet"
+                    description="Add categories when dealer catalog navigation needs a new section."
+                  />
+                )}
+              />
+            )}
+
+            {isCategoryFormOpen ? (
+              <Paper withBorder p="md" data-testid="product-category-form">
               <Stack gap="sm">
                 <Title order={4}>{editingCategoryId ? 'Edit Category' : 'Create Category'}</Title>
+                <Text size="sm" c="dimmed">Name the catalog section first. Purpose, region, and display order stay in advanced options.</Text>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label="Code"
@@ -694,8 +841,10 @@ export function ProductManagementWorkspace() {
                   value={categoryForm.description}
                   onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.currentTarget.value }))}
                 />
-                <details>
-                  <summary>Advanced category options</summary>
+                <WorkbenchAdvancedSection
+                  title="Advanced category options"
+                  description="Use when a category needs a specific purpose, region, or display order."
+                >
                   <Stack gap="sm" mt="sm">
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                       <Select
@@ -734,7 +883,7 @@ export function ProductManagementWorkspace() {
                       />
                     </Group>
                   </Stack>
-                </details>
+                </WorkbenchAdvancedSection>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetCategoryForm}>Reset</Button>
                   <Button data-testid="product-category-save" onClick={handleSaveCategory} loading={isSavingCategory}>
@@ -743,62 +892,89 @@ export function ProductManagementWorkspace() {
                 </Group>
               </Stack>
             </Paper>
-
-            <Paper withBorder>
-              {isLoading ? (
-                <Group justify="center" p="xl"><Loader /></Group>
-              ) : (
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Category</Table.Th>
-                      <Table.Th>Scope</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th />
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {categories.map((category) => (
-                      <Table.Tr key={category.id}>
-                        <Table.Td>
-                          <Text fw={600}>{category.name}</Text>
-                          <Text size="xs" c="dimmed">{category.code}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Stack gap={2}>
-                            <Text size="sm">{category.categoryType ?? 'General'}</Text>
-                            <Text size="xs" c="dimmed">{category.regionScope ?? 'All regions'}</Text>
-                          </Stack>
-                        </Table.Td>
-                        <Table.Td><Badge color={category.isActive ? 'green' : 'gray'} variant="light">{category.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
-                        <Table.Td><Button size="xs" variant="light" onClick={() => handleEditCategory(category)}>Edit</Button></Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!categories.length ? (
-                      <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="lg">No categories configured yet.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
-              )}
-            </Paper>
-          </SimpleGrid>
-          <Paper withBorder p="md" mt="md">
-            <Stack gap="xs">
-              <Title order={4}>Catalog View Governance</Title>
-              <Text c="dimmed">Dealer portal visibility is resolved from catalog views using region, brand/private label, affinity, ownership/PE, independent status, and portal eligibility before publish.</Text>
-              <Badge variant="light">Pricing remains separate from product visibility</Badge>
-            </Stack>
-          </Paper>
+            ) : null}
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="families" pt="md">
-          <Alert color="blue" mb="md" title="Product family">
-            Families group sibling or variant-like SKUs. They do not decide which dealer can see a product.
-          </Alert>
-          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <Paper withBorder p="md" data-testid="product-family-form">
+          {setupAreaHeader}
+          <Stack gap="md">
+            <Paper withBorder p="md">
+              <Group justify="space-between">
+                <Stack gap={2}>
+                  <Title order={4}>Families</Title>
+                  <Text size="sm" c="dimmed">Review SKU groupings before opening setup.</Text>
+                </Stack>
+                <Button
+                  variant={isFamilyFormOpen ? 'default' : 'light'}
+                  onClick={() => {
+                    if (isFamilyFormOpen) {
+                      handleResetFamilyForm();
+                    } else {
+                      setEditingFamilyId(null);
+                      setFamilyForm(emptyFamilyForm);
+                      setIsFamilyFormOpen(true);
+                    }
+                  }}
+                >
+                  {isFamilyFormOpen ? 'Close Setup' : 'Add Family'}
+                </Button>
+              </Group>
+            </Paper>
+            {isLoading ? (
+              <Paper withBorder p="xl">
+                <Group justify="center"><Loader /></Group>
+              </Paper>
+            ) : (
+              <WorkbenchTable<ProductFamilySummary>
+                ariaLabel="Product catalog families"
+                rows={families}
+                getRowKey={(family) => family.id}
+                columns={[
+                  {
+                    key: 'family',
+                    header: 'Family',
+                    render: (family) => (
+                      <Stack gap={2}>
+                        <Text fw={600}>{family.name}</Text>
+                        <Text size="xs" c="dimmed">{family.code}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'products',
+                    header: 'Products',
+                    align: 'right',
+                    render: (family) => products.items.filter((product) => product.family?.id === family.id).length,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (family) => (
+                      <Badge color={family.isActive ? 'green' : 'gray'} variant="light">{family.isActive ? 'Active' : 'Inactive'}</Badge>
+                    ),
+                  },
+                ]}
+                rowActions={(family) => ([{
+                  id: 'edit-family',
+                  label: 'Edit family',
+                  onClick: () => handleEditFamily(family),
+                }])}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No families configured yet"
+                    description="Add product families when related SKUs should be grouped together."
+                  />
+                )}
+              />
+            )}
+
+            {isFamilyFormOpen ? (
+              <Paper withBorder p="md" data-testid="product-family-form">
               <Stack gap="sm">
                 <Title order={4}>{editingFamilyId ? 'Edit Family' : 'Create Family'}</Title>
+                <Text size="sm" c="dimmed">Name the SKU group dealers and staff will recognize. Display order and status stay in advanced options.</Text>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label="Code"
@@ -825,294 +1001,269 @@ export function ProductManagementWorkspace() {
                   value={familyForm.description}
                   onChange={(event) => setFamilyForm((current) => ({ ...current, description: event.currentTarget.value }))}
                 />
-                <Group align="flex-end">
-                  <NumberInput
-                    label="Sort order"
-                    min={0}
-                    value={familyForm.sortOrder}
-                    onChange={(value) => setFamilyForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
-                  />
-                  <Switch
-                    label="Active"
-                    checked={familyForm.isActive}
-                    onChange={(event) => setFamilyForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
-                  />
-                </Group>
+                <WorkbenchAdvancedSection
+                  title="Advanced family options"
+                  description="Use when a family needs a specific display order or should be hidden from setup lists."
+                >
+                  <Group align="flex-end" mt="sm">
+                    <NumberInput
+                      label="Sort order"
+                      min={0}
+                      value={familyForm.sortOrder}
+                      onChange={(value) => setFamilyForm((current) => ({ ...current, sortOrder: typeof value === 'number' ? value : 100 }))}
+                    />
+                    <Switch
+                      label="Active"
+                      checked={familyForm.isActive}
+                      onChange={(event) => setFamilyForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                    />
+                  </Group>
+                </WorkbenchAdvancedSection>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetFamilyForm}>Reset</Button>
                   <Button data-testid="product-family-save" onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save Family' : 'Create Family'}</Button>
                 </Group>
               </Stack>
             </Paper>
-
-            <Paper withBorder>
-              {isLoading ? (
-                <Group justify="center" p="xl"><Loader /></Group>
-              ) : (
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Family</Table.Th>
-                      <Table.Th>Products</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th />
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {families.map((family) => (
-                      <Table.Tr key={family.id}>
-                        <Table.Td>
-                          <Text fw={600}>{family.name}</Text>
-                          <Text size="xs" c="dimmed">{family.code}</Text>
-                        </Table.Td>
-                        <Table.Td>{products.items.filter((product) => product.family?.id === family.id).length}</Table.Td>
-                        <Table.Td><Badge color={family.isActive ? 'green' : 'gray'} variant="light">{family.isActive ? 'Active' : 'Inactive'}</Badge></Table.Td>
-                        <Table.Td><Button size="xs" variant="light" onClick={() => handleEditFamily(family)}>Edit</Button></Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!families.length ? (
-                      <Table.Tr><Table.Td colSpan={4}><Text ta="center" c="dimmed" py="lg">No families configured yet.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
-              )}
-            </Paper>
-          </SimpleGrid>
+            ) : null}
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="visibility" pt="md">
           <Stack gap="md">
-            <Alert color="blue" title="Who Sees It">
-              A catalog view is the dealer-facing context that controls products, files, branding, and portal presentation. Affinity, ownership/PE, independent status, region, and private-label eligibility decide the right view. Pricing stays separate.
-            </Alert>
-            <Alert color="gray" title="Inputs become one dealer catalog">
-              Staff choose the account labels first: affinity, ownership/PE, independent, region, brand/private label, and portal eligibility. Pulse resolves those labels into one catalog view before products and files are shown.
-            </Alert>
-            <SimpleGrid cols={{ base: 1, sm: 3 }}>
-              <Metric label="Catalog Views With Products" value={catalogViewRows.filter((row) => row.productCount > 0).length} />
-              <Metric label="Products With View Rules" value={visibilityRows.filter((row) => row.isVisible).length} />
-              <Metric label="Products Missing View" value={visibilityRows.filter((row) => !row.isVisible).length} />
-            </SimpleGrid>
-            <Paper withBorder p="md" data-testid="dealer-catalog-view-form">
-              <Group justify="space-between" align="flex-start" mb="sm">
+            <Paper withBorder>
+              <Group justify="space-between" align="flex-start" p="md" pb={0}>
                 <Stack gap={2}>
-                  <Title order={4}>{editingCatalogViewId ? 'Edit Dealer Catalog View' : 'Create Dealer Catalog View'}</Title>
-                  <Text size="sm" c="dimmed">
-                    Define the dealer-facing catalog contexts first. Products and files can be attached later after product data is validated.
-                  </Text>
+                  <Title order={4}>Dealer groups</Title>
+                  <Text size="sm" c="dimmed">Review what each dealer context sees, then publish the resolved storefront when it is ready.</Text>
                 </Stack>
-                {editingCatalogViewId ? <Button variant="subtle" onClick={resetCatalogViewForm}>New View</Button> : null}
-              </Group>
-              <SimpleGrid cols={{ base: 1, md: 3 }}>
-                <TextInput
-                  label="Catalog view name"
-                  aria-label="Catalog view name"
-                  data-testid="dealer-catalog-view-name"
-                  placeholder="Standard US Dealer Catalog"
-                  value={catalogViewForm.name}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, name: event.currentTarget.value }))}
-                  required
-                />
-                  <Select
-                  label="Primary matching input"
-                  aria-label="Catalog audience type"
-                  data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                  value={catalogViewForm.kind}
-                  onChange={(value) => {
-                    const selected = CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === value);
-                    setCatalogViewForm((current) => ({
-                      ...current,
-                      kind: (value as DealerCatalogViewSummary['kind'] | null) ?? 'standard',
-                      precedence: selected?.precedence ?? current.precedence,
-                    }));
-                  }}
-                  allowDeselect={false}
-                />
-                <NumberInput
-                  label="Rule order"
-                  aria-label="Catalog rule order"
-                  min={1}
-                  max={999}
-                  value={catalogViewForm.precedence}
-                  onChange={(value) => setCatalogViewForm((current) => ({ ...current, precedence: Number(value) || 100 }))}
-                />
-                <TextInput
-                  label="Input code/value"
-                  aria-label="Catalog matching value"
-                  data-testid="dealer-catalog-matching-value"
-                  placeholder="nexstar, redwood, CA, private-label-code"
-                  value={catalogViewForm.resolverKey}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
-                />
-                <TextInput
-                  label="Staff-facing label"
-                  aria-label="Catalog display label"
-                  data-testid="dealer-catalog-display-label"
-                  placeholder="Nexstar, Redwood / Apollo, Canada"
-                  value={catalogViewForm.resolverLabel}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverLabel: event.currentTarget.value }))}
-                />
-                <Select
-                  label="Region"
-                  aria-label="Catalog region"
-                  placeholder="All regions"
-                  data={CATEGORY_REGION_OPTIONS}
-                  value={catalogViewForm.regionScope || null}
-                  onChange={(value) => setCatalogViewForm((current) => ({ ...current, regionScope: value ?? '' }))}
-                  searchable
-                  clearable
-                />
-                <TextInput
-                  label="Brand / private label"
-                  aria-label="Catalog brand or private label"
-                  data-testid="dealer-catalog-brand-label"
-                  placeholder="Dynamic, dealer brand, private label"
-                  value={catalogViewForm.brandLabel}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))}
-                />
-                <Switch
-                  label="Default eligible dealer view"
-                  checked={catalogViewForm.isDefault}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, isDefault: event.currentTarget.checked }))}
-                  mt="xl"
-                />
-                <Switch
-                  label="Active"
-                  checked={catalogViewForm.isActive}
-                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
-                  mt="xl"
-                />
-              </SimpleGrid>
-              <Textarea
-                mt="sm"
-                label="Notes"
-                aria-label="Catalog notes"
-                data-testid="dealer-catalog-notes"
-                minRows={2}
-                value={catalogViewForm.description}
-                onChange={(event) => setCatalogViewForm((current) => ({ ...current, description: event.currentTarget.value }))}
-              />
-              <Group justify="space-between" mt="md">
-                <Text size="sm" c="dimmed">
-                  {CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === catalogViewForm.kind)?.helper}
-                </Text>
-                <Group>
-                  <Button variant="subtle" onClick={resetCatalogViewForm}>Reset</Button>
-                  <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
-                    {editingCatalogViewId ? 'Save Catalog View' : 'Create Catalog View'}
-                  </Button>
+                <Group gap="xs">
+                  <CatalogVisibilityPlaybookButton />
+                  <WorkbenchMoreMenu
+                    items={[
+                      ...(selectedCatalogView ? [
+                        {
+                          id: 'review-selected',
+                          label: `Review before publish: ${selectedCatalogView.name}`,
+                          onClick: () => void loadCatalogSnapshots(selectedCatalogView),
+                        },
+                        ...(canPublishProducts ? [{
+                          id: 'publish-selected',
+                          label: `Publish ${selectedCatalogView.name}`,
+                          disabled: publishingCatalogViewId === selectedCatalogView.id,
+                          onClick: () => void handlePublishCatalogSnapshot(selectedCatalogView),
+                        }] : []),
+                        ...(canManageProducts ? [{
+                          id: 'edit-selected',
+                          label: `Edit ${selectedCatalogView.name}`,
+                          onClick: () => handleEditCatalogView(selectedCatalogView),
+                        }] : []),
+                      ] : []),
+                      ...(canManageProducts ? [{
+                        id: 'add-dealer-view',
+                        label: 'Add Dealer group',
+                        icon: <IconPackage size={16} />,
+                        onClick: () => {
+                          setEditingCatalogViewId(null);
+                          setCatalogViewForm(emptyCatalogViewForm);
+                          setCatalogViewWizardStep('audience');
+                          setIsCatalogViewModalOpen(true);
+                        },
+                      }] : []),
+                      {
+                        id: 'review-products',
+                        label: 'Review Product Readiness',
+                        onClick: () => goToProductTab('products'),
+                      },
+                      ...(canManageProducts ? [{
+                        id: 'advanced-setup',
+                        label: 'Open Advanced Setup',
+                        onClick: () => goToProductTab('admin'),
+                      }] : []),
+                    ]}
+                  />
                 </Group>
               </Group>
-            </Paper>
-            <Paper withBorder>
               {isLoading ? (
                 <Group justify="center" p="xl"><Loader /></Group>
               ) : (
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Dealer catalog view</Table.Th>
-                      <Table.Th>How this view is matched</Table.Th>
-                      <Table.Th>Region / Brand</Table.Th>
-                      <Table.Th>Products</Table.Th>
-                      <Table.Th>Published version</Table.Th>
-                      <Table.Th />
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {catalogViewRows.map((row) => (
-                      <Table.Tr key={row.key}>
-                        <Table.Td>
-                          <Text fw={600}>{row.catalogView}</Text>
-                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured catalog view' : 'Needs catalog view setup'}</Text>
-                        </Table.Td>
-                        <Table.Td>{row.resolverInput}</Table.Td>
-                        <Table.Td>
-                          <Stack gap={2}>
-                            <Text size="sm">{row.region}</Text>
-                            <Text size="xs" c="dimmed">{row.brand}</Text>
-                          </Stack>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text fw={600}>{row.productCount}</Text>
-                          <Text size="xs" c="dimmed">{row.publishedCount} published / {row.blockedCount} missing rules</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          {row.activeSnapshot ? (
-                            <Stack gap={2}>
-                              <Badge color="green" variant="light">v{row.activeSnapshot.version} live</Badge>
-                              <Text size="xs" c="dimmed">
-                                {row.activeSnapshot.productCount} products / {row.activeSnapshot.fileCount} files
-                              </Text>
-                            </Stack>
-                          ) : (
-                            <Badge color="yellow" variant="light">Not published</Badge>
-                          )}
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs" justify="flex-end">
-                            {row.catalogViewId ? (
-                              <>
-                                <Button
-                                  size="xs"
-                                  variant="filled"
-                                  loading={publishingCatalogViewId === row.catalogViewId}
-                                  onClick={() => {
-                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
-                                    if (catalogView) void handlePublishCatalogSnapshot(catalogView);
-                                  }}
-                                >
-                                  Publish Snapshot
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  variant="light"
-                                  onClick={() => {
-                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
-                                    if (catalogView) void loadCatalogSnapshots(catalogView);
-                                  }}
-                                >
-                                  Preview Changes
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  variant="subtle"
-                                  onClick={() => {
-                                    const catalogView = catalogViews.find((item) => item.id === row.catalogViewId);
-                                    if (catalogView) handleEditCatalogView(catalogView);
-                                  }}
-                                >
-                                  Edit View
-                                </Button>
-                              </>
-                            ) : null}
-                            <Button component={Link} href="/product-management?tab=products" size="xs" variant="subtle">Review Products</Button>
+                <WorkbenchTable<CatalogViewRow>
+                  ariaLabel="Dealer catalog views"
+                  rows={catalogViewRows}
+                  getRowKey={(row) => row.key}
+                  minWidth={880}
+                  withContainer={false}
+                  onRowClick={handleSelectCatalogViewRow}
+                  columns={[
+                    {
+                      key: 'catalog-view',
+                      header: 'Dealer group',
+                      render: (row) => (
+                        <Stack gap={4}>
+                          <Group gap="xs">
+                            <Text fw={600}>{row.catalogView}</Text>
+                            {selectedCatalogViewRow?.key === row.key ? <Badge color="blue" variant="light">Selected</Badge> : null}
                           </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!catalogViewRows.length ? (
-                      <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No dealer catalog views have product rules yet.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
+                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured view' : 'Needs setup'}</Text>
+                        </Stack>
+                      ),
+                    },
+                    {
+                      key: 'who-sees-it',
+                      header: 'Who sees it',
+                      render: (row) => row.resolverInput,
+                    },
+                    {
+                      key: 'scope',
+                      header: 'Scope',
+                      render: (row) => (
+                        <Stack gap={2}>
+                          <Text size="sm">{row.region}</Text>
+                          <Text size="xs" c="dimmed">{row.brand}</Text>
+                        </Stack>
+                      ),
+                    },
+                    {
+                      key: 'products',
+                      header: 'Products',
+                      render: (row) => (
+                        <Stack gap={2}>
+                          <Text fw={600}>{row.productCount}</Text>
+                          <Text size="xs" c="dimmed">{row.publishedCount} ready / {row.blockedCount} needs visibility</Text>
+                        </Stack>
+                      ),
+                    },
+                    {
+                      key: 'published-version',
+                      header: 'Published version',
+                      render: (row) => row.activeSnapshot ? (
+                        <Stack gap={2}>
+                          <Badge color="green" variant="light">v{row.activeSnapshot.version} live</Badge>
+                          <Text size="xs" c="dimmed">
+                            {row.activeSnapshot.productCount} products / {row.activeSnapshot.fileCount} files
+                          </Text>
+                        </Stack>
+                      ) : (
+                        <Badge color="yellow" variant="light">Not published</Badge>
+                      ),
+                    },
+                  ]}
+                  rowActions={(row) => {
+                    const catalogView = row.catalogViewId ? catalogViews.find((item) => item.id === row.catalogViewId) : null;
+                    return catalogView ? [
+                      {
+                        id: 'review-catalog-view',
+                        label: 'Review before publish',
+                        onClick: () => void loadCatalogSnapshots(catalogView),
+                      },
+                      ...(canPublishProducts ? [{
+                        id: 'publish-catalog-view',
+                        label: `Publish ${catalogView.name}`,
+                        disabled: publishingCatalogViewId === catalogView.id,
+                        onClick: () => void handlePublishCatalogSnapshot(catalogView),
+                      }] : []),
+                      ...(canManageProducts ? [{
+                        id: 'edit-catalog-view',
+                        label: 'Edit view',
+                        onClick: () => handleEditCatalogView(catalogView),
+                      }] : []),
+                    ] : [{
+                      id: 'select-catalog-view',
+                      label: 'Select row',
+                      onClick: () => handleSelectCatalogViewRow(row),
+                    }];
+                  }}
+                  emptyState={(
+                    <EmptyStateMessage
+                      kind="no-data"
+                      title="No Dealer groups have products yet"
+                      description="Create a Dealer group, then attach visible products before publishing."
+                    />
+                  )}
+                />
               )}
             </Paper>
+            <WorkbenchDetailRail
+              title={selectedCatalogViewRow ? `${selectedCatalogViewRow.catalogView} publish checklist` : 'Dealer group publish checklist'}
+              description={selectedCatalogViewRow ? `${selectedCatalogViewRow.resolverInput} - ${selectedCatalogViewRow.region} / ${selectedCatalogViewRow.brand}` : 'Select a Dealer group to review publish readiness.'}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="no-data"
+                  title="Select a Dealer group"
+                  description="Product visibility evidence appears here after you choose a view."
+                />
+              )}
+            >
+              {selectedCatalogViewRow ? (
+                <Stack gap="md">
+                  <SimpleGrid cols={{ base: 1, sm: 4 }}>
+                    <Metric label="Visible Products" value={selectedCatalogViewRow.productCount} />
+                    <Metric label="Published" value={selectedCatalogViewRow.publishedCount} />
+                    <Metric label="Missing Visibility" value={selectedCatalogViewRow.blockedCount} />
+                    <Metric label="Live Version" value={selectedCatalogViewRow.activeSnapshot ? `v${selectedCatalogViewRow.activeSnapshot.version}` : 'None'} />
+                  </SimpleGrid>
+                  <WorkbenchTable
+                    ariaLabel="Selected Dealer group product visibility"
+                    rows={selectedCatalogVisibilityRows}
+                    getRowKey={(row) => row.id}
+                    minWidth={760}
+                    withContainer={false}
+                    columns={[
+                      {
+                        key: 'product',
+                        header: 'Product',
+                        render: (row) => (
+                          <Stack gap={2}>
+                            <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                            <Text size="xs" c="dimmed">{row.product.sku}</Text>
+                          </Stack>
+                        ),
+                      },
+                      {
+                        key: 'scope',
+                        header: 'Scope',
+                        render: (row) => `${row.region} / ${row.brand}`,
+                      },
+                      {
+                        key: 'portal-status',
+                        header: 'Portal status',
+                        render: (row) => (
+                          <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
+                            {row.isVisible ? formatLabel(row.publishStatus) : 'Needs catalog view'}
+                          </Badge>
+                        ),
+                      },
+                    ]}
+                    rowActions={(row) => [{
+                      id: 'review-product',
+                      label: 'Review product',
+                      onClick: () => router.push(`/product-management/products/${row.product.id}`),
+                    }]}
+                    emptyState={(
+                      <EmptyStateMessage
+                        kind="no-data"
+                        title="No product visibility rows for this view"
+                        description="Attach visible products before publishing this Dealer group."
+                      />
+                    )}
+                  />
+                </Stack>
+              ) : null}
+            </WorkbenchDetailRail>
             {selectedSnapshotCatalogView ? (
-              <Paper withBorder p="md">
-                <Group justify="space-between" mb="sm">
-                  <Stack gap={2}>
-                    <Title order={4}>Published versions</Title>
-                    <Text size="sm" c="dimmed">{selectedSnapshotCatalogView.name}</Text>
-                  </Stack>
-                  <Button variant="subtle" onClick={() => {
+              <WorkbenchDetailRail
+                title="Published versions"
+                description={selectedSnapshotCatalogView.name}
+                actions={(
+                  <Button variant="subtle" size="xs" onClick={() => {
                     setSelectedSnapshotCatalogView(null);
                     setCatalogSnapshots([]);
                     setSnapshotCompare(null);
                   }}>
                     Close
                   </Button>
-                </Group>
+                )}
+              >
                 <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
                   <Metric label="Current Products" value={snapshotCompare?.currentProductCount ?? 0} />
                   <Metric label="Current Files" value={snapshotCompare?.currentFileCount ?? 0} />
@@ -1149,97 +1300,89 @@ export function ProductManagementWorkspace() {
                     </Stack>
                   </Paper>
                 ) : null}
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Version</Table.Th>
-                      <Table.Th>Catalog contents</Table.Th>
-                      <Table.Th>Published</Table.Th>
-                      <Table.Th>Notes</Table.Th>
-                      <Table.Th />
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {catalogSnapshots.map((snapshot) => (
-                      <Table.Tr key={snapshot.id}>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <Text fw={700}>v{snapshot.version}</Text>
-                            <Badge color={snapshot.isActive ? 'green' : 'gray'} variant="light">{snapshot.isActive ? 'Live' : 'Archived'}</Badge>
-                            {snapshot.rollbackOfSnapshotId ? <Badge color="blue" variant="light">Rollback</Badge> : null}
-                          </Group>
-                        </Table.Td>
-                        <Table.Td>{snapshot.productCount} products / {snapshot.fileCount} files</Table.Td>
-                        <Table.Td>{new Date(snapshot.publishedAt).toLocaleString()}</Table.Td>
-                        <Table.Td>{snapshot.notes ?? 'No notes'}</Table.Td>
-                        <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="light"
-                            disabled={snapshot.isActive}
-                            loading={rollbackSnapshotId === snapshot.id}
-                            onClick={() => void handleRollbackCatalogSnapshot(snapshot)}
-                          >
-                            Roll Back To This
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!catalogSnapshots.length ? (
-                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No published versions yet. Publish a snapshot when this catalog view is ready for dealers.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
-              </Paper>
+                <WorkbenchTable<DealerCatalogSnapshotSummary>
+                  ariaLabel="Dealer group published versions"
+                  rows={catalogSnapshots}
+                  getRowKey={(snapshot) => snapshot.id}
+                  minWidth={760}
+                  withContainer={false}
+                  columns={[
+                    {
+                      key: 'version',
+                      header: 'Version',
+                      render: (snapshot) => (
+                        <Group gap="xs">
+                          <Text fw={700}>v{snapshot.version}</Text>
+                          <Badge color={snapshot.isActive ? 'green' : 'gray'} variant="light">{snapshot.isActive ? 'Live' : 'Archived'}</Badge>
+                          {snapshot.rollbackOfSnapshotId ? <Badge color="blue" variant="light">Rollback</Badge> : null}
+                        </Group>
+                      ),
+                    },
+                    {
+                      key: 'contents',
+                      header: 'Catalog contents',
+                      render: (snapshot) => `${snapshot.productCount} products / ${snapshot.fileCount} files`,
+                    },
+                    {
+                      key: 'published',
+                      header: 'Published',
+                      render: (snapshot) => new Date(snapshot.publishedAt).toLocaleString(),
+                    },
+                    {
+                      key: 'notes',
+                      header: 'Notes',
+                      render: (snapshot) => snapshot.notes ?? 'No notes',
+                    },
+                  ]}
+                  rowActions={(snapshot) => snapshot.isActive ? [] : [{
+                    id: 'rollback-snapshot',
+                    label: rollbackSnapshotId === snapshot.id ? 'Rolling back...' : 'Roll back to this',
+                    disabled: rollbackSnapshotId === snapshot.id,
+                    onClick: () => void handleRollbackCatalogSnapshot(snapshot),
+                  }]}
+                  emptyState={(
+                    <EmptyStateMessage
+                      kind="no-data"
+                      title="No published versions yet"
+                      description="Publish when this Dealer group is ready."
+                    />
+                  )}
+                />
+              </WorkbenchDetailRail>
             ) : null}
-            <Paper withBorder>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Product</Table.Th>
-                    <Table.Th>Catalog view rule</Table.Th>
-                    <Table.Th>Region / Brand</Table.Th>
-                    <Table.Th>Portal status</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {visibilityRows.map((row) => (
-                    <Table.Tr key={row.id}>
-                      <Table.Td>
-                        <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
-                        <Text size="xs" c="dimmed">{row.product.sku}</Text>
-                      </Table.Td>
-                      <Table.Td>{row.audience}</Table.Td>
-                      <Table.Td>{row.region} / {row.brand}</Table.Td>
-                      <Table.Td>
-                        <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
-                          {row.isVisible ? formatLabel(row.publishStatus) : 'Needs catalog view'}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>
-                        <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
-                          Manage Rule
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                  {!visibilityRows.length ? (
-                    <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No product visibility rules loaded yet.</Text></Table.Td></Table.Tr>
-                  ) : null}
-                </Table.Tbody>
-              </Table>
-            </Paper>
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="products" pt="md">
           <Stack gap="md">
+            <Paper withBorder p="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Title order={4}>Catalog readiness queue</Title>
+                  <Text size="sm" c="dimmed">
+                    {readinessIssueRows.length
+                      ? `${readinessIssueRows.length} loaded product${readinessIssueRows.length === 1 ? '' : 's'} need content, files, or dealer visibility before publish.`
+                      : 'Loaded products are ready for dealer review.'}
+                  </Text>
+                </Stack>
+                <Button
+                  variant="light"
+                  disabled={!firstReadinessIssue}
+                  onClick={() => {
+                    if (firstReadinessIssue) {
+                      router.push(`/product-management/products/${firstReadinessIssue.product.id}`);
+                    }
+                  }}
+                >
+                  Review first gap
+                </Button>
+              </Group>
+            </Paper>
             <Group align="flex-end">
               <TextInput
                 style={{ flex: 1 }}
                 leftSection={<IconSearch size={16} />}
-                placeholder="Search SKU, product name, or Acumatica inventory ID"
+                placeholder="Search SKU or product name"
                 value={search}
                 onChange={(event) => setSearch(event.currentTarget.value)}
               />
@@ -1265,188 +1408,404 @@ export function ProductManagementWorkspace() {
               />
               <Select
                 w={190}
-                label="Publish status"
+                label="Review status"
                 placeholder="Any status"
                 clearable
                 data={publishStatusOptions}
                 value={publishStatusFilter}
                 onChange={(value) => setPublishStatusFilter(value as ProductPublishStatusKey | null)}
               />
-              <Button variant="light" onClick={handlePreviewImport} loading={isPreviewingImport}>
-                Preview Legacy Product File
-              </Button>
             </Group>
-            {importPreview ? (
-              <Alert color="blue" title="Legacy product file preview">
-                <Text size="sm">
-                  {importPreview.uniqueSkus} unique SKUs from {importPreview.acumaticaRows} Acumatica rows and {importPreview.shopifyRows} Shopify rows.
-                  {' '}Detected {importPreview.candidateCategories} categories and {importPreview.imageAssets} image assets. Review only: final product load waits for certified Acumatica item mapping.
-                </Text>
-              </Alert>
-            ) : null}
-            <Paper withBorder>
-              {isLoading ? (
-                <Group justify="center" p="xl"><Loader /></Group>
-              ) : (
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>SKU</Table.Th>
-                      <Table.Th>Name</Table.Th>
-                      <Table.Th>Category</Table.Th>
-                      <Table.Th>Family</Table.Th>
-                      <Table.Th>Source</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {products.items.map((product) => (
-                      <Table.Tr key={product.id}>
-                        <Table.Td>{product.sku}</Table.Td>
-                        <Table.Td>
-                          <Text component={Link} href={`/product-management/products/${product.id}`} fw={600}>
-                            {product.productName}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>{product.category?.name ?? 'Unassigned'}</Table.Td>
-                        <Table.Td>{product.family?.name ?? 'Unassigned'}</Table.Td>
-                        <Table.Td><Badge variant="light">{product.sourceSystem}</Badge></Table.Td>
-                        <Table.Td>{product.lifecycleStatus}</Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!products.items.length ? (
-                      <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No products loaded yet.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
-              )}
-            </Paper>
-          </Stack>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="readiness" pt="md">
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, sm: 3 }}>
-              <Metric label="Blocked" value={readinessRows.filter((row) => row.status === 'blocked').length} />
-              <Metric label="Warnings" value={readinessRows.filter((row) => row.status === 'warning').length} />
-              <Metric label="Ready" value={readinessRows.filter((row) => row.status === 'pass').length} />
-            </SimpleGrid>
-            <Paper withBorder>
-              {isLoading ? (
-                <Group justify="center" p="xl"><Loader /></Group>
-              ) : (
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Product</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th>Blocking Gaps</Table.Th>
-                      <Table.Th>Warnings</Table.Th>
-                      <Table.Th />
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {readinessRows.map((row) => (
-                      <Table.Tr key={row.product.id}>
-                        <Table.Td>
-                          <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
-                          <Text size="xs" c="dimmed">{row.product.sku}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge color={row.status === 'pass' ? 'green' : row.status === 'warning' ? 'yellow' : 'red'} variant="light">
-                            {row.status}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>{row.blockers.join(', ') || 'None'}</Table.Td>
-                        <Table.Td>{row.warnings.join(', ') || 'None'}</Table.Td>
-                        <Table.Td>
-                          <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
-                            Open
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {!readinessRows.length ? (
-                      <Table.Tr><Table.Td colSpan={5}><Text ta="center" c="dimmed" py="lg">No products match the current filters.</Text></Table.Td></Table.Tr>
-                    ) : null}
-                  </Table.Tbody>
-                </Table>
-              )}
-            </Paper>
-          </Stack>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="publish" pt="md">
-          <Paper withBorder>
             {isLoading ? (
-              <Group justify="center" p="xl"><Loader /></Group>
+              <Paper withBorder>
+                <Group justify="center" p="xl"><Loader /></Group>
+              </Paper>
             ) : (
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Product</Table.Th>
-                    <Table.Th>Presentation Status</Table.Th>
-                    <Table.Th>Readiness</Table.Th>
-                    <Table.Th>Catalog View Assignments</Table.Th>
-                    <Table.Th>Assets</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {publishRows.map((row) => (
-                    <Table.Tr key={row.product.id}>
-                      <Table.Td>
-                        <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
-                        <Text size="xs" c="dimmed">{row.product.sku}</Text>
-                      </Table.Td>
-                      <Table.Td><Badge variant="light">{row.presentation?.publishStatus ?? 'draft'}</Badge></Table.Td>
-                      <Table.Td>
-                        <Badge color={row.readinessStatus === 'pass' ? 'green' : row.readinessStatus === 'warning' ? 'yellow' : 'red'} variant="light">
-                          {row.readinessStatus}
+              <WorkbenchTable<ProductCatalogRow>
+                ariaLabel="Products and readiness"
+                rows={products.items}
+                getRowKey={(product) => product.id}
+                minWidth={900}
+                onRowClick={(product) => router.push(`/product-management/products/${product.id}`)}
+                columns={[
+                  {
+                    key: 'product',
+                    header: 'Product',
+                    render: (product) => {
+                      const readiness = readinessRows.find((row) => row.product.id === product.id);
+                      return (
+                        <Stack gap={2}>
+                          <Text fw={600}>{readiness?.presentation?.displayName ?? product.productName}</Text>
+                          <Text size="xs" c="dimmed">{product.sku}</Text>
+                        </Stack>
+                      );
+                    },
+                  },
+                  {
+                    key: 'placement',
+                    header: 'Catalog placement',
+                    render: (product) => (
+                      <Stack gap={2}>
+                        <Text size="sm">{product.category?.name ?? 'Unassigned category'}</Text>
+                        <Text size="xs" c="dimmed">{product.family?.name ?? 'Unassigned family'}</Text>
+                      </Stack>
+                    ),
+                  },
+                  {
+                    key: 'readiness',
+                    header: 'Dealer readiness',
+                    render: (product) => {
+                      const readiness = readinessRows.find((row) => row.product.id === product.id);
+                      return (
+                        <Badge color={readiness?.status === 'pass' ? 'green' : readiness?.status === 'warning' ? 'yellow' : 'red'} variant="light">
+                          {readiness?.status === 'pass' ? 'Ready' : readiness?.status === 'warning' ? 'Needs cleanup' : 'Blocked'}
                         </Badge>
-                      </Table.Td>
-                      <Table.Td>{row.visibilityCount}</Table.Td>
-                      <Table.Td>{row.assetCount}</Table.Td>
-                      <Table.Td>
-                        <Button component={Link} href={`/product-management/products/${row.product.id}`} size="xs" variant="light">
-                          Review
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                  {!publishRows.length ? (
-                    <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="lg">No products match the current filters.</Text></Table.Td></Table.Tr>
-                  ) : null}
-                </Table.Tbody>
-              </Table>
+                      );
+                    },
+                  },
+                  {
+                    key: 'gaps',
+                    header: 'Gaps',
+                    render: (product) => {
+                      const readiness = readinessRows.find((row) => row.product.id === product.id);
+                      const gaps = readiness ? [...readiness.blockers, ...readiness.warnings] : [];
+                      return gaps.length ? gaps.slice(0, 2).join(', ') : readiness ? 'None' : 'Run readiness checks';
+                    },
+                  },
+                ]}
+                rowActions={(product) => [{
+                  id: 'review-product',
+                  label: 'Review product',
+                  onClick: () => router.push(`/product-management/products/${product.id}`),
+                }]}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No products loaded yet"
+                    description="Product records will appear after the approved source data is loaded."
+                  />
+                )}
+              />
             )}
-          </Paper>
+          </Stack>
         </Tabs.Panel>
+
+        <Tabs.Panel value="admin" pt="md">
+          {setupAreaHeader}
+          <Stack gap="md">
+            <Paper withBorder p="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Title order={4}>Source Review</Title>
+                  <Text size="sm" c="dimmed">Preview legacy product references without changing the active dealer catalog.</Text>
+                </Stack>
+                <Button variant="light" onClick={handlePreviewImport} loading={isPreviewingImport}>
+                  Preview Legacy Products
+                </Button>
+              </Group>
+              {importPreview ? (
+                <Stack gap="md" mt="md">
+                  <Alert color="blue" title="Source preview only">
+                    <Text size="sm">
+                      {importPreview.uniqueSkus} unique SKUs from {importPreview.acumaticaRows} Acumatica rows and {importPreview.shopifyRows} Shopify rows.
+                      {' '}Detected {importPreview.candidateCategories} candidate categories and {importPreview.imageAssets} image links. Review only: final product load waits for certified Acumatica item mapping.
+                    </Text>
+                  </Alert>
+                  {importPreview.warnings.length ? (
+                    <Alert color="yellow" title="Source files need review">
+                      <Stack gap={4}>
+                        {importPreview.warnings.map((warning) => (
+                          <Text key={warning} size="sm">{warning}</Text>
+                        ))}
+                      </Stack>
+                    </Alert>
+                  ) : null}
+                  <WorkbenchTable<ImportPreviewProductRow>
+                    ariaLabel="Legacy product source preview"
+                    rows={importPreview.sampleProducts}
+                    getRowKey={(product) => product.sku}
+                    minWidth={820}
+                    withContainer={false}
+                    columns={[
+                      {
+                        key: 'sku',
+                        header: 'SKU',
+                        render: (product) => <Text fw={700} size="sm">{product.sku}</Text>,
+                      },
+                      {
+                        key: 'name',
+                        header: 'Source product name',
+                        render: (product) => <Text size="sm">{product.name}</Text>,
+                      },
+                      {
+                        key: 'source-systems',
+                        header: 'Source systems',
+                        render: (product) => (
+                          <Group gap={4}>
+                            {product.sourceSystems.map((source) => (
+                              <Badge key={source} variant="light" color="gray">
+                                {formatLabel(source)}
+                              </Badge>
+                            ))}
+                          </Group>
+                        ),
+                      },
+                      {
+                        key: 'candidate-category',
+                        header: 'Candidate category',
+                        render: (product) => product.categoryName ?? 'Unmapped',
+                      },
+                      {
+                        key: 'region',
+                        header: 'Region',
+                        render: (product) => product.regionScope ?? 'All regions',
+                      },
+                    ]}
+                    emptyState={(
+                      <EmptyStateMessage
+                        kind="no-data"
+                        title="No source products in this preview"
+                        description="Approved source products will appear after migration files are staged."
+                      />
+                    )}
+                  />
+                </Stack>
+              ) : null}
+            </Paper>
+          </Stack>
+        </Tabs.Panel>
+
       </Tabs>
+
+      <Modal
+        opened={isCatalogViewModalOpen}
+        onClose={resetCatalogViewForm}
+        title={editingCatalogViewId ? 'Edit Dealer group' : 'Create Dealer group'}
+        size="xl"
+        centered
+      >
+        <Stack gap="sm" data-testid="dealer-catalog-view-form">
+          <SimpleGrid cols={{ base: 1, md: 3 }}>
+            {CATALOG_VIEW_WIZARD_STEPS.map((step, index) => {
+              const currentIndex = CATALOG_VIEW_WIZARD_STEPS.findIndex((item) => item.value === catalogViewWizardStep);
+              const isActive = step.value === catalogViewWizardStep;
+              const isComplete = currentIndex > index;
+              return (
+                <Paper key={step.value} withBorder p="sm" {...(isActive ? { bg: 'blue.0' } : {})}>
+                  <Stack gap={2}>
+                    <Group gap="xs">
+                      <Badge color={isComplete ? 'green' : isActive ? 'blue' : 'gray'} variant="light">{index + 1}</Badge>
+                      <Text fw={700} size="sm">{step.label}</Text>
+                    </Group>
+                    <Text size="xs" c="dimmed">{step.helper}</Text>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </SimpleGrid>
+
+          {catalogViewWizardStep === 'audience' ? (
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                Start with the dealer context Dynamic staff will recognize. Affinity, ownership/PE, independent, and regional rules stay flexible behind this view.
+              </Text>
+              <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <TextInput
+                  label="Audience name"
+                  aria-label="Catalog view name"
+                  data-testid="dealer-catalog-view-name"
+                  placeholder="Standard US Dealer Catalog"
+                  value={catalogViewForm.name}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, name: event.currentTarget.value }))}
+                  required
+                />
+                <Select
+                  label="Audience type"
+                  aria-label="Catalog audience type"
+                  data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                  value={catalogViewForm.kind}
+                  onChange={(value) => {
+                    const selected = CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === value);
+                    setCatalogViewForm((current) => ({
+                      ...current,
+                      kind: (value as DealerCatalogViewSummary['kind'] | null) ?? 'standard',
+                      precedence: selected?.precedence ?? current.precedence,
+                    }));
+                  }}
+                  allowDeselect={false}
+                />
+                <TextInput
+                  label="Internal staff label"
+                  aria-label="Catalog display label"
+                  data-testid="dealer-catalog-display-label"
+                  placeholder="Nexstar, Redwood / Apollo, Canada"
+                  value={catalogViewForm.resolverLabel}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverLabel: event.currentTarget.value }))}
+                />
+              </SimpleGrid>
+            </Stack>
+          ) : null}
+
+          {catalogViewWizardStep === 'scope' ? (
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                Add only the visible catalog scope. Price class and ERP pricing stay outside Product Catalog.
+              </Text>
+              <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <Select
+                  label="Region"
+                  aria-label="Catalog region"
+                  placeholder="All regions"
+                  data={CATEGORY_REGION_OPTIONS}
+                  value={catalogViewForm.regionScope || null}
+                  onChange={(value) => setCatalogViewForm((current) => ({ ...current, regionScope: value ?? '' }))}
+                  searchable
+                  clearable
+                />
+                <TextInput
+                  label="Brand / private label"
+                  aria-label="Catalog brand or private label"
+                  data-testid="dealer-catalog-brand-label"
+                  placeholder="Dynamic, dealer brand, private label"
+                  value={catalogViewForm.brandLabel}
+                  onChange={(event) => setCatalogViewForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))}
+                />
+              </SimpleGrid>
+              <Textarea
+                label="Notes"
+                aria-label="Catalog notes"
+                data-testid="dealer-catalog-notes"
+                minRows={2}
+                value={catalogViewForm.description}
+                onChange={(event) => setCatalogViewForm((current) => ({ ...current, description: event.currentTarget.value }))}
+              />
+              <Switch
+                label="Active"
+                checked={catalogViewForm.isActive}
+                onChange={(event) => setCatalogViewForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+              />
+            </Stack>
+          ) : null}
+
+          {catalogViewWizardStep === 'review' ? (
+            <Stack gap="sm">
+              <SimpleGrid cols={{ base: 1, sm: 4 }}>
+                <Metric label="Audience" value={catalogViewForm.name || 'Not named'} />
+                <Metric label="Visible Products" value={editingCatalogViewRow?.productCount ?? 'New'} />
+                <Metric label="Missing Visibility" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
+                <Metric label="Live Version" value={editingCatalogViewRow?.activeSnapshot ? `v${editingCatalogViewRow.activeSnapshot.version}` : 'None'} />
+              </SimpleGrid>
+              <Paper withBorder p="md">
+                <Stack gap="xs">
+                  <Text fw={700}>Review summary</Text>
+                  <Text size="sm"><Text span fw={600}>Who sees it:</Text> {CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === catalogViewForm.kind)?.label ?? 'Standard dealers'}</Text>
+                  <Text size="sm"><Text span fw={600}>Scope:</Text> {[catalogViewForm.regionScope || 'All regions', catalogViewForm.brandLabel || 'Default brand'].join(' / ')}</Text>
+                  <Text size="sm"><Text span fw={600}>Status:</Text> {catalogViewForm.isActive ? 'Active' : 'Inactive'}{catalogViewForm.isDefault ? ' / default eligible' : ''}</Text>
+                </Stack>
+              </Paper>
+              <WorkbenchAdvancedSection
+                title="Advanced matching details"
+                description="Use when the Dealer group needs an explicit priority or account matching code."
+              >
+                <Stack gap="sm" mt="sm">
+                  <Switch
+                    label="Default eligible Dealer group"
+                    checked={catalogViewForm.isDefault}
+                    onChange={(event) => setCatalogViewForm((current) => ({ ...current, isDefault: event.currentTarget.checked }))}
+                  />
+                  <SimpleGrid cols={{ base: 1, md: 2 }}>
+                    <NumberInput
+                      label="View priority"
+                      aria-label="Catalog view priority"
+                      description="Lower numbers win when more than one Dealer group matches."
+                      min={1}
+                      max={999}
+                      value={catalogViewForm.precedence}
+                      onChange={(value) => setCatalogViewForm((current) => ({ ...current, precedence: Number(value) || 100 }))}
+                    />
+                    <TextInput
+                      label="Matching code"
+                      aria-label="Catalog matching value"
+                      data-testid="dealer-catalog-matching-value"
+                      description="Optional code used by catalog setup."
+                      placeholder="nexstar, redwood, CA, private-label-code"
+                      value={catalogViewForm.resolverKey}
+                      onChange={(event) => setCatalogViewForm((current) => ({ ...current, resolverKey: event.currentTarget.value }))}
+                    />
+                  </SimpleGrid>
+                </Stack>
+              </WorkbenchAdvancedSection>
+            </Stack>
+          ) : null}
+
+          <Group justify="space-between">
+            <Text size="sm" c="dimmed">
+              {CATALOG_VIEW_KIND_OPTIONS.find((option) => option.value === catalogViewForm.kind)?.helper}
+            </Text>
+            <Group>
+              <Button variant="subtle" onClick={resetCatalogViewForm}>Cancel</Button>
+              {catalogViewWizardStep !== 'audience' ? (
+                <Button
+                  variant="default"
+                  onClick={() => setCatalogViewWizardStep(catalogViewWizardStep === 'review' ? 'scope' : 'audience')}
+                >
+                  Back
+                </Button>
+              ) : null}
+              {catalogViewWizardStep !== 'review' ? (
+                <Button
+                  onClick={() => setCatalogViewWizardStep(catalogViewWizardStep === 'audience' ? 'scope' : 'review')}
+                  disabled={catalogViewWizardStep === 'audience' && !catalogViewForm.name.trim()}
+                >
+                  {catalogViewWizardStep === 'audience' ? 'Choose Scope' : 'Review Before Publish'}
+                </Button>
+              ) : (
+                <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
+                  {editingCatalogViewId ? 'Save Dealer group' : 'Create Dealer group'}
+                </Button>
+              )}
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function CatalogVisibilityPlaybookButton() {
+  return (
+    <Popover width={360} position="bottom-end" shadow="md" withinPortal>
+      <Popover.Target>
+        <Button variant="light" size="sm">
+          How catalog visibility works
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap="sm">
+          <Title order={5}>Dealer group playbook</Title>
+          <Text size="sm">
+            Affinity and ownership/PE are separate account signals. Pulse resolves them into the right Dealer group before the catalog is shown.
+          </Text>
+          <Text size="sm">
+            Independent is an outcome: if no approved relationship or ownership overlay applies, the dealer falls back to the independent/default view.
+          </Text>
+          <Text size="sm">
+            Region and brand scope change presentation and files, not the ERP product identity.
+          </Text>
+          <Text size="sm">
+            Price class remains separate from catalog visibility and is parked for the approved integration.
+          </Text>
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <Paper withBorder p="md">
       <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
       <Text size="xl" fw={700}>{value}</Text>
-    </Paper>
-  );
-}
-
-function ProductGuideCard({ action, detail, title }: { action: string; detail: string; title: string }) {
-  return (
-    <Paper withBorder p="md">
-      <Stack gap="xs">
-        <Group justify="space-between" align="flex-start">
-          <Text fw={800}>{title}</Text>
-          <Badge color="blue" variant="light">UAT</Badge>
-        </Group>
-        <Text size="sm" c="dimmed">{detail}</Text>
-        <Text size="xs" fw={700} c="blue">{action}</Text>
-      </Stack>
     </Paper>
   );
 }
@@ -1461,14 +1820,14 @@ function formatCatalogAudience(dealerGroupType: string, dealerGroupId?: string) 
     case 'all_dealers':
       return 'Standard dealers';
     case 'affinity_group':
-      return `Affinity catalog view${suffix}`;
+      return `Matched Dealer group${suffix}`;
     case 'ownership_group':
-      return `Ownership / PE catalog view${suffix}`;
+      return `Ownership Dealer group${suffix}`;
     case 'brand':
     case 'private_label':
-      return `Brand / private-label catalog view${suffix}`;
+      return `Brand Dealer group${suffix}`;
     case 'region':
-      return `Regional catalog view${suffix}`;
+      return `Regional Dealer group${suffix}`;
     default:
       return `${formatLabel(dealerGroupType)}${suffix}`;
   }
@@ -1476,8 +1835,8 @@ function formatCatalogAudience(dealerGroupType: string, dealerGroupId?: string) 
 
 function buildResolverInputLabel(catalogView: string) {
   const lowerView = catalogView.toLowerCase();
-  if (lowerView.includes('affinity')) return 'Affinity + portal eligibility';
-  if (lowerView.includes('ownership') || lowerView.includes('pe')) return 'Ownership/PE + portal eligibility';
+  if (lowerView.includes('affinity')) return 'Approved relationship + portal eligibility';
+  if (lowerView.includes('ownership') || lowerView.includes('pe')) return 'Ownership group + portal eligibility';
   if (lowerView.includes('brand') || lowerView.includes('private')) return 'Brand/private label + account context';
   if (lowerView.includes('regional')) return 'Region + country/currency context';
   if (lowerView.includes('standard')) return 'Default eligible dealer context';
@@ -1492,8 +1851,8 @@ function buildCatalogViewResolverLabel(catalogView: DealerCatalogViewSummary) {
   if (catalogView.kind === 'independent') return 'Independent classification outcome';
   if (catalogView.kind === 'region') return catalogView.regionScope ?? 'Region match';
   if (catalogView.kind === 'brand' || catalogView.kind === 'private_label') return catalogView.brandLabel ?? 'Brand/private-label match';
-  if (catalogView.kind === 'affinity') return 'Affinity group match';
-  if (catalogView.kind === 'ownership') return 'Ownership / PE match';
+  if (catalogView.kind === 'affinity') return 'Approved account relationship match';
+  if (catalogView.kind === 'ownership') return 'Approved ownership relationship match';
   return 'Account-specific override';
 }
 

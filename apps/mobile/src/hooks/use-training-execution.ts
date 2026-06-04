@@ -6,7 +6,14 @@ import type { CompleteTrainingSessionRequest, TrainingSessionSummary } from '@pu
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, fetchTrainingSessions, uploadTrainingSessionProofRecord } from '@/lib/api';
 import { extensionFromMimeType, mimeTypeFromFileName, uriToBase64 } from '@/lib/media';
 import { describeDraftSaveFailure, enqueueDraftDurably } from '@/lib/mobile-draft-queue';
-import { buildProofUploadStatusFromError, buildTrainingCompleteRequest, getTrainingCompletionBlocker, type MobileTrainingProofStatus } from '@/lib/training-mobile-policy';
+import {
+  buildProofUploadStatusFromError,
+  buildTrainingCompleteRequest,
+  getTrainingCompletionBlocker,
+  isMobileActionableTrainingSession,
+  isTrainingSessionCompleteForPolicy,
+  type MobileTrainingProofStatus,
+} from '@/lib/training-mobile-policy';
 import { useSession } from '@/providers/session-provider';
 
 export type TrainingSaveState = 'idle' | 'checking_in' | 'uploading_proof' | 'completing';
@@ -52,8 +59,7 @@ export function useTrainingExecution() {
         status: 'all',
       });
       const trainingItems = response.items
-        .filter((session) => session.activityKind === 'training')
-        .filter((session) => !['cancelled', 'no_show'].includes(session.status))
+        .filter(isMobileActionableTrainingSession)
         .sort(compareTrainingSessions);
       setSessions(trainingItems);
       setSelectedId((current) => current && trainingItems.some((session) => session.id === current) ? current : trainingItems[0]?.id ?? null);
@@ -81,8 +87,11 @@ export function useTrainingExecution() {
   }, [selectedSession?.id]);
 
   const replaceSession = useCallback((next: TrainingSessionSummary) => {
-    setSessions((items) => items.map((item) => item.id === next.id ? next : item));
-    setSelectedId(next.id);
+    setSessions((items) => {
+      const updated = items.map((item) => item.id === next.id ? next : item).filter((item) => !isTrainingSessionCompleted(item));
+      setSelectedId(isTrainingSessionCompleted(next) ? updated[0]?.id ?? null : next.id);
+      return updated;
+    });
   }, []);
 
   const checkIn = useCallback(async () => {
@@ -165,7 +174,21 @@ export function useTrainingExecution() {
   }, [apiBaseUrl, auth, replaceSession, saveState, selectedProofCount, selectedSession]);
 
   const complete = useCallback(async () => {
-    if (!selectedSession || !auth || !notes.trim()) return;
+    if (!selectedSession || !auth || saveState !== 'idle') return;
+    const blocker = getTrainingCompletionBlocker(selectedSession, Boolean(auth), {
+      attendeeCount: attendeeCountValue(attendeeCount),
+      followUpDescription,
+      followUpEnabled,
+      followUpTitle,
+      notes,
+      proofNotes,
+      proofUploadFailed: proofStatus?.tone === 'error',
+      saveInProgress: false,
+    });
+    if (blocker) {
+      setErrorMessage(blocker);
+      return;
+    }
     const completedAt = new Date().toISOString();
     const checkedInAt = selectedSession.checkedInAt ?? completedAt;
     const request = buildTrainingCompleteRequest(selectedSession, {
@@ -198,7 +221,7 @@ export function useTrainingExecution() {
     } finally {
       setSaveState('idle');
     }
-  }, [apiBaseUrl, attendeeCount, auth, followUpDescription, followUpEnabled, followUpTitle, notes, proofNotes, proofStatus?.tone, replaceSession, selectedProofCount, selectedSession]);
+  }, [apiBaseUrl, attendeeCount, auth, followUpDescription, followUpEnabled, followUpTitle, notes, proofNotes, proofStatus?.tone, replaceSession, saveState, selectedProofCount, selectedSession]);
 
   const clearFollowUp = useCallback(() => {
     setFollowUpEnabled(false);
@@ -294,5 +317,5 @@ function compareTrainingSessions(left: TrainingSessionSummary, right: TrainingSe
 }
 
 export function isTrainingSessionCompleted(session: TrainingSessionSummary) {
-  return Boolean(session.completedAt || session.executionState === 'completed' || session.status === 'completed');
+  return isTrainingSessionCompleteForPolicy(session);
 }

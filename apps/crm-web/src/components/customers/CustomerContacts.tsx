@@ -7,6 +7,7 @@ import {
   Card,
   Group,
   Modal,
+  Paper,
   Select,
   SimpleGrid,
   Stack,
@@ -17,6 +18,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { AccountDetail } from '@pulse/contracts';
+import { EmptyStateMessage, RowActionMenu } from '@/components/ui/Workbench';
 import { createAccountContactRecord, updateAccountContactRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -167,15 +169,20 @@ export function CustomerContacts(
       </Group>
       <Stack gap="sm">
         {account.contacts.length === 0 ? (
-          <Text size="sm" c="dimmed">No contacts are mapped to this account yet.</Text>
+          <EmptyStateMessage
+            title="No contacts saved"
+            description={canEdit
+              ? 'Add the primary contact when the account handoff details are ready.'
+              : 'Contacts will appear here after they are saved on the account.'}
+          />
         ) : account.contacts.map((contact) => (
-          <Card key={contact.id} withBorder radius="md" p="md">
+          <Paper key={contact.id} withBorder radius="md" p="md">
             <Group justify="space-between" align="flex-start">
               <Stack gap={4}>
                 <Text fw={600}>{`${contact.firstName} ${contact.lastName}`.trim()}</Text>
-                <Text size="sm" c="dimmed">{contact.title ?? 'No title recorded'}</Text>
-                <Text size="sm">{contact.email ?? 'No email recorded'}</Text>
-                <Text size="sm">{contact.mobilePhone ?? contact.phone ?? 'No phone recorded'}</Text>
+                {contact.title ? <Text size="sm" c="dimmed">{contact.title}</Text> : null}
+                {contact.email ? <Text size="sm">{contact.email}</Text> : null}
+                {contact.mobilePhone || contact.phone ? <Text size="sm">{contact.mobilePhone ?? contact.phone}</Text> : null}
               </Stack>
               <Stack gap="xs" align="flex-end">
                 <Group gap="xs">
@@ -186,16 +193,25 @@ export function CustomerContacts(
                   </Badge>
                 </Group>
                 {canEdit ? (
-                  <Group gap="xs">
-                    <Button size="compact-xs" variant="subtle" onClick={() => openEdit(contact)}>Edit</Button>
-                    <Button size="compact-xs" variant="subtle" color={contact.isActive ? 'red' : 'green'} onClick={() => void handleToggleActive(contact)}>
-                      {contact.isActive ? 'Deactivate' : 'Reactivate'}
-                    </Button>
-                  </Group>
+                  <RowActionMenu
+                    items={[
+                      {
+                        id: 'edit',
+                        label: 'Edit contact',
+                        onClick: () => openEdit(contact),
+                      },
+                      {
+                        id: 'toggle-active',
+                        label: contact.isActive ? 'Deactivate contact' : 'Reactivate contact',
+                        color: contact.isActive ? 'danger' : 'success',
+                        onClick: () => void handleToggleActive(contact),
+                      },
+                    ]}
+                  />
                 ) : null}
               </Stack>
             </Group>
-          </Card>
+          </Paper>
         ))}
       </Stack>
 
@@ -226,6 +242,18 @@ export function CustomerContacts(
             value={form.title}
             onChange={(event) => setForm((current) => ({ ...current, title: event.currentTarget.value }))}
           />
+          <TextInput
+            label="Role"
+            value={form.roleCode}
+            onChange={(event) => setForm((current) => ({ ...current, roleCode: event.currentTarget.value }))}
+            placeholder="Primary, Billing, Ordering, Technical, Owner/GM"
+          />
+          <Select
+            label="Linked Location"
+            value={form.locationId}
+            onChange={(value) => setForm((current) => ({ ...current, locationId: value ?? '' }))}
+            data={locationOptions}
+          />
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <TextInput
               label="Email"
@@ -244,19 +272,7 @@ export function CustomerContacts(
               value={form.mobilePhone}
               onChange={(event) => setForm((current) => ({ ...current, mobilePhone: event.currentTarget.value }))}
             />
-            <TextInput
-              label="Role"
-              value={form.roleCode}
-              onChange={(event) => setForm((current) => ({ ...current, roleCode: event.currentTarget.value }))}
-              placeholder="Primary, Billing, Ordering, Technical, Owner/GM"
-            />
           </SimpleGrid>
-          <Select
-            label="Linked Location"
-            value={form.locationId}
-            onChange={(value) => setForm((current) => ({ ...current, locationId: value ?? '' }))}
-            data={locationOptions}
-          />
           <Group grow>
             <Switch
               checked={form.isPrimary}

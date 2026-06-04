@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ActionIcon, Alert, Badge, Button, Card, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import { Anchor, Badge, Button, Card, Collapse, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
 import type { DealerPortalCatalogAssetSummary, DealerPortalCatalogResponse, DealerPortalCatalogProductSummary } from '@pulse/contracts';
-import { IconArrowRight, IconDownload, IconFile, IconFilterOff, IconPackage, IconSearch, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
+import { IconArrowRight, IconDownload, IconFile, IconFilter, IconPackage, IconSearch, IconStar, IconStarFilled } from '@tabler/icons-react';
 
 type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
   isFavorite?: boolean;
@@ -15,7 +15,6 @@ type DealerCatalogResponseWithFavorites = Omit<DealerPortalCatalogResponse, 'pro
 };
 
 type FileAvailabilityFilter = 'all' | 'with_files' | 'without_files';
-type FavoriteFilter = 'all' | 'favorites';
 
 export interface DealerCatalogFavoriteActions {
   isAvailable: boolean;
@@ -31,8 +30,8 @@ export interface DealerCatalogAssetActions {
 const uncategorizedFilterValue = '__uncategorized__';
 
 export function DealerCatalog({
-  catalog,
   assetActions,
+  catalog,
   favoriteActions,
 }: {
   catalog: DealerPortalCatalogResponse;
@@ -46,7 +45,7 @@ export function DealerCatalog({
   const [familyFilter, setFamilyFilter] = useState('all');
   const [fileFilter, setFileFilter] = useState<FileAvailabilityFilter>('all');
   const [fileTypeFilter, setFileTypeFilter] = useState('all');
-  const [favoriteFilter, setFavoriteFilter] = useState<FavoriteFilter>('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const categoryOptions = useMemo(() => {
     const categories = new Set<string>();
@@ -72,7 +71,7 @@ export function DealerCatalog({
   const brandOptions = useMemo(() => buildProductOptionList(catalogWithFavorites.products, (product) => product.brandLabel, 'All brands'), [catalogWithFavorites.products]);
   const familyOptions = useMemo(() => buildProductOptionList(catalogWithFavorites.products, (product) => product.familyName, 'All families'), [catalogWithFavorites.products]);
   const fileTypeOptions = useMemo(() => {
-    const kinds = new Set(catalogWithFavorites.products.flatMap((product) => product.assets.map((asset) => asset.kind)));
+    const kinds = new Set(catalogWithFavorites.products.flatMap((product) => product.assets.filter((asset) => Boolean(asset.downloadUrl)).map((asset) => asset.kind)));
     return [
       { value: 'all', label: 'All file types' },
       ...Array.from(kinds)
@@ -93,7 +92,7 @@ export function DealerCatalog({
             product.longDescription,
             product.categoryName,
             product.familyName,
-            ...product.assets.flatMap((asset) => [asset.title, asset.fileName, asset.role]),
+            ...product.assets.filter((asset) => Boolean(asset.downloadUrl)).flatMap((asset) => [asset.title, asset.fileName, asset.role]),
           ]
             .filter(Boolean)
             .some((value) => value?.toLowerCase().includes(normalizedSearch))
@@ -104,19 +103,17 @@ export function DealerCatalog({
       const matchesBrand = brandFilter === 'all' || product.brandLabel === brandFilter;
       const matchesFamily = familyFilter === 'all' || product.familyName === familyFilter;
 
-      const hasFiles = product.assets.length > 0;
+      const hasFiles = product.assets.some((asset) => Boolean(asset.downloadUrl));
       const matchesFileAvailability =
         fileFilter === 'all'
         || (fileFilter === 'with_files' && hasFiles)
         || (fileFilter === 'without_files' && !hasFiles);
-      const matchesFileType = fileTypeFilter === 'all' || product.assets.some((asset) => asset.kind === fileTypeFilter);
-      const matchesFavorite = favoriteFilter === 'all' || Boolean(product.isFavorite);
-
-      return matchesSearch && matchesCategory && matchesBrand && matchesFamily && matchesFileAvailability && matchesFileType && matchesFavorite;
+      const matchesFileType = fileTypeFilter === 'all' || product.assets.some((asset) => asset.downloadUrl && asset.kind === fileTypeFilter);
+      return matchesSearch && matchesCategory && matchesBrand && matchesFamily && matchesFileAvailability && matchesFileType;
     });
-  }, [brandFilter, catalogWithFavorites.products, categoryFilter, familyFilter, favoriteFilter, fileFilter, fileTypeFilter, searchQuery]);
+  }, [brandFilter, catalogWithFavorites.products, categoryFilter, familyFilter, fileFilter, fileTypeFilter, searchQuery]);
 
-  const hasActiveFilters = searchQuery.trim() !== '' || categoryFilter !== 'all' || brandFilter !== 'all' || familyFilter !== 'all' || fileFilter !== 'all' || fileTypeFilter !== 'all' || favoriteFilter !== 'all';
+  const hasActiveFilters = searchQuery.trim() !== '' || categoryFilter !== 'all' || brandFilter !== 'all' || familyFilter !== 'all' || fileFilter !== 'all' || fileTypeFilter !== 'all';
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -125,7 +122,6 @@ export function DealerCatalog({
     setFamilyFilter('all');
     setFileFilter('all');
     setFileTypeFilter('all');
-    setFavoriteFilter('all');
   };
 
   return (
@@ -133,11 +129,10 @@ export function DealerCatalog({
       <Card withBorder radius="xl" p="lg" className="premium-hero-panel">
         <Group justify="space-between" align="flex-start">
           <Stack gap={6}>
-            <Text className="eyebrow">Dealer Catalog</Text>
+            <Text className="eyebrow">Your Product Catalog</Text>
             <Title order={1}>Products and Files</Title>
             <Text c="dimmed" maw={760}>
-              Browse the products and files Dynamic AQS has published for your company.
-              Pricing and order submission will appear here after the order connection is approved.
+              Browse the products and files in your company catalog. Account Health covers account status.
             </Text>
             {catalog.catalogView ? (
               <Group gap="xs">
@@ -153,25 +148,18 @@ export function DealerCatalog({
             ) : null}
           </Stack>
           <Badge size="xl" color="green" variant="light">
-            {catalog.products.length} published
+            {catalog.products.length} available
           </Badge>
         </Group>
       </Card>
-
-      {catalog.warnings.map((warning) => (
-        <Alert key={warning} color="yellow" variant="light">
-          {warning}
-        </Alert>
-      ))}
 
       {catalogWithFavorites.products.length === 0 ? (
         <Card withBorder radius="xl" p="xl" className="premium-detail-card">
           <Stack gap="xs" align="center">
             <IconPackage size={36} />
-            <Title order={3}>No products are published yet</Title>
+            <Title order={3}>No products are available yet</Title>
             <Text c="dimmed" ta="center" maw={620}>
-              Dynamic AQS is still preparing the catalog view for this account. Once a dealer catalog view passes
-              Product Management readiness, products and files will show here automatically.
+              No products are available in your catalog right now. Contact Dynamic AQS support if you need a specific product or file.
             </Text>
           </Stack>
         </Card>
@@ -194,62 +182,65 @@ export function DealerCatalog({
                   data={categoryOptions}
                   allowDeselect={false}
                 />
-                <Select
-                  label="Brand"
-                  value={brandFilter}
-                  onChange={(value) => setBrandFilter(value ?? 'all')}
-                  data={brandOptions}
-                  allowDeselect={false}
-                />
-              </Group>
-              <Group align="end" grow>
-                <Select
-                  label="Family"
-                  value={familyFilter}
-                  onChange={(value) => setFamilyFilter(value ?? 'all')}
-                  data={familyOptions}
-                  allowDeselect={false}
-                />
-                <Select
-                  label="File type"
-                  value={fileTypeFilter}
-                  onChange={(value) => setFileTypeFilter(value ?? 'all')}
-                  data={fileTypeOptions}
-                  allowDeselect={false}
-                />
               </Group>
               <Group justify="space-between" align="center">
-                <Group gap="sm">
-                  <SegmentedControl
-                    value={fileFilter}
-                    onChange={(value) => setFileFilter(value as FileAvailabilityFilter)}
-                    data={[
-                      { value: 'all', label: 'All files' },
-                      { value: 'with_files', label: 'Has files' },
-                      { value: 'without_files', label: 'No files' },
-                    ]}
-                  />
-                  <SegmentedControl
-                    value={favoriteFilter}
-                    onChange={(value) => setFavoriteFilter(value as FavoriteFilter)}
-                    data={[
-                      { value: 'all', label: 'All products' },
-                      { value: 'favorites', label: 'Saved' },
-                    ]}
-                  />
-                </Group>
                 <Button
-                  variant="subtle"
-                  color="gray"
-                  leftSection={<IconFilterOff size={16} />}
-                  onClick={clearFilters}
-                  disabled={!hasActiveFilters}
+                  variant={filtersOpen ? 'light' : 'default'}
+                  leftSection={<IconFilter size={16} />}
+                  onClick={() => setFiltersOpen((opened) => !opened)}
                 >
-                  Clear filters
+                  {filtersOpen ? 'Hide filters' : 'More filters'}
                 </Button>
               </Group>
+              <Collapse in={filtersOpen}>
+                <Stack gap="md" pt="xs">
+                  <Group align="end" grow>
+                    <Select
+                      label="Brand"
+                      value={brandFilter}
+                      onChange={(value) => setBrandFilter(value ?? 'all')}
+                      data={brandOptions}
+                      allowDeselect={false}
+                    />
+                    <Select
+                      label="Family"
+                      value={familyFilter}
+                      onChange={(value) => setFamilyFilter(value ?? 'all')}
+                      data={familyOptions}
+                      allowDeselect={false}
+                    />
+                    <Select
+                      label="File type"
+                      value={fileTypeFilter}
+                      onChange={(value) => setFileTypeFilter(value ?? 'all')}
+                      data={fileTypeOptions}
+                      allowDeselect={false}
+                    />
+                  </Group>
+                  <Group gap="sm">
+                    <SegmentedControl
+                      value={fileFilter}
+                      onChange={(value) => setFileFilter(value as FileAvailabilityFilter)}
+                      data={[
+                        { value: 'all', label: 'All products' },
+                        { value: 'with_files', label: 'Files available' },
+                      ]}
+                    />
+                  </Group>
+                  <Group justify="flex-end">
+                    <Button
+                      variant="subtle"
+                      color="gray"
+                      onClick={clearFilters}
+                      disabled={!hasActiveFilters}
+                    >
+                      Clear filters
+                    </Button>
+                  </Group>
+                </Stack>
+              </Collapse>
               <Text size="sm" c="dimmed">
-                Showing {filteredProducts.length} of {catalogWithFavorites.products.length} published products.
+                Showing {filteredProducts.length} of {catalogWithFavorites.products.length} available products.
               </Text>
             </Stack>
           </Card>
@@ -272,9 +263,9 @@ export function DealerCatalog({
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.presentationId}
-                  product={product}
                   assetActions={assetActions}
                   favoriteActions={favoriteActions}
+                  product={product}
                 />
               ))}
             </SimpleGrid>
@@ -300,18 +291,19 @@ function buildProductOptionList(
 }
 
 function ProductCard({
-  product,
   assetActions,
   favoriteActions,
+  product,
 }: {
-  product: DealerCatalogProductWithFavorites;
   assetActions?: DealerCatalogAssetActions | undefined;
   favoriteActions?: DealerCatalogFavoriteActions | undefined;
+  product: DealerCatalogProductWithFavorites;
 }) {
-  const primaryFiles = product.assets.slice(0, 4);
-  const exposesFavoriteState = Object.prototype.hasOwnProperty.call(product, 'isFavorite');
+  const availableFiles = product.assets.filter((asset) => Boolean(asset.downloadUrl));
+  const primaryFiles = availableFiles.slice(0, 2);
   const isFavorite = Boolean(product.isFavorite);
   const canToggleFavorite = Boolean(favoriteActions?.isAvailable && favoriteActions.toggleFavorite);
+  const supportingDetails = [product.familyName, product.brandLabel].filter(Boolean).join(' / ');
 
   return (
     <Card withBorder radius="xl" p="lg" className="premium-detail-card">
@@ -327,45 +319,37 @@ function ProductCard({
                   {product.categoryName}
                 </Badge>
               ) : null}
-              {product.familyName ? (
-                <Badge color="cyan" variant="light">
-                  {product.familyName}
-                </Badge>
-              ) : null}
             </Group>
             <Title order={3}>{product.displayName}</Title>
+            {supportingDetails ? (
+              <Text size="sm" c="dimmed">
+                {supportingDetails}
+              </Text>
+            ) : null}
             {product.shortDescription ? (
               <Text c="dimmed">{product.shortDescription}</Text>
             ) : null}
           </Stack>
           <Group gap="xs">
-            {exposesFavoriteState ? (
-              <Tooltip label={canToggleFavorite ? (isFavorite ? 'Remove favorite' : 'Save favorite') : 'Favorite status'}>
-                <ActionIcon
-                  variant={isFavorite ? 'light' : 'subtle'}
-                  color={isFavorite ? 'yellow' : 'gray'}
-                  aria-label={isFavorite ? 'Favorite product' : 'Product is not a favorite'}
-                  onClick={() => {
-                    if (favoriteActions?.toggleFavorite) {
-                      void favoriteActions.toggleFavorite(product);
-                    }
-                  }}
-                  disabled={!canToggleFavorite || favoriteActions?.updatingPresentationId === product.presentationId}
-                >
-                  {isFavorite ? <IconStarFilled size={18} /> : <IconStar size={18} />}
-                </ActionIcon>
-              </Tooltip>
-            ) : null}
-            {product.favoriteCount > 0 ? (
+            {isFavorite || product.favoriteCount > 0 ? (
               <Badge color="yellow" variant="light">
-                {product.favoriteCount} saved
+                {isFavorite ? 'Saved' : `${product.favoriteCount} saved`}
               </Badge>
             ) : null}
-            {product.brandLabel ? (
-              <Badge color="green" variant="light" leftSection={<IconTag size={12} />}>
-                {product.brandLabel}
-              </Badge>
-            ) : null}
+            <Button
+              size="compact-xs"
+              variant={isFavorite ? 'light' : 'default'}
+              color={isFavorite ? 'yellow' : 'blue'}
+              leftSection={isFavorite ? <IconStarFilled size={13} /> : <IconStar size={13} />}
+              disabled={!canToggleFavorite || favoriteActions?.updatingPresentationId === product.presentationId}
+              onClick={() => {
+                if (favoriteActions?.toggleFavorite) {
+                  void favoriteActions.toggleFavorite(product);
+                }
+              }}
+            >
+              {isFavorite ? 'Saved' : 'Save'}
+            </Button>
           </Group>
         </Group>
 
@@ -375,26 +359,25 @@ function ProductCard({
 
         <Group justify="space-between" align="center">
           <Text size="sm" c="dimmed">
-            {product.assets.length} published file{product.assets.length === 1 ? '' : 's'}
+            {availableFiles.length} file{availableFiles.length === 1 ? '' : 's'} available
           </Text>
-          <Button
+          <Anchor
             component={Link}
             href={`/dealer/catalog/${encodeURIComponent(product.presentationId)}`}
-            size="xs"
-            variant="default"
-            rightSection={<IconArrowRight size={14} />}
+            size="sm"
+            fw={700}
           >
-            View Details
-          </Button>
+            View all files <IconArrowRight size={14} style={{ verticalAlign: 'text-bottom' }} />
+          </Anchor>
         </Group>
 
         <Stack gap="xs">
           <Text size="sm" fw={700}>
-            Product files
+            Top files
           </Text>
           {primaryFiles.length === 0 ? (
             <Text size="sm" c="dimmed">
-              No files are attached yet.
+              No files are available for this product right now. Contact Dynamic AQS support if you need a specific file.
             </Text>
           ) : (
             primaryFiles.map((asset) => (
@@ -406,17 +389,11 @@ function ProductCard({
                   <Text size="xs" c="dimmed">
                     {asset.role.replace(/_/g, ' ')}
                   </Text>
-                  {!asset.downloadUrl ? (
-                    <Text size="xs" c="orange.7">
-                      File delivery not ready
-                    </Text>
-                  ) : null}
                 </Stack>
                 <Button
-                  size="xs"
+                  size="compact-xs"
                   variant="light"
-                  leftSection={<IconDownload size={14} />}
-                  disabled={!asset.downloadUrl}
+                  leftSection={<IconDownload size={13} />}
                   loading={assetActions?.openingAssetId === asset.id}
                   onClick={() => {
                     if (assetActions?.openAsset) {
@@ -428,7 +405,7 @@ function ProductCard({
                     }
                   }}
                 >
-                  {asset.downloadUrl ? 'Open' : 'Unavailable'}
+                  Open file
                 </Button>
               </Group>
             ))

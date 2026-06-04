@@ -72,6 +72,12 @@ export function buildProofUploadStatusFromError(error: unknown): MobileTrainingP
   };
 }
 
-function isTrainingSessionCompleteForPolicy(session: TrainingSessionSummary) {
+export function isMobileActionableTrainingSession(session: TrainingSessionSummary) {
+  return session.activityKind === 'training'
+    && !['cancelled', 'no_show'].includes(session.status)
+    && !isTrainingSessionCompleteForPolicy(session);
+}
+
+export function isTrainingSessionCompleteForPolicy(session: TrainingSessionSummary) {
   return Boolean(session.completedAt || session.executionState === 'completed' || session.status === 'completed');
 }

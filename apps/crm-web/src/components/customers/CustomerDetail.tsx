@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Loader, Paper, Progress, SimpleGrid, Stack, Tabs, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Card, Drawer, Group, Loader, Menu, Paper, Progress, SimpleGrid, Stack, Tabs, Text, Title } from '@mantine/core';
 import type { AccountDetail as AccountDetailRecord, TrainingCatalogResponse } from '@pulse/contracts';
+import { EmptyStateMessage, WorkbenchHeader } from '@/components/ui/Workbench';
 import { fetchAccountDetail, fetchTrainingCatalog } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { CustomerDealerPortalAccess } from './CustomerDealerPortalAccess';
@@ -30,7 +31,22 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
   const canEditCustomer = auth ? canPerformAction(auth.identity.role, 'customer.edit') : false;
   const canViewFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_view') : false;
   const canManageFinancials = auth ? canPerformAction(auth.identity.role, 'customer.financials_manage') : false;
-  const activeTab = resolveCustomerTab(searchParams.get('tab'), { canViewFinancials, canViewTraining });
+  const activePrimaryTab = resolveCustomerPrimaryTab(searchParams.get('tab'));
+  const activeSecondaryPanel = resolveCustomerSecondaryPanel(searchParams.get('tab'), {
+    canViewConsignment,
+    canViewFinancials,
+    canViewTraining,
+  });
+  const navigateToCustomerTab = (tab: CustomerTabValue) => {
+    const next = new URLSearchParams(searchParams.toString());
+    const queryValue = customerTabToQuery(tab);
+    if (queryValue) {
+      next.set('tab', queryValue);
+    } else {
+      next.delete('tab');
+    }
+    router.replace(`/customers/${accountId}${next.size ? `?${next.toString()}` : ''}`, { scroll: false });
+  };
 
   const reloadAccount = async () => {
     if (!auth) {
@@ -94,48 +110,29 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
     return null;
   }
 
-  const breadcrumbItems = [
-    { title: 'Lead Hub', href: '/leads' },
-    { title: 'Account Management', href: '/customers' },
-    { title: account?.displayName ?? 'Account Detail', href: `/customers/${accountId}` },
-  ].map((item) => (
-    <Anchor component={Link} href={item.href} key={item.href} size="sm">
-      {item.title}
-    </Anchor>
-  ));
-
   return (
     <Stack gap="md">
-      <Breadcrumbs>{breadcrumbItems}</Breadcrumbs>
-
-      <Paper withBorder radius="md" p="lg">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Title order={1}>{account?.displayName ?? 'Customer Account'}</Title>
-            <Text size="sm" c="dimmed">
-              View the converted customer profile, territory ownership, source lead connection, and the first mapped contacts.
+      <WorkbenchHeader
+        eyebrow="Account detail"
+        title={account?.displayName ?? 'Customer Account'}
+        description="Review next action, ownership, contacts, and locations from one profile."
+        policyText="Related readiness, training, portal, consignment, activity, and finance context stay in More."
+        secondaryActions={(
+          <>
+            <Text component={Link} href="/customers" size="sm" fw={700} c="blue" style={{ textDecoration: 'none' }}>
+              Back to Accounts
             </Text>
             {account ? (
-              <Group gap="xs">
+              <>
                 <Badge color={account.lifecycleStatus === 'active' ? 'green' : account.lifecycleStatus === 'at_risk' ? 'yellow' : account.lifecycleStatus === 'inactive' ? 'gray' : 'red'} variant="light">
                   {account.lifecycleStatus === 'at_risk' ? 'At Risk' : account.lifecycleStatus.charAt(0).toUpperCase() + account.lifecycleStatus.slice(1)}
                 </Badge>
                 {!account.isActive ? <Badge color="gray" variant="outline">Record Inactive</Badge> : null}
-              </Group>
+              </>
             ) : null}
-          </Stack>
-          <Group gap="xs">
-            <Button component={Link} href="/customers" variant="default">
-              Back To Accounts
-            </Button>
-            {account?.sourceLeadId ? (
-              <Button component={Link} href={`/leads/${account.sourceLeadId}`} variant="light">
-                View Source Lead
-              </Button>
-            ) : null}
-          </Group>
-        </Group>
-      </Paper>
+          </>
+        )}
+      />
 
       {errorMessage ? (
         <Alert color="red" variant="light">{errorMessage}</Alert>
@@ -151,32 +148,38 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
 
       {account ? (
         <Stack gap="md">
-          <AccountReadinessBrief account={account} />
-          <AccountUatHandoff account={account} />
           <AccountFocusPanel account={account} />
-          {canViewConsignment ? <CustomerConsignmentIndicator accountId={account.id} /> : null}
           <Tabs
-            value={activeTab}
+            value={activePrimaryTab}
             onChange={(value) => {
               if (!value) return;
-              const next = new URLSearchParams(searchParams.toString());
-              const queryValue = customerTabToQuery(value as CustomerTabValue);
-              if (queryValue) {
-                next.set('tab', queryValue);
-              } else {
-                next.delete('tab');
-              }
-              router.replace(`/customers/${accountId}${next.size ? `?${next.toString()}` : ''}`, { scroll: false });
+              navigateToCustomerTab(value as CustomerPrimaryTabValue);
             }}
           >
             <Tabs.List>
               <Tabs.Tab value="overview">Profile</Tabs.Tab>
               <Tabs.Tab value="contacts">Contacts</Tabs.Tab>
               <Tabs.Tab value="locations">Locations</Tabs.Tab>
-              <Tabs.Tab value="activity-docs">Activity & Docs</Tabs.Tab>
-              {canViewFinancials ? <Tabs.Tab value="payment-methods">Payment Methods</Tabs.Tab> : null}
-              {canViewTraining ? <Tabs.Tab value="training">Training</Tabs.Tab> : null}
-              <Tabs.Tab value="portal">Dealer Portal</Tabs.Tab>
+              <Menu position="bottom-start" withinPortal shadow="md" width={220}>
+                <Menu.Target>
+                  <Button variant={activeSecondaryPanel ? 'light' : 'subtle'} size="sm">
+                    More
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={() => navigateToCustomerTab('readiness')}>Account readiness</Menu.Item>
+                  {canViewConsignment ? <Menu.Item onClick={() => navigateToCustomerTab('consignment')}>Consignment</Menu.Item> : null}
+                  {account.sourceLeadId ? (
+                    <Menu.Item component={Link} href={`/leads/${account.sourceLeadId}`}>
+                      View Source Lead
+                    </Menu.Item>
+                  ) : null}
+                  <Menu.Item onClick={() => navigateToCustomerTab('activity-docs')}>Activity & Docs</Menu.Item>
+                  {canViewFinancials ? <Menu.Item onClick={() => navigateToCustomerTab('payment-methods')}>Payment Methods</Menu.Item> : null}
+                  {canViewTraining ? <Menu.Item onClick={() => navigateToCustomerTab('training')}>Training</Menu.Item> : null}
+                  <Menu.Item onClick={() => navigateToCustomerTab('portal')}>Dealer Portal</Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
             </Tabs.List>
             <Tabs.Panel value="overview" pt="md">
               <CustomerOverview account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
@@ -187,57 +190,97 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
             <Tabs.Panel value="locations" pt="md">
               <CustomerLocations account={account} onUpdated={reloadAccount} canEdit={canEditCustomer} />
             </Tabs.Panel>
-            <Tabs.Panel value="activity-docs" pt="md">
-              <CustomerActivityDocs account={account} canViewFinancials={canViewFinancials} />
-            </Tabs.Panel>
-            {canViewFinancials ? (
-              <Tabs.Panel value="payment-methods" pt="md">
+          </Tabs>
+
+          <Drawer
+            opened={Boolean(activeSecondaryPanel)}
+            onClose={() => navigateToCustomerTab('overview')}
+            position="right"
+            size="xl"
+            title={activeSecondaryPanel ? customerSecondaryPanelTitle(activeSecondaryPanel) : 'Account details'}
+          >
+            <Stack gap="md">
+              {activeSecondaryPanel === 'readiness' ? (
+                <>
+                  <AccountReadinessBrief account={account} />
+                  <AccountUatHandoff account={account} />
+                </>
+              ) : null}
+              {activeSecondaryPanel === 'consignment' && canViewConsignment ? (
+                <CustomerConsignmentIndicator accountId={account.id} />
+              ) : null}
+              {activeSecondaryPanel === 'activity-docs' ? (
+                <CustomerActivityDocs account={account} canViewFinancials={canViewFinancials} />
+              ) : null}
+              {activeSecondaryPanel === 'payment-methods' && canViewFinancials ? (
                 <CustomerPaymentMethods accountId={account.id} canManage={canManageFinancials} />
-              </Tabs.Panel>
-            ) : null}
-            {canViewTraining ? (
-              <Tabs.Panel value="training" pt="md">
+              ) : null}
+              {activeSecondaryPanel === 'training' && canViewTraining ? (
                 <CustomerTrainingHistory
                   accountId={account.id}
                   accountName={account.displayName}
                   catalog={trainingCatalog}
                 />
-              </Tabs.Panel>
-            ) : null}
-            <Tabs.Panel value="portal" pt="md">
-              <CustomerDealerPortalAccess account={account} onProvisioned={() => void reloadAccount()} />
-            </Tabs.Panel>
-          </Tabs>
+              ) : null}
+              {activeSecondaryPanel === 'portal' ? (
+                <CustomerDealerPortalAccess account={account} onProvisioned={() => void reloadAccount()} />
+              ) : null}
+            </Stack>
+          </Drawer>
         </Stack>
       ) : null}
     </Stack>
   );
 }
 
-type CustomerTabValue = 'overview' | 'contacts' | 'locations' | 'activity-docs' | 'payment-methods' | 'training' | 'portal';
+type CustomerPrimaryTabValue = 'overview' | 'contacts' | 'locations';
+type CustomerSecondaryPanelValue = 'readiness' | 'consignment' | 'activity-docs' | 'payment-methods' | 'training' | 'portal';
+type CustomerTabValue = CustomerPrimaryTabValue | CustomerSecondaryPanelValue;
 
-function resolveCustomerTab(
-  requestedTab: string | null,
-  permissions: { canViewFinancials: boolean; canViewTraining: boolean },
-): CustomerTabValue {
+function resolveCustomerPrimaryTab(requestedTab: string | null): CustomerPrimaryTabValue {
   if (requestedTab === 'contacts') return 'contacts';
   if (requestedTab === 'locations') return 'locations';
+  return 'overview';
+}
+
+function resolveCustomerSecondaryPanel(
+  requestedTab: string | null,
+  permissions: { canViewConsignment: boolean; canViewFinancials: boolean; canViewTraining: boolean },
+): CustomerSecondaryPanelValue | null {
+  if (requestedTab === 'readiness' || requestedTab === 'account-readiness') return 'readiness';
+  if (requestedTab === 'consignment' && permissions.canViewConsignment) return 'consignment';
   if (requestedTab === 'activity-docs' || requestedTab === 'activity' || requestedTab === 'documents') return 'activity-docs';
   if (requestedTab === 'portal' || requestedTab === 'dealer-portal') return 'portal';
   if ((requestedTab === 'payment-methods' || requestedTab === 'financials') && permissions.canViewFinancials) return 'payment-methods';
   if ((requestedTab === 'training' || requestedTab === 'training-history') && permissions.canViewTraining) return 'training';
-  return 'overview';
+  return null;
 }
 
 function customerTabToQuery(tab: CustomerTabValue) {
   return tab === 'overview' ? '' : tab;
 }
 
+function customerSecondaryPanelTitle(tab: CustomerSecondaryPanelValue) {
+  switch (tab) {
+    case 'readiness':
+      return 'Account readiness';
+    case 'consignment':
+      return 'Consignment';
+    case 'activity-docs':
+      return 'Activity & Docs';
+    case 'payment-methods':
+      return 'Payment Methods';
+    case 'training':
+      return 'Training';
+    case 'portal':
+      return 'Dealer Portal';
+  }
+}
+
 function AccountFocusPanel({ account }: { account: AccountDetailRecord }) {
   const primaryContact = account.contacts.find((contact) => contact.isPrimary) ?? account.contacts[0];
   const primaryLocation = account.locations.find((location) => location.isPrimary) ?? account.locations[0];
   const firstAttention = account.readiness.checks.find((check) => check.status === 'needs_attention');
-  const erpCheck = account.readiness.checks.find((check) => check.key === 'erp_activity');
 
   return (
     <Paper withBorder radius="md" p="lg">
@@ -245,44 +288,38 @@ function AccountFocusPanel({ account }: { account: AccountDetailRecord }) {
         <Stack gap={4}>
           <Title order={3}>Today&apos;s Account Focus</Title>
           <Text size="sm" c="dimmed">
-            Fast lane for account review: contact, location, territory/dealer context, and parked ERP truth in one pass.
+            Fast lane for account review: who to contact, where they operate, and what profile cleanup is next.
           </Text>
         </Stack>
         <Badge color={firstAttention ? 'yellow' : 'green'} variant="light">
-          {firstAttention ? 'Follow-up needed' : 'Ready for UAT'}
+          {firstAttention ? 'Follow-up needed' : 'Ready for review'}
         </Badge>
       </Group>
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
         <FocusCard
           title="Who to contact"
-          detail={primaryContact ? `${primaryContact.firstName} ${primaryContact.lastName}${primaryContact.email ? ` · ${primaryContact.email}` : ''}` : 'No contact saved yet.'}
+          detail={primaryContact ? `${primaryContact.firstName} ${primaryContact.lastName}${primaryContact.email ? ` · ${primaryContact.email}` : ''}` : 'Contact pending.'}
           actionLabel={primaryContact ? 'Review contacts' : 'Add contact'}
           href={`/customers/${account.id}?tab=contacts`}
           tone={primaryContact ? 'ready' : 'attention'}
         />
         <FocusCard
           title="Where they operate"
-          detail={primaryLocation ? [primaryLocation.city, primaryLocation.state, primaryLocation.countryCode].filter(Boolean).join(', ') || primaryLocation.name || 'Primary location saved.' : 'No location saved yet.'}
+          detail={primaryLocation ? [primaryLocation.city, primaryLocation.state, primaryLocation.countryCode].filter(Boolean).join(', ') || primaryLocation.name || 'Primary location saved.' : 'Location pending.'}
           actionLabel={primaryLocation ? 'Review locations' : 'Add location'}
           href={`/customers/${account.id}?tab=locations`}
           tone={primaryLocation ? 'ready' : 'attention'}
         />
         <FocusCard
-          title="Dealer visibility"
+          title="Profile readiness"
           detail={[
-            account.groupClassification ? formatDisplayValue(account.groupClassification) : 'Group classification pending',
-            account.regionName ?? account.regionCode,
-          ].filter(Boolean).join(' · ')}
-          actionLabel="Preview portal"
-          href={`/customers/${account.id}?tab=portal`}
-          tone={account.groupClassification ? 'ready' : 'attention'}
-        />
-        <FocusCard
-          title="ERP boundary"
-          detail={erpCheck?.message ?? 'Orders, invoices, pricing, and revenue activity stay parked until Acumatica is connected.'}
-          actionLabel="Review activity & docs"
-          href={`/customers/${account.id}?tab=activity-docs`}
-          tone="parked"
+            account.territoryName ?? 'Territory pending',
+            account.assignedTmName ?? 'TM pending',
+            account.groupClassification ? formatDisplayValue(account.groupClassification) : 'Dealer group pending',
+          ].join(' · ')}
+          actionLabel="Review profile"
+          href={`/customers/${account.id}`}
+          tone={firstAttention ? 'attention' : 'ready'}
         />
       </SimpleGrid>
       {firstAttention ? (
@@ -305,7 +342,7 @@ function CustomerActivityDocs({ account, canViewFinancials }: { account: Account
           <Stack gap={4}>
             <Title order={3}>Activity & Document Review</Title>
             <Text size="sm" c="dimmed">
-              CRM-owned account activity and document boundaries for UAT. ERP orders, invoices, shipments, revenue, and pricing stay parked until Acumatica is certified.
+              Account activity and available documents for the team. Orders, invoices, shipments, revenue, and pricing stay in their approved systems until the service connection is live.
             </Text>
           </Stack>
           <Badge color={account.activityReview.parkedDependencies.length ? 'gray' : 'green'} variant="light">
@@ -337,9 +374,9 @@ function CustomerActivityDocs({ account, canViewFinancials }: { account: Account
       <Paper withBorder radius="md" p="lg">
         <Group justify="space-between" align="flex-start" mb="md">
           <Stack gap={4}>
-            <Title order={3}>Recent CRM Activity</Title>
+            <Title order={3}>Recent Account Activity</Title>
             <Text size="sm" c="dimmed">
-              Account, contact, location, dealer/payment boundary, and source-lead signals captured by Pulse.
+              Account, contact, location, dealer access, payment, and source-lead updates captured for this profile.
             </Text>
           </Stack>
           <Badge color="blue" variant="light">{events.length}</Badge>
@@ -360,9 +397,10 @@ function CustomerActivityDocs({ account, canViewFinancials }: { account: Account
               </Group>
             </Card>
           )) : (
-            <Text size="sm" c="dimmed">
-              No recent CRM activity is available yet. New account, contact, location, portal, and payment-boundary changes will appear here.
-            </Text>
+            <EmptyStateMessage
+              title="No recent activity"
+              description="Account, contact, location, portal, and payment updates will appear here after they are saved."
+            />
           )}
         </Stack>
       </Paper>
@@ -399,16 +437,23 @@ function FocusCard({
 }) {
   const color = tone === 'ready' ? 'green' : tone === 'attention' ? 'yellow' : 'gray';
   return (
-    <Card withBorder radius="md" p="md">
+    <Card
+      component={Link}
+      href={href}
+      withBorder
+      radius="md"
+      p="md"
+      style={{ textDecoration: 'none' }}
+    >
       <Stack gap="sm">
         <Group justify="space-between">
           <Text fw={700}>{title}</Text>
           <Badge color={color} variant="light">{tone === 'parked' ? 'Parked' : tone === 'ready' ? 'Ready' : 'Check'}</Badge>
         </Group>
         <Text size="sm" c="dimmed" lineClamp={3}>{detail}</Text>
-        <Button component={Link} href={href} variant="light" size="xs">
+        <Text size="sm" fw={700} c="blue">
           {actionLabel}
-        </Button>
+        </Text>
       </Stack>
     </Card>
   );
@@ -425,7 +470,7 @@ function AccountUatHandoff({ account }: { account: AccountDetailRecord }) {
         <Stack gap={4}>
           <Title order={3}>Day-One Handoff</Title>
           <Text size="sm" c="dimmed">
-            A quick Dynamic AQS checklist for using this account before ERP activity, pricing, orders, and invoices are connected.
+            A quick Dynamic AQS checklist for using this account while external activity, pricing, orders, and invoices remain in their approved systems.
           </Text>
         </Stack>
         <Badge color={needsAttention.length ? 'yellow' : 'green'} variant="light">
@@ -437,7 +482,7 @@ function AccountUatHandoff({ account }: { account: AccountDetailRecord }) {
           title="Ready now"
           tone="ready"
           items={ready.slice(0, 4).map((check) => check.label)}
-          empty="No completed handoff checks yet."
+          empty="Completed handoff checks will appear here."
         />
         <HandoffCard
           title="Needs team follow-up"

@@ -11,7 +11,6 @@ import {
   IconClipboardList,
   IconMapPin,
   IconPackage,
-  IconPhoto,
   IconSchool,
   IconShield,
   IconUserPlus,
@@ -38,16 +37,23 @@ type LinksGroupProps = {
 function LinksGroup({ icon: Icon, label, initiallyOpened, link, links }: LinksGroupProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const hasLinks = Boolean(links?.length);
-  const isActive = link
-    ? isNavigationLinkActive(pathname, searchParams, link)
+  const hasNestedLinks = Boolean(links && links.length > 1);
+  const directLink = link ?? (links?.length === 1 ? links[0]?.link : undefined);
+  const isActive = directLink
+    ? isNavigationLinkActive(pathname, searchParams, directLink)
     : Boolean(links?.some((item) => isNavigationLinkActive(pathname, searchParams, item.link)));
   const [manualOpened, setManualOpened] = useState(initiallyOpened || isActive);
   const opened = manualOpened || isActive;
 
-  if (link && !hasLinks) {
+  if (directLink && !hasNestedLinks) {
     return (
-      <UnstyledButton component={Link} href={link} className={classes.control ?? ''} data-active={isActive || undefined}>
+      <UnstyledButton
+        component={Link}
+        href={directLink}
+        className={classes.control ?? ''}
+        data-active={isActive || undefined}
+        aria-current={isActive ? 'page' : undefined}
+      >
         <Group justify="space-between" gap={0}>
           <Box style={{ display: 'flex', alignItems: 'center' }}>
             <ThemeIcon variant="light" size={30}>
@@ -85,7 +91,14 @@ function LinksGroup({ icon: Icon, label, initiallyOpened, link, links }: LinksGr
         {links?.map((item) => {
           const itemActive = isNavigationLinkActive(pathname, searchParams, item.link);
           return (
-            <Text key={item.link} component={Link} href={item.link} className={classes.link ?? ''} data-active={itemActive || undefined}>
+            <Text
+              key={item.link}
+              component={Link}
+              href={item.link}
+              className={classes.link ?? ''}
+              data-active={itemActive || undefined}
+              aria-current={itemActive ? 'page' : undefined}
+            >
               {item.label}
             </Text>
           );
@@ -100,7 +113,9 @@ export function Navigation() {
 
   const role = auth?.identity.role;
   const navItems: LinksGroupProps[] = [];
-  const territoryNavigationLinks = getTerritoryNavigationLinks();
+  const territoryNavigationLinks = getTerritoryNavigationLinks().map((item) =>
+    item.label === 'Territory Map' ? { ...item, link: '/territory_map' } : item,
+  );
 
   // Calendar — single consistent slot at the top whenever the user has access,
   // regardless of which other modules they can see.
@@ -114,11 +129,11 @@ export function Navigation() {
       icon: IconUserPlus,
       initiallyOpened: true,
       links: [
-        { label: 'Pipeline', link: '/leads' },
+        { label: 'Lead Work Queue', link: '/leads' },
         { label: 'Website Forms', link: '/leads/forms' },
         { label: 'Workflow Queue', link: '/leads/activities' },
         ...(role && canAccessModule(role, 'cis') ? [{ label: 'Finance Queue', link: '/leads/finance' }] : []),
-        { label: 'Analytics', link: '/leads/analytics' },
+        { label: 'Insights', link: '/leads/analytics' },
       ],
     });
   }
@@ -148,30 +163,27 @@ export function Navigation() {
     navItems.push({ label: 'Consignment', icon: IconClipboardList, link: '/consignment' });
   }
 
-  if (role && canAccessModule(role, 'product_management')) {
-    navItems.push({
-      label: 'Products',
-      icon: IconPackage,
-      links: [
-        { label: 'Who Sees It', link: '/product-management?tab=visibility' },
-        { label: 'Products', link: '/product-management?tab=products' },
-        { label: 'Files & Readiness', link: '/product-management?tab=readiness' },
-        { label: 'Ready To Publish', link: '/product-management?tab=publish' },
-        { label: 'Catalog Setup', link: '/product-management?tab=categories' },
-      ],
-    });
-  }
+  const canSeeProductManagement = Boolean(role && canAccessModule(role, 'product_management'));
+  const canSeeDigitalAssets = Boolean(role && canAccessModule(role, 'digital_assets'));
+  const productsAndFilesLinks: NavLink[] = [
+    ...(canSeeProductManagement ? [
+      { label: 'Products', link: '/product-management?tab=products' },
+      { label: 'Who Sees What', link: '/product-management?tab=visibility' },
+    ] : []),
+    ...(canSeeDigitalAssets ? [
+      { label: 'Asset Library', link: '/digital-assets?tab=library' },
+      { label: 'Share Sets', link: '/digital-assets?tab=collections' },
+      { label: 'Needs Attention', link: '/digital-assets?tab=delivery-health' },
+    ] : []),
+  ];
 
-  if (role && canAccessModule(role, 'digital_assets')) {
+  if (productsAndFilesLinks.length) {
+    // Daily product work stays to two doors; setup/source review remain in the
+    // Product and Digital Asset workspace More menus.
     navItems.push({
-      label: 'Digital Assets',
-      icon: IconPhoto,
-      links: [
-        { label: 'Asset Library', link: '/digital-assets?tab=library' },
-        { label: 'Collections', link: '/digital-assets?tab=collections' },
-        { label: 'Migration Manifest', link: '/digital-assets?tab=migration' },
-        { label: 'Delivery Health', link: '/digital-assets?tab=delivery-health' },
-      ],
+      label: 'Products and Files',
+      icon: IconPackage,
+      links: productsAndFilesLinks,
     });
   }
 
@@ -183,16 +195,9 @@ export function Navigation() {
 
   if (role && canAccessModule(role, 'admin')) {
     navItems.push({
-      label: 'Administration',
+      label: 'Users & Access',
       icon: IconShield,
-      links: [
-        { label: 'Admin Dashboard', link: '/admin' },
-        { label: 'User Management', link: '/admin/users' },
-        { label: 'Roles & Permissions', link: '/admin/roles' },
-        ...(canPerformAction(role, 'product.manage') ? [{ label: 'Catalog Rules', link: '/admin/catalog-rules' }] : []),
-        { label: 'Integrations', link: '/admin/integrations' },
-        { label: 'Activity Monitor', link: '/admin/activity' },
-      ],
+      link: '/admin/users',
     });
   }
 

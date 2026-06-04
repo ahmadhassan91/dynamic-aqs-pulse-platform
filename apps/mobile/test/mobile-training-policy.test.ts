@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { TrainingSessionSummary } from '@pulse/contracts/training';
-import { buildProofUploadStatusFromError, buildTrainingCompleteRequest, getTrainingCompletionBlocker } from '../src/lib/training-mobile-policy.ts';
+import {
+  buildProofUploadStatusFromError,
+  buildTrainingCompleteRequest,
+  getTrainingCompletionBlocker,
+  isMobileActionableTrainingSession,
+} from '../src/lib/training-mobile-policy.ts';
 
 test('blocks enabled follow-up with missing title or detail', () => {
   const session = trainingSession();
@@ -90,7 +95,14 @@ test('formats failed proof upload as not saved offline', () => {
   assert.match(status.message, /not saved offline/);
 });
 
-function trainingSession(): TrainingSessionSummary {
+test('identifies mobile actionable training sessions consistently', () => {
+  assert.equal(isMobileActionableTrainingSession(trainingSession()), true);
+  assert.equal(isMobileActionableTrainingSession(trainingSession({ activityKind: 'site_visit' })), false);
+  assert.equal(isMobileActionableTrainingSession(trainingSession({ status: 'cancelled' })), false);
+  assert.equal(isMobileActionableTrainingSession(trainingSession({ completedAt: '2026-05-24T12:30:00.000Z', executionState: 'completed', status: 'completed' })), false);
+});
+
+function trainingSession(overrides: Partial<TrainingSessionSummary> = {}): TrainingSessionSummary {
   return {
     accountId: 'account-1',
     accountName: 'UAT Dealer',
@@ -107,5 +119,6 @@ function trainingSession(): TrainingSessionSummary {
     status: 'scheduled',
     title: 'UAT Training',
     updatedAt: '2026-05-24T00:00:00.000Z',
+    ...overrides,
   } as TrainingSessionSummary;
 }

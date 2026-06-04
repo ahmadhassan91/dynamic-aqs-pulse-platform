@@ -1,41 +1,31 @@
+import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
-import { Card, HeroCard, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { clearDraft, clearSyncedDrafts, getMobileDraftReviewState, retryDraft, retryPendingDrafts, summarizeMobileDraftQueue, summarizeMobileDraftStatus, useMobileDraftQueue, type MobileDraft } from '@/lib/mobile-draft-queue';
-import { getMobileSyncUatGuidance, type MobileSyncUatGuidance } from '@/lib/mobile-sync-uat-guidance';
+import { MobileNextActionCard } from '@/components/mobile-next-action-card';
+import { Card, EmptyState, HeroCard, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { useMobileNextActions } from '@/hooks/use-mobile-next-actions';
+import { clearDraft, clearSyncedDrafts, getMobileDraftReviewState, retryDraft, retryPendingDrafts, summarizeMobileDraftStatus, type MobileDraft } from '@/lib/mobile-draft-queue';
+import type { MobileNextAction } from '@/lib/mobile-next-action';
 import { useSession } from '@/providers/session-provider';
 import { colors, spacing, typography } from '@/theme';
 
 export function SyncStatusContent() {
   const { apiBaseUrl, auth, refresh } = useSession();
-  const drafts = useMobileDraftQueue();
-  const summary = summarizeMobileDraftQueue(drafts);
+  const { drafts, draftSummary: summary, nextActions } = useMobileNextActions();
   const pendingDrafts = drafts.filter((draft) => draft.status !== 'synced');
   const syncedDrafts = drafts.filter((draft) => draft.status === 'synced');
-  const sendingDrafts = drafts.filter((draft) => draft.status === 'syncing');
   const failedDrafts = drafts.filter((draft) => draft.status === 'failed');
   const conflictDrafts = drafts.filter((draft) => draft.status === 'conflict');
   const roseDrafts = pendingDrafts.filter((draft) => draft.kind === 'consignment_rose_audit').length;
   const routeDrafts = pendingDrafts.filter((draft) => draft.kind === 'route_visit').length;
   const trainingDrafts = pendingDrafts.filter((draft) => draft.kind === 'training_session').length;
   const canRetry = Boolean(auth);
-  const guidance = getMobileSyncUatGuidance({
-    unsynced: summary.unsynced,
-    retryable: summary.retryable,
-    readyToRetry: summary.readyToRetry,
-    needsReview: summary.needsReview,
-    signInAgain: summary.signInAgain,
-    savedOnPhone: summary.savedOnPhone,
-    syncing: summary.syncing,
-    storageAvailable: summary.storageAvailable,
-    storageHydrated: summary.storageHydrated,
-  });
 
   return (
     <Screen>
-      <HeroCard title="Sync status" eyebrow="Mobile reliability" icon={{ name: 'arrow.triangle.2.circlepath', fallback: 'S' }}>
+      <HeroCard title="Sync status" eyebrow="Phone-saved updates" icon={{ name: 'arrow.triangle.2.circlepath', fallback: 'S' }}>
         <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
-          Check which field updates are saved only on this phone, which ones reached CRM, and which ones need review before the next retry.
+          See what is only on this phone, what reached CRM, and what needs review before you leave the customer.
         </Text>
       </HeroCard>
 
@@ -51,27 +41,9 @@ export function SyncStatusContent() {
           </View>
           <Pill label={auth ? 'signed in' : 'not signed in'} tone={auth ? 'active' : 'review'} />
         </View>
-        <Text selectable style={{ ...typography.caption, color: colors.muted }}>
-          CRM connection: {apiBaseUrl}
-        </Text>
       </Card>
 
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
-          <View style={{ flex: 1, gap: spacing.xs }}>
-            <Text selectable style={{ ...typography.caption, color: colors.subtle, fontWeight: '800', textTransform: 'uppercase' }}>
-              What should I do now?
-            </Text>
-            <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
-              {guidance.title}
-            </Text>
-            <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-              {guidance.detail}
-            </Text>
-          </View>
-          <Pill label={guidance.action} tone={guidancePillTone(guidance)} />
-        </View>
-      </Card>
+      <MobileNextActionCard action={nextActions.primary} eyebrow="Top field action" onPress={openNextAction} />
 
       <Card>
         <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
@@ -81,24 +53,25 @@ export function SyncStatusContent() {
           {summary.unsynced}
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          These updates are protected on this device, but they are not visible to CRM users until CRM saves them.
+          These updates are protected on this device. They are not visible to CRM users until a retry succeeds.
+        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <Pill label={`${summary.readyToRetry} ready`} tone={summary.readyToRetry ? 'review' : 'active'} />
+          <Pill label={`${summary.signInAgain} sign in`} tone={summary.signInAgain ? 'review' : 'active'} />
+          <Pill label={`${failedDrafts.length + conflictDrafts.length} issues`} tone={failedDrafts.length + conflictDrafts.length ? 'review' : 'active'} />
+          <Pill label={`${syncedDrafts.length} CRM saved`} tone="active" />
+        </View>
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          ROSE {roseDrafts} · Route {routeDrafts} · Training {trainingDrafts} · Phone storage {summary.storageHydrated ? 'ready' : 'loading'}
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          Saved on phone: {summary.savedOnPhone} · Ready to retry: {summary.readyToRetry} · Sign in again: {summary.signInAgain} · Needs review: {summary.needsReview} · Sending: {sendingDrafts.length} · CRM saved: {syncedDrafts.length}
-        </Text>
-        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          Failed drafts: {failedDrafts.length} · Conflict drafts: {conflictDrafts.length}
-        </Text>
-        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          ROSE audits: {roseDrafts} · Route visits: {routeDrafts} · Training: {trainingDrafts}
-        </Text>
-        <Text selectable style={{ ...typography.caption, color: summary.storageHydrated ? colors.subtle : colors.warning }}>
-          Phone storage: {summary.storageHydrated ? 'Ready' : 'Loading'}
-        </Text>
-        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          Manual sync only for UAT: background sync, conflict merging, and offline photo bytes remain parked until native storage/security rules are approved.
+          For this mobile slice, retry is manual. Background sync, conflict merging, push/deep links, route optimization, and offline photo/file caches remain parked.
         </Text>
       </Card>
+
+      {!drafts.length ? (
+        <EmptyState title="No phone-only updates" detail="You are clear to continue field work. New offline route, ROSE, or training updates will appear here if CRM does not save them right away." />
+      ) : null}
 
       {!summary.storageHydrated ? (
         <Card style={{ backgroundColor: colors.surfaceMuted, borderColor: colors.border }}>
@@ -205,9 +178,8 @@ export function SyncStatusContent() {
         </View>
       ) : null}
 
-      <SectionTitle title="Session tools" />
-      <SecondaryButton label="Refresh session" icon={{ name: 'arrow.clockwise.circle.fill', fallback: 'R' }} onPress={() => void refresh()} />
-      <SecondaryButton
+      <SectionTitle title="Session tools" detail="Retry ready updates first. Refresh the session only if sign-in or permission messages appear." />
+      <PrimaryButton
         disabled={!canRetry || summary.retryable === 0}
         label={canRetry ? `Retry ready updates (${summary.retryable})` : 'Sign in to retry updates'}
         icon={{ name: 'arrow.up.arrow.down.circle.fill', fallback: 'Sync' }}
@@ -216,6 +188,7 @@ export function SyncStatusContent() {
           void retryPendingDrafts(apiBaseUrl, auth.tokens.accessToken);
         }}
       />
+      <SecondaryButton label="Refresh session" icon={{ name: 'arrow.clockwise.circle.fill', fallback: 'R' }} onPress={() => void refresh()} />
       <SecondaryButton disabled={syncedDrafts.length === 0} label={`Remove CRM-saved copies (${syncedDrafts.length})`} icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }} onPress={clearSyncedDrafts} />
     </Screen>
   );
@@ -231,10 +204,8 @@ function DraftReviewMeta({ draft }: { draft: MobileDraft }) {
   );
 }
 
-function guidancePillTone(guidance: MobileSyncUatGuidance) {
-  if (guidance.tone === 'ready') return 'active';
-  if (guidance.tone === 'blocked' || guidance.tone === 'review') return 'review';
-  return 'pending';
+function openNextAction(action: MobileNextAction) {
+  router.push(action.targetHref as never);
 }
 
 function ConflictGuidance({ message }: { message?: string }) {

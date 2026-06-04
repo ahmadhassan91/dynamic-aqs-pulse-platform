@@ -1,13 +1,111 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { MantineProvider, createTheme } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Drawer,
+  MantineProvider,
+  Modal,
+  NavLink,
+  Paper,
+  createTheme,
+} from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { PulseSessionProvider } from '@/lib/pulse-session';
 
 const theme = createTheme({
-  primaryColor: 'blue',
+  colors: {
+    pulseBlue: [
+      '#eff6ff',
+      '#dbeafe',
+      '#bfdbfe',
+      '#93c5fd',
+      '#60a5fa',
+      '#3b82f6',
+      '#2563eb',
+      '#1d4ed8',
+      '#1e40af',
+      '#1e3a8a',
+    ],
+    pulseOrange: [
+      '#fff7ed',
+      '#ffedd5',
+      '#fed7aa',
+      '#fdba74',
+      '#fb923c',
+      '#f97316',
+      '#ea580c',
+      '#c2410c',
+      '#9a3412',
+      '#7c2d12',
+    ],
+    pulseRed: [
+      '#fef2f2',
+      '#fee2e2',
+      '#fecaca',
+      '#fca5a5',
+      '#f87171',
+      '#ef4444',
+      '#dc2626',
+      '#b91c1c',
+      '#991b1b',
+      '#7f1d1d',
+    ],
+  },
+  primaryColor: 'pulseBlue',
+  primaryShade: 7,
   defaultRadius: 'md',
+  components: {
+    Alert: Alert.extend({
+      defaultProps: {
+        radius: 'md',
+      },
+    }),
+    Badge: Badge.extend({
+      defaultProps: {
+        radius: 'sm',
+        variant: 'light',
+      },
+    }),
+    Button: Button.extend({
+      defaultProps: {
+        color: 'pulseBlue',
+        radius: 'md',
+      },
+    }),
+    Card: Card.extend({
+      defaultProps: {
+        radius: 'md',
+        shadow: 'none',
+      },
+    }),
+    Drawer: Drawer.extend({
+      defaultProps: {
+        radius: 0,
+        shadow: 'md',
+      },
+    }),
+    Modal: Modal.extend({
+      defaultProps: {
+        radius: 'md',
+        shadow: 'md',
+      },
+    }),
+    NavLink: NavLink.extend({
+      defaultProps: {
+        color: 'pulseBlue',
+      },
+    }),
+    Paper: Paper.extend({
+      defaultProps: {
+        radius: 'md',
+        shadow: 'none',
+      },
+    }),
+  },
 });
 
 export function AppProviders({ children }: { children: ReactNode }) {

@@ -21,6 +21,7 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Stepper,
   Table,
   Tabs,
   Text,
@@ -38,14 +39,11 @@ import {
   IconClock,
   IconDownload,
   IconFileUpload,
-  IconListDetails,
   IconMail,
   IconPhone,
   IconPlus,
   IconRefresh,
-  IconTarget,
   IconTimeline,
-  IconUsers,
   IconWorld,
 } from '@tabler/icons-react';
 import {
@@ -53,8 +51,8 @@ import {
   type CreateLeadRequest,
   type GroupAxisSelectionKey,
   type LeadImportDuplicateCandidate,
+  type LeadOcrCaptureDocumentTypeKey,
   type PreviewLeadOcrCaptureResponse,
-  type LeadRoutingPolicySummary,
   type LeadRoutingTeamKey,
   type LeadStageKey,
   type LeadSummary,
@@ -70,7 +68,6 @@ import {
 import {
   createLead,
   fetchAffinityGroups,
-  fetchLeadRoutingPolicy,
   fetchLeadSources,
   fetchLeads,
   fetchOwnershipGroups,
@@ -80,9 +77,12 @@ import {
 } from '@/lib/pulse-api';
 import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import { WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
 
-type LeadWorkspaceTab = 'overview' | 'pipeline' | 'analytics';
+export type LeadWorkspaceTab = 'queue' | 'insights';
 type ViewMode = 'kanban' | 'list';
+type LeadIntakeStep = 'customer' | 'routing' | 'review';
+type DuplicateReviewStatus = 'idle' | 'clear' | 'matches';
 type ManualGroupAxisSelection = GroupAxisSelectionKey | '';
 type LeadCreateFormState = {
   companyName: string;
@@ -140,6 +140,12 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
 const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
 const leadMarketingSourceOptions = APP_LEAD_MARKETING_SOURCES;
 const leadRatingOptions = APP_LEAD_RATINGS;
+const leadOcrCaptureTypeOptions = [
+  { value: 'business_card', label: 'Business card' },
+  { value: 'show_badge', label: 'Show badge' },
+  { value: 'handwritten_note', label: 'Handwritten note' },
+  { value: 'other', label: 'Other file' },
+] satisfies ReadonlyArray<{ value: LeadOcrCaptureDocumentTypeKey; label: string }>;
 const manualGroupAxisSelectionOptions = [
   { value: 'none', label: 'Independent / no group' },
   { value: 'group', label: 'Select governed group' },
@@ -151,7 +157,7 @@ const leadRegionSelectData = leadRegionOptions.map((option) => ({
 }));
 
 export function LeadWorkspace({
-  initialTab = 'overview',
+  initialTab = 'queue',
 }: {
   initialTab?: LeadWorkspaceTab;
 }) {
@@ -159,11 +165,10 @@ export function LeadWorkspace({
   const router = useRouter();
   const canOpenFinanceQueue = Boolean(auth?.identity.role && canAccessModule(auth.identity.role, 'cis'));
   const [activeTab, setActiveTab] = useState<LeadWorkspaceTab>(initialTab);
-  const [viewMode, setViewMode] = useState<ViewMode>('kanban');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
   const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
   const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
-  const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<LeadStageKey | ''>('');
@@ -175,13 +180,16 @@ export function LeadWorkspace({
   const [isLoadingLeads, setIsLoadingLeads] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [createLeadOpened, { open: openCreateLead, close: closeCreateLead }] = useDisclosure(false);
+  const [createLeadStep, setCreateLeadStep] = useState<LeadIntakeStep>('customer');
   const [createLeadForm, setCreateLeadForm] = useState<LeadCreateFormState>(EMPTY_LEAD_FORM);
   const [createLeadError, setCreateLeadError] = useState<string | null>(null);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [duplicateCandidates, setDuplicateCandidates] = useState<LeadImportDuplicateCandidate[]>([]);
   const [pendingDuplicatePayload, setPendingDuplicatePayload] = useState<CreateLeadRequest | null>(null);
+  const [duplicateReviewStatus, setDuplicateReviewStatus] = useState<DuplicateReviewStatus>('idle');
   const [duplicateOverrideReason, setDuplicateOverrideReason] = useState('');
   const [ocrCaptureFile, setOcrCaptureFile] = useState<File | null>(null);
+  const [ocrCaptureDocumentType, setOcrCaptureDocumentType] = useState<LeadOcrCaptureDocumentTypeKey>('business_card');
   const [ocrPreview, setOcrPreview] = useState<PreviewLeadOcrCaptureResponse | null>(null);
   const [ocrDuplicateCandidates, setOcrDuplicateCandidates] = useState<LeadImportDuplicateCandidate[]>([]);
   const [isPreviewingOcr, setIsPreviewingOcr] = useState(false);
@@ -201,7 +209,6 @@ export function LeadWorkspace({
       setLeadSources([]);
       setAffinityGroups([]);
       setOwnershipGroups([]);
-      setRoutingPolicy(null);
       return;
     }
 
@@ -212,11 +219,10 @@ export function LeadWorkspace({
       setReferenceError(null);
 
       try {
-        const [leadSourceResponse, affinityGroupResponse, ownershipGroupResponse, routingPolicyResponse] = await Promise.all([
+        const [leadSourceResponse, affinityGroupResponse, ownershipGroupResponse] = await Promise.all([
           fetchLeadSources(apiBaseUrl, accessToken),
           fetchAffinityGroups(apiBaseUrl, accessToken),
           fetchOwnershipGroups(apiBaseUrl, accessToken),
-          fetchLeadRoutingPolicy(apiBaseUrl, accessToken),
         ]);
 
         if (cancelled) {
@@ -226,7 +232,6 @@ export function LeadWorkspace({
         setLeadSources(leadSourceResponse.items);
         setAffinityGroups(affinityGroupResponse.items);
         setOwnershipGroups(ownershipGroupResponse.items);
-        setRoutingPolicy(routingPolicyResponse);
         setCreateLeadForm((current) => ({
           ...current,
           leadSourceCode: current.leadSourceCode || leadSourceResponse.items[0]?.code || 'manual_entry',
@@ -302,6 +307,101 @@ export function LeadWorkspace({
         {} as Record<LeadStageKey, number>,
       ),
     [leads],
+  );
+
+  const digitalIntakeCount = useMemo(
+    () => leads.filter((lead) => lead.sourceSiteId || lead.leadCaptureMethod === 'direct_web_form').length,
+    [leads],
+  );
+
+  const overdueInitialContactCount = useMemo(
+    () =>
+      leads.filter((lead) => (
+        lead.stage === 'new'
+        && lead.initialContactDueAt
+        && new Date(lead.initialContactDueAt).getTime() < Date.now()
+      )).length,
+    [leads],
+  );
+
+  const leadWorkbenchMetrics = useMemo(
+    () => [
+      { label: 'Residential leads', value: totalLeads, tone: 'blue', helper: `Loaded ${leads.length} in this view` },
+      { label: 'Digital intake', value: digitalIntakeCount, tone: 'cyan', helper: 'Website and direct form leads' },
+      { label: 'Awaiting CIS', value: stageCounts.cis_sent ?? 0, tone: 'orange', helper: 'Follow-up queue' },
+      { label: 'Ready first order', value: stageCounts.onboarding_completed ?? 0, tone: 'teal', helper: 'Onboarding complete' },
+    ],
+    [digitalIntakeCount, leads.length, stageCounts.cis_sent, stageCounts.onboarding_completed, totalLeads],
+  );
+
+  const leadAttentionItems = useMemo(
+    () => {
+      const cisFollowUpCount = stageCounts.cis_sent ?? 0;
+      const readyFirstOrderCount = stageCounts.onboarding_completed ?? 0;
+      return [
+        {
+        id: 'initial-contact-overdue',
+        title: 'Initial contact overdue',
+        description: 'New leads past the first-contact SLA.',
+        count: overdueInitialContactCount,
+        tone: overdueInitialContactCount > 0 ? 'red' : 'gray',
+        action: overdueInitialContactCount > 0 ? (
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => {
+              setActiveTab('queue');
+              setViewMode('list');
+              setStageFilter('new');
+            }}
+          >
+            Review
+          </Button>
+        ) : undefined,
+      },
+      {
+        id: 'cis-follow-up',
+        title: 'CIS follow-up',
+        description: 'Leads waiting on signed CIS paperwork.',
+        count: cisFollowUpCount,
+        tone: 'orange',
+        action: cisFollowUpCount > 0 ? (
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => {
+              setActiveTab('queue');
+              setViewMode('list');
+              setStageFilter('cis_sent');
+            }}
+          >
+            Open
+          </Button>
+        ) : undefined,
+      },
+      {
+        id: 'first-order-ready',
+        title: 'Ready for first order',
+        description: 'Onboarding is complete and the lead is ready for activation.',
+        count: readyFirstOrderCount,
+        tone: 'teal',
+        action: readyFirstOrderCount > 0 ? (
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => {
+              setActiveTab('queue');
+              setViewMode('list');
+              setStageFilter('onboarding_completed');
+            }}
+          >
+            Open
+          </Button>
+        ) : undefined,
+      },
+    ];
+    },
+    [overdueInitialContactCount, stageCounts.cis_sent, stageCounts.onboarding_completed],
   );
 
   const latestLead = useMemo(
@@ -392,16 +492,98 @@ export function LeadWorkspace({
     };
   }
 
+  function clearDuplicateReviewState() {
+    setDuplicateCandidates([]);
+    setPendingDuplicatePayload(null);
+    setDuplicateReviewStatus('idle');
+    setDuplicateOverrideReason('');
+  }
+
+  function updateCreateLeadDraft(updater: (current: LeadCreateFormState) => LeadCreateFormState) {
+    clearDuplicateReviewState();
+    setCreateLeadForm(updater);
+  }
+
+  function validateCustomerStep() {
+    if (
+      !createLeadForm.companyName.trim()
+      || !createLeadForm.serviceTechCount
+      || !createLeadForm.email.trim()
+      || !createLeadForm.phone.trim()
+    ) {
+      setCreateLeadError('Company name, email, phone, and service tech count are required.');
+      return false;
+    }
+
+    setCreateLeadError(null);
+    return true;
+  }
+
+  function validateRoutingStep() {
+    if (!createLeadForm.affinityGroupSelection) {
+      setCreateLeadError('Choose an affinity group status before creating a manual lead.');
+      return false;
+    }
+
+    if (!createLeadForm.ownershipGroupSelection) {
+      setCreateLeadError('Choose an ownership group status before creating a manual lead.');
+      return false;
+    }
+
+    if (createLeadForm.affinityGroupSelection === 'group' && !createLeadForm.affinityGroupCode) {
+      setCreateLeadError('Choose an affinity group when the affinity selection is set to a governed group.');
+      return false;
+    }
+
+    if (createLeadForm.ownershipGroupSelection === 'group' && !createLeadForm.ownershipGroupCode) {
+      setCreateLeadError('Choose an ownership group when the ownership selection is set to a governed group.');
+      return false;
+    }
+
+    setCreateLeadError(null);
+    return true;
+  }
+
+  function handleContinueToRouting() {
+    if (validateCustomerStep()) {
+      clearDuplicateReviewState();
+      setCreateLeadStep('routing');
+    }
+  }
+
+  function handleContinueToReview() {
+    if (validateCustomerStep() && validateRoutingStep()) {
+      clearDuplicateReviewState();
+      setCreateLeadStep('review');
+    }
+  }
+
+  function handleBackInCreateLead() {
+    clearDuplicateReviewState();
+    setCreateLeadError(null);
+    if (createLeadStep === 'review') {
+      setCreateLeadStep('routing');
+      return;
+    }
+
+    if (createLeadStep === 'routing') {
+      setCreateLeadStep('customer');
+    }
+  }
+
   function resetCreateLeadModal() {
     setCreateLeadForm({
       ...EMPTY_LEAD_FORM,
       leadSourceCode: createLeadForm.leadSourceCode || 'manual_entry',
     });
+    setCreateLeadStep('customer');
     setCreateLeadError(null);
     setDuplicateCandidates([]);
     setPendingDuplicatePayload(null);
+    setDuplicateReviewStatus('idle');
     setDuplicateOverrideReason('');
     setOcrCaptureFile(null);
+    setOcrCaptureDocumentType('business_card');
     setOcrPreview(null);
     setOcrDuplicateCandidates([]);
     closeCreateLead();
@@ -420,7 +602,7 @@ export function LeadWorkspace({
     try {
       const contentBase64 = await readFileAsBase64(ocrCaptureFile);
       const preview = await previewLeadOcrCapture(apiBaseUrl, auth.tokens.accessToken, {
-        documentType: 'business_card',
+        documentType: ocrCaptureDocumentType,
         fileName: ocrCaptureFile.name,
         mimeType: ocrCaptureFile.type || 'application/octet-stream',
         contentBase64,
@@ -429,7 +611,7 @@ export function LeadWorkspace({
 
       setOcrPreview(preview);
       setOcrDuplicateCandidates(preview.duplicatePreview.candidates);
-      setCreateLeadForm((current) => ({
+      updateCreateLeadDraft((current) => ({
         ...current,
         companyName: readOcrStringField(preview.fields.companyName?.value) || current.companyName,
         contactDisplayName: readOcrStringField(preview.fields.contactDisplayName?.value) || current.contactDisplayName,
@@ -459,14 +641,14 @@ export function LeadWorkspace({
 
     resetCreateLeadModal();
     startTransition(() => {
-      setActiveTab('pipeline');
-      setViewMode('kanban');
+      setActiveTab('queue');
+      setViewMode('list');
       router.push(`/leads/${response.id}`);
     });
     setRefreshNonce((value) => value + 1);
   }
 
-  async function handleCreateLead() {
+  async function handleReviewDuplicateCandidates() {
     if (!auth) {
       return;
     }
@@ -485,11 +667,32 @@ export function LeadWorkspace({
       if (preview.hasPotentialDuplicate) {
         setDuplicateCandidates(preview.candidates);
         setPendingDuplicatePayload(payload);
+        setDuplicateReviewStatus('matches');
         setDuplicateOverrideReason('');
         return;
       }
 
-      await finishCreateLead(payload);
+      setDuplicateCandidates([]);
+      setPendingDuplicatePayload(payload);
+      setDuplicateReviewStatus('clear');
+      setDuplicateOverrideReason('');
+    } catch (error) {
+      setCreateLeadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingLead(false);
+    }
+  }
+
+  async function handleCreateReviewedLead() {
+    if (!pendingDuplicatePayload || duplicateReviewStatus !== 'clear') {
+      setCreateLeadError('Review possible matches before saving this lead.');
+      return;
+    }
+
+    setIsCreatingLead(true);
+    setCreateLeadError(null);
+    try {
+      await finishCreateLead(pendingDuplicatePayload);
     } catch (error) {
       setCreateLeadError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -622,48 +825,68 @@ export function LeadWorkspace({
   return (
     <>
       <Stack gap="md">
-        <Paper shadow="sm" p="lg" radius="xl" className="premium-hero-panel">
-          <Group justify="space-between" align="flex-start">
-            <Stack gap="xs">
-              <Title order={1}>Residential Lead Hub</Title>
-              <Text size="sm" c="dimmed">
-                Manage residential leads from Pulse-powered website forms, referrals, and trade shows with governed routing, gated review, and dedicated list + kanban modes.
-              </Text>
-              <Group gap="xs">
-                <Badge color="blue" variant="light">Residential Program</Badge>
-                <Badge color="gray" variant="outline">Loaded {leads.length} of {totalLeads}</Badge>
-              </Group>
-            </Stack>
-            <Group gap="sm">
-              <Button
-                leftSection={<IconPlus size={16} />}
-                variant="gradient"
-                gradient={{ from: 'blue', to: 'indigo', deg: 120 }}
-                onClick={openCreateLead}
-              >
-                New Intake
-              </Button>
+        <WorkbenchHeader
+          eyebrow="Residential Program"
+          title="Lead Work Queue"
+          description="Work residential leads by next action, SLA, owner, source, and routing status before opening board or reporting views."
+          policyText={`Loaded ${leads.length} of ${totalLeads}`}
+          primaryAction={(
+            <Button
+              leftSection={<IconPlus size={16} />}
+              variant="gradient"
+              gradient={{ from: 'blue', to: 'indigo', deg: 120 }}
+              onClick={openCreateLead}
+            >
+              New Intake
+            </Button>
+          )}
+          secondaryActions={(
+            <Group gap="sm" justify="flex-end">
               <Menu position="bottom-end" withinPortal shadow="md" width={220}>
                 <Menu.Target>
                   <Button variant="default" rightSection={<IconChevronDown size={14} />}>
-                    More actions
+                    More
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
+                  <Menu.Label>Review</Menu.Label>
+                  {latestLead ? (
+                    <Menu.Item
+                      leftSection={<IconArrowRight size={14} />}
+                      onClick={() => router.push(`/leads/${latestLead.id}`)}
+                    >
+                      Open Latest Intake
+                    </Menu.Item>
+                  ) : null}
+                  <Menu.Item
+                    leftSection={<IconTimeline size={14} />}
+                    onClick={() => {
+                      setActiveTab('queue');
+                      setViewMode('kanban');
+                    }}
+                  >
+                    Pipeline board
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={<IconChartBar size={14} />}
+                    onClick={() => setActiveTab('insights')}
+                  >
+                    Insights
+                  </Menu.Item>
                   <Menu.Label>Intake</Menu.Label>
                   <Menu.Item
                     component={Link}
                     href="/leads/import"
                     leftSection={<IconFileUpload size={14} />}
                   >
-                    Import CSV
+                    Bulk import
                   </Menu.Item>
                   <Menu.Item
                     component={Link}
                     href="/leads/forms"
                     leftSection={<IconWorld size={14} />}
                   >
-                    Website Forms
+                    Website form setup
                   </Menu.Item>
                   <Menu.Label>Workflow</Menu.Label>
                   <Menu.Item
@@ -671,7 +894,7 @@ export function LeadWorkspace({
                     href="/leads/activities"
                     leftSection={<IconClock size={14} />}
                   >
-                    Workflow Queue
+                    Workflow review
                   </Menu.Item>
                   {canOpenFinanceQueue ? (
                     <Menu.Item
@@ -689,38 +912,8 @@ export function LeadWorkspace({
                 </Menu.Dropdown>
               </Menu>
             </Group>
-          </Group>
-        </Paper>
-
-        <Paper withBorder p="md" radius="xl" className="premium-subhero-panel">
-          <Group justify="space-between" align="center" wrap="wrap">
-            <Stack gap={4}>
-              <Text fw={600}>Digital intake & routing</Text>
-              <Text size="sm" c="dimmed">
-                Homeowner and contractor forms across branded websites, plus referral and trade-show capture, land directly in Pulse CRM. Routing stays configuration-backed and currently runs on service tech count.
-              </Text>
-              <Text size="xs" c="dimmed">
-                Pipeline, source, and readiness cards summarize the currently loaded lead window until server-side aggregate reporting is enabled.
-              </Text>
-            </Stack>
-            <Group gap="xs">
-              {latestLead ? (
-                <>
-                  {latestLead.sourceSiteName ? <Badge color="cyan" variant="light">{latestLead.sourceSiteName}</Badge> : null}
-                  {latestLead.sourceBrandTag ? <Badge color="blue" variant="light">{latestLead.sourceBrandTag}</Badge> : null}
-                  <Button size="xs" variant="light" onClick={() => router.push(`/leads/${latestLead.id}`)}>
-                    Open Latest Intake
-                  </Button>
-                </>
-              ) : null}
-              {routingPolicy ? (
-                <Badge color="grape" variant="outline">
-                  {formatRoutingBasis(routingPolicy.routingBasis)} / threshold {routingPolicy.strategicGrowthMax}
-                </Badge>
-              ) : null}
-            </Group>
-          </Group>
-        </Paper>
+          )}
+        />
 
         {referenceError ? (
           <Paper withBorder p="md" radius="xl" className="premium-subhero-panel">
@@ -728,74 +921,27 @@ export function LeadWorkspace({
           </Paper>
         ) : null}
 
-        <Tabs value={activeTab} onChange={(value) => setActiveTab((value as LeadWorkspaceTab) || 'overview')} className="premium-tabs-shell">
+        <Tabs value={activeTab} onChange={(value) => setActiveTab((value as LeadWorkspaceTab) || 'queue')} className="premium-tabs-shell">
           <Tabs.List>
-            <Tabs.Tab value="overview" leftSection={<IconChartBar size={16} />}>
-              Overview
+            <Tabs.Tab value="queue" leftSection={<IconTimeline size={16} />}>
+              Lead Work Queue
             </Tabs.Tab>
-            <Tabs.Tab value="pipeline" leftSection={<IconTimeline size={16} />}>
-              Pipeline
-            </Tabs.Tab>
-            <Tabs.Tab value="analytics" leftSection={<IconChartBar size={16} />}>
-              Analytics
+            <Tabs.Tab value="insights" leftSection={<IconChartBar size={16} />}>
+              Insights
             </Tabs.Tab>
           </Tabs.List>
 
-          <Tabs.Panel value="overview" pt="md">
-            <Stack gap="lg">
-              <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-                <MetricCard label="Residential Leads" value={String(totalLeads)} icon={IconUsers} color="blue" />
-                <MetricCard label="Website / digital intake" value={String(leads.filter((lead) => lead.sourceSiteId || lead.leadCaptureMethod === 'direct_web_form').length)} icon={IconWorld} color="cyan" />
-                <MetricCard label="Awaiting CIS" value={String(leads.filter((lead) => lead.stage === 'cis_sent').length)} icon={IconClock} color="orange" />
-                <MetricCard label="Ready for first order" value={String(leads.filter((lead) => lead.stage === 'onboarding_completed').length)} icon={IconTarget} color="teal" />
-              </SimpleGrid>
+          <Tabs.Panel value="queue" pt="md">
+            <Stack gap="md" data-testid="lead-work-queue-panel">
+              <WorkbenchAttentionPanel
+                description="A compact operator lane for the lead work that can change today."
+                items={leadAttentionItems}
+              />
 
-              <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-                <ActionCard
-                  title="Kanban Workflow"
-                  description="Run the residential workflow visually from new lead through first-order activation."
-                  actionLabel="Open Kanban"
-                  icon={IconTimeline}
-                  color="blue"
-                  onClick={() => {
-                    setActiveTab('pipeline');
-                    setViewMode('kanban');
-                  }}
-                />
-                <ActionCard
-                  title="List Review"
-                  description="Switch into reviewer mode for sorting, search, and rapid stage updates."
-                  actionLabel="Open List"
-                  icon={IconListDetails}
-                  color="teal"
-                  onClick={() => {
-                    setActiveTab('pipeline');
-                    setViewMode('list');
-                  }}
-                />
-                <ActionCard
-                  title="Latest Intake"
-                  description={latestLead ? `Open ${latestLead.companyName} and review the live lead record.` : 'New leads will appear here once intake starts landing in the production workspace.'}
-                  actionLabel={latestLead ? 'Open Record' : 'Open Pipeline'}
-                  icon={IconArrowRight}
-                  color="cyan"
-                  onClick={() => {
-                    if (latestLead) {
-                      router.push(`/leads/${latestLead.id}`);
-                    } else {
-                      setActiveTab('pipeline');
-                    }
-                  }}
-                />
-              </SimpleGrid>
-            </Stack>
-          </Tabs.Panel>
-
-          <Tabs.Panel value="pipeline" pt="md">
-            <Stack gap="md">
               <Paper withBorder p="md" radius="xl" className="premium-filter-bar">
                 <Group gap="sm" wrap="wrap" align="flex-end">
                   <TextInput
+                    data-testid="lead-search-input"
                     placeholder="Search leads, companies, emails..."
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.currentTarget.value)}
@@ -836,8 +982,8 @@ export function LeadWorkspace({
                     value={viewMode}
                     onChange={(value) => setViewMode(value as ViewMode)}
                     data={[
-                      { label: 'Kanban', value: 'kanban' },
-                      { label: 'List', value: 'list' },
+                      { label: 'Lead Work Queue', value: 'list' },
+                      { label: 'Pipeline board', value: 'kanban' },
                     ]}
                   />
                   <ActionIcon variant="light" size="lg" onClick={() => setRefreshNonce((value) => value + 1)}>
@@ -853,7 +999,7 @@ export function LeadWorkspace({
               ) : null}
 
               {viewMode === 'kanban' ? (
-                <ScrollArea type="auto">
+                <ScrollArea type="auto" data-testid="lead-pipeline-board">
                   <Group align="flex-start" wrap="nowrap" gap="md" py="xs">
                     {stageColumns.map((stage) => {
                       const isDropTarget = dropStageKey === stage.key;
@@ -909,7 +1055,6 @@ export function LeadWorkspace({
                         radius="xl"
                         p="md"
                         miw={300}
-                        className="premium-stat-card"
                       >
                         <Stack gap="sm">
                           <Group justify="space-between">
@@ -917,12 +1062,12 @@ export function LeadWorkspace({
                               <Text fw={700}>{stage.title}</Text>
                               <Text size="sm" c="dimmed">{stage.leads.length} lead{stage.leads.length === 1 ? '' : 's'}</Text>
                             </Stack>
-                            <Badge color={stage.color} variant="light">{stage.key}</Badge>
+                            <Badge color={stage.color} variant="light">{stage.shortTitle}</Badge>
                           </Group>
                           <Divider />
                           <Stack gap="sm">
                             {stage.leads.length === 0 ? (
-                              <Text size="sm" c="dimmed">No leads in this stage.</Text>
+                              null
                             ) : (
                               stage.leads.map((lead) => (
                                 <div
@@ -964,39 +1109,18 @@ export function LeadWorkspace({
                                     <Group justify="space-between" align="flex-start">
                                       <Stack gap={2}>
                                         <Text fw={700}>{lead.companyName}</Text>
-                                        <Text size="sm" c="dimmed">{lead.contactDisplayName}</Text>
-                                      </Stack>
-                                      {lead.potentialValueCents ? (
-                                        <Text fw={700} c="blue">
-                                          {formatCurrency(lead.potentialValueCents)}
+                                        <Text size="sm" c="dimmed">
+                                          {lead.contactDisplayName}
+                                          {lead.state ? ` · ${lead.state}` : ''}
                                         </Text>
-                                      ) : (
-                                        <Badge color={stage.color} variant="light">
-                                          {lead.serviceTechCount} techs
-                                        </Badge>
-                                      )}
+                                      </Stack>
+                                      <IconChevronRight size={16} />
                                     </Group>
                                     <Group gap={6} wrap="wrap">
                                       <Badge variant="light" color="cyan">
                                         <Group gap={4} wrap="nowrap">
                                           <IconWorld size={12} />
                                           <Text size="xs" fw={700} inherit>{(lead.sourceSiteName ?? lead.leadSourceName).toUpperCase()}</Text>
-                                        </Group>
-                                      </Badge>
-                                      {lead.sourceBrandTag ? (
-                                        <Badge variant="light" color="blue">
-                                          {lead.sourceBrandTag.toUpperCase()}
-                                        </Badge>
-                                      ) : null}
-                                      {lead.leadRating ? (
-                                        <Badge variant="light" color={leadRatingColor(lead.leadRating)}>
-                                          {formatLeadRatingLabel(lead.leadRating)}
-                                        </Badge>
-                                      ) : null}
-                                      <Badge variant="outline" color="gray">
-                                        <Group gap={4} wrap="nowrap">
-                                          <IconUsers size={12} />
-                                          <Text size="xs" fw={600} inherit>{lead.serviceTechCount}</Text>
                                         </Group>
                                       </Badge>
                                       {lead.stage === 'new' ? (
@@ -1007,13 +1131,20 @@ export function LeadWorkspace({
                                         </Badge>
                                       )}
                                     </Group>
-                                    <Text size="sm" c="dimmed">
-                                      {lead.contactDisplayName}
-                                      {lead.state ? ` · ${lead.state}` : ''}
-                                    </Text>
+                                    {lead.leadRating || lead.potentialValueCents ? (
+                                      <Text size="xs" c="dimmed">
+                                        {[
+                                          lead.leadRating ? formatLeadRatingLabel(lead.leadRating) : null,
+                                          lead.potentialValueCents ? formatCurrency(lead.potentialValueCents) : null,
+                                        ].filter(Boolean).join(' • ')}
+                                      </Text>
+                                    ) : null}
                                     <Divider />
                                     <Group justify="space-between" align="center">
-                                      <Text fw={600} size="sm">{primaryLeadActionLabel(lead)}</Text>
+                                      <Stack gap={0}>
+                                        <Text fw={600} size="sm">{primaryLeadActionLabel(lead)}</Text>
+                                        <Text size="xs" c="dimmed">Updated {formatDateLabel(lead.updatedAt)}</Text>
+                                      </Stack>
                                       <Group gap="xs" wrap="nowrap">
                                         {lead.phone ? (
                                           <ActionIcon
@@ -1039,10 +1170,6 @@ export function LeadWorkspace({
                                             <IconMail size={16} />
                                           </ActionIcon>
                                         ) : null}
-                                        <Group gap={4}>
-                                          <Text size="xs" c="dimmed">{formatDateLabel(lead.updatedAt)}</Text>
-                                          <IconChevronRight size={14} />
-                                        </Group>
                                       </Group>
                                     </Group>
                                   </Stack>
@@ -1058,30 +1185,55 @@ export function LeadWorkspace({
                   </Group>
                 </ScrollArea>
               ) : (
-                <Paper withBorder radius="xl" p="sm" className="premium-subhero-panel">
+                <Paper withBorder radius="xl" p="sm" className="premium-subhero-panel" data-testid="lead-work-queue">
                   <Table.ScrollContainer minWidth={980}>
                     <Table highlightOnHover verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th>Company</Table.Th>
                           <Table.Th>Contact</Table.Th>
-                          <Table.Th>Stage</Table.Th>
-                          <Table.Th>Routing</Table.Th>
-                          <Table.Th>Lead source</Table.Th>
-                          <Table.Th>Service techs</Table.Th>
-                          <Table.Th>Updated</Table.Th>
+                          <Table.Th>Stage / next action</Table.Th>
+                          <Table.Th>Owner / routing</Table.Th>
+                          <Table.Th>Updated / SLA</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
                         {leads.map((lead) => (
                           <Table.Tr key={lead.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/leads/${lead.id}`)}>
-                            <Table.Td fw={600}>{lead.companyName}</Table.Td>
-                            <Table.Td>{lead.contactDisplayName}</Table.Td>
-                            <Table.Td>{formatStageLabel(lead.stage)}</Table.Td>
-                            <Table.Td>{formatRoutingTeam(lead.routingTeam)}</Table.Td>
-                            <Table.Td>{lead.leadSourceName}</Table.Td>
-                            <Table.Td>{lead.serviceTechCount}</Table.Td>
-                            <Table.Td>{formatDateLabel(lead.updatedAt)}</Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text fw={600}>{lead.companyName}</Text>
+                                <Text size="xs" c="dimmed">{lead.leadSourceName}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text size="sm">{lead.contactDisplayName}</Text>
+                                <Text size="xs" c="dimmed">{lead.state ?? 'State pending'}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={4}>
+                                <Badge color={STAGE_META.find((stage) => stage.key === lead.stage)?.color ?? 'gray'} variant="light">
+                                  {formatStageLabel(lead.stage)}
+                                </Badge>
+                                <Text size="xs" c="dimmed">{primaryLeadActionLabel(lead)}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text size="sm">{formatRoutingTeam(lead.routingTeam)}</Text>
+                                <Text size="xs" c="dimmed">{lead.leadOwnerName ?? 'Owner pending'}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={4}>
+                                <Text size="sm">{formatDateLabel(lead.updatedAt)}</Text>
+                                {lead.stage === 'new' ? renderLeadSlaBadge(lead) : (
+                                  <Badge variant="light" color="green">Contacted</Badge>
+                                )}
+                              </Stack>
+                            </Table.Td>
                           </Table.Tr>
                         ))}
                       </Table.Tbody>
@@ -1094,8 +1246,14 @@ export function LeadWorkspace({
             </Stack>
           </Tabs.Panel>
 
-          <Tabs.Panel value="analytics" pt="md">
+          <Tabs.Panel value="insights" pt="md">
             <Stack gap="lg">
+              <Text size="sm" c="dimmed">
+                Report context for managers. Daily lead work stays in Lead Work Queue.
+              </Text>
+              <div data-testid="lead-insights-metrics">
+                <WorkbenchMetricStrip metrics={leadWorkbenchMetrics} />
+              </div>
               <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
                 {STAGE_META.map((stage) => (
                   <MetricCard key={stage.key} label={stage.shortTitle} value={String(stageCounts[stage.key] ?? 0)} icon={IconTimeline} color={stage.color} />
@@ -1141,303 +1299,439 @@ export function LeadWorkspace({
       </Stack>
 
       <Modal opened={createLeadOpened} onClose={resetCreateLeadModal} title="New Intake" centered size="xl">
-        <Stack gap="md">
-          {duplicateCandidates.length > 0 ? (
-            <Alert color="orange" variant="light">
-              Pulse found potential duplicates. Review the matches below before deciding whether this should become a separate lead.
-            </Alert>
-          ) : null}
-          <Paper withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <Group justify="space-between" align="flex-end">
-                <FileInput
-                  leftSection={<IconFileUpload size={16} />}
-                  label="Scan business card, badge, or handwritten note"
-                  placeholder="Upload PDF, photo, or scan"
-                  accept="application/pdf,image/png,image/jpeg,image/webp,image/tiff"
-                  value={ocrCaptureFile}
-                  onChange={setOcrCaptureFile}
-                  clearable
-                  style={{ flex: 1 }}
+        <Stack gap="lg">
+          <Stepper
+            active={createLeadStep === 'customer' ? 0 : createLeadStep === 'routing' ? 1 : 2}
+            size="sm"
+            data-testid="lead-intake-stepper"
+          >
+            <Stepper.Step label="Customer" description="Company and contact" />
+            <Stepper.Step label="Routing" description="Relationship answers" />
+            <Stepper.Step label="Review" description="Check and save" />
+          </Stepper>
+
+          {createLeadError ? <Text c="red">{createLeadError}</Text> : null}
+
+          {createLeadStep === 'customer' ? (
+            <Stack gap="md" data-testid="new-intake-step-customer">
+              <Stack gap={2}>
+                <Title order={4}>Who is this for?</Title>
+                <Text size="sm" c="dimmed">
+                  Add the company and best contact. Scan a card or note if you have one.
+                </Text>
+              </Stack>
+
+              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                <TextInput
+                  label="Company name"
+                  data-testid="lead-company-name"
+                  value={createLeadForm.companyName ?? ''}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateCreateLeadDraft((current) => ({ ...current, companyName: value }));
+                  }}
+                  required
                 />
-                <Button
-                  variant="light"
-                  leftSection={<IconFileUpload size={16} />}
-                  onClick={() => void handlePreviewOcrCapture()}
-                  loading={isPreviewingOcr}
-                  disabled={!ocrCaptureFile}
-                >
-                  Scan
-                </Button>
-              </Group>
+                <TextInput
+                  label="Contact name"
+                  data-testid="lead-contact-name"
+                  value={createLeadForm.contactDisplayName ?? ''}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateCreateLeadDraft((current) => ({ ...current, contactDisplayName: value }));
+                  }}
+                />
+                <TextInput
+                  label="Email"
+                  type="email"
+                  data-testid="lead-email"
+                  value={createLeadForm.email ?? ''}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateCreateLeadDraft((current) => ({ ...current, email: value }));
+                  }}
+                  required
+                />
+                <TextInput
+                  label="Phone"
+                  data-testid="lead-phone"
+                  value={createLeadForm.phone ?? ''}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateCreateLeadDraft((current) => ({ ...current, phone: value }));
+                  }}
+                  required
+                />
+                <Select
+                  searchable
+                  label="State / Province"
+                  placeholder="Select location..."
+                  value={createLeadForm.state || null}
+                  onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, state: value ?? '' }))}
+                  data={leadRegionSelectData}
+                />
+                <NumberInput
+                  label="Service tech count"
+                  data-testid="lead-service-tech-count"
+                  value={createLeadForm.serviceTechCount ?? 0}
+                  onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, serviceTechCount: Number(value) || 0 }))}
+                  min={0}
+                  required
+                />
+              </SimpleGrid>
+
+              <Paper withBorder radius="md" p="md">
+                <Stack gap="sm">
+                  <Stack gap={2}>
+                    <Text fw={700}>Fill from card or note</Text>
+                    <Text size="xs" c="dimmed">Optional OCR for business cards, badges, handwritten notes, and scanned PDFs.</Text>
+                  </Stack>
+                  <SegmentedControl
+                    data-testid="lead-ocr-capture-type"
+                    value={ocrCaptureDocumentType}
+                    onChange={(value) => setOcrCaptureDocumentType(value as LeadOcrCaptureDocumentTypeKey)}
+                    data={leadOcrCaptureTypeOptions}
+                  />
+                  <Group justify="space-between" align="flex-end">
+                    <FileInput
+                      leftSection={<IconFileUpload size={16} />}
+                      label="Scan business card, badge, or handwritten note"
+                      placeholder="Upload PDF, photo, or scan"
+                      accept="application/pdf,image/png,image/jpeg,image/webp,image/tiff"
+                      value={ocrCaptureFile}
+                      onChange={(file) => {
+                        setOcrCaptureFile(file);
+                        clearDuplicateReviewState();
+                      }}
+                      clearable
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      variant="light"
+                      leftSection={<IconFileUpload size={16} />}
+                      onClick={() => void handlePreviewOcrCapture()}
+                      loading={isPreviewingOcr}
+                      disabled={!ocrCaptureFile}
+                    >
+                      Scan
+                    </Button>
+                  </Group>
+                  {ocrPreview ? (
+                    <Alert color={ocrPreview.lowConfidence ? 'yellow' : 'teal'} variant="light">
+                      We filled what we could from the file. Please check it.
+                      {ocrPreview.reviewReasons.length > 0 ? ` ${ocrPreview.reviewReasons.join(' ')}` : ''}
+                    </Alert>
+                  ) : null}
+                  {ocrDuplicateCandidates.length > 0 ? (
+                    <Stack gap="xs">
+                      <Text size="sm" fw={700}>OCR duplicate candidates</Text>
+                      {ocrDuplicateCandidates.map((candidate) => (
+                        <Paper key={`ocr:${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
+                          <Group justify="space-between" align="flex-start">
+                            <Stack gap={2}>
+                              <Text fw={600}>{candidate.title}</Text>
+                              {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
+                              {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
+                            </Stack>
+                            <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
+                              {candidate.entityType === 'account' ? 'Account' : 'Lead'}
+                            </Badge>
+                          </Group>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Paper>
+            </Stack>
+          ) : null}
+
+          {createLeadStep === 'routing' ? (
+            <Stack gap="md" data-testid="new-intake-step-routing">
+              <Stack gap={2}>
+                <Title order={4}>Where should this go?</Title>
+                <Text size="sm" c="dimmed">
+                  Answer the relationship questions so the lead goes to the right team.
+                </Text>
+              </Stack>
+              <Stack gap="sm" data-testid="lead-routing-section">
+                <Alert color="blue" variant="light">
+                  Keep buying groups and ownership groups separate. Choose Independent / No group when neither applies.
+                </Alert>
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                  <Select
+                    label="Affinity group status"
+                    placeholder="Select affinity status..."
+                    aria-label="Affinity group status"
+                    data-testid="lead-affinity-group-status"
+                    value={createLeadForm.affinityGroupSelection || null}
+                    onChange={(value) =>
+                      updateCreateLeadDraft((current) => ({
+                        ...current,
+                        affinityGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
+                        affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
+                      }))}
+                    data={manualGroupAxisSelectionOptions}
+                    required
+                  />
+                  <Select
+                    label="Ownership group status"
+                    placeholder="Select ownership status..."
+                    aria-label="Ownership group status"
+                    data-testid="lead-ownership-group-status"
+                    value={createLeadForm.ownershipGroupSelection || null}
+                    onChange={(value) =>
+                      updateCreateLeadDraft((current) => ({
+                        ...current,
+                        ownershipGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
+                        ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
+                      }))}
+                    data={manualGroupAxisSelectionOptions}
+                    required
+                  />
+                  {createLeadForm.affinityGroupSelection === 'group' ? (
+                    <Select
+                      searchable
+                      label="Affinity group"
+                      placeholder="Choose affinity group..."
+                      data-testid="lead-affinity-group"
+                      value={createLeadForm.affinityGroupCode || null}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, affinityGroupCode: value ?? '' }))}
+                      data={affinityGroups.map((group) => ({
+                        value: group.code,
+                        label: group.name,
+                      }))}
+                    />
+                  ) : null}
+                  {createLeadForm.ownershipGroupSelection === 'group' ? (
+                    <Select
+                      searchable
+                      label="Ownership group"
+                      placeholder="Choose ownership group..."
+                      data-testid="lead-ownership-group"
+                      value={createLeadForm.ownershipGroupCode || null}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, ownershipGroupCode: value ?? '' }))}
+                      data={ownershipGroups.map((group) => ({
+                        value: group.code,
+                        label: group.name,
+                      }))}
+                    />
+                  ) : null}
+                </SimpleGrid>
+              </Stack>
+            </Stack>
+          ) : null}
+
+          {createLeadStep === 'review' ? (
+            <Stack gap="md" data-testid="new-intake-step-review">
+              <Stack gap={2}>
+                <Title order={4}>Check and save</Title>
+                <Text size="sm" c="dimmed">
+                  Review the customer, route, and any possible matches before saving.
+                </Text>
+              </Stack>
+
+              <Paper withBorder radius="md" p="md" data-testid="new-intake-review-summary">
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                  <Stack gap={2}>
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Customer</Text>
+                    <Text fw={700}>{createLeadForm.companyName || 'Company missing'}</Text>
+                    <Text size="sm" c="dimmed">
+                      {[createLeadForm.contactDisplayName, createLeadForm.email, createLeadForm.phone].filter(Boolean).join(' • ') || 'Contact missing'}
+                    </Text>
+                    <Text size="sm" c="dimmed">
+                      {createLeadForm.state || 'State not selected'} • {createLeadForm.serviceTechCount || 0} service techs
+                    </Text>
+                  </Stack>
+                  <Stack gap={2}>
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Routing</Text>
+                    <Text size="sm">
+                      Buying group: {formatManualGroupSelection(createLeadForm.affinityGroupSelection, createLeadForm.affinityGroupCode, affinityGroups)}
+                    </Text>
+                    <Text size="sm">
+                      Ownership / PE group: {formatManualGroupSelection(createLeadForm.ownershipGroupSelection, createLeadForm.ownershipGroupCode, ownershipGroups)}
+                    </Text>
+                    <Text size="sm" c="dimmed">Pulse will apply the configured routing policy after save.</Text>
+                  </Stack>
+                </SimpleGrid>
+              </Paper>
+
+              <Paper withBorder radius="md" p="md">
+                <Stack gap="md">
+                  <Stack gap={2}>
+                    <Text fw={700}>Optional details</Text>
+                    <Text size="xs" c="dimmed">Add source, rating, install technicians, and notes when they are known.</Text>
+                  </Stack>
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                    <Select
+                      label="Lead source"
+                      value={createLeadForm.leadSourceCode || null}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, leadSourceCode: value ?? 'manual_entry' }))}
+                      data={leadSources.map((source) => ({
+                        value: source.code,
+                        label: source.name,
+                      }))}
+                    />
+                    <Select
+                      label="Marketing source"
+                      placeholder="Select marketing source..."
+                      value={createLeadForm.sourceCampaign || null}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, sourceCampaign: value ?? '' }))}
+                      data={leadMarketingSourceOptions}
+                    />
+                    <Select
+                      label="Lead rating"
+                      placeholder="Select lead rating..."
+                      value={createLeadForm.leadRating || null}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, leadRating: value ?? '' }))}
+                      data={leadRatingOptions}
+                    />
+                    <NumberInput
+                      label="Install tech count"
+                      data-testid="lead-install-tech-count"
+                      value={createLeadForm.installTechCount}
+                      onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, installTechCount: Number(value) || 0 }))}
+                      min={0}
+                    />
+                  </SimpleGrid>
+                  <Textarea
+                    label="Notes"
+                    data-testid="lead-notes"
+                    value={createLeadForm.notes ?? ''}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      updateCreateLeadDraft((current) => ({ ...current, notes: value }));
+                    }}
+                    minRows={4}
+                  />
+                </Stack>
+              </Paper>
+
               {ocrPreview ? (
                 <Alert color={ocrPreview.lowConfidence ? 'yellow' : 'teal'} variant="light">
-                  OCR used {formatOcrMode(ocrPreview.extractionMode)} and filled the intake draft for review.
+                  Scan review: {ocrPreview.lowConfidence ? 'please double-check low-confidence fields before saving.' : 'scan fields were applied to the draft.'}
                   {ocrPreview.reviewReasons.length > 0 ? ` ${ocrPreview.reviewReasons.join(' ')}` : ''}
                 </Alert>
               ) : null}
+
               {ocrDuplicateCandidates.length > 0 ? (
-                <Stack gap="xs">
-                  <Text size="sm" fw={700}>OCR duplicate candidates</Text>
-                  {ocrDuplicateCandidates.map((candidate) => (
-                    <Paper key={`ocr:${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
-                      <Group justify="space-between" align="flex-start">
-                        <Stack gap={2}>
-                          <Text fw={600}>{candidate.title}</Text>
-                          {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
-                          {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
-                        </Stack>
-                        <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
-                          {candidate.entityType === 'account' ? 'Account' : 'Lead'}
-                        </Badge>
-                      </Group>
-                    </Paper>
-                  ))}
-                </Stack>
+                <Paper withBorder radius="md" p="md">
+                  <Stack gap="xs">
+                    <Text size="sm" fw={700}>Possible matches from the scan</Text>
+                    {ocrDuplicateCandidates.map((candidate) => (
+                      <Text key={`ocr-review:${candidate.entityType}:${candidate.entityId}`} size="sm" c="dimmed">
+                        {candidate.title}{candidate.subtitle ? ` • ${candidate.subtitle}` : ''}
+                      </Text>
+                    ))}
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              {duplicateReviewStatus === 'clear' ? (
+                <Alert color="teal" variant="light">
+                  No possible matches were found. You can save this as a new lead.
+                </Alert>
+              ) : null}
+
+              {duplicateCandidates.length > 0 ? (
+                <Paper withBorder radius="md" p="md" data-testid="new-intake-duplicate-panel">
+                  <Stack gap="sm">
+                    <Text fw={700}>Potential duplicate matches</Text>
+                    {duplicateCandidates.map((candidate) => (
+                      <Paper key={`${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
+                        <Group justify="space-between" align="flex-start">
+                          <Stack gap={2}>
+                            <Text fw={600}>{candidate.title}</Text>
+                            {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
+                            {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
+                          </Stack>
+                          <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
+                            {candidate.entityType === 'account' ? 'Account' : 'Lead'}
+                          </Badge>
+                        </Group>
+                        {candidate.entityType === 'lead' ? (
+                          <Group justify="flex-end" mt="sm">
+                            <Button
+                              size="xs"
+                              variant="light"
+                              onClick={() => void handleEnrichDuplicateLead(candidate.entityId)}
+                              loading={isCreatingLead}
+                              disabled={!duplicateOverrideReason.trim()}
+                            >
+                              Enrich Existing Lead
+                            </Button>
+                          </Group>
+                        ) : null}
+                      </Paper>
+                    ))}
+                    <Textarea
+                      label="Reason for separate lead"
+                      data-testid="lead-duplicate-reason"
+                      description="Required to create a separate lead or enrich an existing lead."
+                      value={duplicateOverrideReason}
+                      onChange={(event) => setDuplicateOverrideReason(event.currentTarget.value)}
+                      minRows={2}
+                    />
+                  </Stack>
+                </Paper>
               ) : null}
             </Stack>
-          </Paper>
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <TextInput
-              label="Company name"
-              data-testid="lead-company-name"
-              value={createLeadForm.companyName ?? ''}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCreateLeadForm((current) => ({ ...current, companyName: value }));
-              }}
-              required
-            />
-            <TextInput
-              label="Contact name"
-              data-testid="lead-contact-name"
-              value={createLeadForm.contactDisplayName ?? ''}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCreateLeadForm((current) => ({ ...current, contactDisplayName: value }));
-              }}
-            />
-            <TextInput
-              label="Email"
-              type="email"
-              data-testid="lead-email"
-              value={createLeadForm.email ?? ''}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCreateLeadForm((current) => ({ ...current, email: value }));
-              }}
-              required
-            />
-            <TextInput
-              label="Phone"
-              data-testid="lead-phone"
-              value={createLeadForm.phone ?? ''}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCreateLeadForm((current) => ({ ...current, phone: value }));
-              }}
-              required
-            />
-            <Select
-              searchable
-              label="State / Province"
-              placeholder="Select location..."
-              value={createLeadForm.state || null}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, state: value ?? '' }))}
-              data={leadRegionSelectData}
-            />
-            <Select
-              label="Lead source"
-              value={createLeadForm.leadSourceCode || null}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadSourceCode: value ?? 'manual_entry' }))}
-              data={leadSources.map((source) => ({
-                value: source.code,
-                label: source.name,
-              }))}
-            />
-            <Select
-              label="Marketing source"
-              placeholder="Select marketing source..."
-              value={createLeadForm.sourceCampaign || null}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, sourceCampaign: value ?? '' }))}
-              data={leadMarketingSourceOptions}
-            />
-            <Select
-              label="Lead rating"
-              placeholder="Select lead rating..."
-              value={createLeadForm.leadRating || null}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, leadRating: value ?? '' }))}
-              data={leadRatingOptions}
-            />
-          </SimpleGrid>
-          <Paper withBorder radius="md" p="md" data-testid="lead-routing-section">
-            <Stack gap="sm">
-              <Alert color="blue" variant="light" title="Routing required">
-                Pick the dealer relationship here so Pulse can route the lead. Use Independent / No group when the dealer is not part of an affinity, PE, or ownership group.
-              </Alert>
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <Select
-              label="Affinity group status"
-              placeholder="Select affinity status..."
-                  aria-label="Affinity group status"
-                  data-testid="lead-affinity-group-status"
-              value={createLeadForm.affinityGroupSelection || null}
-              onChange={(value) =>
-                setCreateLeadForm((current) => ({
-                  ...current,
-                  affinityGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
-                  affinityGroupCode: value === 'group' ? current.affinityGroupCode : '',
-                }))}
-              data={manualGroupAxisSelectionOptions}
-                  required
-            />
-            <Select
-              label="Ownership group status"
-              placeholder="Select ownership status..."
-                  aria-label="Ownership group status"
-                  data-testid="lead-ownership-group-status"
-              value={createLeadForm.ownershipGroupSelection || null}
-              onChange={(value) =>
-                setCreateLeadForm((current) => ({
-                  ...current,
-                  ownershipGroupSelection: (value as ManualGroupAxisSelection | null) ?? '',
-                  ownershipGroupCode: value === 'group' ? current.ownershipGroupCode : '',
-                }))}
-              data={manualGroupAxisSelectionOptions}
-                  required
-            />
-            {createLeadForm.affinityGroupSelection === 'group' ? (
-              <Select
-                searchable
-                label="Affinity group"
-                placeholder="Choose affinity group..."
-                    data-testid="lead-affinity-group"
-                value={createLeadForm.affinityGroupCode || null}
-                onChange={(value) => setCreateLeadForm((current) => ({ ...current, affinityGroupCode: value ?? '' }))}
-                data={affinityGroups.map((group) => ({
-                  value: group.code,
-                  label: group.name,
-                }))}
-              />
-            ) : null}
-            {createLeadForm.ownershipGroupSelection === 'group' ? (
-              <Select
-                searchable
-                label="Ownership group"
-                placeholder="Choose ownership group..."
-                    data-testid="lead-ownership-group"
-                value={createLeadForm.ownershipGroupCode || null}
-                onChange={(value) => setCreateLeadForm((current) => ({ ...current, ownershipGroupCode: value ?? '' }))}
-                data={ownershipGroups.map((group) => ({
-                  value: group.code,
-                  label: group.name,
-                }))}
-              />
-            ) : null}
-              </SimpleGrid>
-            </Stack>
-          </Paper>
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <NumberInput
-              label="Service tech count"
-              data-testid="lead-service-tech-count"
-              value={createLeadForm.serviceTechCount ?? 0}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, serviceTechCount: Number(value) || 0 }))}
-              min={0}
-              required
-            />
-            <NumberInput
-              label="Install tech count"
-              data-testid="lead-install-tech-count"
-              value={createLeadForm.installTechCount}
-              onChange={(value) => setCreateLeadForm((current) => ({ ...current, installTechCount: Number(value) || 0 }))}
-              min={0}
-            />
-          </SimpleGrid>
-          <Textarea
-            label="Notes"
-            data-testid="lead-notes"
-            value={createLeadForm.notes ?? ''}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setCreateLeadForm((current) => ({ ...current, notes: value }));
-            }}
-            minRows={4}
-          />
-          {createLeadError ? <Text c="red">{createLeadError}</Text> : null}
-          {duplicateCandidates.length > 0 ? (
-            <Paper withBorder radius="md" p="md">
-              <Stack gap="sm">
-                <Text fw={700}>Potential duplicate matches</Text>
-                {duplicateCandidates.map((candidate) => (
-                  <Paper key={`${candidate.entityType}:${candidate.entityId}`} withBorder radius="md" p="sm">
-                    <Group justify="space-between" align="flex-start">
-                      <Stack gap={2}>
-                        <Text fw={600}>{candidate.title}</Text>
-                        {candidate.subtitle ? <Text size="sm" c="dimmed">{candidate.subtitle}</Text> : null}
-                        {candidate.detail ? <Text size="xs" c="dimmed">{candidate.detail}</Text> : null}
-                      </Stack>
-                      <Badge color={candidate.entityType === 'account' ? 'teal' : 'orange'} variant="light">
-                        {candidate.entityType === 'account' ? 'Account' : 'Lead'}
-                      </Badge>
-                    </Group>
-                    {candidate.entityType === 'lead' ? (
-                      <Group justify="flex-end" mt="sm">
-                        <Button
-                          size="xs"
-                          variant="light"
-                          onClick={() => void handleEnrichDuplicateLead(candidate.entityId)}
-                          loading={isCreatingLead}
-                          disabled={!duplicateOverrideReason.trim()}
-                        >
-                          Enrich Existing Lead
-                        </Button>
-                      </Group>
-                    ) : null}
-                  </Paper>
-                ))}
-                <Textarea
-                  label="Reason for separate lead"
-                  description="Required to create a separate lead or enrich an existing lead."
-                  value={duplicateOverrideReason}
-                  onChange={(event) => setDuplicateOverrideReason(event.currentTarget.value)}
-                  minRows={2}
-                />
-              </Stack>
-            </Paper>
           ) : null}
+
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
               Manual intake lands in the same governed routing pipeline as web and import leads.
             </Text>
-            {duplicateCandidates.length > 0 ? (
-              <Group gap="xs">
-                <Button
-                  variant="default"
-                  onClick={() => {
-                    setDuplicateCandidates([]);
-                    setPendingDuplicatePayload(null);
-                    setDuplicateOverrideReason('');
-                    setCreateLeadError(null);
-                  }}
-                  disabled={isCreatingLead}
-                >
-                  Review Intake
+            <Group gap="xs">
+              {createLeadStep !== 'customer' ? (
+                <Button variant="default" onClick={handleBackInCreateLead} disabled={isCreatingLead}>
+                  Back
                 </Button>
-                <Button
-                  onClick={() => void handleConfirmDuplicateCreate()}
-                  loading={isCreatingLead}
-                  color="orange"
-                  disabled={!duplicateOverrideReason.trim()}
-                >
-                  Create Lead Anyway
+              ) : null}
+              {createLeadStep === 'customer' ? (
+                <Button onClick={handleContinueToRouting}>
+                  Continue to Routing
                 </Button>
-              </Group>
-            ) : (
-              <Button onClick={() => void handleCreateLead()} loading={isCreatingLead}>
-                Create Lead
-              </Button>
-            )}
+              ) : null}
+              {createLeadStep === 'routing' ? (
+                <Button onClick={handleContinueToReview}>
+                  Continue to Review
+                </Button>
+              ) : null}
+              {createLeadStep === 'review' && duplicateReviewStatus === 'idle' ? (
+                <Button onClick={() => void handleReviewDuplicateCandidates()} loading={isCreatingLead}>
+                  Review duplicates
+                </Button>
+              ) : null}
+              {createLeadStep === 'review' && duplicateReviewStatus === 'clear' ? (
+                <Button onClick={() => void handleCreateReviewedLead()} loading={isCreatingLead}>
+                  Create Lead
+                </Button>
+              ) : null}
+              {createLeadStep === 'review' && duplicateCandidates.length > 0 ? (
+                <>
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      clearDuplicateReviewState();
+                      setCreateLeadError(null);
+                    }}
+                    disabled={isCreatingLead}
+                  >
+                    Review Intake
+                  </Button>
+                  <Button
+                    onClick={() => void handleConfirmDuplicateCreate()}
+                    loading={isCreatingLead}
+                    color="orange"
+                    disabled={!duplicateOverrideReason.trim()}
+                    data-testid="new-intake-create-anyway"
+                  >
+                    Create Lead Anyway
+                  </Button>
+                </>
+              ) : null}
+            </Group>
           </Group>
         </Stack>
       </Modal>
@@ -1453,7 +1747,7 @@ function MetricCard({
 }: {
   label: string;
   value: string;
-  icon: typeof IconUsers;
+  icon: typeof IconTimeline;
   color: string;
 }) {
   return (
@@ -1471,55 +1765,39 @@ function MetricCard({
   );
 }
 
-function ActionCard({
-  title,
-  description,
-  actionLabel,
-  icon: Icon,
-  color,
-  href,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  actionLabel: string;
-  icon: typeof IconTimeline;
-  color: string;
-  href?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <Card withBorder padding="lg" radius="xl" className="premium-action-card">
-      <Stack gap="md" h="100%">
-        <Group justify="space-between" align="flex-start">
-          <ThemeIcon size="xl" variant="light" color={color}>
-            <Icon size={30} />
-          </ThemeIcon>
-        </Group>
-        <Stack gap="xs" style={{ flex: 1 }}>
-          <Title order={4}>{title}</Title>
-          <Text size="sm" c="dimmed">{description}</Text>
-        </Stack>
-        {href ? (
-          <Button variant="light" fullWidth component={Link} href={href}>
-            {actionLabel}
-          </Button>
-        ) : (
-          <Button variant="light" fullWidth onClick={onClick}>
-            {actionLabel}
-          </Button>
-        )}
-      </Stack>
-    </Card>
-  );
-}
-
 function formatRoutingTeam(value: LeadRoutingTeamKey) {
   return value === 'strategic_growth' ? 'Strategic Growth' : 'National TM';
 }
 
-function formatRoutingBasis(value: LeadRoutingPolicySummary['routingBasis']) {
-  return value === 'truck_count' ? 'Truck Count' : 'Service Tech Count';
+function formatManualGroupSelection(
+  selection: ManualGroupAxisSelection,
+  groupCode: string,
+  groups: Array<{ code: string; name: string }>,
+) {
+  if (selection === 'none') {
+    return 'Independent / no group';
+  }
+
+  if (selection === 'group') {
+    return groups.find((group) => group.code === groupCode)?.name ?? 'Group not selected';
+  }
+
+  return 'Not selected';
+}
+
+function formatLeadRatingLabel(value: string) {
+  return value
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function formatCurrency(cents: number) {
+  return new Intl.NumberFormat('en-US', {
+    currency: 'USD',
+    maximumFractionDigits: 0,
+    style: 'currency',
+  }).format(cents / 100);
 }
 
 function formatStageLabel(value: LeadStageKey) {
@@ -1532,38 +1810,6 @@ function formatDateLabel(value: string) {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value / 100);
-}
-
-function leadRatingColor(value: string) {
-  switch (value) {
-    case 'hot':
-      return 'orange';
-    case 'warm':
-      return 'yellow';
-    case 'cold':
-      return 'blue';
-    case 'whale':
-      return 'grape';
-    case 'not_interested':
-      return 'gray';
-    default:
-      return 'blue';
-  }
-}
-
-function formatLeadRatingLabel(value: string) {
-  return value
-    .split('_')
-    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
-    .join(' ');
 }
 
 function renderLeadSlaBadge(lead: LeadSummary) {

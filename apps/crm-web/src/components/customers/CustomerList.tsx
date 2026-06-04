@@ -1,17 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { ActionIcon, Alert, Badge, Card, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
-import { IconArrowRight, IconBuildingStore, IconMapPin, IconSearch, IconUsers } from '@tabler/icons-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Badge, Group, Loader, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
+import { IconSearch } from '@tabler/icons-react';
 import type { AccountLifecycleStatusKey, AccountSummary } from '@pulse/contracts';
 import { fetchAccounts } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchHeader,
+  WorkbenchMetricStrip,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
 
 export function CustomerList() {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
   const [searchQuery, setSearchQuery] = useState('');
   const [lifecycleFilter, setLifecycleFilter] = useState<AccountLifecycleStatusKey | ''>('');
+  const [viewMode, setViewMode] = useState<'follow_up' | 'all'>('follow_up');
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -55,6 +63,7 @@ export function CustomerList() {
     };
   }, [apiBaseUrl, auth, lifecycleFilter, searchQuery]);
 
+  const attentionAccounts = useMemo(() => accounts.filter(accountNeedsAttention), [accounts]);
   const sourcedFromLeadCount = useMemo(
     () => accounts.filter((account) => account.sourceLeadId).length,
     [accounts],
@@ -65,6 +74,10 @@ export function CustomerList() {
   );
   const atRiskCount = useMemo(
     () => accounts.filter((account) => account.lifecycleStatus === 'at_risk').length,
+    [accounts],
+  );
+  const activeCount = useMemo(
+    () => accounts.filter((account) => account.lifecycleStatus === 'active').length,
     [accounts],
   );
 
@@ -78,134 +91,282 @@ export function CustomerList() {
 
   return (
     <Stack gap="md">
-      <Paper withBorder radius="md" p="lg">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Title order={1}>Account Management</Title>
-            <Text size="sm" c="dimmed">
-              Manage converted customers, territory ownership, source lead lineage, contacts, and locations from the live Pulse customer core.
-            </Text>
-          </Stack>
-          <Badge color="green" variant="light">Live Customer Core</Badge>
-        </Group>
-      </Paper>
-
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
-        <MetricCard label="Active Accounts" value={String(accounts.filter((account) => account.lifecycleStatus === 'active').length)} icon={<IconBuildingStore size={18} />} />
-        <MetricCard label="At Risk" value={String(atRiskCount)} icon={<IconBuildingStore size={18} />} />
-        <MetricCard label="Lead-Sourced" value={String(sourcedFromLeadCount)} icon={<IconUsers size={18} />} />
-        <MetricCard label="Territory Assigned" value={String(territoryAssignedCount)} icon={<IconMapPin size={18} />} />
-      </SimpleGrid>
+      <WorkbenchHeader
+        eyebrow="Accounts"
+        title="Account Management"
+        description="Start with account follow-up, then open the profile only when territory, contacts, or locations need cleanup."
+        policyText="Source lead, consignment, training, and financial context stay in account detail."
+      />
 
       <Paper withBorder radius="md" p="md">
-        <Group align="end" grow>
-          <TextInput
-            label="Search Accounts"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.currentTarget.value)}
-            placeholder="Search by account name, legal name, or account number"
-            leftSection={<IconSearch size={16} />}
-          />
-          <Select
-            label="Lifecycle"
-            value={lifecycleFilter}
-            onChange={(value) => setLifecycleFilter((value as AccountLifecycleStatusKey | '') ?? '')}
-            data={[
-              { value: '', label: 'All lifecycle states' },
-              { value: 'active', label: 'Active' },
-              { value: 'at_risk', label: 'At Risk' },
-              { value: 'inactive', label: 'Inactive' },
-              { value: 'churned', label: 'Churned' },
-            ]}
-            clearable={false}
-          />
-        </Group>
+        <Stack gap="md">
+          <Group justify="space-between" align="center" gap="md" wrap="wrap">
+            <Stack gap={2}>
+              <Text fw={800}>Account work mode</Text>
+              <Text size="sm" c="dimmed">
+                Start with accounts that need cleanup; switch to the full directory when you are looking up a known account.
+              </Text>
+            </Stack>
+            <SegmentedControl
+              value={viewMode}
+              onChange={(value) => setViewMode(value as 'follow_up' | 'all')}
+              data={[
+                { value: 'follow_up', label: `Needs follow-up (${attentionAccounts.length})` },
+                { value: 'all', label: `All accounts (${accounts.length})` },
+              ]}
+            />
+          </Group>
+          <Group align="end" grow>
+            <TextInput
+              label="Search accounts"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              placeholder="Search by account name, legal name, or account number"
+              leftSection={<IconSearch size={16} />}
+            />
+            <Select
+              label="Lifecycle"
+              value={lifecycleFilter}
+              onChange={(value) => setLifecycleFilter((value as AccountLifecycleStatusKey | '') ?? '')}
+              data={[
+                { value: '', label: 'All lifecycle states' },
+                { value: 'active', label: 'Active' },
+                { value: 'at_risk', label: 'At Risk' },
+                { value: 'inactive', label: 'Inactive' },
+                { value: 'churned', label: 'Churned' },
+              ]}
+              clearable={false}
+            />
+          </Group>
+        </Stack>
       </Paper>
 
       {errorMessage ? (
         <Alert color="red" variant="light">{errorMessage}</Alert>
       ) : null}
 
-      <Paper withBorder radius="md" p="md">
-        {isLoading ? (
-          <Group justify="center" py="xl">
+      {isLoading ? (
+        <Paper withBorder radius="md" p="xl">
+          <Group justify="center">
             <Loader color="blue" />
           </Group>
-        ) : (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Account</Table.Th>
-                <Table.Th>Territory</Table.Th>
-                <Table.Th>TM / RD</Table.Th>
-                <Table.Th>Contacts</Table.Th>
-                <Table.Th>Locations</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Source</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {accounts.length === 0 ? (
-                <Table.Tr>
-                  <Table.Td colSpan={8}>
-                    <Text size="sm" c="dimmed" ta="center" py="lg">
-                      No accounts match the current search yet.
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ) : accounts.map((account) => (
-                <Table.Tr key={account.id}>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text fw={600}>{account.displayName}</Text>
-                      <Text size="xs" c="dimmed">{account.legalName ?? 'No legal name recorded'}</Text>
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text size="sm">{account.territoryName ?? 'Not assigned'}</Text>
-                      <Text size="xs" c="dimmed">{account.regionName ?? 'No region'}</Text>
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text size="sm">{account.assignedTmName ?? 'TM unassigned'}</Text>
-                      <Text size="xs" c="dimmed">{account.assignedRdName ?? 'RD unassigned'}</Text>
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>{account.contactCount}</Table.Td>
-                  <Table.Td>{account.locationCount}</Table.Td>
-                  <Table.Td>
-                    <Group gap="xs">
-                      <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
-                        {formatAccountLifecycle(account.lifecycleStatus)}
-                      </Badge>
-                      {!account.isActive ? (
-                        <Badge color="gray" variant="outline">Record Inactive</Badge>
-                      ) : null}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    {account.sourceLeadId ? (
-                      <Badge color="blue" variant="outline">Converted Lead</Badge>
-                    ) : (
-                      <Badge color="gray" variant="outline">Manual</Badge>
-                    )}
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon component={Link} href={`/customers/${account.id}`} variant="light" color="blue" aria-label={`Open ${account.displayName}`}>
-                      <IconArrowRight size={16} />
-                    </ActionIcon>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        )}
-      </Paper>
+        </Paper>
+      ) : viewMode === 'follow_up' ? (
+        <AccountFollowUpQueue accounts={attentionAccounts} totalAttention={attentionAccounts.length} />
+      ) : (
+        <AccountDirectoryTable accounts={accounts} />
+      )}
+
+      {viewMode === 'all' ? (
+        <WorkbenchAdvancedSection
+          title="Account summary"
+          description="Summary counts stay available for managers without competing with the follow-up queue."
+        >
+          <WorkbenchMetricStrip
+            metrics={[
+              { label: 'At Risk', value: String(atRiskCount), tone: atRiskCount ? 'warning' : 'success' },
+              { label: 'Territory Assigned', value: String(territoryAssignedCount) },
+              { label: 'Lead-Sourced', value: String(sourcedFromLeadCount), helper: 'Converted lead lineage' },
+              { label: 'Active Accounts', value: String(activeCount) },
+            ]}
+          />
+        </WorkbenchAdvancedSection>
+      ) : null}
     </Stack>
   );
+}
+
+function AccountFollowUpQueue({
+  accounts,
+  totalAttention,
+}: {
+  accounts: AccountSummary[];
+  totalAttention: number;
+}) {
+  const visibleAccounts = accounts.slice(0, 8);
+
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={2}>
+            <Text fw={800}>Account follow-up queue</Text>
+            <Text size="sm" c="dimmed">
+              Accounts needing risk review, territory assignment, contacts, or locations.
+            </Text>
+          </Stack>
+          <Badge color={totalAttention ? 'yellow' : 'green'} variant="light">
+            {totalAttention ? `${totalAttention} need attention` : 'All clear'}
+          </Badge>
+        </Group>
+
+        <WorkbenchTable
+          rows={visibleAccounts}
+          getRowKey={(account) => account.id}
+          minWidth={760}
+          emptyState={(
+            <EmptyStateMessage
+              kind="all-clear"
+              title="No account follow-up in this view"
+              description="Risk, missing territory, missing contacts, and missing locations will appear here."
+            />
+          )}
+          columns={[
+            {
+              key: 'account',
+              header: 'Account',
+              render: (account) => (
+                <Stack gap={2}>
+                  <Text
+                    component={Link}
+                    href={`/customers/${account.id}`}
+                    fw={700}
+                    c="blue"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    {account.displayName}
+                  </Text>
+                  <Text size="xs" c="dimmed">{account.legalName ?? 'Legal name pending'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'next-action',
+              header: 'Next action',
+              render: (account) => <Text size="sm">{accountNextAction(account)}</Text>,
+            },
+            {
+              key: 'owner',
+              header: 'Owner / territory',
+              render: (account) => (
+                <Stack gap={2}>
+                  <Text size="sm">{account.assignedTmName ?? 'TM unassigned'}</Text>
+                  <Text size="xs" c="dimmed">{account.territoryName ?? 'Territory pending'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (account) => (
+                <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
+                  {formatAccountLifecycle(account.lifecycleStatus)}
+                </Badge>
+              ),
+              width: 140,
+            },
+          ]}
+        />
+
+        {totalAttention > visibleAccounts.length ? (
+          <Text size="xs" c="dimmed">
+            Showing {visibleAccounts.length} of {totalAttention}. Use search or lifecycle filters to narrow the queue.
+          </Text>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
+}
+
+function AccountDirectoryTable({ accounts }: { accounts: AccountSummary[] }) {
+  return (
+    <Stack gap="sm">
+      <Group justify="space-between" align="center">
+        <Stack gap={2}>
+          <Text fw={800}>All accounts</Text>
+          <Text size="sm" c="dimmed">Open a profile for contacts, locations, source lead, training, portal, and financial context.</Text>
+        </Stack>
+        <Badge variant="light" color="blue">{accounts.length}</Badge>
+      </Group>
+      <WorkbenchTable
+        rows={accounts}
+        getRowKey={(account) => account.id}
+        minWidth={860}
+        emptyState={(
+          <EmptyStateMessage
+            kind="filtered-out"
+            title="No accounts match this view"
+            description="Try clearing the search text or lifecycle filter."
+          />
+        )}
+        columns={[
+          {
+            key: 'account',
+            header: 'Account',
+            render: (account) => (
+              <Stack gap={2}>
+                <Text
+                  component={Link}
+                  href={`/customers/${account.id}`}
+                  fw={700}
+                  c="blue"
+                  style={{ textDecoration: 'none' }}
+                >
+                  {account.displayName}
+                </Text>
+                <Text size="xs" c="dimmed">{account.legalName ?? 'Legal name pending'}</Text>
+              </Stack>
+            ),
+          },
+          {
+            key: 'owner-territory',
+            header: 'Owner / territory',
+            render: (account) => (
+              <Stack gap={2}>
+                <Text size="sm">{account.territoryName ?? 'Territory pending'}</Text>
+                <Text size="xs" c="dimmed">
+                  {account.assignedTmName ?? 'TM unassigned'} / {account.assignedRdName ?? 'RD unassigned'}
+                </Text>
+              </Stack>
+            ),
+          },
+          {
+            key: 'profile',
+            header: 'Profile',
+            render: (account) => (
+              <Group gap="xs" wrap="nowrap">
+                <Badge variant="light" color={account.contactCount ? 'green' : 'yellow'}>{account.contactCount} contacts</Badge>
+                <Badge variant="light" color={account.locationCount ? 'green' : 'yellow'}>{account.locationCount} locations</Badge>
+              </Group>
+            ),
+          },
+          {
+            key: 'lifecycle',
+            header: 'Lifecycle',
+            render: (account) => (
+              <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
+                {formatAccountLifecycle(account.lifecycleStatus)}
+              </Badge>
+            ),
+            width: 140,
+          },
+          {
+            key: 'updated',
+            header: 'Updated',
+            render: (account) => <Text size="sm">{formatDateLabel(account.updatedAt)}</Text>,
+            width: 140,
+          },
+        ]}
+      />
+    </Stack>
+  );
+}
+
+function accountNeedsAttention(account: AccountSummary) {
+  return (
+    account.lifecycleStatus === 'at_risk'
+    || !account.territoryId
+    || account.contactCount === 0
+    || account.locationCount === 0
+  );
+}
+
+function accountNextAction(account: AccountSummary) {
+  if (account.lifecycleStatus === 'at_risk') return 'Review risk status';
+  if (!account.territoryId) return 'Assign territory';
+  if (account.contactCount === 0) return 'Add contact';
+  if (account.locationCount === 0) return 'Add location';
+  return 'Review profile';
 }
 
 function accountLifecycleColor(status: AccountLifecycleStatusKey) {
@@ -227,14 +388,15 @@ function formatAccountLifecycle(status: AccountLifecycleStatusKey) {
     : status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function MetricCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
-  return (
-    <Card withBorder radius="md" p="lg">
-      <Group justify="space-between" mb="xs">
-        <Text fw={600}>{label}</Text>
-        {icon}
-      </Group>
-      <Title order={2}>{value}</Title>
-    </Card>
-  );
+function formatDateLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }

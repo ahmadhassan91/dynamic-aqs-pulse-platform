@@ -12,6 +12,7 @@ import {
   NumberInput,
   Select,
   Stack,
+  Stepper,
   Text,
   TextInput,
   Textarea,
@@ -34,6 +35,9 @@ import {
 } from '@/lib/pulse-api';
 
 type SessionActionMode = 'check_in' | Extract<TrainingSessionStatusKey, 'completed' | 'cancelled' | 'no_show'>;
+type CompletionStep = 'completion' | 'proof' | 'certification' | 'follow_up';
+
+const completionSteps: CompletionStep[] = ['completion', 'proof', 'certification', 'follow_up'];
 
 function toLocalDateTimeInput(value?: string) {
   if (!value) {
@@ -102,6 +106,7 @@ export function TrainingSessionExecutionModal({
   onSaved: () => Promise<void> | void;
 }) {
   const [mode, setMode] = useState<SessionActionMode>('completed');
+  const [completionStep, setCompletionStep] = useState<CompletionStep>('completion');
   const [checkedInAt, setCheckedInAt] = useState('');
   const [completedAt, setCompletedAt] = useState('');
   const [durationMinutes, setDurationMinutes] = useState<number | string>(60);
@@ -136,6 +141,7 @@ export function TrainingSessionExecutionModal({
     const now = new Date();
     const offsetMs = now.getTimezoneOffset() * 60_000;
     setMode(session.executionState === 'checked_in' ? 'completed' : 'check_in');
+    setCompletionStep('completion');
     setCheckedInAt(toLocalDateTimeInput(session.checkedInAt ?? new Date(now.getTime() - offsetMs).toISOString()));
     setCompletedAt(new Date(now.getTime() - offsetMs).toISOString().slice(0, 16));
     setDurationMinutes(session.durationMinutes);
@@ -179,6 +185,9 @@ export function TrainingSessionExecutionModal({
     ? Boolean(completedAt && checkoutNotes.trim() && Number(durationMinutes) > 0)
       && (!createFollowUpTask || followUpTitle.trim())
       : true;
+  const completionStepIndex = completionSteps.indexOf(completionStep);
+  const canAdvanceCompletion = Boolean(completedAt && checkoutNotes.trim() && Number(durationMinutes) > 0);
+  const canGoNext = completionStep === 'completion' ? canAdvanceCompletion : true;
 
   const handleProofFilesSelected = async (files: File[] | null) => {
     if (!files?.length || !session) {
@@ -365,7 +374,13 @@ export function TrainingSessionExecutionModal({
             { value: 'no_show', label: 'Mark as no-show' },
           ]}
           value={mode}
-          onChange={(value) => setMode((value as SessionActionMode | null) ?? 'completed')}
+          onChange={(value) => {
+            const nextMode = (value as SessionActionMode | null) ?? 'completed';
+            setMode(nextMode);
+            if (nextMode === 'completed') {
+              setCompletionStep('completion');
+            }
+          }}
         />
 
         {mode === 'check_in' ? (
@@ -378,252 +393,310 @@ export function TrainingSessionExecutionModal({
         ) : null}
 
         {mode === 'completed' ? (
-          <>
-            <Grid>
-              <Grid.Col span={6}>
-                <TextInput
-                  label="Completed at"
-                  type="datetime-local"
-                  value={completedAt}
-                  onChange={(event) => setCompletedAt(event.currentTarget.value)}
-                />
-              </Grid.Col>
-              <Grid.Col span={3}>
-                <NumberInput
-                  label="Duration (mins)"
-                  min={15}
-                  step={15}
-                  value={durationMinutes}
-                  onChange={setDurationMinutes}
-                />
-              </Grid.Col>
-              <Grid.Col span={3}>
-                <NumberInput
-                  label="Attendees"
-                  min={0}
-                  value={attendeeCount}
-                  onChange={setAttendeeCount}
-                />
-              </Grid.Col>
-            </Grid>
-
-            <Textarea
-              label="Completion summary"
-              minRows={2}
-              value={completionSummary}
-              onChange={(event) => setCompletionSummary(event.currentTarget.value)}
-            />
-
-            <Textarea
-              label="Checkout notes"
-              description="Required for the training record and follow-up review."
-              minRows={2}
-              value={checkoutNotes}
-              onChange={(event) => setCheckoutNotes(event.currentTarget.value)}
-            />
-
-            <Grid>
-              <Grid.Col span={6}>
-                <NumberInput
-                  label="Proof attachments"
-                  min={0}
-                  value={proofAttachmentCount}
-                  onChange={setProofAttachmentCount}
-                />
-              </Grid.Col>
-              <Grid.Col span={6}>
-                <TextInput
-                  label="Checked in at"
-                  type="datetime-local"
-                  value={checkedInAt}
-                  onChange={(event) => setCheckedInAt(event.currentTarget.value)}
-                />
-              </Grid.Col>
-            </Grid>
-
-            <Textarea
-              label="Proof notes"
-              minRows={2}
-              value={proofNotes}
-              onChange={(event) => setProofNotes(event.currentTarget.value)}
-            />
-
-            <FileInput
-              label="Attach proof files"
-              description="Upload trainer proof directly into Pulse before completing the session."
-              multiple
-              value={proofFiles}
-              onChange={(value) => {
-                void handleProofFilesSelected(value);
-              }}
-              disabled={isUploadingProof || isSaving}
-              clearable
-            />
-
-            <Stack gap="xs">
-              <Text size="sm" fw={600}>
-                Stored proof documents
-              </Text>
-              {proofDocuments.length > 0 ? proofDocuments.map((document) => (
-                <Group key={document.id} justify="space-between" align="center" gap="sm" wrap="nowrap">
-                  <Stack gap={2}>
-                    <Group gap="xs">
-                      <Text size="sm">{document.fileName}</Text>
-                      <Badge color={proofReviewBadgeColor(document.reviewStatus)} variant="light">
-                        {document.reviewStatus.replace(/_/g, ' ')}
-                      </Badge>
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      {document.mimeType}
-                      {document.reviewedByName ? ` • reviewed by ${document.reviewedByName}` : ''}
-                    </Text>
-                  </Stack>
-                  <Group gap="xs" wrap="nowrap">
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      loading={downloadingProofDocumentId === document.id}
-                      disabled={isSaving || isUploadingProof}
-                      onClick={() => void handleDownloadProof(document)}
-                    >
-                      Download
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="default"
-                      loading={reviewingProofDocumentId === document.id}
-                      disabled={isSaving || isUploadingProof || document.reviewStatus === 'approved'}
-                      onClick={() => void handleReviewProof(document, 'approved')}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="xs"
-                      color="red"
-                      variant="light"
-                      loading={reviewingProofDocumentId === document.id}
-                      disabled={isSaving || isUploadingProof || document.reviewStatus === 'rejected'}
-                      onClick={() => void handleReviewProof(document, 'rejected')}
-                    >
-                      Reject
-                    </Button>
-                  </Group>
-                </Group>
-              )) : (
-                <Text size="sm" c="dimmed">
-                  No proof files uploaded yet.
-                </Text>
-              )}
-            </Stack>
-
-            {session.isCertificationTrack ? (
-              <Stack gap="sm">
-                <Text size="sm" fw={600}>Certification outcome</Text>
-                <Select
-                  data={[
-                    { value: 'pending_decision', label: 'Pending decision' },
-                    { value: 'awarded', label: 'Awarded' },
-                    { value: 'not_awarded', label: 'Not awarded' },
-                  ]}
-                  value={certificationOutcome}
-                  onChange={(value) => setCertificationOutcome((value as TrainingCertificationOutcomeKey | null) ?? 'pending_decision')}
-                />
+            <Stepper
+              active={completionStepIndex}
+              onStepClick={(index) => setCompletionStep(completionSteps[index] ?? 'completion')}
+              allowNextStepsSelect={canAdvanceCompletion}
+              data-testid="training-completion-stepper"
+            >
+            <Stepper.Step label="Completion" description="Outcome and notes">
+              <Stack gap="md" mt="md" data-testid="training-completion-step">
                 <Grid>
                   <Grid.Col span={6}>
                     <TextInput
-                      label="Certification title"
-                      value={certificationTitle}
-                      onChange={(event) => setCertificationTitle(event.currentTarget.value)}
+                      label="Completed at"
+                      type="datetime-local"
+                      value={completedAt}
+                      onChange={(event) => setCompletedAt(event.currentTarget.value)}
                     />
                   </Grid.Col>
-                  <Grid.Col span={6}>
-                    <TextInput
-                      label="Certification code"
-                      value={certificationCode}
-                      onChange={(event) => setCertificationCode(event.currentTarget.value)}
+                  <Grid.Col span={3}>
+                    <NumberInput
+                      label="Duration (mins)"
+                      min={15}
+                      step={15}
+                      value={durationMinutes}
+                      onChange={setDurationMinutes}
+                    />
+                  </Grid.Col>
+                  <Grid.Col span={3}>
+                    <NumberInput
+                      label="Attendees"
+                      min={0}
+                      value={attendeeCount}
+                      onChange={setAttendeeCount}
                     />
                   </Grid.Col>
                 </Grid>
-                <TextInput
-                  label="Certification expires at"
-                  type="datetime-local"
-                  value={certificationExpiresAt}
-                  onChange={(event) => setCertificationExpiresAt(event.currentTarget.value)}
-                />
+
                 <Textarea
-                  label="Certification notes"
+                  label="Completion summary"
                   minRows={2}
-                  value={certificationNotes}
-                  onChange={(event) => setCertificationNotes(event.currentTarget.value)}
+                  value={completionSummary}
+                  onChange={(event) => setCompletionSummary(event.currentTarget.value)}
+                />
+
+                <Textarea
+                  label="Checkout notes"
+                  description="Required for the training record and follow-up review."
+                  minRows={2}
+                  value={checkoutNotes}
+                  onChange={(event) => setCheckoutNotes(event.currentTarget.value)}
+                />
+
+                <Textarea
+                  label="Session notes"
+                  minRows={3}
+                  value={notes}
+                  onChange={(event) => setNotes(event.currentTarget.value)}
                 />
               </Stack>
-            ) : null}
-          </>
-        ) : null}
+            </Stepper.Step>
 
-        <Textarea
-          label={mode === 'completed' ? 'Session notes' : mode === 'check_in' ? 'Check-in notes' : 'Reason / notes'}
-          minRows={3}
-          value={notes}
-          onChange={(event) => setNotes(event.currentTarget.value)}
-        />
-
-        {mode === 'completed' ? (
-          <Stack gap="sm">
-            <Checkbox
-              label="Create follow-up task"
-              checked={createFollowUpTask}
-              onChange={(event) => setCreateFollowUpTask(event.currentTarget.checked)}
-            />
-
-            {createFollowUpTask ? (
-              <>
-                <TextInput
-                  label="Follow-up title"
-                  value={followUpTitle}
-                  onChange={(event) => setFollowUpTitle(event.currentTarget.value)}
-                />
-                <Textarea
-                  label="Follow-up description"
-                  minRows={2}
-                  value={followUpDescription}
-                  onChange={(event) => setFollowUpDescription(event.currentTarget.value)}
-                />
+            <Stepper.Step label="Proof" description="Files and review">
+              <Stack gap="md" mt="md" data-testid="training-proof-step">
                 <Grid>
                   <Grid.Col span={6}>
-                    <TextInput
-                      label="Due at"
-                      type="datetime-local"
-                      value={followUpDueAt}
-                      onChange={(event) => setFollowUpDueAt(event.currentTarget.value)}
+                    <NumberInput
+                      label="Proof attachments"
+                      min={0}
+                      value={proofAttachmentCount}
+                      onChange={setProofAttachmentCount}
                     />
                   </Grid.Col>
                   <Grid.Col span={6}>
-                    <Select
-                      label="Owner"
-                      placeholder="Assign to a trainer or manager"
-                      data={trainerOptions}
-                      value={followUpOwnerUserId}
-                      onChange={(value) => setFollowUpOwnerUserId(value ?? '')}
-                      searchable
-                      clearable
+                    <TextInput
+                      label="Checked in at"
+                      type="datetime-local"
+                      value={checkedInAt}
+                      onChange={(event) => setCheckedInAt(event.currentTarget.value)}
                     />
                   </Grid.Col>
                 </Grid>
-              </>
-            ) : null}
-          </Stack>
+
+                <Textarea
+                  label="Proof notes"
+                  minRows={2}
+                  value={proofNotes}
+                  onChange={(event) => setProofNotes(event.currentTarget.value)}
+                />
+
+                <FileInput
+                  label="Attach proof files"
+                  description="Upload trainer proof directly into Pulse before completing the session."
+                  multiple
+                  value={proofFiles}
+                  onChange={(value) => {
+                    void handleProofFilesSelected(value);
+                  }}
+                  disabled={isUploadingProof || isSaving}
+                  clearable
+                />
+
+                <Stack gap="xs">
+                  <Text size="sm" fw={600}>
+                    Stored proof documents
+                  </Text>
+                  {proofDocuments.length > 0 ? proofDocuments.map((document) => (
+                    <Group key={document.id} justify="space-between" align="center" gap="sm" wrap="nowrap">
+                      <Stack gap={2}>
+                        <Group gap="xs">
+                          <Text size="sm">{document.fileName}</Text>
+                          <Badge color={proofReviewBadgeColor(document.reviewStatus)} variant="light">
+                            {document.reviewStatus.replace(/_/g, ' ')}
+                          </Badge>
+                        </Group>
+                        <Text size="xs" c="dimmed">
+                          {document.mimeType}
+                          {document.reviewedByName ? ` • reviewed by ${document.reviewedByName}` : ''}
+                        </Text>
+                      </Stack>
+                      <Group gap="xs" wrap="nowrap">
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          loading={downloadingProofDocumentId === document.id}
+                          disabled={isSaving || isUploadingProof}
+                          onClick={() => void handleDownloadProof(document)}
+                        >
+                          Download
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="default"
+                          loading={reviewingProofDocumentId === document.id}
+                          disabled={isSaving || isUploadingProof || document.reviewStatus === 'approved'}
+                          onClick={() => void handleReviewProof(document, 'approved')}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="red"
+                          variant="light"
+                          loading={reviewingProofDocumentId === document.id}
+                          disabled={isSaving || isUploadingProof || document.reviewStatus === 'rejected'}
+                          onClick={() => void handleReviewProof(document, 'rejected')}
+                        >
+                          Reject
+                        </Button>
+                      </Group>
+                    </Group>
+                  )) : (
+                    <Text size="sm" c="dimmed">
+                      No proof files uploaded yet.
+                    </Text>
+                  )}
+                </Stack>
+              </Stack>
+            </Stepper.Step>
+
+            <Stepper.Step label="Certification" description="Decision">
+              <Stack gap="md" mt="md" data-testid="training-certification-step">
+                {session.isCertificationTrack ? (
+                  <>
+                    <Select
+                      label="Certification outcome"
+                      data={[
+                        { value: 'pending_decision', label: 'Pending decision' },
+                        { value: 'awarded', label: 'Awarded' },
+                        { value: 'not_awarded', label: 'Not awarded' },
+                      ]}
+                      value={certificationOutcome}
+                      onChange={(value) => setCertificationOutcome((value as TrainingCertificationOutcomeKey | null) ?? 'pending_decision')}
+                    />
+                    <Grid>
+                      <Grid.Col span={6}>
+                        <TextInput
+                          label="Certification title"
+                          value={certificationTitle}
+                          onChange={(event) => setCertificationTitle(event.currentTarget.value)}
+                        />
+                      </Grid.Col>
+                      <Grid.Col span={6}>
+                        <TextInput
+                          label="Certification code"
+                          value={certificationCode}
+                          onChange={(event) => setCertificationCode(event.currentTarget.value)}
+                        />
+                      </Grid.Col>
+                    </Grid>
+                    <TextInput
+                      label="Certification expires at"
+                      type="datetime-local"
+                      value={certificationExpiresAt}
+                      onChange={(event) => setCertificationExpiresAt(event.currentTarget.value)}
+                    />
+                    <Textarea
+                      label="Certification notes"
+                      minRows={2}
+                      value={certificationNotes}
+                      onChange={(event) => setCertificationNotes(event.currentTarget.value)}
+                    />
+                  </>
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    This session is not a certification track. Continue to follow-up.
+                  </Text>
+                )}
+              </Stack>
+            </Stepper.Step>
+
+            <Stepper.Step label="Follow-up" description="Next task">
+              <Stack gap="md" mt="md" data-testid="training-follow-up-step">
+                <Checkbox
+                  label="Create follow-up task"
+                  checked={createFollowUpTask}
+                  onChange={(event) => setCreateFollowUpTask(event.currentTarget.checked)}
+                />
+
+                {createFollowUpTask ? (
+                  <>
+                    <TextInput
+                      label="Follow-up title"
+                      value={followUpTitle}
+                      onChange={(event) => setFollowUpTitle(event.currentTarget.value)}
+                    />
+                    <Textarea
+                      label="Follow-up description"
+                      minRows={2}
+                      value={followUpDescription}
+                      onChange={(event) => setFollowUpDescription(event.currentTarget.value)}
+                    />
+                    <Grid>
+                      <Grid.Col span={6}>
+                        <TextInput
+                          label="Due at"
+                          type="datetime-local"
+                          value={followUpDueAt}
+                          onChange={(event) => setFollowUpDueAt(event.currentTarget.value)}
+                        />
+                      </Grid.Col>
+                      <Grid.Col span={6}>
+                        <Select
+                          label="Owner"
+                          placeholder="Assign to a trainer or manager"
+                          data={trainerOptions}
+                          value={followUpOwnerUserId}
+                          onChange={(value) => setFollowUpOwnerUserId(value ?? '')}
+                          searchable
+                          clearable
+                        />
+                      </Grid.Col>
+                    </Grid>
+                  </>
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    Leave follow-up off when no trainer or office action is needed after completion.
+                  </Text>
+                )}
+              </Stack>
+            </Stepper.Step>
+          </Stepper>
         ) : null}
 
-        <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit}>
-          {mode === 'check_in'
-            ? 'Check In'
-            : mode === 'completed'
-            ? 'Complete Session'
-            : mode === 'no_show'
-            ? 'Save No-show'
-            : 'Cancel Session'}
-        </Button>
+        {mode !== 'completed' ? (
+          <Textarea
+            label={mode === 'check_in' ? 'Check-in notes' : 'Reason / notes'}
+            minRows={3}
+            value={notes}
+            onChange={(event) => setNotes(event.currentTarget.value)}
+          />
+        ) : null}
+
+        {mode === 'completed' ? (
+          <Group justify="space-between">
+            <Button
+              variant="default"
+              disabled={completionStepIndex === 0 || isSaving}
+              onClick={() => setCompletionStep(completionSteps[Math.max(0, completionStepIndex - 1)] ?? 'completion')}
+            >
+              Back
+            </Button>
+            <Group gap="xs">
+              {completionStep !== 'follow_up' ? (
+                <Button
+                  variant="default"
+                  onClick={() => setCompletionStep(completionSteps[Math.min(completionSteps.length - 1, completionStepIndex + 1)] ?? 'follow_up')}
+                  disabled={!canGoNext || isSaving}
+                >
+                  Add proof / follow-up
+                </Button>
+              ) : null}
+              <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit}>
+                Complete Session
+              </Button>
+            </Group>
+          </Group>
+        ) : (
+          <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit}>
+            {mode === 'check_in'
+              ? 'Check In'
+              : mode === 'no_show'
+              ? 'Save No-show'
+              : 'Cancel Session'}
+          </Button>
+        )}
       </Stack>
     </Modal>
   );

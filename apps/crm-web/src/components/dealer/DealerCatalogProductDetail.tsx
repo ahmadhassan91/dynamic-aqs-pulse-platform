@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Card, Divider, Grid, Group, SimpleGrid, Stack, Text, Title, Tooltip } from '@mantine/core';
 import type { DealerPortalCatalogAssetSummary, DealerPortalCatalogProductSummary } from '@pulse/contracts';
-import { IconArrowLeft, IconDownload, IconFileDescription, IconFolder, IconInfoCircle, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
+import { IconArrowLeft, IconDownload, IconFileDescription, IconFolder, IconStar, IconStarFilled, IconTag } from '@tabler/icons-react';
 import type { DealerCatalogAssetActions, DealerCatalogFavoriteActions } from '@/components/dealer/DealerCatalog';
 
 type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
@@ -28,9 +28,12 @@ export function DealerCatalogProductDetail({
   favoriteActions?: DealerCatalogFavoriteActions | undefined;
   product: DealerCatalogProductWithFavorites;
 }) {
-  const fileGroups = useMemo(() => groupAssetsByRole(product.assets), [product.assets]);
+  const availableAssets = useMemo(() => product.assets.filter((asset) => Boolean(asset.downloadUrl)), [product.assets]);
+  const fileGroups = useMemo(() => groupAssetsByRole(availableAssets), [availableAssets]);
   const isFavorite = Boolean(product.isFavorite);
   const canToggleFavorite = Boolean(favoriteActions?.isAvailable && favoriteActions.toggleFavorite);
+  const brandContext = product.brandLabel ?? catalogView?.brandLabel ?? null;
+  const regionContext = product.regionScope ?? catalogView?.regionScope ?? null;
 
   return (
     <Stack gap="lg">
@@ -101,50 +104,20 @@ export function DealerCatalogProductDetail({
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <Stack gap={4}>
-                    <Text className="eyebrow">Product Overview</Text>
-                    <Title order={3}>Dealer-facing details</Title>
-                  </Stack>
-                  <Badge color="green" variant="light">
-                    Published
-                  </Badge>
-                </Group>
-                {product.longDescription ? (
-                  <Text>{product.longDescription}</Text>
-                ) : product.shortDescription ? (
-                  <Text>{product.shortDescription}</Text>
-                ) : (
-                  <Text c="dimmed">No additional description has been published for this product yet.</Text>
-                )}
-                {product.specSummary ? (
-                  <>
-                    <Divider />
-                    <Stack gap={4}>
-                      <Text fw={700}>Specification Summary</Text>
-                      <Text size="sm">{product.specSummary}</Text>
-                    </Stack>
-                  </>
-                ) : null}
-              </Stack>
-            </Card>
-
-            <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-start">
-                  <Stack gap={4}>
-                    <Text className="eyebrow">File Pack</Text>
+                    <Text className="eyebrow">Files</Text>
                     <Title order={3}>Product files</Title>
                     <Text size="sm" c="dimmed">
-                      These are the files Dynamic AQS has published for this product.
+                      These are the files currently listed for this product.
                     </Text>
                   </Stack>
                   <Badge color="blue" variant="light">
-                    {product.assets.length} file{product.assets.length === 1 ? '' : 's'}
+                    {availableAssets.length} file{availableAssets.length === 1 ? '' : 's'}
                   </Badge>
                 </Group>
 
-                {product.assets.length === 0 ? (
+                {availableAssets.length === 0 ? (
                   <Alert color="yellow" variant="light">
-                    No files are attached yet.
+                    No files are available for this product right now. Contact Dynamic AQS support if you need a specific file.
                   </Alert>
                 ) : (
                   <Stack gap="md">
@@ -173,6 +146,33 @@ export function DealerCatalogProductDetail({
                 )}
               </Stack>
             </Card>
+
+            <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Text className="eyebrow">Product Details</Text>
+                    <Title order={3}>Product details</Title>
+                  </Stack>
+                </Group>
+                {product.longDescription ? (
+                  <Text>{product.longDescription}</Text>
+                ) : product.shortDescription ? (
+                  <Text>{product.shortDescription}</Text>
+                ) : (
+                  <Text c="dimmed">No additional description is available for this product yet.</Text>
+                )}
+                {product.specSummary ? (
+                  <>
+                    <Divider />
+                    <Stack gap={4}>
+                      <Text fw={700}>Specification Summary</Text>
+                      <Text size="sm">{product.specSummary}</Text>
+                    </Stack>
+                  </>
+                ) : null}
+              </Stack>
+            </Card>
           </Stack>
         </Grid.Col>
 
@@ -180,20 +180,15 @@ export function DealerCatalogProductDetail({
           <Stack gap="lg">
             <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
               <Stack gap="sm">
-                <Text className="eyebrow">Catalog Context</Text>
-                <Title order={3}>Who sees this</Title>
-                <MetadataRow label="Catalog View" value={catalogView?.name ?? 'Assigned dealer catalog'} />
-                <MetadataRow label="Brand" value={product.brandLabel ?? catalogView?.brandLabel ?? 'Standard'} />
-                <MetadataRow label="Region" value={product.regionScope ?? catalogView?.regionScope ?? 'Account default'} />
-                <MetadataRow label="Category" value={product.categoryName ?? 'Uncategorized'} />
-                <MetadataRow label="Family" value={product.familyName ?? 'No family assigned'} />
+                <Text className="eyebrow">Your product catalog</Text>
+                <Title order={3}>Available for your company</Title>
+                {catalogView?.name ? <MetadataRow label="Product catalog" value={catalogView.name} /> : null}
+                {brandContext ? <MetadataRow label="Brand" value={brandContext} /> : null}
+                {regionContext ? <MetadataRow label="Region" value={regionContext} /> : null}
+                {product.categoryName ? <MetadataRow label="Category" value={product.categoryName} /> : null}
+                {product.familyName ? <MetadataRow label="Family" value={product.familyName} /> : null}
               </Stack>
             </Card>
-
-            <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
-              Prices, stock, cart, order submit, invoices, payments, and credit status will appear after the approved
-              order and finance connections are live.
-            </Alert>
           </Stack>
         </Grid.Col>
       </Grid>
@@ -222,21 +217,12 @@ function AssetFileCard({
             <Text size="xs" c="dimmed">
               {[formatAssetRole(asset.role), asset.fileName, asset.kind.replace(/_/g, ' ')].filter(Boolean).join(' / ')}
             </Text>
-            {!asset.downloadUrl ? (
-              <Text size="xs" c="orange.7">
-                File delivery not ready
-              </Text>
-            ) : null}
           </Stack>
-          <Badge size="sm" color={asset.visibility === 'public' ? 'green' : 'blue'} variant="light">
-            {asset.visibility === 'public' ? 'Public' : 'Dealer'}
-          </Badge>
         </Group>
         <Button
           size="xs"
           variant="light"
           leftSection={<IconDownload size={14} />}
-          disabled={!asset.downloadUrl}
           loading={assetActions?.openingAssetId === asset.id}
           onClick={() => {
             if (assetActions?.openAsset) {
@@ -248,7 +234,7 @@ function AssetFileCard({
             }
           }}
         >
-          {asset.downloadUrl ? 'Open File' : 'Unavailable'}
+          Open File
         </Button>
       </Stack>
     </Card>

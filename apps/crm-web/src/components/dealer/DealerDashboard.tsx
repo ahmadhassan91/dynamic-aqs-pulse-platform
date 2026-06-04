@@ -1,19 +1,25 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Box, Button, Card, Grid, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
-import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
-import { IconBuildingStore, IconCreditCard, IconFileText, IconMapPin, IconShieldCheck, IconUsers } from '@tabler/icons-react';
+import { Alert, Badge, Button, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import type {
+  DealerPortalAccessRoleKey,
+  DealerPortalCatalogAssetSummary,
+  DealerPortalCatalogProductSummary,
+  DealerPortalDashboardResponse,
+} from '@pulse/contracts';
+import { IconArrowRight, IconDownload, IconShieldCheck } from '@tabler/icons-react';
+import { useDealerPortalCatalog } from '@/lib/use-dealer-portal-catalog';
 
 export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboardResponse }) {
   const primaryContact = dashboard.contacts.find((contact) => contact.isPrimary) ?? dashboard.contacts[0] ?? null;
   const primaryLocation = dashboard.locations.find((location) => location.isPrimary) ?? dashboard.locations[0] ?? null;
   const roleProfile = getRoleProfile(dashboard.currentUser.accessRole);
-  const canPromoteAccessDirectory = dashboard.currentUser.accessRole === 'admin';
-  const canPromoteCatalog = dashboard.currentUser.accessRole === 'purchasing';
-  const canPromoteAccountHealth = dashboard.currentUser.accessRole === 'accounting';
-  const isViewer = dashboard.currentUser.accessRole === 'viewer';
+  const { assetActions, catalog, isLoading: isCatalogLoading } = useDealerPortalCatalog();
+  const primaryCta = roleProfile.link ?? { href: '/dealer/catalog', label: 'Browse Products & Files', variant: 'filled' as const };
+  const hasProfileGaps = dashboard.contacts.length === 0 || dashboard.locations.length === 0;
+  const recentFiles = buildRecentFileRows(catalog?.products ?? []);
+  const availableFileCount = catalog?.products.reduce((total, product) => total + product.assets.filter((asset) => Boolean(asset.downloadUrl)).length, 0) ?? 0;
 
   return (
     <Stack gap="lg">
@@ -21,271 +27,124 @@ export function DealerDashboard({ dashboard }: { dashboard: DealerPortalDashboar
         <Group justify="space-between" align="flex-start">
           <Stack gap={6}>
             <Text className="eyebrow">Dealer Portal</Text>
-            <Title order={1}>Dealer dashboard</Title>
+            <Title order={1}>Start Here</Title>
             <Text c="dimmed" maw={760}>
-              See your company profile, account contacts, locations, and the products and files Dynamic AQS has
-              made available for your team.
+              Open available files, check who to contact, or review your company portal access.
             </Text>
-            <Group gap="xs">
-              <Badge size="lg" color={statusColor(dashboard.portalAccount.status)} variant="light">
-                {dashboard.portalAccount.status.replace(/_/g, ' ')}
-              </Badge>
-              <Badge size="lg" color="blue" variant="light">
-                {dashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'}
-              </Badge>
-              <Badge size="lg" color={roleProfile.color} variant="light">
-                {roleProfile.label}
-              </Badge>
-            </Group>
           </Stack>
           <Group gap="sm">
-            <Button component={Link} href="/dealer/account" variant="light">
-              Open Account Center
+            <Button component={Link} href={primaryCta.href} variant={primaryCta.variant}>
+              {primaryCta.label}
             </Button>
           </Group>
         </Group>
       </Card>
 
-      <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="lg">
-        <MetricCard
-          icon={<IconUsers size={22} />}
-          label="Portal Users"
-          value={String(dashboard.portalAccount.activePortalUsers)}
-          detail={`${dashboard.portalAccount.totalPortalUsers} total users set up`}
-        />
-        <MetricCard
-          icon={<IconBuildingStore size={22} />}
-          label="Contacts"
-          value={String(dashboard.contacts.length)}
-          detail={primaryContact ? `Primary: ${primaryContact.displayName}` : 'No contact published yet'}
-        />
-        <MetricCard
-          icon={<IconMapPin size={22} />}
-          label="Locations"
-          value={String(dashboard.locations.length)}
-          detail={primaryLocation ? `Primary: ${primaryLocation.name}` : 'No location published yet'}
-        />
-        <MetricCard
-          icon={<IconShieldCheck size={22} />}
-          label="Territory"
-          value={dashboard.portalAccount.territoryName ?? 'Pending'}
-          detail={dashboard.portalAccount.assignedTmName ?? 'TM not assigned'}
-        />
+      <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="lg">
+        <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+          <Stack gap="md" h="100%">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Text className="eyebrow">Next Action</Text>
+                <Title order={3}>{roleProfile.sectionTitle}</Title>
+              </Stack>
+              <Badge color={roleProfile.color} variant="light">
+                {roleProfile.badge}
+              </Badge>
+            </Group>
+            <Text size="sm" c="dimmed">
+              {roleProfile.priority}
+            </Text>
+            <Button component={Link} href={primaryCta.href} variant={primaryCta.variant} rightSection={<IconArrowRight size={16} />}>
+              {primaryCta.label}
+            </Button>
+          </Stack>
+        </Card>
+
+        <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+          <Stack gap="md" h="100%">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Text className="eyebrow">Account Support</Text>
+                <Title order={3}>Who to contact</Title>
+              </Stack>
+              <IconShieldCheck size={22} color="var(--mantine-color-blue-6)" />
+            </Group>
+            <Stack gap={8}>
+              <MetadataRow label="Primary Contact" value={primaryContact?.displayName ?? 'Dynamic AQS support'} />
+              <MetadataRow label="Location" value={primaryLocation ? [primaryLocation.city, primaryLocation.state].filter(Boolean).join(', ') || primaryLocation.name : 'Not available yet'} />
+              <MetadataRow label="Territory Manager" value={dashboard.portalAccount.assignedTmName ?? 'Dynamic AQS support'} />
+            </Stack>
+            <Button component={Link} href="/dealer/account#account-health" variant="light">
+              Account Health
+            </Button>
+          </Stack>
+        </Card>
+
+        <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+          <Stack gap="md" h="100%">
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={4}>
+                <Text className="eyebrow">Product Files</Text>
+                <Title order={3}>Ready to open</Title>
+              </Stack>
+              <Badge color="green" variant="light">
+                {availableFileCount} file{availableFileCount === 1 ? '' : 's'}
+              </Badge>
+            </Group>
+            {isCatalogLoading ? (
+              <Text size="sm" c="dimmed">
+                Loading available files...
+              </Text>
+            ) : recentFiles.length > 0 ? (
+              <Stack gap="xs">
+                {recentFiles.map((file) => (
+                  <Group key={`${file.product.presentationId}-${file.asset.id}`} justify="space-between" gap="sm" wrap="nowrap">
+                    <Stack gap={0}>
+                      <Text size="sm" fw={600} lineClamp={1}>
+                        {file.asset.title}
+                      </Text>
+                      <Text size="xs" c="dimmed" lineClamp={1}>
+                        {file.product.displayName}
+                      </Text>
+                    </Stack>
+                    <Button
+                      size="compact-xs"
+                      variant="light"
+                      leftSection={<IconDownload size={13} />}
+                      loading={assetActions.openingAssetId === file.asset.id}
+                      onClick={() => {
+                        if (assetActions.openAsset) {
+                          void assetActions.openAsset(file.asset, file.product);
+                          return;
+                        }
+                        if (file.asset.downloadUrl) {
+                          window.open(file.asset.downloadUrl, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            ) : (
+              <Text size="sm" c="dimmed">
+                No files are available for this company right now. Contact Dynamic AQS support if you need a specific file.
+              </Text>
+            )}
+            <Button component={Link} href="/dealer/catalog" variant="default">
+              View All Products & Files
+            </Button>
+          </Stack>
+        </Card>
       </SimpleGrid>
 
-      <Grid>
-        <Grid.Col span={{ base: 12, lg: 5 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
-            <Stack gap="sm">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={4}>
-                  <Text className="eyebrow">Portal Role</Text>
-                  <Title order={3}>{roleProfile.label}</Title>
-                </Stack>
-                <Badge color={roleProfile.color} variant="light">
-                  {roleProfile.badge}
-                </Badge>
-              </Group>
-              <Text size="sm" c="dimmed">
-                {roleProfile.description}
-              </Text>
-              <Text size="sm" fw={600}>
-                {roleProfile.priority}
-              </Text>
-            </Stack>
-          </Card>
-        </Grid.Col>
-
-        <Grid.Col span={{ base: 12, lg: 7 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={4}>
-                  <Title order={3}>{roleProfile.sectionTitle}</Title>
-                  <Text size="sm" c="dimmed">
-                    {roleProfile.sectionDetail}
-                  </Text>
-                </Stack>
-                {roleProfile.link ? (
-                  <Button component={Link} href={roleProfile.link.href} variant={roleProfile.link.variant}>
-                    {roleProfile.link.label}
-                  </Button>
-                ) : null}
-              </Group>
-
-              {canPromoteAccessDirectory ? (
-                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-                  <RoleCallout label="Active users" value={String(dashboard.portalAccount.activePortalUsers)} />
-                  <RoleCallout label="Total users" value={String(dashboard.portalAccount.totalPortalUsers)} />
-                  <RoleCallout
-                    label="Primary owners"
-                    value={String(dashboard.companyUsers.filter((user) => user.isPrimaryOwner).length)}
-                  />
-                </SimpleGrid>
-              ) : null}
-
-              {canPromoteCatalog ? (
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                  <RoleCallout icon={<IconFileText size={18} />} label="Product files" value="Dealer-safe catalog access" />
-                  <RoleCallout icon={<IconBuildingStore size={18} />} label="Ordering" value="Coming after order sync is approved" />
-                </SimpleGrid>
-              ) : null}
-
-              {canPromoteAccountHealth ? (
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                  <RoleCallout icon={<IconCreditCard size={18} />} label="Payment terms" value="Not connected yet" />
-                  <RoleCallout icon={<IconShieldCheck size={18} />} label="Credit status" value="Not connected yet" />
-                </SimpleGrid>
-              ) : null}
-
-              {isViewer ? (
-                <Alert color="gray" variant="light">
-                  Viewer access is read-only. You can inspect published company, location, contact, and catalog
-                  information, but portal administration and finance changes stay with Dynamic AQS.
-                </Alert>
-              ) : null}
-            </Stack>
-          </Card>
-        </Grid.Col>
-      </Grid>
-
-      <Grid>
-        <Grid.Col span={{ base: 12, lg: 7 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-            <Stack gap="md">
-              <Title order={3}>Company Access Directory</Title>
-              <Text size="sm" c="dimmed">
-                These are the people who can sign in for this company.
-              </Text>
-              {dashboard.companyUsers.length === 0 ? (
-                <Alert color="blue" variant="light">
-                  Dynamic AQS has not set up any active dealer portal users yet.
-                </Alert>
-              ) : (
-                <Table.ScrollContainer minWidth={640}>
-                  <Table verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>User</Table.Th>
-                        <Table.Th>Email</Table.Th>
-                        <Table.Th>Status</Table.Th>
-                        <Table.Th>Role</Table.Th>
-                        <Table.Th>Primary Owner</Table.Th>
-                        <Table.Th>Last Login</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {dashboard.companyUsers.map((user) => (
-                        <Table.Tr key={user.id}>
-                          <Table.Td>{user.displayName}</Table.Td>
-                          <Table.Td>{user.email}</Table.Td>
-                          <Table.Td>
-                            <Badge size="sm" color={statusColor(user.status)} variant="light">
-                              {user.status}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>{formatAccessRole(user.accessRole)}</Table.Td>
-                          <Table.Td>{user.isPrimaryOwner ? 'Yes' : 'No'}</Table.Td>
-                          <Table.Td>{formatDateTime(user.lastLoginAt)}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              )}
-            </Stack>
-          </Card>
-        </Grid.Col>
-
-        <Grid.Col span={{ base: 12, lg: 5 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
-            <Stack gap="md">
-              <Title order={3}>Account Context</Title>
-              <MetadataRow label="Account" value={dashboard.portalAccount.accountDisplayName} />
-              <MetadataRow label="Account Number" value={dashboard.portalAccount.accountNumber ?? 'Pending assignment'} />
-              <MetadataRow label="Region" value={dashboard.portalAccount.regionName ?? 'Not assigned'} />
-              <MetadataRow label="Territory" value={dashboard.portalAccount.territoryName ?? 'Not assigned'} />
-              <MetadataRow label="Shipping Center" value={dashboard.portalAccount.shippingCenterName ?? 'Not assigned'} />
-              <MetadataRow label="TM" value={dashboard.portalAccount.assignedTmName ?? 'Not assigned'} />
-              <MetadataRow label="RD" value={dashboard.portalAccount.assignedRdName ?? 'Not assigned'} />
-            </Stack>
-          </Card>
-        </Grid.Col>
-      </Grid>
-
-      <Grid>
-        <Grid.Col span={{ base: 12, lg: 6 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-            <Stack gap="md">
-              <Title order={3}>Contact Directory</Title>
-              {dashboard.contacts.length === 0 ? (
-                <Alert color="blue" variant="light">
-                  No contacts have been published for this account yet.
-                </Alert>
-              ) : (
-                <Table.ScrollContainer minWidth={520}>
-                  <Table verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Contact</Table.Th>
-                        <Table.Th>Title</Table.Th>
-                        <Table.Th>Email</Table.Th>
-                        <Table.Th>Primary</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {dashboard.contacts.map((contact) => (
-                        <Table.Tr key={contact.id}>
-                          <Table.Td>{contact.displayName}</Table.Td>
-                          <Table.Td>{contact.title ?? '—'}</Table.Td>
-                          <Table.Td>{contact.email ?? '—'}</Table.Td>
-                          <Table.Td>{contact.isPrimary ? 'Yes' : 'No'}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              )}
-            </Stack>
-          </Card>
-        </Grid.Col>
-
-        <Grid.Col span={{ base: 12, lg: 6 }}>
-          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-            <Stack gap="md">
-              <Title order={3}>Location Directory</Title>
-              {dashboard.locations.length === 0 ? (
-                <Alert color="blue" variant="light">
-                  No locations have been published for this account yet.
-                </Alert>
-              ) : (
-                <Table.ScrollContainer minWidth={520}>
-                  <Table verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Location</Table.Th>
-                        <Table.Th>City</Table.Th>
-                        <Table.Th>State</Table.Th>
-                        <Table.Th>Primary</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {dashboard.locations.map((location) => (
-                        <Table.Tr key={location.id}>
-                          <Table.Td>{location.name}</Table.Td>
-                          <Table.Td>{location.city ?? '—'}</Table.Td>
-                          <Table.Td>{location.state ?? '—'}</Table.Td>
-                          <Table.Td>{location.isPrimary ? 'Yes' : 'No'}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              )}
-            </Stack>
-          </Card>
-        </Grid.Col>
-      </Grid>
+      {hasProfileGaps ? (
+        <Alert color="blue" variant="light">
+          Account profile setup is still being completed. Contact and location details appear in Account Center once Dynamic AQS makes them available for this company.
+        </Alert>
+      ) : null}
     </Stack>
   );
 }
@@ -294,10 +153,8 @@ type RoleProfile = {
   label: string;
   badge: string;
   color: string;
-  description: string;
   priority: string;
   sectionTitle: string;
-  sectionDetail: string;
   link?: {
     href: string;
     label: string;
@@ -308,112 +165,40 @@ type RoleProfile = {
 function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
   const profiles: Record<DealerPortalAccessRoleKey, RoleProfile> = {
     admin: {
-      label: 'Admin',
+      label: 'Account Access',
       badge: 'User access',
       color: 'blue',
-      description: 'Admins can review the company directory and see who has portal access for this dealer account.',
-      priority: 'Start with portal users, access roles, contacts, and account context.',
+      priority: 'Start with company users, access, contacts, and company details.',
       sectionTitle: 'Account users and access',
-      sectionDetail: 'The access directory is prominent for admins so company user visibility stays clear.',
-      link: { href: '/dealer/account', label: 'Review Users', variant: 'filled' },
+      link: { href: '/dealer/account', label: 'Open Account Center', variant: 'filled' },
     },
     purchasing: {
-      label: 'Purchasing',
+      label: 'Products & Files',
       badge: 'Products and files',
       color: 'green',
-      description: 'Purchasing users focus on published products and files.',
-      priority: 'Browse products and files now. Cart and order submission will come after order sync is approved.',
-      sectionTitle: 'Products, files, and purchasing readiness',
-      sectionDetail: 'Catalog access is available today; ordering actions will wait for the approved order connection.',
-      link: { href: '/dealer/catalog', label: 'Open Products & Files', variant: 'filled' },
+      priority: 'Browse products and files available for your company.',
+      sectionTitle: 'Products and files',
+      link: { href: '/dealer/catalog', label: 'Browse Products & Files', variant: 'filled' },
     },
     accounting: {
-      label: 'Accounting',
+      label: 'Account Health',
       badge: 'Account health',
       color: 'orange',
-      description: 'Accounting users can review account health once finance records are connected.',
-      priority: 'Account Health avoids showing unverified balances, invoices, or payment values.',
+      priority: 'Start with Account Health for account profile and support status.',
       sectionTitle: 'Account Health',
-      sectionDetail: 'Payment terms, credit status, billing address changes, and transaction history are waiting on finance data.',
-      link: { href: '/dealer/account#account-health', label: 'Open Account Health', variant: 'filled' },
+      link: { href: '/dealer/account#account-health', label: 'Account Health', variant: 'filled' },
     },
     viewer: {
       label: 'Viewer',
       badge: 'Read-only',
       color: 'gray',
-      description: 'Viewers can inspect published dealer portal information without managing users, finance, or orders.',
       priority: 'Use the portal as a read-only reference for company, location, contact, product, and file details.',
       sectionTitle: 'Read-only portal view',
-      sectionDetail: 'This role keeps the portal navigable while making the read-only boundary explicit.',
+      link: { href: '/dealer/catalog', label: 'Browse Products & Files', variant: 'filled' },
     },
   };
 
   return profiles[role];
-}
-
-function formatAccessRole(value: string) {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <Card withBorder radius="xl" p="lg" className="premium-stat-card">
-      <Stack gap={8}>
-        <Group justify="space-between" align="flex-start">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            {label}
-          </Text>
-          <Text c="blue">{icon}</Text>
-        </Group>
-        <Title order={2}>{value}</Title>
-        <Text size="sm" c="dimmed">
-          {detail}
-        </Text>
-      </Stack>
-    </Card>
-  );
-}
-
-function RoleCallout({
-  icon,
-  label,
-  value,
-}: {
-  icon?: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <Box
-      p="md"
-      style={{
-        border: '1px solid var(--mantine-color-gray-3)',
-        borderRadius: 8,
-      }}
-    >
-      <Stack gap={4}>
-        <Group gap={6}>
-          {icon ? <Text c="blue">{icon}</Text> : null}
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            {label}
-          </Text>
-        </Group>
-        <Text size="sm" fw={600}>
-          {value}
-        </Text>
-      </Stack>
-    </Box>
-  );
 }
 
 function MetadataRow({ label, value }: { label: string; value: string }) {
@@ -429,39 +214,23 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatDateTime(value?: string) {
-  if (!value) {
-    return 'Never';
+function buildRecentFileRows(products: DealerPortalCatalogProductSummary[]) {
+  const rows: Array<{
+    asset: DealerPortalCatalogAssetSummary;
+    product: DealerPortalCatalogProductSummary;
+  }> = [];
+
+  for (const product of products) {
+    for (const asset of product.assets) {
+      if (!asset.downloadUrl) {
+        continue;
+      }
+      rows.push({ asset, product });
+      if (rows.length >= 3) {
+        return rows;
+      }
+    }
   }
 
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(parsed);
-}
-
-function statusColor(status: string) {
-  if (status === 'active') {
-    return 'green';
-  }
-
-  if (status === 'ready_to_provision') {
-    return 'blue';
-  }
-
-  if (status === 'suspended') {
-    return 'orange';
-  }
-
-  if (status === 'deactivated') {
-    return 'red';
-  }
-
-  return 'gray';
+  return rows;
 }

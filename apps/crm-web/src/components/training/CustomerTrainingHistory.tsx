@@ -468,7 +468,7 @@ export function CustomerTrainingHistory({
                                   <IconClockEdit size={16} />
                                 </ActionIcon>
                               </Tooltip>
-                              <Tooltip label="Complete / cancel">
+                              <Tooltip label="Update session">
                                 <ActionIcon
                                   variant="light"
                                   color="green"

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Badge, Box, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
@@ -29,10 +30,9 @@ const dealerNavItems: DealerNavItem[] = [
     label: 'Account Health',
     link: '/dealer/account#account-health',
     icon: IconCreditCard,
-    badgeForRole: { accounting: 'ERP pending' },
   },
   {
-    label: 'Products & Files',
+    label: 'Products and Files',
     link: '/dealer/catalog',
     icon: IconPackage,
     badgeForRole: { purchasing: 'Files' },
@@ -41,12 +41,25 @@ const dealerNavItems: DealerNavItem[] = [
 
 export function DealerNavigation({ accessRole }: { accessRole?: DealerPortalAccessRoleKey | undefined }) {
   const pathname = usePathname();
+  const [currentHash, setCurrentHash] = useState('');
+
+  useEffect(() => {
+    const updateHash = () => setCurrentHash(window.location.hash);
+
+    updateHash();
+    window.addEventListener('hashchange', updateHash);
+    window.addEventListener('popstate', updateHash);
+
+    return () => {
+      window.removeEventListener('hashchange', updateHash);
+      window.removeEventListener('popstate', updateHash);
+    };
+  }, [pathname]);
 
   return (
     <Stack gap={4}>
       {dealerNavItems.map((item) => {
-        const linkPath = item.link.split('#')[0] ?? item.link;
-        const isActive = pathname === linkPath || pathname.startsWith(`${linkPath}/`);
+        const isActive = isDealerNavItemActive(pathname, currentHash, item.link);
         const badge = accessRole ? item.badgeForRole?.[accessRole] : null;
 
         return (
@@ -56,6 +69,7 @@ export function DealerNavigation({ accessRole }: { accessRole?: DealerPortalAcce
             href={item.link}
             className={classes.control ?? ''}
             data-active={isActive || undefined}
+            aria-current={isActive ? 'page' : undefined}
           >
             <Group justify="space-between" gap={0}>
               <Box style={{ display: 'flex', alignItems: 'center' }}>
@@ -75,4 +89,23 @@ export function DealerNavigation({ accessRole }: { accessRole?: DealerPortalAcce
       })}
     </Stack>
   );
+}
+
+function isDealerNavItemActive(pathname: string, currentHash: string, link: string) {
+  const [linkPath = '', hashFragment] = link.split('#');
+  const linkHash = hashFragment ? `#${hashFragment}` : '';
+
+  if (pathname !== linkPath && !pathname.startsWith(`${linkPath}/`)) {
+    return false;
+  }
+
+  if (linkHash) {
+    return currentHash === linkHash;
+  }
+
+  if (pathname === linkPath) {
+    return currentHash === '';
+  }
+
+  return true;
 }

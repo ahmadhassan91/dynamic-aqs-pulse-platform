@@ -7,6 +7,7 @@ import {
   Card,
   Group,
   Modal,
+  Paper,
   SimpleGrid,
   Stack,
   Switch,
@@ -16,6 +17,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { AccountDetail } from '@pulse/contracts';
+import { EmptyStateMessage, RowActionMenu } from '@/components/ui/Workbench';
 import { createAccountLocationRecord, updateAccountLocationRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -158,15 +160,22 @@ export function CustomerLocations(
       </Group>
       <Stack gap="sm">
         {account.locations.length === 0 ? (
-          <Text size="sm" c="dimmed">No account locations have been created yet.</Text>
+          <EmptyStateMessage
+            title="No locations saved"
+            description={canEdit
+              ? 'Add the primary operating location when the account address is ready.'
+              : 'Locations will appear here after they are saved on the account.'}
+          />
         ) : account.locations.map((location) => (
-          <Card key={location.id} withBorder radius="md" p="md">
+          <Paper key={location.id} withBorder radius="md" p="md">
             <Group justify="space-between" mb="xs">
               <Stack gap={4}>
                 <Text fw={600}>{location.name ?? location.locationCode ?? 'Location'}</Text>
-                <Text size="sm" c="dimmed">
-                  {[location.line1, location.city, location.state, location.postalCode, location.countryCode].filter(Boolean).join(', ') || 'No address recorded'}
-                </Text>
+                {[location.line1, location.city, location.state, location.postalCode, location.countryCode].filter(Boolean).length ? (
+                  <Text size="sm" c="dimmed">
+                    {[location.line1, location.city, location.state, location.postalCode, location.countryCode].filter(Boolean).join(', ')}
+                  </Text>
+                ) : null}
               </Stack>
               <Stack gap="xs" align="flex-end">
                 <Group gap="xs">
@@ -176,16 +185,25 @@ export function CustomerLocations(
                   </Badge>
                 </Group>
                 {canEdit ? (
-                  <Group gap="xs">
-                    <Button size="compact-xs" variant="subtle" onClick={() => openEdit(location)}>Edit</Button>
-                    <Button size="compact-xs" variant="subtle" color={location.isActive ? 'red' : 'green'} onClick={() => void handleToggleActive(location)}>
-                      {location.isActive ? 'Deactivate' : 'Reactivate'}
-                    </Button>
-                  </Group>
+                  <RowActionMenu
+                    items={[
+                      {
+                        id: 'edit',
+                        label: 'Edit location',
+                        onClick: () => openEdit(location),
+                      },
+                      {
+                        id: 'toggle-active',
+                        label: location.isActive ? 'Deactivate location' : 'Reactivate location',
+                        color: location.isActive ? 'danger' : 'success',
+                        onClick: () => void handleToggleActive(location),
+                      },
+                    ]}
+                  />
                 ) : null}
               </Stack>
             </Group>
-          </Card>
+          </Paper>
         ))}
       </Stack>
 
@@ -199,14 +217,14 @@ export function CustomerLocations(
         <Stack gap="md">
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <TextInput
-              label="Location Code"
-              value={form.locationCode}
-              onChange={(event) => setForm((current) => ({ ...current, locationCode: event.currentTarget.value }))}
-            />
-            <TextInput
               label="Location Name"
               value={form.name}
               onChange={(event) => setForm((current) => ({ ...current, name: event.currentTarget.value }))}
+            />
+            <TextInput
+              label="Location Reference"
+              value={form.locationCode}
+              onChange={(event) => setForm((current) => ({ ...current, locationCode: event.currentTarget.value }))}
             />
           </SimpleGrid>
           <TextInput

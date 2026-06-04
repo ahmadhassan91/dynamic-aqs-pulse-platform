@@ -9,29 +9,26 @@ import {
   Box,
   Button,
   Card,
-  Divider,
   Group,
   Loader,
+  Menu,
   Paper,
   Select,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   ThemeIcon,
-  Title,
 } from '@mantine/core';
 import {
   IconAlertCircle,
   IconArrowRight,
   IconCalendarEvent,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconClock,
-  IconDeviceDesktop,
   IconExternalLink,
   IconSettings,
-  IconLink,
   IconMapPin,
   IconPhoneCall,
   IconRefresh,
@@ -41,17 +38,11 @@ import {
 import type {
   CalendarEventSummary,
   CalendarEventTypeKey,
-  CalendarMeetingProviderKey,
-  CalendarOutlookCalendarSummary,
   CalendarWorkspaceResponse,
 } from '@pulse/contracts';
 import {
-  disconnectCalendarOutlookConnection,
-  fetchCalendarOutlookCalendars,
   fetchCalendarWorkspace,
-  startCalendarOutlookConnection,
   syncCalendarOutlookEvent,
-  updateCalendarOutlookConnection,
 } from '@/lib/pulse-api';
 import { canPerformAction } from '@/lib/access';
 import {
@@ -59,6 +50,14 @@ import {
   getCalendarPrototypeViewOptions,
 } from '@/lib/prototype-parity';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchAttentionPanel,
+  WorkbenchDetailRail,
+  WorkbenchHeader,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
 import { CalendarSchedulerModal } from './CalendarSchedulerModal';
 
 type CalendarViewMode = 'day' | 'week' | 'month' | 'list';
@@ -418,7 +417,7 @@ function filterEventItem(item: CalendarEventSummary, filter: CalendarFilterMode)
 
 export function CalendarWorkspace({
   embedded = false,
-  initialView = 'month',
+  initialView = 'day',
 }: {
   embedded?: boolean;
   initialView?: CalendarViewMode;
@@ -433,25 +432,24 @@ export function CalendarWorkspace({
   const [workspace, setWorkspace] = useState<CalendarWorkspaceResponse | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
-  const [isDisconnectingOutlook, setIsDisconnectingOutlook] = useState(false);
   const [isSyncingOutlookEvent, setIsSyncingOutlookEvent] = useState(false);
-  const [isLoadingOutlookCalendars, setIsLoadingOutlookCalendars] = useState(false);
-  const [isUpdatingOutlookSettings, setIsUpdatingOutlookSettings] = useState(false);
-  const [outlookCalendars, setOutlookCalendars] = useState<CalendarOutlookCalendarSummary[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
   const [schedulerAnchorDate, setSchedulerAnchorDate] = useState<Date | null>(null);
   const canScheduleDiscovery = role ? canPerformAction(role, 'lead.intake_manage') : false;
   const canScheduleTraining = role ? canPerformAction(role, 'training.schedule') : false;
   const canViewCalendarIntegrations = role ? canPerformAction(role, 'admin.integration_view') : false;
-  const canManageCalendarIntegrations = role ? canPerformAction(role, 'admin.integration_manage') : false;
 
   const range = useMemo(() => resolveRange(anchorDate, view), [anchorDate, view]);
 
   const openSchedulerForDate = useCallback((date: Date) => {
+    if (!canScheduleDiscovery && !canScheduleTraining) {
+      setErrorMessage('You can review the calendar, but your access profile cannot schedule discovery or training.');
+      return;
+    }
+    setErrorMessage(null);
     setSchedulerAnchorDate(new Date(date));
-  }, []);
+  }, [canScheduleDiscovery, canScheduleTraining]);
 
   const loadWorkspace = useCallback(async () => {
     if (!auth) {
@@ -470,7 +468,7 @@ export function CalendarWorkspace({
         if (current && response.items.some((item) => item.id === current)) {
           return current;
         }
-        return response.items[0]?.id ?? null;
+        return null;
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -479,30 +477,9 @@ export function CalendarWorkspace({
     }
   }, [accessToken, apiBaseUrl, auth, range.end, range.start]);
 
-  const loadOutlookCalendars = useCallback(async () => {
-    if (!auth || !workspace?.outlookConnection?.isConnected) {
-      setOutlookCalendars([]);
-      return;
-    }
-
-    setIsLoadingOutlookCalendars(true);
-    try {
-      const response = await fetchCalendarOutlookCalendars(apiBaseUrl, accessToken);
-      setOutlookCalendars(response.items);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsLoadingOutlookCalendars(false);
-    }
-  }, [accessToken, apiBaseUrl, auth, workspace?.outlookConnection?.isConnected]);
-
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
-
-  useEffect(() => {
-    void loadOutlookCalendars();
-  }, [loadOutlookCalendars]);
 
   useEffect(() => {
     const status = searchParams.get('outlook');
@@ -529,11 +506,10 @@ export function CalendarWorkspace({
   );
 
   const selectedEvent = useMemo(
-    () => filteredItems.find((item) => item.id === selectedEventId) ?? filteredItems[0] ?? null,
+    () => filteredItems.find((item) => item.id === selectedEventId) ?? null,
     [filteredItems, selectedEventId],
   );
   const outlookConnection = workspace?.outlookConnection;
-  const selectedOutlookCalendarValue = outlookConnection?.targetCalendarId ?? '__primary__';
 
   const itemsByDay = useMemo(() => {
     const buckets = new Map<string, CalendarEventSummary[]>();
@@ -552,25 +528,21 @@ export function CalendarWorkspace({
     return buckets;
   }, [filteredItems]);
 
-  const outlookCalendarOptions = useMemo(
-    () => [
-      { value: '__primary__', label: 'Primary mailbox calendar' },
-      ...outlookCalendars.map((entry) => ({
-        value: entry.id,
-        label: entry.ownerName ? `${entry.name} (${entry.ownerName})` : entry.name,
-      })),
-    ],
-    [outlookCalendars],
-  );
-
-  const selectedOutlookCalendar = useMemo(
-    () => outlookCalendars.find((entry) => entry.id === outlookConnection?.targetCalendarId) ?? null,
-    [outlookCalendars, outlookConnection?.targetCalendarId],
-  );
-
   const monthCells = useMemo(() => buildMonthCells(anchorDate), [anchorDate]);
   const calendarFilterOptions = useMemo(() => getCalendarPrototypeFilterOptions(), []);
   const calendarViewOptions = useMemo(() => getCalendarPrototypeViewOptions(), []);
+  const coreCalendarViewOptions = useMemo(
+    () => calendarViewOptions.filter((option) => option.value === 'day' || option.value === 'week'),
+    [calendarViewOptions],
+  );
+  const selectedPowerViewOption = useMemo(
+    () => calendarViewOptions.find((option) => option.value === view && option.value !== 'day' && option.value !== 'week'),
+    [calendarViewOptions, view],
+  );
+  const visibleCalendarViewOptions = useMemo(
+    () => (selectedPowerViewOption ? [...coreCalendarViewOptions, selectedPowerViewOption] : coreCalendarViewOptions),
+    [coreCalendarViewOptions, selectedPowerViewOption],
+  );
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(anchorDate), index)),
     [anchorDate],
@@ -631,80 +603,43 @@ export function CalendarWorkspace({
     return `${formatDate(range.start)} - ${formatDate(range.end)}`;
   }, [anchorDate, range.end, range.start, view]);
 
-  const handleStartOutlookConnect = useCallback(async () => {
-    if (!auth) {
-      return;
-    }
+  const unsyncedOutlookItems = useMemo(
+    () =>
+      filteredItems.filter((item) => (
+        item.status === 'scheduled'
+        && outlookConnection?.isConnected
+        && !item.outlookSync?.syncedAt
+        && (item.sourceModule === 'leads' || item.sourceModule === 'training')
+      )),
+    [filteredItems, outlookConnection?.isConnected],
+  );
 
-    setIsConnectingOutlook(true);
-    setErrorMessage(null);
-    try {
-      const response = await startCalendarOutlookConnection(apiBaseUrl, accessToken);
-      window.location.assign(response.authorizationUrl);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsConnectingOutlook(false);
-    }
-  }, [accessToken, apiBaseUrl, auth]);
-
-  const handleDisconnectOutlook = useCallback(async () => {
-    if (!auth) {
-      return;
-    }
-
-    setIsDisconnectingOutlook(true);
-    setErrorMessage(null);
-    try {
-      await disconnectCalendarOutlookConnection(apiBaseUrl, accessToken);
-      setOutlookMessage('Outlook calendar disconnected.');
-      await loadWorkspace();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsDisconnectingOutlook(false);
-    }
-  }, [accessToken, apiBaseUrl, auth, loadWorkspace]);
-
-  const handleOutlookCalendarChange = useCallback(async (value: string | null) => {
-    if (!auth || !workspace?.outlookConnection?.isConnected) {
-      return;
-    }
-
-    setIsUpdatingOutlookSettings(true);
-    setErrorMessage(null);
-    try {
-      await updateCalendarOutlookConnection(apiBaseUrl, accessToken, {
-        targetCalendarId: value && value !== '__primary__' ? value : null,
-      });
-      setOutlookMessage('Outlook calendar target updated.');
-      await Promise.all([loadWorkspace(), loadOutlookCalendars()]);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsUpdatingOutlookSettings(false);
-    }
-  }, [accessToken, apiBaseUrl, auth, loadOutlookCalendars, loadWorkspace, workspace?.outlookConnection?.isConnected]);
-
-  const handleMeetingProviderChange = useCallback(async (value: string | null) => {
-    if (!auth || !workspace?.outlookConnection?.isConnected || !value) {
-      return;
-    }
-
-    setIsUpdatingOutlookSettings(true);
-    setErrorMessage(null);
-    try {
-      await updateCalendarOutlookConnection(apiBaseUrl, accessToken, {
-        meetingProvider: value as CalendarMeetingProviderKey,
-      });
-      setOutlookMessage('Outlook meeting-link preference updated.');
-      await Promise.all([loadWorkspace(), loadOutlookCalendars()]);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsUpdatingOutlookSettings(false);
-    }
-  }, [accessToken, apiBaseUrl, auth, loadOutlookCalendars, loadWorkspace, workspace?.outlookConnection?.isConnected]);
+  const calendarAttentionItems = useMemo(
+    () => [
+      {
+        id: 'today-events',
+        title: 'Today schedule',
+        description: 'Scheduled work on the current calendar day.',
+        count: todayItems.length,
+        tone: todayItems.length > 0 ? 'red' : 'green',
+      },
+      {
+        id: 'upcoming-events',
+        title: 'Upcoming commitments',
+        description: 'Scheduled discovery, training, visits, and audits in the next 14 days.',
+        count: upcomingItems.length,
+        tone: 'teal',
+      },
+      ...(outlookConnection?.isConnected ? [{
+        id: 'calendar-handoff',
+        title: 'Calendar handoff review',
+        description: 'Lead and training events waiting for calendar handoff review.',
+        count: unsyncedOutlookItems.length,
+        tone: unsyncedOutlookItems.length > 0 ? 'orange' : 'gray',
+      }] : []),
+    ],
+    [outlookConnection?.isConnected, todayItems.length, upcomingItems.length, unsyncedOutlookItems.length],
+  );
 
   const handleSyncSelectedEvent = useCallback(async () => {
     if (!auth || !selectedEvent) {
@@ -736,78 +671,58 @@ export function CalendarWorkspace({
   return (
     <Stack gap="lg">
       {!embedded ? (
-        <Paper withBorder radius="xl" p="xl">
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start" gap="lg">
-              <Stack gap={6}>
-                <Group gap="xs">
-                  <Title order={1}>CRM Calendar</Title>
-                  {outlookConnection?.isConnected ? (
-                    <Badge color="green" variant="light" leftSection={<IconDeviceDesktop size={12} />}>
-                      Outlook Connected
-                    </Badge>
-                  ) : null}
-                </Group>
-                <Text c="dimmed" maw={920}>
-                  All scheduled events for discovery, training, visits, and audits, with Pulse still keeping the
-                  source workflow truth underneath the schedule shell.
-                </Text>
-              </Stack>
-
+        <>
+          <WorkbenchHeader
+            eyebrow="Schedule Workbench"
+            title="CRM Calendar"
+            description="Schedule discovery and training, then review visits and audits from their linked workflows."
+            policyText={outlookConnection?.isConnected ? 'Shared scheduling is connected' : 'Pulse remains the scheduling source of truth'}
+            primaryAction={canScheduleDiscovery || canScheduleTraining ? (
+              <Button variant="filled" leftSection={<IconCalendarEvent size={16} />} onClick={() => openSchedulerForDate(startOfHour(new Date()))}>
+                Schedule Discovery/Training
+              </Button>
+            ) : null}
+            secondaryActions={(
               <Group gap="xs" wrap="wrap" justify="flex-end">
-                {todayItems.length > 0 ? (
-                  <Badge color="red" radius="xl" size="lg">
-                    {todayItems.length} event{todayItems.length === 1 ? '' : 's'} today
-                  </Badge>
-                ) : null}
-                {outlookConnection?.isConnected ? (
-                  <Button
-                    variant="light"
-                    leftSection={<IconRefresh size={16} />}
-                    onClick={() => {
-                      void Promise.all([loadWorkspace(), loadOutlookCalendars()]);
-                      setOutlookMessage('Outlook calendar refreshed.');
-                    }}
-                  >
-                    Sync Outlook
-                  </Button>
-                ) : (
-                  <Button
-                    variant="light"
-                    leftSection={<IconLink size={16} />}
-                    disabled={Boolean(
-                      !outlookConnection?.isConfigured
-                      || (outlookConnection?.policy && !outlookConnection.policy.allowUserConnections)
-                      || (outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible)
-                    )}
-                    loading={isConnectingOutlook}
-                    onClick={() => void handleStartOutlookConnect()}
-                  >
-                    Connect Outlook
-                  </Button>
-                )}
-                <Button onClick={() => openSchedulerForDate(startOfHour(new Date()))}>
-                  Schedule &amp; Send Invite
-                </Button>
+                <Menu position="bottom-end" withinPortal shadow="md" width={230}>
+                  <Menu.Target>
+                    <Button variant="default" rightSection={<IconChevronDown size={14} />}>
+                      More
+                    </Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label>Power views</Menu.Label>
+                    <Menu.Item
+                      leftSection={<IconCalendarEvent size={14} />}
+                      onClick={() => setView('month')}
+                    >
+                      Month view
+                    </Menu.Item>
+                    <Menu.Item
+                      leftSection={<IconCalendarEvent size={14} />}
+                      onClick={() => setView('list')}
+                    >
+                      List view
+                    </Menu.Item>
+                    {canViewCalendarIntegrations ? (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Label>Setup</Menu.Label>
+                        <Menu.Item
+                          component={Link}
+                          href="/admin/integrations?provider=calendar"
+                          leftSection={<IconSettings size={14} />}
+                        >
+                          Manage Outlook in Admin
+                        </Menu.Item>
+                      </>
+                    ) : null}
+                  </Menu.Dropdown>
+                </Menu>
               </Group>
-            </Group>
-
-            <Group gap="xs" wrap="wrap">
-              {calendarFilterOptions.map((option) => (
-                <Badge
-                  key={option.value}
-                  variant={filter === option.value ? 'filled' : 'light'}
-                  color={filter === option.value ? 'blue' : 'gray'}
-                  radius="xl"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setFilter(option.value)}
-                >
-                  {option.label}
-                </Badge>
-              ))}
-            </Group>
-          </Stack>
-        </Paper>
+            )}
+          />
+        </>
       ) : null}
 
       <Paper withBorder radius="xl" p="lg">
@@ -827,128 +742,23 @@ export function CalendarWorkspace({
             </Group>
 
             <Group gap="xs" wrap="wrap">
-              {calendarViewOptions.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={view === option.value ? 'filled' : 'light'}
-                  onClick={() => setView(option.value)}
-                >
-                  {option.label}
-                </Button>
-              ))}
+              <Select
+                aria-label="Calendar filter"
+                data={calendarFilterOptions}
+                value={filter}
+                onChange={(value) => setFilter((value as CalendarFilterMode | null) ?? 'all')}
+                w={{ base: '100%', sm: 180 }}
+              />
+              <Select
+                aria-label="Calendar view"
+                data={visibleCalendarViewOptions}
+                value={view}
+                onChange={(value) => setView((value as CalendarViewMode | null) ?? 'day')}
+                w={{ base: '100%', sm: 150 }}
+                allowDeselect={false}
+              />
             </Group>
           </Group>
-
-          {!embedded ? (
-            <Alert color="blue" icon={<IconCalendarEvent size={16} />}>
-              The centralized calendar now launches real discovery and training scheduling. Detailed execution,
-              completion, and reporting still stay anchored to the owning lead and training workflows.
-            </Alert>
-          ) : null}
-
-          {!embedded ? (
-            <Paper withBorder radius="lg" p="md">
-              <Stack gap="sm">
-                <Group justify="space-between" align="flex-start" gap="md" wrap="wrap">
-                  <Stack gap={4}>
-                    <Text fw={700}>Outlook Sync</Text>
-                    <Text size="sm" c="dimmed">
-                      Keep your working calendar aligned without making Outlook the source of truth.
-                    </Text>
-                    {outlookConnection?.isConnected && outlookConnection.connectionEmail ? (
-                      <Text size="sm" c="dimmed">Connected mailbox: {outlookConnection.connectionEmail}</Text>
-                    ) : null}
-                  </Stack>
-
-                  <Group gap="xs" wrap="wrap">
-                    {!outlookConnection?.isConfigured ? (
-                      <Badge color="yellow" variant="light">Outlook sync unavailable</Badge>
-                    ) : outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
-                      <Badge color="yellow" variant="light">Awaiting admin enablement</Badge>
-                    ) : outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
-                      <Badge color="yellow" variant="light">Pilot restricted</Badge>
-                    ) : outlookConnection?.isConnected ? (
-                      <>
-                        <Badge color="green" variant="light">Connected</Badge>
-                        <Button
-                          variant="light"
-                          color="gray"
-                          loading={isDisconnectingOutlook}
-                          onClick={() => void handleDisconnectOutlook()}
-                        >
-                          Disconnect
-                        </Button>
-                      </>
-                    ) : null}
-                    {canViewCalendarIntegrations ? (
-                      <Button
-                        component={Link}
-                        href="/admin/integrations"
-                        variant="subtle"
-                        size="xs"
-                        leftSection={<IconSettings size={14} />}
-                      >
-                        Open integration settings
-                      </Button>
-                    ) : null}
-                  </Group>
-                </Group>
-
-                {outlookConnection?.isConnected ? (
-                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                    <Select
-                      label="Target Outlook calendar"
-                      data={outlookCalendarOptions}
-                      value={selectedOutlookCalendarValue}
-                      onChange={(value) => void handleOutlookCalendarChange(value)}
-                      disabled={isLoadingOutlookCalendars || isUpdatingOutlookSettings}
-                      rightSection={isLoadingOutlookCalendars ? <Loader size="xs" /> : undefined}
-                    />
-                    <Select
-                      label="Meeting link preference"
-                      data={[
-                        { value: 'none', label: 'No auto meeting link' },
-                        { value: 'teams', label: 'Microsoft Teams link' },
-                      ]}
-                      value={outlookConnection.meetingProvider ?? 'none'}
-                      onChange={(value) => void handleMeetingProviderChange(value)}
-                      disabled={isUpdatingOutlookSettings}
-                    />
-                  </SimpleGrid>
-                ) : null}
-
-                {outlookConnection?.isConnected && selectedOutlookCalendar ? (
-                  <Alert color="blue" icon={<IconDeviceDesktop size={16} />}>
-                    Target calendar: {selectedOutlookCalendar.name}
-                    {selectedOutlookCalendar.ownerName ? ` (${selectedOutlookCalendar.ownerName})` : ''}
-                    . Teams links are {outlookConnection.meetingProvider === 'teams' ? 'enabled' : 'disabled'}.
-                  </Alert>
-                ) : null}
-
-                {!outlookConnection?.isConfigured ? (
-                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                    {outlookConnection?.availabilityMessage
-                      ?? 'This environment still needs Outlook sync configuration before users can connect a working calendar.'}
-                    {canManageCalendarIntegrations ? ' Open Administration > Integrations to review rollout settings.' : ''}
-                  </Alert>
-                ) : null}
-
-                {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.allowUserConnections ? (
-                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                    {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is configured but currently disabled by admin policy.'}
-                    {canManageCalendarIntegrations ? ' Re-enable it in Administration > Integrations when you are ready for pilot users.' : ''}
-                  </Alert>
-                ) : null}
-
-                {outlookConnection?.isConfigured && outlookConnection?.policy && !outlookConnection.policy.isCurrentUserEligible ? (
-                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                    {outlookConnection.availabilityMessage ?? 'Outlook mailbox sync is in pilot mode for approved users only.'}
-                  </Alert>
-                ) : null}
-              </Stack>
-            </Paper>
-          ) : null}
 
           {errorMessage ? (
             <Alert color="red" icon={<IconAlertCircle size={16} />}>
@@ -982,7 +792,7 @@ export function CalendarWorkspace({
                       <Stack gap={2}>
                         <Text fw={700}>Daily schedule</Text>
                         <Text size="sm" c="dimmed">
-                          A real hourly schedule lane so you can scan and book the day like Google Calendar or Outlook.
+                          Scan today&apos;s commitments and open slots before you schedule the next visit.
                         </Text>
                       </Stack>
                       <Badge color="blue" variant="light">
@@ -1072,11 +882,17 @@ export function CalendarWorkspace({
                                 return (
                                   <Box
                                     key={`slot-${dayKey}-${hour}`}
-                                    component="button"
-                                    type="button"
+                                    component="div"
                                     data-testid="calendar-open-slot"
                                     aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
+                                    tabIndex={0}
                                     onClick={() => openSchedulerForDate(slotDate)}
+                                    onKeyDown={(event) => {
+                                      if (isActivationKey(event.key)) {
+                                        event.preventDefault();
+                                        openSchedulerForDate(slotDate);
+                                      }
+                                    }}
                                     style={{
                                       display: 'block',
                                       width: '100%',
@@ -1100,9 +916,15 @@ export function CalendarWorkspace({
                                   return (
                                     <Box
                                       key={placement.item.id}
-                                      component="button"
-                                      type="button"
+                                      component="div"
+                                      tabIndex={0}
                                       onClick={() => setSelectedEventId(placement.item.id)}
+                                      onKeyDown={(event) => {
+                                        if (isActivationKey(event.key)) {
+                                          event.preventDefault();
+                                          setSelectedEventId(placement.item.id);
+                                        }
+                                      }}
                                       style={{
                                         position: 'absolute',
                                         top: placement.top,
@@ -1178,7 +1000,6 @@ export function CalendarWorkspace({
                               openSchedulerForDate(day);
                             }
                           }}
-                          role="button"
                           tabIndex={0}
                           style={{
                             minHeight: 140,
@@ -1201,11 +1022,18 @@ export function CalendarWorkspace({
                               return (
                                 <Box
                                   key={item.id}
-                                  component="button"
-                                  type="button"
+                                  component="div"
+                                  tabIndex={0}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     setSelectedEventId(item.id);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (isActivationKey(event.key)) {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setSelectedEventId(item.id);
+                                    }
                                   }}
                                   style={{
                                     border: '1px solid rgba(191, 219, 254, 0.9)',
@@ -1333,11 +1161,17 @@ export function CalendarWorkspace({
                                 return (
                                   <Box
                                     key={`week-slot-${dayKey}-${hour}`}
-                                    component="button"
-                                    type="button"
+                                    component="div"
                                     data-testid="calendar-open-slot"
                                     aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
+                                    tabIndex={0}
                                     onClick={() => openSchedulerForDate(slotDate)}
+                                    onKeyDown={(event) => {
+                                      if (isActivationKey(event.key)) {
+                                        event.preventDefault();
+                                        openSchedulerForDate(slotDate);
+                                      }
+                                    }}
                                     style={{
                                       display: 'block',
                                       width: '100%',
@@ -1361,9 +1195,15 @@ export function CalendarWorkspace({
                                   return (
                                     <Box
                                       key={placement.item.id}
-                                      component="button"
-                                      type="button"
+                                      component="div"
+                                      tabIndex={0}
                                       onClick={() => setSelectedEventId(placement.item.id)}
+                                      onKeyDown={(event) => {
+                                        if (isActivationKey(event.key)) {
+                                          event.preventDefault();
+                                          setSelectedEventId(placement.item.id);
+                                        }
+                                      }}
                                       style={{
                                         position: 'absolute',
                                         top: placement.top,
@@ -1408,170 +1248,136 @@ export function CalendarWorkspace({
               ) : null}
 
               {view === 'list' ? (
-                <Table.ScrollContainer minWidth={900}>
-                  <Table highlightOnHover>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>When</Table.Th>
-                        <Table.Th>Type</Table.Th>
-                        <Table.Th>Title</Table.Th>
-                        <Table.Th>Owner</Table.Th>
-                        <Table.Th>Customer / Lead</Table.Th>
-                        <Table.Th>Status</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {filteredItems.map((item) => {
+                <WorkbenchTable<CalendarEventSummary>
+                  ariaLabel="Calendar list view"
+                  rows={filteredItems}
+                  getRowKey={(item) => item.id}
+                  minWidth={900}
+                  withContainer={false}
+                  onRowClick={(item) => setSelectedEventId(item.id)}
+                  columns={[
+                    {
+                      key: 'when',
+                      header: 'When',
+                      render: (item) => formatDateTime(item.startsAt),
+                    },
+                    {
+                      key: 'type',
+                      header: 'Type',
+                      render: (item) => {
                         const meta = getEventMeta(item.eventType);
                         return (
-                          <Table.Tr
-                            key={item.id}
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => setSelectedEventId(item.id)}
-                          >
-                            <Table.Td>{formatDateTime(item.startsAt)}</Table.Td>
-                            <Table.Td>
-                              <Badge color={meta.color} variant="light">
-                                {meta.label}
-                              </Badge>
-                            </Table.Td>
-                            <Table.Td>{item.title}</Table.Td>
-                            <Table.Td>{item.assignedToName ?? item.contactName ?? 'Unassigned'}</Table.Td>
-                            <Table.Td>{item.accountName ?? item.leadName ?? item.locationName ?? 'Linked record'}</Table.Td>
-                            <Table.Td>
-                              <Badge color={getStatusColor(item.status)} variant="dot">
-                                {normalizeStatusLabel(item.status)}
-                              </Badge>
-                            </Table.Td>
-                          </Table.Tr>
+                          <Badge color={meta.color} variant="light">
+                            {meta.label}
+                          </Badge>
                         );
-                      })}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
+                      },
+                    },
+                    {
+                      key: 'title',
+                      header: 'Title',
+                      render: (item) => <Text fw={700}>{item.title}</Text>,
+                    },
+                    {
+                      key: 'owner',
+                      header: 'Owner',
+                      render: (item) => item.assignedToName ?? item.contactName ?? 'Unassigned',
+                    },
+                    {
+                      key: 'linked-record',
+                      header: 'Linked record',
+                      render: (item) => item.accountName ?? item.leadName ?? item.locationName ?? 'Linked record',
+                    },
+                    {
+                      key: 'status',
+                      header: 'Status',
+                      render: (item) => (
+                        <Badge color={getStatusColor(item.status)} variant="dot">
+                          {normalizeStatusLabel(item.status)}
+                        </Badge>
+                      ),
+                    },
+                  ]}
+                  emptyState={(
+                    <EmptyStateMessage
+                      kind="filtered-out"
+                      title="No events match this list"
+                      description="Try another date range or filter, or schedule discovery/training work from the calendar."
+                    />
+                  )}
+                />
               ) : null}
 
               {!isLoading && filteredItems.length === 0 ? (
-                <Paper withBorder radius="lg" p="xl">
-                  <Text fw={700}>No events in this range</Text>
-                  <Text c="dimmed">
-                    Try another date range or filter, or schedule discovery/training activity from the owning workflow.
-                  </Text>
-                </Paper>
+                <EmptyStateMessage
+                  kind="filtered-out"
+                  title="No events in this range"
+                  description="Try another date range or filter, or schedule discovery/training activity from the calendar."
+                />
               ) : null}
             </Stack>
           </Paper>
 
-          <Stack gap="lg">
-            {!embedded ? (
-              <>
-                <Paper withBorder radius="xl" p="lg">
-                  <Stack gap="sm">
-                    <Text fw={700} size="sm">Today</Text>
-                    {todayItems.length > 0 ? todayItems.map((item) => {
-                      const meta = getEventMeta(item.eventType);
-                      return (
-                        <Paper
-                          key={item.id}
-                          withBorder
-                          radius="lg"
-                          p="sm"
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setSelectedEventId(item.id)}
-                        >
-                          <Badge color={meta.color} variant="light" mb={6}>
-                            {meta.label}
-                          </Badge>
-                          <Text fw={600} size="sm">{item.title}</Text>
-                          <Text size="xs" c="dimmed">{formatTime(item.startsAt)}</Text>
-                        </Paper>
-                      );
-                    }) : (
-                      <Text size="sm" c="dimmed">No events today.</Text>
-                    )}
-                  </Stack>
-                </Paper>
-
-                <Paper withBorder radius="xl" p="lg">
-                  <Stack gap="sm">
-                    <Text fw={700} size="sm">Upcoming (14 days)</Text>
-                    {upcomingItems.length > 0 ? upcomingItems.map((item) => {
-                      const meta = getEventMeta(item.eventType);
-                      return (
-                        <Paper
-                          key={item.id}
-                          withBorder
-                          radius="lg"
-                          p="sm"
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setSelectedEventId(item.id)}
-                        >
-                          <Badge color={meta.color} variant="light" mb={6}>
-                            {meta.label}
-                          </Badge>
-                          <Text fw={600} size="sm">{item.title}</Text>
-                          <Text size="xs" c="dimmed">
-                            {formatDate(new Date(item.startsAt))}
-                            {item.outlookSync?.syncedAt ? ' · Outlook' : ''}
-                          </Text>
-                        </Paper>
-                      );
-                    }) : (
-                      <Text size="sm" c="dimmed">No upcoming events.</Text>
-                    )}
-                  </Stack>
-                </Paper>
-              </>
-            ) : null}
-
-            <Paper withBorder radius="xl" p="lg">
+          {selectedEvent ? (
+            <WorkbenchDetailRail
+              title="Event detail"
+              description="The selected event, its linked record, and optional calendar handoff."
+              actions={(
+                <Badge color={getStatusColor(selectedEvent.status)} variant="light">
+                  {normalizeStatusLabel(selectedEvent.status)}
+                </Badge>
+              )}
+            >
               <Stack gap="md">
-                <Group justify="space-between" align="center">
-                  <Title order={3}>Event detail</Title>
-                  {selectedEvent ? (
-                    <Badge color={getStatusColor(selectedEvent.status)} variant="light">
-                      {normalizeStatusLabel(selectedEvent.status)}
+                <Stack gap={6}>
+                  <Group gap="xs">
+                    <ThemeIcon variant="light" color={getEventMeta(selectedEvent.eventType).color}>
+                      {(() => {
+                        const Icon = getEventMeta(selectedEvent.eventType).icon;
+                        return <Icon size={16} />;
+                      })()}
+                    </ThemeIcon>
+                    <Text fw={700}>{selectedEvent.title}</Text>
+                  </Group>
+                  <Group gap="xs">
+                    <Badge color={getEventMeta(selectedEvent.eventType).color} variant="light">
+                      {getEventMeta(selectedEvent.eventType).label}
                     </Badge>
-                  ) : null}
-                </Group>
+                    <Badge color="gray" variant="light">
+                      {selectedEvent.assignedToName ?? selectedEvent.contactName ?? 'Unassigned'}
+                    </Badge>
+                  </Group>
+                </Stack>
 
-                {selectedEvent ? (
-                  <>
-                    <Stack gap={6}>
-                      <Group gap="xs">
-                        <ThemeIcon variant="light" color={getEventMeta(selectedEvent.eventType).color}>
-                          {(() => {
-                            const Icon = getEventMeta(selectedEvent.eventType).icon;
-                            return <Icon size={16} />;
-                          })()}
-                        </ThemeIcon>
-                        <Text fw={700}>{selectedEvent.title}</Text>
-                      </Group>
-                      <Badge color={getEventMeta(selectedEvent.eventType).color} variant="light">
-                        {getEventMeta(selectedEvent.eventType).label}
-                      </Badge>
+                <Stack gap="xs">
+                  <Group gap="xs" align="flex-start">
+                    <IconClock size={16} />
+                    <Stack gap={0}>
+                      <Text size="sm" fw={600}>Starts</Text>
+                      <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.startsAt)}</Text>
                     </Stack>
+                  </Group>
+                  {selectedEvent.endsAt ? (
+                    <Group gap="xs" align="flex-start">
+                      <IconClock size={16} />
+                      <Stack gap={0}>
+                        <Text size="sm" fw={600}>Ends</Text>
+                        <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.endsAt)}</Text>
+                      </Stack>
+                    </Group>
+                  ) : null}
+                </Stack>
 
-                    <Divider />
+                <Button component={Link} href={selectedEvent.sourcePath} rightSection={<IconArrowRight size={16} />}>
+                  Open linked record
+                </Button>
 
+                <WorkbenchAdvancedSection
+                  title="More event details"
+                  description="Contact, location, notes, and optional Outlook handoff."
+                >
+                  <Stack gap="md">
                     <Stack gap="xs">
-                      <Group gap="xs" align="flex-start">
-                        <IconClock size={16} />
-                        <Stack gap={0}>
-                          <Text size="sm" fw={600}>Starts</Text>
-                          <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.startsAt)}</Text>
-                        </Stack>
-                      </Group>
-                      {selectedEvent.endsAt ? (
-                        <Group gap="xs" align="flex-start">
-                          <IconClock size={16} />
-                          <Stack gap={0}>
-                            <Text size="sm" fw={600}>Ends</Text>
-                            <Text size="sm" c="dimmed">{formatDateTime(selectedEvent.endsAt)}</Text>
-                          </Stack>
-                        </Group>
-                      ) : null}
-                      <DetailRow label="Assigned to" value={selectedEvent.assignedToName} />
                       <DetailRow label="Contact" value={selectedEvent.contactName} />
                       <DetailRow label="Email" value={selectedEvent.contactEmail} />
                       <DetailRow label="Account" value={selectedEvent.accountName} />
@@ -1582,23 +1388,18 @@ export function CalendarWorkspace({
                     </Stack>
 
                     {selectedEvent.notes ? (
-                      <>
-                        <Divider />
-                        <Stack gap={4}>
-                          <Text fw={600} size="sm">Notes</Text>
-                          <Text size="sm" c="dimmed">{selectedEvent.notes}</Text>
-                        </Stack>
-                      </>
+                      <Stack gap={4}>
+                        <Text fw={600} size="sm">Notes</Text>
+                        <Text size="sm" c="dimmed">{selectedEvent.notes}</Text>
+                      </Stack>
                     ) : null}
 
-                    <Divider />
-
                     {outlookConnection?.isConfigured ? (
-                      <>
-                        <Stack gap="xs">
-                          <Text fw={600} size="sm">Outlook sync</Text>
-                          {outlookConnection.isConnected ? (
-                            <>
+                      <Stack gap="xs">
+                        <Text fw={600} size="sm">Outlook sync</Text>
+                        {outlookConnection.isConnected ? (
+                          <>
+                            {selectedEvent.sourceModule === 'leads' || selectedEvent.sourceModule === 'training' ? (
                               <Group gap="xs">
                                 <Button
                                   leftSection={<IconRefresh size={16} />}
@@ -1633,63 +1434,61 @@ export function CalendarWorkspace({
                                   </Button>
                                 ) : null}
                               </Group>
-                              {selectedEvent.outlookSync?.syncedAt ? (
-                                <Text size="sm" c="dimmed">
-                                  Last synced: {formatDateTime(selectedEvent.outlookSync.syncedAt)}
-                                </Text>
-                              ) : (
-                                <Text size="sm" c="dimmed">
-                                  This event has not been pushed to Outlook yet. Once synced, future lead/training schedule
-                                  changes will keep Outlook current automatically.
-                                </Text>
-                              )}
-                              {selectedEvent.outlookSync?.meetingJoinUrl ? (
-                                <Text size="sm" c="dimmed">
-                                  Pulse captured a live provider meeting link for this event.
-                                </Text>
-                              ) : null}
-                              {selectedEvent.outlookSync?.lastSyncError ? (
-                                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                                  {selectedEvent.outlookSync.lastSyncError}
-                                </Alert>
-                              ) : null}
-                            </>
-                          ) : (
-                            <Group justify="space-between" align="center">
+                            ) : (
                               <Text size="sm" c="dimmed">
-                                Connect Outlook to sync this event into your working calendar.
+                                This linked event is reviewed in Pulse. Outlook sync is currently available for discovery and training schedules.
                               </Text>
-                              <Button
-                                variant="light"
-                                leftSection={<IconLink size={16} />}
-                                loading={isConnectingOutlook}
-                                disabled={Boolean(
-                                  outlookConnection?.policy && (
-                                    !outlookConnection.policy.allowUserConnections
-                                    || !outlookConnection.policy.isCurrentUserEligible
-                                  )
+                            )}
+                            {selectedEvent.sourceModule === 'leads' || selectedEvent.sourceModule === 'training' ? (
+                              <>
+                                {selectedEvent.outlookSync?.syncedAt ? (
+                                  <Text size="sm" c="dimmed">
+                                    Last synced: {formatDateTime(selectedEvent.outlookSync.syncedAt)}
+                                  </Text>
+                                ) : (
+                                  <Text size="sm" c="dimmed">
+                                    This event has not been pushed to Outlook yet. Once synced, future lead/training schedule changes keep Outlook current.
+                                  </Text>
                                 )}
-                                onClick={() => void handleStartOutlookConnect()}
+                                {selectedEvent.outlookSync?.lastSyncError ? (
+                                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                                    {selectedEvent.outlookSync.lastSyncError}
+                                  </Alert>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </>
+                        ) : (
+                          <Group justify="space-between" align="center">
+                            <Text size="sm" c="dimmed">
+                              Outlook rollout and mailbox setup are managed in Admin. This keeps scheduling simple for daily users.
+                            </Text>
+                            {canViewCalendarIntegrations ? (
+                              <Button
+                                component={Link}
+                                href="/admin/integrations"
+                                variant="light"
+                                leftSection={<IconSettings size={16} />}
                               >
-                                Connect Outlook
+                                Open Admin setup
                               </Button>
-                            </Group>
-                          )}
-                        </Stack>
-                        <Divider />
-                      </>
+                            ) : null}
+                          </Group>
+                        )}
+                      </Stack>
                     ) : null}
-
-                    <Button component={Link} href={selectedEvent.sourcePath} rightSection={<IconArrowRight size={16} />}>
-                      Open source record
-                    </Button>
-                  </>
-                ) : (
-                  <Text c="dimmed">Select an event from the calendar to inspect the linked lead, account, or training context.</Text>
-                )}
+                  </Stack>
+                </WorkbenchAdvancedSection>
               </Stack>
-            </Paper>
-          </Stack>
+            </WorkbenchDetailRail>
+          ) : (
+            <WorkbenchAttentionPanel
+              title="Day health"
+              description="Schedule items that are most likely to affect today's work."
+              items={calendarAttentionItems}
+              emptyState="No scheduled work needs attention right now."
+            />
+          )}
         </SimpleGrid>
       )}
 

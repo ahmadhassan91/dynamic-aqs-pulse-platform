@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ConsignmentAuditLineSummary, ConsignmentAuditSummary, ConsignmentSiteSummary, UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
 import { fetchConsignmentSiteDetail, updateConsignmentAudit, uploadConsignmentAuditEvidenceRecord } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -51,6 +51,7 @@ export function useConsignmentRoseAudit() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [auditMessage, setAuditMessage] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const auditLoadRequestId = useRef(0);
 
   const filteredSites = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -72,12 +73,15 @@ export function useConsignmentRoseAudit() {
 
   async function openRoseAudit(site: ConsignmentSiteSummary) {
     if (!auth) return;
+    const requestId = auditLoadRequestId.current + 1;
+    auditLoadRequestId.current = requestId;
     resetAuditFields();
     setAuditError(null);
     setAuditMessage(null);
     setSelectedSite(site);
     try {
       const detail = await fetchConsignmentSiteDetail(apiBaseUrl, auth.tokens.accessToken, site.id);
+      if (auditLoadRequestId.current !== requestId) return;
       const audit = detail.audits.find((item) => item.status === 'scheduled' || item.status === 'in_progress') ?? null;
       setActiveAudit(audit);
       setLineCounts(buildRoseLineCounts(audit?.lines ?? []));
@@ -85,6 +89,7 @@ export function useConsignmentRoseAudit() {
         setAuditError('No scheduled or in-progress ROSE audit is available for this site. Schedule a fresh audit in CRM before field execution.');
       }
     } catch (error) {
+      if (auditLoadRequestId.current !== requestId) return;
       setAuditError(error instanceof Error ? error.message : 'Unable to load consignment audit.');
     }
   }
@@ -117,7 +122,7 @@ export function useConsignmentRoseAudit() {
       const evidenceMetadata = uploadedEvidenceItems.map(toRoseEvidenceMetadata);
       const request = buildRequest(evidenceMetadata);
       await updateConsignmentAudit(apiBaseUrl, auth.tokens.accessToken, activeAudit.id, request);
-      setAuditMessage('ROSE audit submitted to CRM. Any variance/PO follow-up remains in the consignment work queue.');
+      setAuditMessage('ROSE audit submitted to CRM. Any discrepancy follow-up remains in the consignment work queue.');
       closeAudit();
       await reload();
     } catch (error) {
@@ -222,6 +227,7 @@ export function useConsignmentRoseAudit() {
   }
 
   function closeAudit() {
+    auditLoadRequestId.current += 1;
     setSelectedSite(null);
     resetAuditFields();
   }
@@ -343,7 +349,7 @@ export function areRoseLineCountsValid(lineCounts: RoseLineCount[]) {
 
 export function parseRoseQuantity(value: string) {
   if (!isValidRoseCount(value)) return null;
-  return Number(value);
+  return Number.parseInt(value.trim(), 10);
 }
 
 export function buildRoseAuditNotes(notes: string, attestation: RoseAttestationMetadata, evidenceItems: RoseEvidenceMetadata[], varianceSummary: RoseVarianceSummary) {
@@ -351,7 +357,7 @@ export function buildRoseAuditNotes(notes: string, attestation: RoseAttestationM
     ? `${evidenceItems.length} photo evidence item${evidenceItems.length === 1 ? '' : 's'} captured (${evidenceItems.filter((item) => item.purpose === 'discrepancy').length} discrepancy). CRM evidence upload runs before audit submission; offline drafts preserve metadata only until encrypted media storage is added.`
     : 'No photos attached.';
   const varianceLine = varianceSummary.expectedTotal === undefined
-    ? `ROSE count summary: ${formatQuantity(varianceSummary.actualTotal)} counted across ${varianceSummary.countedLineCount} line${varianceSummary.countedLineCount === 1 ? '' : 's'}; expected quantities are parked until Acumatica/source data is available.`
+    ? `ROSE count summary: ${formatQuantity(varianceSummary.actualTotal)} counted across ${varianceSummary.countedLineCount} line${varianceSummary.countedLineCount === 1 ? '' : 's'}; expected quantities are parked until the office source is available.`
     : `ROSE count summary: expected ${formatQuantity(varianceSummary.expectedTotal)}, actual ${formatQuantity(varianceSummary.actualTotal)}, variance ${formatSignedQuantity(varianceSummary.varianceTotal)} across ${varianceSummary.varianceLineCount} variance line${varianceSummary.varianceLineCount === 1 ? '' : 's'}.`;
   return [
     notes,
@@ -380,8 +386,10 @@ export function estimatedBase64Bytes(contentBase64: string) {
 }
 
 export function isValidRoseCount(value: string) {
-  const count = Number(value);
-  return value.trim().length > 0 && Number.isFinite(count) && count >= 0;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return false;
+  const count = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(count) && count >= 0;
 }
 
 export function formatQuantity(value: number | undefined) {

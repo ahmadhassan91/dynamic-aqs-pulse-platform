@@ -34,6 +34,12 @@ const {
   createTrainingSession,
 } = await importFromRepo('apps/api/dist/modules/training/service.js');
 const {
+  createConsignmentAudit,
+  createConsignmentSite,
+  upsertConsignmentDocument,
+  updateConsignmentSite,
+} = await importFromRepo('apps/api/dist/modules/consignment/service.js');
+const {
   ensureBootstrapAdminSeeded,
   loginWithPassword,
   authenticateAccessToken,
@@ -178,6 +184,17 @@ try {
       },
     },
   });
+  await ensureLocalIdentity(trainerUser.id, trainerUser.email, e2ePersonaPassword);
+
+  const dynamicSupportUser = await prisma.user.create({
+    data: {
+      email: 'support.e2e@pulse.local',
+      displayName: 'Sam Support',
+      roleCode: 'ADMIN_CSR_OPS',
+      isActive: true,
+    },
+  });
+  await ensureLocalIdentity(dynamicSupportUser.id, dynamicSupportUser.email, e2ePersonaPassword);
 
   const segment = await prisma.businessSegmentRef.findFirst({
     where: { code: 'residential' },
@@ -252,7 +269,8 @@ try {
     isPrimaryOwner: true,
   });
 
-  const dealerCatalogPersonas = await seedDealerCatalogPersonas(adminActor, e2ePersonaPassword);
+  const seededDealerCatalog = await seedDealerCatalogPersonas(adminActor, e2ePersonaPassword);
+  const { product: seededCatalogProduct, ...dealerCatalogPersonas } = seededDealerCatalog;
 
   const certificationType = await prisma.trainingType.findUniqueOrThrow({
     where: { code: 'iaq_certification_curriculum' },
@@ -279,6 +297,34 @@ try {
     attendeeCount: 4,
     activityKind: 'training',
     notes: 'E2E seeded training session',
+  });
+
+  const consignmentSite = await createConsignmentSite(adminActor, {
+    accountId: account.id,
+    locationId: account.locations[0]?.id,
+    name: 'E2E Consignment Bay',
+    ownerTmUserId: tmUser.id,
+    ownerRdUserId: rdUser.id,
+    warehouseCode: 'E2E-SETUP',
+  });
+  await upsertConsignmentDocument(adminActor, consignmentSite.id, {
+    formType: 'agreement',
+    status: 'signed',
+    title: 'E2E Program Agreement',
+  });
+  await upsertConsignmentDocument(adminActor, consignmentSite.id, {
+    formType: 'blue',
+    status: 'signed',
+    title: 'E2E BLUE Baseline',
+    signedAt: new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString(),
+  });
+  await updateConsignmentSite(adminActor, consignmentSite.id, {
+    status: 'active',
+    warehouseCode: 'E2E-SETUP',
+  });
+  const consignmentAudit = await createConsignmentAudit(adminActor, consignmentSite.id, {
+    scheduledFor: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString(),
+    notes: 'E2E open ROSE audit for one-queue QA.',
   });
 
   await fs.writeFile(
@@ -316,8 +362,21 @@ try {
           email: rdUser.email,
           password: e2ePersonaPassword,
         },
+        trainingOps: {
+          email: trainerUser.email,
+          password: e2ePersonaPassword,
+        },
+        dynamicSupport: {
+          email: dynamicSupportUser.email,
+          password: e2ePersonaPassword,
+        },
       },
       dealerCatalogPersonas,
+      product: seededCatalogProduct,
+      consignment: {
+        auditId: consignmentAudit.id,
+        siteId: consignmentSite.id,
+      },
       training: {
         sessionId: trainingSession.id,
         title: trainingSession.title,
@@ -433,9 +492,11 @@ async function seedDealerCatalogPersonas(adminActor) {
     },
   });
 
-  await createCatalogProduct(catalogViews.affinity.id, 'E2E-AFF-100', 'Nexstar E2E Air Cleaner');
-  await createCatalogProduct(catalogViews.ownership.id, 'E2E-PE-100', 'Ownership E2E Air Cleaner');
-  await createCatalogProduct(catalogViews.independent.id, 'E2E-IND-100', 'Independent E2E Air Cleaner');
+  const catalogProducts = {
+    affinity: await createCatalogProduct(catalogViews.affinity.id, 'E2E-AFF-100', 'Nexstar E2E Air Cleaner'),
+    ownership: await createCatalogProduct(catalogViews.ownership.id, 'E2E-PE-100', 'Ownership E2E Air Cleaner'),
+    independent: await createCatalogProduct(catalogViews.independent.id, 'E2E-IND-100', 'Independent E2E Air Cleaner'),
+  };
 
   const affinity = await createDealerPersona(adminActor, {
     accountNumber: 'E2E-AFFINITY',
@@ -470,7 +531,7 @@ async function seedDealerCatalogPersonas(adminActor) {
     groupClassification: 'HYBRID',
   });
 
-  return { affinity, ownership, independent, hybrid };
+  return { affinity, ownership, independent, hybrid, products: catalogProducts, product: catalogProducts.independent };
 }
 
 async function createCatalogView(code, name, kind, resolverKey) {
@@ -518,6 +579,11 @@ async function createCatalogProduct(catalogViewId, sku, displayName) {
       publishStatus: 'PUBLISHED',
     },
   });
+  return {
+    productId: product.id,
+    presentationId: presentation.id,
+    displayName,
+  };
 }
 
 async function createDealerPersona(adminActor, input) {

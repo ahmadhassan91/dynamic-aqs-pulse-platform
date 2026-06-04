@@ -27,6 +27,7 @@ import {
   updateAccountPaymentMethodRecord,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { RowActionMenu } from '@/components/ui/Workbench';
 
 const PROVIDER_OPTIONS: Array<{ value: CisPaymentVaultProviderKey; label: string }> = [
   { value: 'ebizcharge', label: 'eBizCharge' },
@@ -250,21 +251,24 @@ export function CustomerPaymentMethods(
               </Text>
             </Stack>
             {canManage ? (
-              <Group gap="xs">
-                {!item.isDefault && item.isActive ? (
-                  <Button size="xs" variant="light" loading={updatingId === item.id} onClick={() => void handleSetDefault(item.id)}>
-                    Make Default
-                  </Button>
-                ) : null}
-                <Button
-                  size="xs"
-                  variant="default"
-                  loading={updatingId === item.id}
-                  onClick={() => void handleToggleActive(item)}
-                >
-                  {item.isActive ? 'Deactivate' : 'Reactivate'}
-                </Button>
-              </Group>
+              <RowActionMenu
+                label={`Actions for ${formatProvider(item.provider)} payment method`}
+                items={[
+                  ...(!item.isDefault && item.isActive ? [{
+                    id: 'make-default',
+                    label: 'Make default',
+                    disabled: updatingId === item.id,
+                    onClick: () => void handleSetDefault(item.id),
+                  }] : []),
+                  {
+                    id: item.isActive ? 'deactivate' : 'reactivate',
+                    label: item.isActive ? 'Deactivate' : 'Reactivate',
+                    color: item.isActive ? 'danger' : 'success',
+                    disabled: updatingId === item.id,
+                    onClick: () => void handleToggleActive(item),
+                  },
+                ]}
+              />
             ) : null}
           </Group>
 

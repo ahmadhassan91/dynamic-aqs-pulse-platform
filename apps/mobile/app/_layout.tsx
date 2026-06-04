@@ -2,6 +2,7 @@ import { Redirect, Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { MobileNextActionProvider } from '@/hooks/use-mobile-next-actions';
 import { SessionProvider, useSession } from '@/providers/session-provider';
 import { colors } from '@/theme';
 
@@ -35,15 +36,17 @@ function SessionGate() {
   }
 
   if (auth && inAuthGroup) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href="/" />;
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    />
+    <MobileNextActionProvider>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      />
+    </MobileNextActionProvider>
   );
 }

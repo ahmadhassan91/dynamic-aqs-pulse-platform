@@ -1,4 +1,4 @@
-export type MobileLiveApiSectionKey = 'leads' | 'accounts' | 'lead_queue' | 'consignment_sites' | 'consignment_work';
+export type MobileLiveApiSectionKey = 'leads' | 'accounts' | 'lead_queue' | 'consignment_sites' | 'consignment_work' | 'training_sessions';
 
 export type MobileLiveApiSectionInput = {
   count: number;

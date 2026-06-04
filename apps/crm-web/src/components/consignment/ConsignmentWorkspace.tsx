@@ -1,9 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -15,8 +13,6 @@ import {
   Select,
   SimpleGrid,
   Stack,
-  Table,
-  Tabs,
   Text,
   TextInput,
   Textarea,
@@ -26,13 +22,16 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowRight,
   IconClipboardList,
-  IconClock,
-  IconMailbox,
   IconPlus,
   IconSearch,
-  IconShieldCheck,
-  IconTruckDelivery,
 } from '@tabler/icons-react';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchHeader,
+  WorkbenchMoreMenu,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
 import {
   createConsignmentSiteRecord,
   fetchAccounts,
@@ -48,7 +47,7 @@ import { usePulseSession } from '@/lib/pulse-session';
 const statusOptions: Array<{ value: ConsignmentSiteStatus | ''; label: string }> = [
   { value: '', label: 'All statuses' },
   { value: 'onboarding_in_progress', label: 'Onboarding In Progress' },
-  { value: 'ready_for_warehouse', label: 'Ready For Warehouse' },
+  { value: 'ready_for_warehouse', label: 'Ready For Setup' },
   { value: 'warehouse_pending', label: 'Warehouse Pending' },
   { value: 'baseline_pending', label: 'Baseline Pending' },
   { value: 'active', label: 'Active' },
@@ -57,6 +56,24 @@ const statusOptions: Array<{ value: ConsignmentSiteStatus | ''; label: string }>
   { value: 'exited', label: 'Exited' },
 ];
 
+type ConsignmentView = 'next' | 'allSites' | 'reports';
+
+type NextSiteWorkRow = {
+  accountName: string;
+  detail: string;
+  dueAt?: string | undefined;
+  id: string;
+  ownerName?: string | undefined;
+  rank: number;
+  secondaryCount: number;
+  siteId: string;
+  siteName?: string | undefined;
+  statusLabel: string;
+  summary: string;
+  tone: string;
+  workType: 'overdue_audit' | 'due_soon_audit' | 'follow_up' | 'site_issue';
+};
+
 export function ConsignmentWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [dashboard, setDashboard] = useState<ConsignmentDashboardResponse | null>(null);
@@ -64,6 +81,7 @@ export function ConsignmentWorkspace() {
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ConsignmentSiteStatus | ''>('');
+  const [activeView, setActiveView] = useState<ConsignmentView>('next');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
     accountId: '',
@@ -240,24 +258,43 @@ export function ConsignmentWorkspace() {
 
   return (
     <Stack gap="md">
-      <Paper withBorder radius="md" p="lg">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Title order={1}>Consignment Workspace</Title>
-            <Text size="sm" c="dimmed">
-              Govern customer consignment sites, agreement readiness, ROSE audit timing, reconciliation states, and shared mailbox work.
-            </Text>
-          </Stack>
-          <Group gap="xs">
-            <Badge color="blue" variant="light">Pulse-owned workflow</Badge>
-            <Button leftSection={<IconPlus size={16} />} onClick={() => setIsCreateModalOpen(true)}>
-              Create Site
-            </Button>
-          </Group>
-        </Group>
-      </Paper>
+      <WorkbenchHeader
+        eyebrow="Consignment operations"
+        title="Consignment Workspace"
+        description="Work due audits, follow-up queue items, and site exceptions first; reports stay one tab away."
+        policyText="Pulse owns site readiness, document evidence, ROSE audits, and follow-up ownership."
+        secondaryActions={(
+          <WorkbenchMoreMenu
+            items={[{
+              id: 'next-site-work',
+              label: 'Next Site Work',
+              description: 'Return to the ranked daily consignment queue.',
+              icon: <IconArrowRight size={16} />,
+              onClick: () => setActiveView('next'),
+            }, {
+              id: 'create-consignment-site',
+              label: 'Create Site',
+              description: 'Add a new ROSE/readiness site when the account is known.',
+              icon: <IconPlus size={16} />,
+              onClick: () => setIsCreateModalOpen(true),
+            }, {
+              id: 'all-consignment-sites',
+              label: 'All Sites',
+              description: 'Search ROSE cadence, readiness, and site ownership.',
+              icon: <IconSearch size={16} />,
+              onClick: () => setActiveView('allSites'),
+            }, {
+              id: 'consignment-reports',
+              label: 'Reports',
+              description: 'Onboarding and ROSE audit rollups.',
+              icon: <IconClipboardList size={16} />,
+              onClick: () => setActiveView('reports'),
+            }]}
+          />
+        )}
+      />
 
-      <Modal opened={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Create Consignment Site" size="lg">
+      <Modal opened={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Add Consignment Site" size="lg">
         <Stack gap="md">
           <Select
             label="Account"
@@ -278,14 +315,19 @@ export function ConsignmentWorkspace() {
             onChange={(event) => setCreateForm((current) => ({ ...current, name: event.currentTarget.value }))}
             placeholder="Defaults to account name"
           />
-          <TextInput
-            label="Manual warehouse reference"
-            aria-label="Manual warehouse reference"
-            data-testid="consignment-warehouse-reference"
-            value={createForm.warehouseCode}
-            onChange={(event) => setCreateForm((current) => ({ ...current, warehouseCode: event.currentTarget.value }))}
-            placeholder="Pulse reference while Acumatica creation is parked"
-          />
+          <WorkbenchAdvancedSection
+            title="Advanced setup"
+            description="Optional setup notes are available for operations, but they are not required to add the site."
+          >
+            <TextInput
+              label="Warehouse note"
+              aria-label="Warehouse note"
+              data-testid="consignment-warehouse-reference"
+              value={createForm.warehouseCode}
+              onChange={(event) => setCreateForm((current) => ({ ...current, warehouseCode: event.currentTarget.value }))}
+              placeholder="Optional setup note"
+            />
+          </WorkbenchAdvancedSection>
           <SimpleGrid cols={{ base: 1, sm: 3 }}>
             <TextInput data-testid="consignment-contact-name" label="Contact name" value={createForm.primaryContactName} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactName: event.currentTarget.value }))} />
             <TextInput data-testid="consignment-contact-email" label="Contact email" value={createForm.primaryContactEmail} onChange={(event) => setCreateForm((current) => ({ ...current, primaryContactEmail: event.currentTarget.value }))} />
@@ -310,24 +352,37 @@ export function ConsignmentWorkspace() {
         <Alert color="red" variant="light">{dashboardError}</Alert>
       ) : null}
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-        <MetricCard label="Active Sites" value={dashboard?.metrics.activeSites ?? localMetrics.activeSites} icon={<IconShieldCheck size={18} />} />
-        <MetricCard label="Ready For Warehouse" value={dashboard?.metrics.readyForWarehouseSites ?? localMetrics.warehouseReady} icon={<IconTruckDelivery size={18} />} />
-        <MetricCard label="Overdue Audits" value={dashboard?.metrics.overdueAudits ?? localMetrics.overdueAudits} icon={<IconClock size={18} />} />
-        <MetricCard label="Mailbox Work" value={dashboard?.metrics.openMailboxWorkItems ?? localMetrics.openWorkItems} icon={<IconMailbox size={18} />} />
-      </SimpleGrid>
+      {activeView === 'next' ? (
+        <NextSiteWorkList
+          dashboard={dashboard}
+          isLoading={isLoadingDashboard || isLoadingSites}
+          sites={sites}
+        />
+      ) : null}
 
-      <Tabs defaultValue="dashboard">
-        <Tabs.List>
-          <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
-          <Tabs.Tab value="sites">Site List</Tabs.Tab>
-          <Tabs.Tab value="queue">Mailbox Queue</Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel value="dashboard" pt="md">
+      {activeView === 'reports' ? (
+        <Stack gap="md">
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue audits</Text>
+              <Text fw={700} size="xl">{dashboard?.metrics.overdueAudits ?? localMetrics.overdueAudits}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Follow-ups</Text>
+              <Text fw={700} size="xl">{dashboard?.metrics.openMailboxWorkItems ?? localMetrics.openWorkItems}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Ready for setup</Text>
+              <Text fw={700} size="xl">{dashboard?.metrics.readyForWarehouseSites ?? localMetrics.warehouseReady}</Text>
+            </Card>
+            <Card withBorder radius="md" p="md">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active sites</Text>
+              <Text fw={700} size="xl">{dashboard?.metrics.activeSites ?? localMetrics.activeSites}</Text>
+            </Card>
+          </SimpleGrid>
           <SimpleGrid cols={{ base: 1, lg: 2 }}>
             <Card withBorder radius="md" p="lg">
-              <Title order={4} mb="md">Onboarding Pipeline</Title>
+              <Title order={4} mb="md">Onboarding Report</Title>
               {isLoadingDashboard ? (
                 <Loader color="blue" />
               ) : dashboard?.onboardingPipeline.length ? (
@@ -341,7 +396,7 @@ export function ConsignmentWorkspace() {
               )}
             </Card>
             <Card withBorder radius="md" p="lg">
-              <Title order={4} mb="md">Audit Due Buckets</Title>
+              <Title order={4} mb="md">ROSE Audit Report</Title>
               {isLoadingDashboard ? (
                 <Loader color="blue" />
               ) : dashboard?.auditDueBuckets.length ? (
@@ -355,24 +410,20 @@ export function ConsignmentWorkspace() {
               )}
             </Card>
           </SimpleGrid>
-        </Tabs.Panel>
+        </Stack>
+      ) : null}
 
-        <Tabs.Panel value="sites" pt="md">
-          <SiteList
-            sites={sites}
-            searchQuery={searchQuery}
-            statusFilter={statusFilter}
-            isLoading={isLoadingSites}
-            errorMessage={siteError}
-            onSearchChange={setSearchQuery}
-            onStatusChange={setStatusFilter}
-          />
-        </Tabs.Panel>
-
-        <Tabs.Panel value="queue" pt="md">
-          <MailboxQueue dashboard={dashboard} isLoading={isLoadingDashboard} />
-        </Tabs.Panel>
-      </Tabs>
+      {activeView === 'allSites' ? (
+        <SiteList
+          sites={sites}
+          searchQuery={searchQuery}
+          statusFilter={statusFilter}
+          isLoading={isLoadingSites}
+          errorMessage={siteError}
+          onSearchChange={setSearchQuery}
+          onStatusChange={setStatusFilter}
+        />
+      ) : null}
     </Stack>
   );
 }
@@ -417,144 +468,271 @@ function SiteList({
 
       {errorMessage ? <Alert color="red" variant="light">{errorMessage}</Alert> : null}
 
-      <Paper withBorder radius="md" p="md">
-        {isLoading ? (
-          <Group justify="center" py="xl">
+      {isLoading ? (
+        <Paper withBorder radius="md" p="xl">
+          <Group justify="center">
             <Loader color="blue" />
           </Group>
-        ) : (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Account / Site</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>TM / RD</Table.Th>
-                <Table.Th>Next ROSE</Table.Th>
-                <Table.Th>Reconciliation</Table.Th>
-                <Table.Th>Warehouse Boundary</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {sites.length === 0 ? (
-                <Table.Tr>
-                  <Table.Td colSpan={7}>
-                    <Text size="sm" c="dimmed" ta="center" py="lg">
-                      No consignment sites match the current filters.
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ) : sites.map((site) => (
-                <Table.Tr key={site.id}>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text fw={600}>{site.accountName}</Text>
-                      <Text size="xs" c="dimmed">{site.locationName ?? 'No site location recorded'}</Text>
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge color={statusColor(site.status)} variant="light">{formatStatus(site.status)}</Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text size="sm">{site.ownerTmName ?? 'TM unassigned'}</Text>
-                      <Text size="xs" c="dimmed">{site.ownerRdName ?? 'RD unassigned'}</Text>
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>{formatDate(site.nextAuditDueAt)}</Table.Td>
-                  <Table.Td>
-                    <Stack gap={2}>
-                      <Text size="sm">{site.openDiscrepancyCount ? 'Manual variance open' : 'No open variance'}</Text>
-                      {(site.openDiscrepancyCount ?? 0) > 0 ? (
-                        <Text size="xs" c="red">{site.openDiscrepancyCount} open discrepancies</Text>
-                      ) : null}
-                    </Stack>
-                  </Table.Td>
-                  <Table.Td>
-                    {site.acumaticaWarehouseId ? (
-                      <Badge color="green" variant="outline">{site.acumaticaWarehouseId}</Badge>
-                    ) : (
-                      <Badge color="gray" variant="outline">Acumatica pending</Badge>
-                    )}
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon component={Link} href={`/consignment/${site.id}`} variant="light" color="blue" aria-label={`Open ${site.accountName} consignment site`}>
-                      <IconArrowRight size={16} />
-                    </ActionIcon>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        )}
-      </Paper>
+        </Paper>
+      ) : (
+        <WorkbenchTable
+          ariaLabel="Consignment sites"
+          rows={sites}
+          getRowKey={(site) => site.id}
+          columns={[
+            {
+              key: 'site',
+              header: 'Account / Site',
+              render: (site) => (
+                <Stack gap={2}>
+                  <Text fw={600}>{site.accountName}</Text>
+                  <Text size="xs" c="dimmed">{site.locationName ?? 'No site location recorded'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (site) => <Badge color={statusColor(site.status)} variant="light">{formatStatus(site.status)}</Badge>,
+            },
+            {
+              key: 'team',
+              header: 'Team',
+              render: (site) => (
+                <Stack gap={2}>
+                  <Text size="sm">{site.ownerTmName ?? 'TM unassigned'}</Text>
+                  <Text size="xs" c="dimmed">{site.ownerRdName ?? 'RD unassigned'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'nextRose',
+              header: 'Next ROSE',
+              render: (site) => formatDate(site.nextAuditDueAt),
+            },
+            {
+              key: 'siteIssue',
+              header: 'Site issue',
+              render: (site) => (
+                <Stack gap={2}>
+                  <Text size="sm">{site.openDiscrepancyCount ? 'Needs review' : 'Clear'}</Text>
+                  {(site.openDiscrepancyCount ?? 0) > 0 ? (
+                    <Text size="xs" c="orange.8">{site.openDiscrepancyCount} issue{site.openDiscrepancyCount === 1 ? '' : 's'} need review</Text>
+                  ) : null}
+                </Stack>
+              ),
+            },
+          ]}
+          rowActions={(site) => [{
+            id: 'open-site',
+            label: 'Open site',
+            icon: <IconArrowRight size={16} />,
+            onClick: () => {
+              window.location.href = `/consignment/${site.id}`;
+            },
+          }]}
+          emptyState={(
+            <EmptyStateMessage
+              kind={searchQuery || statusFilter ? 'filtered-out' : 'no-data'}
+              title={searchQuery || statusFilter ? 'No sites match these filters' : 'No consignment sites yet'}
+              description={searchQuery || statusFilter ? 'Adjust the search or status filter to widen the list.' : 'Add a site when an account is ready for the consignment program.'}
+            />
+          )}
+        />
+      )}
     </Stack>
   );
 }
 
-function MailboxQueue({ dashboard, isLoading }: { dashboard: ConsignmentDashboardResponse | null; isLoading: boolean }) {
-  return (
-    <Paper withBorder radius="md" p="md">
-      {isLoading ? (
-        <Group justify="center" py="xl">
+function NextSiteWorkList({
+  dashboard,
+  isLoading,
+  sites,
+}: {
+  dashboard: ConsignmentDashboardResponse | null;
+  isLoading: boolean;
+  sites: ConsignmentSiteSummary[];
+}) {
+  const [renderedAt] = useState(() => Date.now());
+  const rows = useMemo(() => buildNextSiteWorkRows({ dashboard, renderedAt, sites }), [dashboard, renderedAt, sites]);
+
+  if (isLoading) {
+    return (
+      <Paper withBorder radius="md" p="xl">
+        <Group justify="center">
           <Loader color="blue" />
         </Group>
-      ) : dashboard?.workQueue.length ? (
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Work Item</Table.Th>
-              <Table.Th>Account</Table.Th>
-              <Table.Th>Owner</Table.Th>
-              <Table.Th>Due</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {dashboard.workQueue.map((item) => (
-              <Table.Tr key={item.id}>
-                <Table.Td>
-                  <Stack gap={2}>
-                    <Text fw={600}>{item.subject}</Text>
-                    <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
-                  </Stack>
-                </Table.Td>
-                <Table.Td>{item.accountDisplayName}</Table.Td>
-                <Table.Td>{item.ownerName ?? 'Unassigned'}</Table.Td>
-                <Table.Td>{formatDate(item.dueAt)}</Table.Td>
-                <Table.Td><Badge variant="light">{formatStatus(item.status)}</Badge></Table.Td>
-                <Table.Td>
-                  <ActionIcon component={Link} href={`/consignment/${item.siteId}`} variant="light" color="blue" aria-label={`Open ${item.accountDisplayName} consignment work item`}>
-                    <IconArrowRight size={16} />
-                  </ActionIcon>
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      ) : (
-        <Stack align="center" py="xl" gap="xs">
-          <IconClipboardList size={28} />
-          <Text size="sm" c="dimmed">No consignment mailbox work items returned yet.</Text>
-        </Stack>
-      )}
+      </Paper>
+    );
+  }
+
+  return (
+    <Paper withBorder radius="md" p="lg">
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start" gap="md">
+          <Stack gap={2}>
+            <Title order={3}>Next site work</Title>
+            <Text size="sm" c="dimmed">
+              Ranked due audits, follow-ups, and site issues. Setup and reporting stay in More.
+            </Text>
+          </Stack>
+          <Badge color={rows.length > 0 ? 'orange' : 'green'} variant="light">
+            {rows.length > 0 ? `${rows.length} site${rows.length === 1 ? '' : 's'}` : 'All clear'}
+          </Badge>
+        </Group>
+        <WorkbenchTable<NextSiteWorkRow>
+          ariaLabel="Next site work"
+          rows={rows}
+          getRowKey={(item) => item.id}
+          columns={[
+            {
+              key: 'work',
+              header: 'Next work',
+              render: (item) => (
+                <Stack gap={2}>
+                  <Text fw={700}>{item.summary}</Text>
+                  <Text size="xs" c="dimmed">
+                    {item.detail}{item.secondaryCount > 0 ? ` · ${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'}` : ''}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'site',
+              header: 'Account / Site',
+              render: (item) => (
+                <Stack gap={2}>
+                  <Text size="sm" fw={600}>{item.accountName}</Text>
+                  <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'owner',
+              header: 'Owner',
+              render: (item) => item.ownerName ?? 'Unassigned',
+            },
+            {
+              key: 'due',
+              header: 'Due',
+              render: (item) => formatDate(item.dueAt),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
+            },
+          ]}
+          rowActions={(item) => [{
+            id: 'open-site',
+            label: 'Open site',
+            icon: <IconArrowRight size={16} />,
+            onClick: () => {
+              window.location.href = `/consignment/${item.siteId}`;
+            },
+          }]}
+          emptyState={(
+            <EmptyStateMessage
+              kind="all-clear"
+              title="All clear"
+              description="No due audits, follow-up work, or site issues need review for this view."
+            />
+          )}
+        />
+      </Stack>
     </Paper>
   );
 }
 
-function MetricCard({ label, value, icon }: { label: string; value: number | string; icon: React.ReactNode }) {
-  return (
-    <Card withBorder radius="md" p="lg">
-      <Group justify="space-between" align="flex-start">
-        <Stack gap={2}>
-          <Text size="xs" tt="uppercase" c="dimmed">{label}</Text>
-          <Text fw={700} size="xl">{value}</Text>
-        </Stack>
-        {icon}
-      </Group>
-    </Card>
-  );
+function buildNextSiteWorkRows({
+  dashboard,
+  renderedAt,
+  sites,
+}: {
+  dashboard: ConsignmentDashboardResponse | null;
+  renderedAt: number;
+  sites: ConsignmentSiteSummary[];
+}) {
+  const bySite = new Map<string, NextSiteWorkRow>();
+  const upsert = (row: NextSiteWorkRow) => {
+    const existing = bySite.get(row.siteId);
+    if (!existing || row.rank < existing.rank) {
+      bySite.set(row.siteId, {
+        ...row,
+        secondaryCount: existing ? existing.secondaryCount + 1 : row.secondaryCount,
+      });
+      return;
+    }
+    bySite.set(row.siteId, {
+      ...existing,
+      secondaryCount: existing.secondaryCount + 1,
+    });
+  };
+
+  for (const site of sites) {
+    const dueAt = site.nextAuditDueAt ? new Date(site.nextAuditDueAt).getTime() : null;
+    const isOverdue = dueAt !== null && dueAt < renderedAt;
+    const isDueSoon = dueAt !== null && dueAt >= renderedAt;
+
+    if (isOverdue || isDueSoon) {
+      upsert({
+        accountName: site.accountName,
+        detail: `${site.ownerTmName ?? 'TM unassigned'} · ${isOverdue ? 'Audit overdue' : 'Audit coming due'}`,
+        dueAt: site.nextAuditDueAt,
+        id: `audit-${site.id}`,
+        ownerName: site.ownerTmName ?? site.ownerRdName ?? undefined,
+        rank: isOverdue ? 0 : 1,
+        secondaryCount: 0,
+        siteId: site.id,
+        siteName: site.locationName ?? undefined,
+        statusLabel: isOverdue ? 'Audit overdue' : 'Audit due soon',
+        summary: isOverdue ? 'Finish overdue ROSE audit' : 'Prepare ROSE audit',
+        tone: isOverdue ? 'orange' : 'blue',
+        workType: isOverdue ? 'overdue_audit' : 'due_soon_audit',
+      });
+    }
+
+    if ((site.openDiscrepancyCount ?? 0) > 0 || site.status === 'suspended' || site.status === 'exiting') {
+      upsert({
+        accountName: site.accountName,
+        detail: (site.openDiscrepancyCount ?? 0) > 0 ? `${site.openDiscrepancyCount} site issue${site.openDiscrepancyCount === 1 ? '' : 's'} need review` : formatStatus(site.status),
+        id: `issue-${site.id}`,
+        ownerName: site.ownerTmName ?? site.ownerRdName ?? undefined,
+        rank: 3,
+        secondaryCount: 0,
+        siteId: site.id,
+        siteName: site.locationName ?? undefined,
+        statusLabel: 'Site issue',
+        summary: 'Review site issue',
+        tone: 'orange',
+        workType: 'site_issue',
+      });
+    }
+  }
+
+  for (const item of dashboard?.workQueue ?? []) {
+    upsert({
+      accountName: item.accountDisplayName,
+      detail: `${item.ownerName ?? 'Unassigned'} · ${formatConsignmentWorkSubject(item.subject)}`,
+      dueAt: item.dueAt,
+      id: `follow-up-${item.id}`,
+      ownerName: item.ownerName ?? undefined,
+      rank: 2,
+      secondaryCount: 0,
+      siteId: item.siteId,
+      siteName: item.siteName ?? undefined,
+      statusLabel: formatStatus(item.status),
+      summary: formatConsignmentWorkSubject(item.subject),
+      tone: item.ownerName ? 'blue' : 'yellow',
+      workType: 'follow_up',
+    });
+  }
+
+  return Array.from(bySite.values()).sort((left, right) => (
+    left.rank - right.rank
+    || new Date(left.dueAt ?? '9999-12-31').getTime() - new Date(right.dueAt ?? '9999-12-31').getTime()
+    || left.accountName.localeCompare(right.accountName)
+  ));
 }
 
 function MetricRow({ label, value }: { label: string; value: string }) {
@@ -590,6 +768,20 @@ function formatStatus(value: string) {
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatConsignmentWorkSubject(value: string) {
+  const normalized = value.toLowerCase();
+
+  if (normalized.includes('manual variance') || normalized.includes('po follow-up')) {
+    return 'Site issue needs review';
+  }
+
+  if (normalized.includes('acumatica') || normalized.includes('warehouse handoff')) {
+    return 'Site setup needs confirmation';
+  }
+
+  return value;
 }
 
 function statusColor(value: string | undefined) {

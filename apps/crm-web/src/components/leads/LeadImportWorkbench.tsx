@@ -352,7 +352,7 @@ export function LeadImportWorkbench() {
           </Stack>
           <Group gap="sm">
             <Button component={Link} href="/leads" variant="default">
-              Open Lead Pipeline
+              Open Lead Work Queue
             </Button>
             <Button leftSection={<IconRefresh size={16} />} variant="light" onClick={() => file && fileContentBase64 ? void requestPreview(file, fileContentBase64, selectedSheet || undefined) : undefined} disabled={!file || !fileContentBase64 || isPreviewLoading}>
               Refresh Preview

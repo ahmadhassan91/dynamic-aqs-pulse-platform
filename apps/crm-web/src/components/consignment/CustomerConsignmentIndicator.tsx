@@ -96,9 +96,6 @@ export function CustomerConsignmentIndicator({ accountId }: { accountId: string 
               <Badge color="blue" variant="outline">
                 Next ROSE: {formatConsignmentDate(primarySite.nextAuditDueAt)}
               </Badge>
-              <Badge color={primarySite.acumaticaWarehouseId ? 'green' : 'gray'} variant="outline">
-                {primarySite.acumaticaWarehouseId ?? 'Acumatica pending'}
-              </Badge>
             </Group>
           ) : null}
         </Stack>

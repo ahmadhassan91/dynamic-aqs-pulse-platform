@@ -2,9 +2,9 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { ActionIcon, AppShell, Badge, Box, Burger, Button, Group, Menu, Text, ThemeIcon, rem } from '@mantine/core';
+import { AppShell, Badge, Box, Burger, Button, Group, Menu, Text, ThemeIcon, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconBell, IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
+import { IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
 import { Navigation } from './Navigation';
 import { Logo } from '@/components/ui/Logo';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -34,9 +34,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </Group>
 
           <Group gap="sm">
-            <ActionIcon variant="subtle" size="lg" color="gray">
-              <IconBell size={18} />
-            </ActionIcon>
             {currentAuth ? (
               <Menu width={220} position="bottom-end" transitionProps={{ transition: 'pop-top-right' }} withinPortal>
                 <Menu.Target>

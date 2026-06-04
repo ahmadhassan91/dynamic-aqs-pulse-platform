@@ -260,7 +260,7 @@ export default function RouteScreen() {
             value={notes}
             onChangeText={setNotes}
             multiline
-            placeholder="Checkout notes, follow-up, inventory observations..."
+            placeholder="Checkout notes, follow-up, site observations..."
             placeholderTextColor={colors.subtle}
             style={{
               minHeight: 112,

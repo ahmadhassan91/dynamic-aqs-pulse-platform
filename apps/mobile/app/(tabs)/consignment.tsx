@@ -1,3 +1,4 @@
+import { useEffect, useState, type ReactNode } from 'react';
 import { Image } from 'expo-image';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
@@ -16,6 +17,8 @@ import {
   type RoseVarianceSummary,
 } from '@/hooks/use-consignment-rose-audit';
 import { colors, radius, spacing, typography } from '@/theme';
+
+type RoseAuditStep = 'counts' | 'notes' | 'evidence' | 'attest' | 'submit';
 
 export default function ConsignmentScreen() {
   const {
@@ -98,7 +101,7 @@ export default function ConsignmentScreen() {
         />
       ) : null}
 
-      <SectionTitle title="Audit queue" detail="Due and active sites come from CRM. Expected quantities may be missing or stale until Acumatica data is available." />
+      <SectionTitle title="Audit queue" detail="Due and active sites come from CRM. Expected quantities may be missing or stale until the office source is available." />
       <View style={{ gap: spacing.md }}>
         {filteredSites.map((site) => (
           <ConsignmentSiteCard key={site.id} site={site} onOpen={() => void openRoseAudit(site)} />
@@ -112,7 +115,7 @@ export default function ConsignmentScreen() {
       <SectionTitle title="CRM sync boundary" />
       <Card style={{ backgroundColor: colors.surfaceMuted }}>
         <Text selectable style={{ ...typography.callout, color: colors.text }}>
-          Mobile sends the ROSE audit, counts, notes, and evidence to Pulse CRM. Inventory values from Acumatica may be unavailable or stale; PO posting and finance reconciliation happen outside the mobile app until those integrations are approved.
+          Mobile sends the ROSE audit, counts, notes, and evidence to Pulse CRM. Expected count values may be unavailable or stale; posting and finance reconciliation happen outside the mobile app until those integrations are approved.
         </Text>
       </Card>
     </Screen>
@@ -142,7 +145,7 @@ function ConsignmentSiteCard({ onOpen, site }: { onOpen: () => void; site: Consi
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
-        <Pill label={`Acumatica ${humanize(site.acumaticaStatus)}`} tone={acumaticaTone} />
+        <Pill label={`Source ${humanize(site.acumaticaStatus)}`} tone={acumaticaTone} />
         <SecondaryButton label="Start ROSE" icon={{ name: 'checklist', fallback: 'R' }} onPress={onOpen} />
       </View>
     </Card>
@@ -188,8 +191,17 @@ function RoseAuditCard({
   onSubmit: () => void;
   site: ConsignmentSiteSummary;
 }) {
+  const [currentStep, setCurrentStep] = useState<RoseAuditStep>('counts');
   const varianceSummary = summarizeVariance(lineCounts);
-  const submitBlocker = getRoseSubmitBlocker({ attestedByName, isAttested, isSubmitting, lineCounts, notes });
+  const submitBlocker = getRoseSubmitBlocker({ attestedByName, evidenceItems, isAttested, isSubmitting, lineCounts, notes, varianceSummary });
+  const countsReady = areRoseLineCountsValid(lineCounts);
+  const notesReady = notes.trim().length > 0;
+  const attestationReady = isAttested && attestedByName.trim().length > 0;
+
+  useEffect(() => {
+    setCurrentStep('counts');
+  }, [audit?.id, site.id]);
+
   return (
     <Card style={{ borderColor: colors.primarySoft }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -209,67 +221,186 @@ function RoseAuditCard({
 
       {audit ? (
         <>
-          <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
-            <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
-              Expected inventory source
-            </Text>
-            <Text selectable style={{ ...typography.callout, color: colors.text }}>
-              {audit.expectedSource} · {audit.sourceFreshnessLabel}
-            </Text>
-            <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-              Verify manually when Acumatica source is parked/stale.
-            </Text>
-          </Card>
-          <RoseLineCountSection
-            lineCounts={lineCounts}
-            onActualQuantityChange={onLineActualQuantityChange}
-            onNotesChange={onLineNotesChange}
-            varianceSummary={varianceSummary}
-          />
-          <TextInput
-            value={notes}
-            onChangeText={onNotesChange}
-            multiline
-            placeholder="Count notes, missing items, PO follow-up, photos taken..."
-            placeholderTextColor={colors.subtle}
-            style={{
-              minHeight: 112,
-              borderRadius: radius.lg,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.surface,
-              padding: spacing.md,
-              color: colors.text,
-              textAlignVertical: 'top',
-              ...typography.body,
-            }}
-          />
-          <EvidenceCaptureSection
-            disabled={isSubmitting}
-            evidenceItems={evidenceItems}
-            onAddEvidence={onAddEvidence}
-            onRemoveEvidence={onRemoveEvidence}
-            onToggleEvidencePurpose={onToggleEvidencePurpose}
-          />
-          <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-            Photos upload with the audit when CRM is reachable. Offline drafts keep counts, notes, attestation, and photo metadata only.
-          </Text>
-          <AttestationSection
-            attestedByName={attestedByName}
-            isAttested={isAttested}
-            onAttestedByNameChange={onAttestedByNameChange}
-            onToggleAttestation={onToggleAttestation}
-          />
-          {submitBlocker ? (
-            <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-              {submitBlocker}
-            </Text>
+          <RoseStepPills currentStep={currentStep} />
+
+          {currentStep === 'counts' ? (
+            <RoseStepPanel title="Step 1 of 5" detail="Verify the source, then enter the physical count for every ROSE item.">
+              <Card style={{ backgroundColor: colors.surface, boxShadow: 'none' }}>
+                <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
+                  Expected count source
+                </Text>
+                <Text selectable style={{ ...typography.callout, color: colors.text }}>
+                  {audit.expectedSource} · {audit.sourceFreshnessLabel}
+                </Text>
+                <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+                  Verify manually when the office source is parked or stale.
+                </Text>
+              </Card>
+              <RoseLineCountSection
+                lineCounts={lineCounts}
+                onActualQuantityChange={onLineActualQuantityChange}
+                onNotesChange={onLineNotesChange}
+                varianceSummary={varianceSummary}
+              />
+              <RoseStepNav
+                next={() => setCurrentStep('notes')}
+                nextDisabled={!countsReady}
+                nextHelp={!countsReady ? 'Enter an actual count for every ROSE item to continue.' : undefined}
+              />
+            </RoseStepPanel>
           ) : null}
-          <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={Boolean(submitBlocker)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
+
+          {currentStep === 'notes' ? (
+            <RoseStepPanel title="Step 2 of 5" detail="Add the short audit note the office needs before review or follow-up.">
+              <TextInput
+                value={notes}
+                onChangeText={onNotesChange}
+                multiline
+                placeholder="Count notes, missing items, office follow-up, photos taken..."
+                placeholderTextColor={colors.subtle}
+                style={{
+                  minHeight: 112,
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  padding: spacing.md,
+                  color: colors.text,
+                  textAlignVertical: 'top',
+                  ...typography.body,
+                }}
+              />
+              <RoseStepNav
+                back={() => setCurrentStep('counts')}
+                next={() => setCurrentStep('evidence')}
+                nextDisabled={!notesReady}
+                nextHelp={!notesReady ? 'Add a short audit note before continuing.' : undefined}
+              />
+            </RoseStepPanel>
+          ) : null}
+
+          {currentStep === 'evidence' ? (
+            <RoseStepPanel title="Step 3 of 5" detail={varianceSummary.hasVariance ? 'Variance needs at least one discrepancy photo before submit.' : 'Attach optional photos for site context. Continue if no photo is needed.'}>
+              <EvidenceCaptureSection
+                disabled={isSubmitting}
+                evidenceItems={evidenceItems}
+                onAddEvidence={onAddEvidence}
+                onRemoveEvidence={onRemoveEvidence}
+                onToggleEvidencePurpose={onToggleEvidencePurpose}
+              />
+              <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+                Photos upload with the audit when CRM is reachable. Offline drafts keep counts, notes, attestation, and photo metadata only.
+              </Text>
+              <RoseStepNav
+                back={() => setCurrentStep('notes')}
+                next={() => setCurrentStep('attest')}
+                nextDisabled={varianceSummary.hasVariance && !hasDiscrepancyEvidence(evidenceItems)}
+                nextHelp={varianceSummary.hasVariance && !hasDiscrepancyEvidence(evidenceItems) ? 'Mark at least one photo as discrepancy evidence for this variance.' : undefined}
+              />
+            </RoseStepPanel>
+          ) : null}
+
+          {currentStep === 'attest' ? (
+            <RoseStepPanel title="Step 4 of 5" detail="Confirm who performed the on-site count before sending it to CRM.">
+              <AttestationSection
+                attestedByName={attestedByName}
+                isAttested={isAttested}
+                onAttestedByNameChange={onAttestedByNameChange}
+                onToggleAttestation={onToggleAttestation}
+              />
+              <RoseStepNav
+                back={() => setCurrentStep('evidence')}
+                next={() => setCurrentStep('submit')}
+                nextDisabled={!attestationReady}
+                nextHelp={!attestationReady ? 'Enter your name and confirm the attestation.' : undefined}
+              />
+            </RoseStepPanel>
+          ) : null}
+
+          {currentStep === 'submit' ? (
+            <RoseStepPanel title="Step 5 of 5" detail="Review variance and submit the ROSE audit to Pulse CRM.">
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <FieldChip label="Expected" value={formatQuantity(varianceSummary.expectedTotal)} />
+                <FieldChip label="Actual" value={formatQuantity(varianceSummary.actualTotal)} />
+                <FieldChip label="Variance" value={formatSignedQuantity(varianceSummary.varianceTotal)} />
+                <FieldChip label="Photos" value={String(evidenceItems.length)} />
+              </View>
+              {submitBlocker ? (
+                <Text selectable style={{ ...typography.caption, color: colors.warning }}>
+                  {submitBlocker}
+                </Text>
+              ) : null}
+              <PrimaryButton label={isSubmitting ? 'Submitting...' : 'Submit ROSE to CRM'} disabled={Boolean(submitBlocker)} icon={{ name: 'paperplane.fill', fallback: 'Go' }} onPress={onSubmit} />
+              <SecondaryButton label="Back to attestation" icon={{ name: 'chevron.left', fallback: 'Back' }} onPress={() => setCurrentStep('attest')} />
+            </RoseStepPanel>
+          ) : null}
         </>
       ) : null}
       <SecondaryButton label="Cancel" icon={{ name: 'xmark.circle.fill', fallback: 'X' }} onPress={onCancel} />
     </Card>
+  );
+}
+
+function RoseStepPills({ currentStep }: { currentStep: RoseAuditStep }) {
+  const steps: Array<{ key: RoseAuditStep; label: string }> = [
+    { key: 'counts', label: 'Counts' },
+    { key: 'notes', label: 'Notes' },
+    { key: 'evidence', label: 'Evidence' },
+    { key: 'attest', label: 'Attest' },
+    { key: 'submit', label: 'Submit' },
+  ];
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      {steps.map((step) => <Pill key={step.key} label={step.label} tone={step.key === currentStep ? 'active' : 'pending'} />)}
+    </View>
+  );
+}
+
+function RoseStepPanel({ children, detail, title }: { children: ReactNode; detail: string; title: string }) {
+  return (
+    <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
+      <View style={{ gap: spacing.xs }}>
+        <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+          {title}
+        </Text>
+        <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+          {detail}
+        </Text>
+      </View>
+      {children}
+    </Card>
+  );
+}
+
+function RoseStepNav({
+  back,
+  next,
+  nextDisabled,
+  nextHelp,
+}: {
+  back?: () => void;
+  next: () => void;
+  nextDisabled?: boolean | undefined;
+  nextHelp?: string | undefined;
+}) {
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        {back ? (
+          <View style={{ flex: 1 }}>
+            <SecondaryButton label="Back" icon={{ name: 'chevron.left', fallback: 'Back' }} onPress={back} />
+          </View>
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <PrimaryButton disabled={Boolean(nextDisabled)} label="Continue" icon={{ name: 'arrow.right.circle.fill', fallback: 'Go' }} onPress={next} />
+        </View>
+      </View>
+      {nextHelp ? (
+        <Text selectable style={{ ...typography.caption, color: colors.muted, textAlign: 'center' }}>
+          {nextHelp}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -356,7 +487,7 @@ function RoseLineCountSection({
 
             {variance !== null && variance !== 0 ? (
               <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-                Variance preview: {formatSignedQuantity(variance)}. Add a note if a PO, transfer, or discrepancy follow-up is needed.
+                Variance preview: {formatSignedQuantity(variance)}. Add a note if an office handoff or discrepancy follow-up is needed.
               </Text>
             ) : null}
 
@@ -490,17 +621,24 @@ function AttestationSection({
 
 function getRoseSubmitBlocker(input: {
   attestedByName: string;
+  evidenceItems: RoseEvidenceItem[];
   isAttested: boolean;
   isSubmitting: boolean;
   lineCounts: RoseLineCount[];
   notes: string;
+  varianceSummary: RoseVarianceSummary;
 }) {
   if (input.isSubmitting) return 'Sending audit to CRM. Keep this screen open until it finishes.';
   if (!areRoseLineCountsValid(input.lineCounts)) return 'Enter an actual count for every ROSE item.';
   if (!input.notes.trim()) return 'Add a short audit note before submitting.';
+  if (input.varianceSummary.hasVariance && !hasDiscrepancyEvidence(input.evidenceItems)) return 'Add or mark at least one discrepancy photo before submitting a variance.';
   if (!input.attestedByName.trim()) return 'Enter your name for the audit attestation.';
   if (!input.isAttested) return 'Confirm the on-site attestation before submitting.';
   return null;
+}
+
+function hasDiscrepancyEvidence(items: RoseEvidenceItem[]) {
+  return items.some((item) => item.purpose === 'discrepancy');
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {

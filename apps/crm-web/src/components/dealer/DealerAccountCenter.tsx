@@ -67,7 +67,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
       const response = await updateCurrentDealerPortalUser(apiBaseUrl, auth.tokens.accessToken, userId, { status });
       setCurrentDashboard(response.dashboard);
       notifications.show({
-        title: status === 'active' ? 'Portal user activated' : 'Portal user deactivated',
+        title: status === 'active' ? 'Portal user access restored' : 'Portal user access paused',
         message: `${response.user.displayName} was updated.`,
         color: 'green',
       });
@@ -88,7 +88,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             <Text className="eyebrow">Dealer Portal</Text>
             <Title order={1}>Account center</Title>
             <Text c="dimmed" maw={760}>
-              Review your company profile, portal users, contacts, and locations.
+              Review your company profile, company users, contacts, and locations.
             </Text>
             <Group gap="xs">
               <Badge size="lg" color={roleProfile.color} variant="light">
@@ -131,11 +131,10 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Stack gap="sm">
-              <Title order={3}>Portal Access</Title>
-              <MetadataRow label="Status" value={currentDashboard.portalAccount.status.replace(/_/g, ' ')} badgeColor={statusColor(currentDashboard.portalAccount.status)} />
-              <MetadataRow label="Eligibility" value={currentDashboard.portalAccount.portalEligibilityStatus ?? 'unassessed'} />
-              <MetadataRow label="Set Up At" value={formatDateTime(currentDashboard.portalAccount.provisionedAt)} />
-              <MetadataRow label="Notes" value={currentDashboard.portalAccount.notes ?? 'No setup notes added yet'} />
+              <Title order={3}>Company portal status</Title>
+              <MetadataRow label="Status" value={formatPortalStatus(currentDashboard.portalAccount.status)} badgeColor={statusColor(currentDashboard.portalAccount.status)} />
+              <MetadataRow label="Active users" value={String(currentDashboard.portalAccount.activePortalUsers)} />
+              <MetadataRow label="Total users" value={String(currentDashboard.portalAccount.totalPortalUsers)} />
             </Stack>
           </Card>
         </Grid.Col>
@@ -158,25 +157,21 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           <Group justify="space-between" align="flex-start">
             <Stack gap={4}>
               <Text className="eyebrow">Account Health</Text>
-              <Title order={3}>Connection status</Title>
+              <Title order={3}>Account health</Title>
             </Stack>
             <Badge size="lg" color="orange" variant="light">
-              Not connected yet
+              Profile available
             </Badge>
           </Group>
           <Text size="sm" c="dimmed" maw={760}>
-            Account Health will show payment terms, credit status, invoices, orders, and payment values after the
-            approved finance connection is live.
+            Profile, users, contacts, locations, products, and files are available now. Contact Dynamic AQS support
+            when you need account documents or current account details.
           </Text>
-          <Alert color="gray" variant="light">
-            For UAT, dealers can confirm profile, users, contacts, locations, and published files here. Orders, invoices,
-            payments, pricing, and credit truth stay parked until the approved finance/Acumatica connection is live.
-          </Alert>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <AccountHealthRow label="Payment terms" value="Not connected yet" />
-            <AccountHealthRow label="Credit status" value="Not connected yet" />
+            <AccountHealthRow label="Account documents" value="Contact Dynamic AQS support" />
+            <AccountHealthRow label="Account status" value="Contact Dynamic AQS for current status" />
             <AccountHealthRow label="Billing address changes" value="Locked, contact Dynamic AQS" />
-            <AccountHealthRow label="Orders, invoices, and payments" value="Coming after finance connection" />
+            <AccountHealthRow label="Need help?" value="Contact Dynamic AQS support" />
           </SimpleGrid>
         </Stack>
       </Card>
@@ -187,7 +182,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             <Stack gap={4}>
               <Title order={3}>Portal User Access</Title>
               <Text size="sm" c="dimmed">
-                Dealer admins can invite or revoke non-admin company users. Dynamic AQS still manages primary owner and admin access.
+                Account Access users can invite or pause company users. Dynamic AQS still manages primary owner and company-level access.
               </Text>
             </Stack>
             <Group gap="xs">
@@ -203,13 +198,13 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           </Group>
           {canManageUsers ? (
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
-              <AccessRuleCard title="You can invite" description="Purchasing, accounting, and viewer users for this dealer company." />
-              <AccessRuleCard title="You can pause" description="Non-admin users when someone leaves or should stop using the portal." />
-              <AccessRuleCard title="Dynamic manages" description="Primary owner, admin access, billing authority, and account-level changes." />
+              <AccessRuleCard title="You can invite" description="Products & Files, Account Health, and viewer users for this dealer company." />
+              <AccessRuleCard title="You can pause" description="Company users when someone leaves or should stop using the portal." />
+              <AccessRuleCard title="Dynamic AQS manages" description="Primary owner, company-level access, billing authority, and account-level changes." />
             </SimpleGrid>
           ) : (
             <Alert color="gray" variant="light">
-              This page is read-only for your role. Ask your company portal admin or Dynamic AQS for user access changes.
+              This page is read-only for your role. Ask your company Account Access user or Dynamic AQS for user access changes.
             </Alert>
           )}
           {lastInvitePath ? (
@@ -219,7 +214,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
           ) : null}
           {currentDashboard.companyUsers.length === 0 ? (
             <Alert color="blue" variant="light">
-              No portal users have been set up for this account yet.
+              No company users have been set up for this account yet.
             </Alert>
           ) : (
             <Table.ScrollContainer minWidth={700}>
@@ -245,7 +240,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                     <Table.Td>{formatAccessRole(user.accessRole)}</Table.Td>
                     <Table.Td>
                       <Badge size="sm" color={statusColor(user.status)} variant="light">
-                        {user.status}
+                        {formatPortalStatus(user.status)}
                       </Badge>
                     </Table.Td>
                     <Table.Td>{user.isPrimaryOwner ? 'Yes' : 'No'}</Table.Td>
@@ -256,11 +251,11 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
                           <Text size="xs" c="dimmed">{getUserActionBlockReason(user, currentDashboard.currentUser.id)}</Text>
                         ) : user.status === 'active' ? (
                           <Button size="compact-xs" variant="light" color="red" onClick={() => void handleUserStatus(user.id, 'deactivated')}>
-                            Revoke
+                            Pause access
                           </Button>
                         ) : (
                           <Button size="compact-xs" variant="light" color="green" onClick={() => void handleUserStatus(user.id, 'active')}>
-                            Reactivate
+                            Restore access
                           </Button>
                         )}
                       </Table.Td>
@@ -281,7 +276,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
               <Title order={3}>Company Contacts</Title>
               {currentDashboard.contacts.length === 0 ? (
                 <Alert color="blue" variant="light">
-                  No contacts have been published for this account yet.
+                  No contacts are available for this account yet.
                 </Alert>
               ) : (
                 <Table.ScrollContainer minWidth={520}>
@@ -325,7 +320,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
               <Title order={3}>Company Locations</Title>
               {currentDashboard.locations.length === 0 ? (
                 <Alert color="blue" variant="light">
-                  No locations have been published for this account yet.
+                  No locations are available for this account yet.
                 </Alert>
               ) : (
                 <Table.ScrollContainer minWidth={520}>
@@ -378,8 +373,8 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             value={accessRole}
             onChange={(value) => setAccessRole((value as Exclude<DealerPortalAccessRoleKey, 'admin'> | null) ?? 'viewer')}
             data={[
-              { value: 'purchasing', label: 'Purchasing' },
-              { value: 'accounting', label: 'Accounting' },
+              { value: 'purchasing', label: 'Products & Files' },
+              { value: 'accounting', label: 'Account Health' },
               { value: 'viewer', label: 'Viewer' },
             ]}
             allowDeselect={false}
@@ -391,7 +386,7 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             minRows={3}
           />
           <Alert color="blue" variant="light">
-            Admin and primary-owner access is managed by Dynamic AQS. This keeps company access simple during UAT.
+            Account Access and primary-owner access is managed by Dynamic AQS. This keeps company access controlled.
           </Alert>
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setInviteOpened(false)}>Cancel</Button>
@@ -420,32 +415,32 @@ type RoleProfile = {
 function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
   const profiles: Record<DealerPortalAccessRoleKey, RoleProfile> = {
     admin: {
-      label: 'Admin',
+      label: 'Account Access',
       badge: 'User access',
       color: 'blue',
-      description: 'Admins use the Account Center to review who can access the dealer portal.',
-      accountCenterFocus: 'The portal user access directory is the primary admin surface on this page.',
+      description: 'Account Access users use the Account Center to review who can access the dealer portal.',
+      accountCenterFocus: 'The portal user access directory is the primary access surface on this page.',
     },
     purchasing: {
-      label: 'Purchasing',
+      label: 'Products & Files',
       badge: 'Products and files',
       color: 'green',
-      description: 'Purchasing users can review company context here and move back to Products & Files for published catalog materials.',
-      accountCenterFocus: 'Future purchasing readiness is visible, but cart and order workflows are not active.',
+      description: 'Products and Files users can review company context here and move back to available catalog materials.',
+      accountCenterFocus: 'Products and files are the active catalog surface today.',
     },
     accounting: {
-      label: 'Accounting',
+      label: 'Account Health',
       badge: 'Account health',
       color: 'orange',
-      description: 'Accounting users can inspect Account Health sync status without seeing placeholder finance values.',
-      accountCenterFocus: 'Account Health stays clear about which finance details are not connected yet.',
+      description: 'Account Health users can inspect company profile and support status.',
+      accountCenterFocus: 'Use Account Health for account profile and Dynamic AQS support status.',
     },
     viewer: {
       label: 'Viewer',
       badge: 'Read-only',
       color: 'gray',
       description: 'Viewers can review company, access, contact, and location details as a read-only reference.',
-      accountCenterFocus: 'This role cannot manage users, billing changes, orders, invoices, or payments in the portal.',
+      accountCenterFocus: 'This role cannot manage users or account changes in the portal.',
     },
   };
 
@@ -453,15 +448,22 @@ function getRoleProfile(role: DealerPortalAccessRoleKey): RoleProfile {
 }
 
 function formatAccessRole(value: string) {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const labels: Partial<Record<DealerPortalAccessRoleKey, string>> = {
+    admin: 'Account Access',
+    purchasing: 'Products and Files',
+    accounting: 'Account Health',
+    viewer: 'Viewer',
+  };
+
+  return labels[value as DealerPortalAccessRoleKey] ?? value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function roleInviteDescription(role: Exclude<DealerPortalAccessRoleKey, 'admin'>) {
   switch (role) {
     case 'purchasing':
-      return 'Can use published products and files. Order placement remains parked.';
+      return 'Can use available products and files.';
     case 'accounting':
-      return 'Can inspect account-health placeholders. Finance truth remains parked.';
+      return 'Can inspect Account Health connection status.';
     case 'viewer':
       return 'Read-only access for company context, contacts, locations, and files.';
   }
@@ -519,11 +521,11 @@ function getUserActionBlockReason(
   }
 
   if (user.isPrimaryOwner) {
-    return 'Primary owner: Dynamic managed';
+    return 'Primary owner: Dynamic AQS managed';
   }
 
   if (user.accessRole === 'admin') {
-    return 'Admin: Dynamic managed';
+    return 'Account Access: Dynamic AQS managed';
   }
 
   return null;
@@ -571,6 +573,26 @@ function formatDateTime(value?: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(parsed);
+}
+
+function formatPortalStatus(status: string) {
+  if (status === 'active') {
+    return 'Active';
+  }
+
+  if (status === 'ready_to_provision') {
+    return 'Access setup';
+  }
+
+  if (status === 'suspended') {
+    return 'Paused';
+  }
+
+  if (status === 'deactivated') {
+    return 'Inactive';
+  }
+
+  return status.replace(/_/g, ' ');
 }
 
 function statusColor(status: string) {

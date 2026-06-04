@@ -220,50 +220,58 @@ export function GroupReferenceManager({
         {items.length === 0 ? (
           <Alert color="blue" variant="light">{emptyMessage}</Alert>
         ) : (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Code</Table.Th>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>{typeLabel}</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Order</Table.Th>
-                <Table.Th>Notes</Table.Th>
-                {canManage ? <Table.Th>Actions</Table.Th> : null}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {items.map((item) => (
-                <Table.Tr key={item.id}>
-                  <Table.Td>
-                    <Text ff="monospace" size="sm">{item.code}</Text>
-                    {item.shortName ? (
-                      <Text size="xs" c="dimmed">{item.shortName}</Text>
-                    ) : null}
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" fw={600}>{item.name}</Text>
-                    {item.description ? <Text size="xs" c="dimmed">{item.description}</Text> : null}
-                  </Table.Td>
-                  <Table.Td>{typeLabels.get(item.typeValue) ?? item.typeValue}</Table.Td>
-                  <Table.Td>
-                    <Badge color={item.isActive ? 'green' : 'gray'} variant="light">
-                      {item.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{item.sortOrder}</Table.Td>
-                  <Table.Td>{item.notes ?? '—'}</Table.Td>
-                  {canManage ? (
-                    <Table.Td>
-                      <Button variant="subtle" leftSection={<IconEdit size={14} />} onClick={() => openEditModal(item)}>
-                        Edit
-                      </Button>
-                    </Table.Td>
-                  ) : null}
+          <Table.ScrollContainer minWidth={820}>
+            <Table striped highlightOnHover verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th style={{ width: 180 }}>Code</Table.Th>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th style={{ width: 180 }}>{typeLabel}</Table.Th>
+                  <Table.Th style={{ width: 110 }}>Status</Table.Th>
+                  <Table.Th style={{ width: 80 }}>Order</Table.Th>
+                  <Table.Th>Notes</Table.Th>
+                  {canManage ? <Table.Th style={{ width: 110 }}>Actions</Table.Th> : null}
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {items.map((item) => (
+                  <Table.Tr key={item.id}>
+                    <Table.Td style={{ verticalAlign: 'top' }}>
+                      <Text ff="monospace" size="sm" style={{ wordBreak: 'break-word' }}>{item.code}</Text>
+                      {item.shortName ? (
+                        <Text size="xs" c="dimmed">{item.shortName}</Text>
+                      ) : null}
+                    </Table.Td>
+                    <Table.Td style={{ verticalAlign: 'top' }}>
+                      <Text size="sm" fw={600}>{item.name}</Text>
+                      {item.description ? <Text size="xs" c="dimmed" lineClamp={2}>{item.description}</Text> : null}
+                    </Table.Td>
+                    <Table.Td style={{ verticalAlign: 'top' }}>{typeLabels.get(item.typeValue) ?? item.typeValue}</Table.Td>
+                    <Table.Td style={{ verticalAlign: 'top' }}>
+                      <Badge color={item.isActive ? 'green' : 'gray'} variant="light">
+                        {item.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td style={{ verticalAlign: 'top' }}>{item.sortOrder}</Table.Td>
+                    <Table.Td style={{ verticalAlign: 'top' }}>
+                      {item.notes ? (
+                        <Text size="sm" lineClamp={2}>{item.notes}</Text>
+                      ) : (
+                        <Text size="sm" c="dimmed">—</Text>
+                      )}
+                    </Table.Td>
+                    {canManage ? (
+                      <Table.Td style={{ verticalAlign: 'top' }}>
+                        <Button variant="subtle" size="xs" leftSection={<IconEdit size={14} />} onClick={() => openEditModal(item)}>
+                          Edit
+                        </Button>
+                      </Table.Td>
+                    ) : null}
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         )}
       </Stack>
 

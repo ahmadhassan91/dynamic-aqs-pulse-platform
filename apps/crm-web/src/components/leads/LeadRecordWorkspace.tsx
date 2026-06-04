@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -17,9 +18,9 @@ import {
   Modal,
   MultiSelect,
   Paper,
+  SegmentedControl,
   Select,
   Stack,
-  Stepper,
   Tabs,
   Text,
   TextInput,
@@ -72,12 +73,15 @@ import { usePulseSession } from '@/lib/pulse-session';
 import { APP_LEAD_RATINGS, APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { LeadCisPanel } from './LeadCisPanel';
 import { LeadOnboardingReadyPanel } from './LeadOnboardingReadyPanel';
+import { WorkbenchMoreMenu, type WorkbenchMenuItem } from '@/components/ui/Workbench';
 
 type LeadRecordWorkspaceProps = {
   leadId: string;
 };
 
 type LeadRecordTab = 'overview' | 'discovery' | 'cis' | 'onboarding' | 'activity';
+type LeadShellTab = 'overview' | 'work' | 'activity';
+type LeadWorkStep = Extract<LeadRecordTab, 'discovery' | 'cis' | 'onboarding'>;
 type LeadEditFormState = {
   companyName: string;
   contactDisplayName: string;
@@ -115,13 +119,13 @@ const DISCOVERY_PAIN_POINT_OPTIONS = [
 ] as const;
 
 const LEAD_PARK_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; label: string }> = [
-  { value: 'follow_up_later', label: 'Follow Up Later' },
-  { value: 'no_response', label: 'No Response' },
+  { value: 'follow_up_later', label: 'Follow up later' },
+  { value: 'no_response', label: 'No response' },
   { value: 'other', label: 'Other' },
 ];
 
 const LEAD_CLOSE_REASON_OPTIONS: Array<{ value: LeadLifecycleReasonCodeKey; label: string }> = [
-  { value: 'not_interested', label: 'Not Interested' },
+  { value: 'not_interested', label: 'Not interested' },
   { value: 'disqualified', label: 'Disqualified' },
   { value: 'duplicate', label: 'Duplicate' },
   { value: 'other', label: 'Other' },
@@ -141,13 +145,14 @@ const leadRegionSelectData = APP_LEAD_REGION_OPTIONS.map((option) => ({
 
 export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
+  const router = useRouter();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [routingPolicy, setRoutingPolicy] = useState<LeadRoutingPolicySummary | null>(null);
   const [businessSegments, setBusinessSegments] = useState<ReferenceValueSummary[]>([]);
   const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
   const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
   const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
-  const [activeTab, setActiveTab] = useState<LeadRecordTab>('overview');
+  const [activeTab, setActiveTab] = useState<LeadRecordTab>('discovery');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -167,6 +172,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const [lifecycleDraftStatus, setLifecycleDraftStatus] = useState<'parked' | 'closed'>('parked');
   const [lifecycleReasonCode, setLifecycleReasonCode] = useState<LeadLifecycleReasonCodeKey>('follow_up_later');
   const [lifecycleReasonNote, setLifecycleReasonNote] = useState('');
+  const [lifecycleOpened, setLifecycleOpened] = useState(false);
   const [editOpened, setEditOpened] = useState(false);
   const [isSavingLead, setIsSavingLead] = useState(false);
   const [leadEditForm, setLeadEditForm] = useState<LeadEditFormState>({
@@ -223,12 +229,17 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           fetchOwnershipGroups(apiBaseUrl, accessToken),
         ]);
         if (!cancelled) {
+          const nextWorkStep = getRecommendedLeadWorkStep(
+            leadResponse,
+            Boolean(leadResponse.initialContactedAt) || leadResponse.stage !== 'new',
+          );
           setLead(leadResponse);
           setRoutingPolicy(routingPolicyResponse);
           setBusinessSegments(businessSegmentsResponse.items);
           setLeadSources(leadSourcesResponse.items);
           setAffinityGroups(affinityGroupsResponse.items);
           setOwnershipGroups(ownershipGroupsResponse.items);
+          setActiveTab(nextWorkStep);
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -349,7 +360,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         label: 'Initial Contact',
         complete: hasInitialContact,
         detail: hasInitialContact
-          ? `Logged ${lead.initialContactedAt ? `on ${formatDateLabel(lead.initialContactedAt)}` : 'inside Pulse CRM'}.`
+          ? `Logged ${lead.initialContactedAt ? `on ${formatDateLabel(lead.initialContactedAt)}` : 'on this lead'}.`
           : `${initialContactSlaHours}-hour SLA is still active until the first contact is recorded.`,
       },
       {
@@ -382,7 +393,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         complete: Boolean(lead.onboardingCompletedAt),
         detail: lead.onboardingCompletedAt
           ? `Operational onboarding was marked complete on ${formatDateLabel(lead.onboardingCompletedAt)}.`
-          : 'Portal/setup readiness is still inside CRM scope before the first-order handoff.',
+          : 'Portal and setup readiness still need review before the first-order handoff.',
       },
     ];
   }, [discoverySchedulingSlaHours, hasInitialContact, initialContactSlaHours, lead]);
@@ -442,7 +453,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       ...(lead.cisSignedAt ? [{
         key: `cis-signed-${lead.cisSignedAt}`,
         title: 'CIS Signed Off',
-        description: 'Internal review is complete and the finance/onboarding lane is unlocked.',
+        description: 'Review is complete and the finance/onboarding lane is unlocked.',
         occurredAt: lead.cisSignedAt,
         color: 'green',
       }] : []),
@@ -456,7 +467,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       ...(lead.onboardingCompletedAt ? [{
         key: `onboarding-${lead.onboardingCompletedAt}`,
         title: 'Onboarding Ready',
-        description: 'CRM-owned setup is complete. The next step is the first-order / ERP boundary.',
+        description: 'Setup is complete. The next step is the first-order handoff.',
         occurredAt: lead.onboardingCompletedAt,
         color: 'cyan',
       }] : []),
@@ -509,7 +520,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           </Alert>
           <Group>
             <Button component={Link} href="/leads" variant="default">
-              Back to Lead Pipeline
+              Back to Lead Work Queue
             </Button>
           </Group>
         </Stack>
@@ -519,6 +530,23 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
 
   const currentAuth = auth;
   const currentLead = lead;
+  const activeShellTab = getLeadShellTab(activeTab);
+  const recommendedWorkStep = getRecommendedLeadWorkStep(currentLead, hasInitialContact);
+  const activeWorkStep = isLeadWorkStep(activeTab) ? activeTab : recommendedWorkStep;
+
+  function handleShellTabChange(value: string | null) {
+    if (value === 'activity') {
+      setActiveTab('activity');
+      return;
+    }
+
+    if (value === 'work') {
+      setActiveTab(activeWorkStep);
+      return;
+    }
+
+    setActiveTab('overview');
+  }
 
   async function handleLogInitialContact() {
     setIsLoggingCall(true);
@@ -614,11 +642,23 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         setLifecycleReasonCode('follow_up_later');
         setLifecycleReasonNote('');
       }
+      setLifecycleOpened(false);
     } catch (action) {
       setActionError(action instanceof Error ? action.message : String(action));
     } finally {
       setIsUpdatingLifecycle(false);
     }
+  }
+
+  function openLifecycleAction(status: 'active' | 'parked' | 'closed') {
+    setLifecycleDraftStatus(status === 'closed' ? 'closed' : 'parked');
+    setLifecycleReasonCode(
+      status === 'closed'
+        ? (currentLead.lifecycleStatus === 'closed' ? (currentLead.lifecycleReasonCode ?? 'not_interested') : 'not_interested')
+        : (currentLead.lifecycleStatus === 'parked' ? (currentLead.lifecycleReasonCode ?? 'follow_up_later') : 'follow_up_later'),
+    );
+    setLifecycleReasonNote(status === 'active' ? '' : (currentLead.lifecycleReasonNote ?? ''));
+    setLifecycleOpened(true);
   }
 
   async function handleSaveLeadEdits() {
@@ -734,6 +774,8 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const nextActionLabel = currentLead.stage === 'onboarding_completed'
     ? 'Awaiting first-order handoff'
     : currentLead.workflowTask.nextAction;
+  const nextActionNeedsManagePermission = currentLead.workflowTask.nextAction === 'Resume Lead'
+    || currentLead.workflowTask.nextAction === 'Reopen Lead';
   const businessSegmentSelectData = businessSegments.map((segment) => ({
     value: segment.code,
     label: segment.name,
@@ -750,6 +792,117 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     value: group.code,
     label: group.name,
   }));
+  const leadMoreMenuItems: WorkbenchMenuItem[] = [
+    ...(canManageLead ? [{
+      id: 'edit-record',
+      label: 'Edit lead details',
+      icon: <IconEdit size={16} />,
+      onClick: () => setEditOpened(true),
+    }] : []),
+    ...(canManageLead && lead.lifecycleStatus === 'active' ? [
+      {
+        id: 'park-lead',
+        label: 'Park lead',
+        description: 'Remove from active follow-up for now.',
+        icon: <IconClock size={16} />,
+        color: 'neutral' as const,
+        onClick: () => openLifecycleAction('parked'),
+      },
+      {
+        id: 'close-lead',
+        label: 'Close lead',
+        description: 'End this lead with an audit reason.',
+        icon: <IconLock size={16} />,
+        color: 'danger' as const,
+        onClick: () => openLifecycleAction('closed'),
+      },
+    ] : []),
+    ...(canManageLead && lead.lifecycleStatus !== 'active' ? [{
+      id: 'reopen-lead',
+      label: lead.lifecycleStatus === 'parked' ? 'Resume lead' : 'Reopen lead',
+      description: 'Return this record to the active pipeline.',
+      icon: <IconArrowRight size={16} />,
+      color: 'success' as const,
+      onClick: () => openLifecycleAction('active'),
+    }] : []),
+    {
+      id: 'open-discovery',
+      label: 'Discovery workspace',
+      icon: <IconCalendar size={16} />,
+      onClick: () => setActiveTab('discovery' as const),
+    },
+    {
+      id: 'open-cis',
+      label: 'CIS workspace',
+      icon: <IconFileText size={16} />,
+      onClick: () => setActiveTab('cis' as const),
+    },
+    {
+      id: 'open-onboarding',
+      label: 'Onboarding readiness',
+      icon: <IconCheck size={16} />,
+      onClick: () => setActiveTab('onboarding' as const),
+    },
+    ...(canViewFinanceQueue ? [{
+      id: 'open-finance',
+      label: 'Finance queue',
+      icon: <IconActivity size={16} />,
+      onClick: () => router.push('/leads/finance'),
+    }] : []),
+  ];
+  const leadHeroFacts = [
+    lead.sourceSiteName ? `Source: ${lead.sourceSiteName}` : null,
+    lead.sourceBrandTag ? `Brand: ${lead.sourceBrandTag}` : null,
+    `Routed to ${formatRoutingTeam(lead.routingTeam)}`,
+    lead.leadRating ? `Rating: ${formatLeadRatingLabel(lead.leadRating)}` : null,
+  ].filter(Boolean);
+  const lifecycleModalIsReopen = lead.lifecycleStatus !== 'active';
+  const lifecycleModalTitle = lifecycleModalIsReopen
+    ? lead.lifecycleStatus === 'parked' ? 'Resume this lead?' : 'Reopen this lead?'
+    : lifecycleDraftStatus === 'closed' ? 'Close this lead?' : 'Park this lead?';
+  const lifecycleConfirmLabel = lifecycleModalIsReopen
+    ? lead.lifecycleStatus === 'parked' ? 'Resume lead' : 'Reopen lead'
+    : lifecycleDraftStatus === 'closed' ? 'Close lead' : 'Park lead';
+  const lifecycleReasonLabel = lifecycleDraftStatus === 'closed'
+    ? 'Reason for closing'
+    : 'Reason for parking';
+  const lifecycleReasonDescription = lifecycleDraftStatus === 'closed'
+    ? 'Required so the pipeline and history stay clear.'
+    : 'Required for the audit trail and future follow-up.';
+  const lifecycleNoteLabel = lifecycleDraftStatus === 'closed'
+    ? 'Close note'
+    : 'Follow-up note';
+  const lifecycleNotePlaceholder = lifecycleDraftStatus === 'closed'
+    ? 'Example: Prospect declined the program this quarter.'
+    : 'Example: Reconnect after peak season.';
+  const nextBestActionCard = (
+    <Card
+      withBorder
+      radius="xl"
+      p="lg"
+      className="premium-detail-card"
+      data-testid="lead-next-best-action-card"
+    >
+      <Group justify="space-between" align="flex-start" gap="md">
+        <Stack gap={4} style={{ flex: 1 }}>
+          <Title order={5}>Next Best Action</Title>
+          <Text size="sm" c="dimmed">
+            {currentLead.stage === 'onboarding_completed'
+              ? 'Onboarding setup is complete. The next milestone is the first-order handoff.'
+              : currentLead.workflowTask.reason}
+          </Text>
+        </Stack>
+        <Button
+          variant="light"
+          color={workflowActionColor(currentLead.workflowTask.colorToken)}
+          onClick={handleNextBestAction}
+          disabled={currentLead.stage === 'onboarding_completed' || (nextActionNeedsManagePermission && !canManageLead)}
+        >
+          {nextActionLabel}
+        </Button>
+      </Group>
+    </Card>
+  );
 
   return (
     <Stack gap="lg">
@@ -764,30 +917,12 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
             <Stack gap="xs">
               <Group gap="sm">
                 <Title order={2}>{lead.companyName}</Title>
-                {lead.sourceSiteName ? (
-                  <Badge color="cyan" variant="light">
-                    {lead.sourceSiteName}
-                  </Badge>
-                ) : null}
-                {lead.sourceBrandTag ? (
-                  <Badge color="blue" variant="light">
-                    {lead.sourceBrandTag}
-                  </Badge>
-                ) : null}
                 <Badge color={stageColor(lead.stage)} variant="light">
                   {formatStageLabel(lead.stage)}
                 </Badge>
                 {lead.lifecycleStatus !== 'active' ? (
                   <Badge color={lead.lifecycleStatus === 'closed' ? 'dark' : 'gray'} variant="filled">
                     {lead.lifecycleStatus === 'closed' ? 'Closed' : 'Parked'}
-                  </Badge>
-                ) : null}
-                <Badge color={lead.routingTeam === 'strategic_growth' ? 'teal' : 'indigo'} variant="light">
-                  {formatRoutingTeam(lead.routingTeam)}
-                </Badge>
-                {lead.leadRating ? (
-                  <Badge color={leadRatingColor(lead.leadRating)} variant="light">
-                    {formatLeadRatingLabel(lead.leadRating)}
                   </Badge>
                 ) : null}
                 {slaState.overdue ? <Badge color="red">SLA Overdue</Badge> : null}
@@ -799,20 +934,15 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 {lead.email ? ` • ${lead.email}` : ''}
                 {lead.phone ? ` • ${lead.phone}` : ''}
               </Text>
+              <Text size="sm" c="dimmed">
+                {leadHeroFacts.join(' • ')}
+              </Text>
             </Stack>
             <Group gap="sm">
-              {canManageLead ? (
-                <Button
-                  variant="light"
-                  leftSection={<IconEdit size={16} />}
-                  onClick={() => setEditOpened(true)}
-                >
-                  Edit Record
-                </Button>
-              ) : null}
-              <Button component={Link} href="/leads" variant="default">
-                Back to Pipeline
-              </Button>
+              <Text component={Link} href="/leads" size="sm" fw={700} c="blue" style={{ textDecoration: 'none' }}>
+                Back to Lead Work Queue
+              </Text>
+              <WorkbenchMoreMenu label="More" items={leadMoreMenuItems} />
               <Button
                 color="teal"
                 leftSection={<IconPhone size={16} />}
@@ -851,7 +981,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       <Modal
         opened={editOpened}
         onClose={() => setEditOpened(false)}
-        title="Edit Record"
+        title="Edit Lead Details"
         centered
         size="xl"
       >
@@ -950,7 +1080,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
-                label="Source site ID"
+                label="Source site reference"
                 value={leadEditForm.sourceSiteId}
                 onChange={(event) => setLeadEditForm((current) => ({ ...current, sourceSiteId: event.currentTarget.value }))}
               />
@@ -1088,7 +1218,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           </Grid>
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
-              Changes here update the live lead record and keep the detail and pipeline views aligned.
+              Changes here update the lead record and keep the detail and pipeline views aligned.
             </Text>
             <Group gap="sm">
               <Button variant="default" onClick={() => setEditOpened(false)}>
@@ -1102,23 +1232,88 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         </Stack>
       </Modal>
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as LeadRecordTab) || 'overview')} className="premium-tabs-shell">
+      <Modal
+        opened={lifecycleOpened}
+        onClose={() => setLifecycleOpened(false)}
+        title={lifecycleModalTitle}
+        centered
+        size="md"
+        data-testid="lead-lifecycle-confirm-modal"
+      >
+        <Stack gap="md">
+          {lead.lifecycleStatus === 'active' ? (
+            <>
+              <Text size="sm" c="dimmed">
+                {lifecycleDraftStatus === 'closed'
+                  ? 'This removes the lead from active lead work and keeps the record for history. Use this when Dynamic AQS should stop pursuing this opportunity.'
+                  : 'This removes the lead from the active pipeline but keeps the current stage and history. Use this when follow-up should pause and resume later.'}
+              </Text>
+              <Select
+                label={lifecycleReasonLabel}
+                description={lifecycleReasonDescription}
+                data={lifecycleReasonOptions}
+                value={lifecycleReasonCode}
+                onChange={(value) => setLifecycleReasonCode((value as LeadLifecycleReasonCodeKey) || (lifecycleDraftStatus === 'closed' ? 'not_interested' : 'follow_up_later'))}
+                disabled={!canManageLead || isUpdatingLifecycle}
+                data-testid="lead-lifecycle-reason-select"
+                required
+              />
+              <Textarea
+                label={lifecycleNoteLabel}
+                placeholder={lifecycleNotePlaceholder}
+                value={lifecycleReasonNote}
+                onChange={(event) => setLifecycleReasonNote(event.currentTarget.value)}
+                disabled={!canManageLead || isUpdatingLifecycle}
+                data-testid="lead-lifecycle-note"
+                minRows={3}
+              />
+            </>
+          ) : (
+            <>
+              <Alert color="gray" icon={<IconLock size={16} />}>
+                {formatLifecycleReason(lead.lifecycleReasonCode, lead.lifecycleReasonNote) ?? 'This lead is currently outside the active pipeline.'}
+              </Alert>
+              <Text size="sm" c="dimmed">
+                Reopening returns the lead to active work without changing its stage history.
+              </Text>
+            </>
+          )}
+
+          <Group justify="space-between">
+            <Text size="sm" c="dimmed">
+              {lead.lifecycleStatus === 'active'
+                ? 'The disposition will be recorded in the activity history.'
+                : 'The lead will become available for normal workflow actions again.'}
+            </Text>
+            <Group gap="sm">
+              <Button variant="default" onClick={() => setLifecycleOpened(false)} disabled={isUpdatingLifecycle}>
+                Cancel
+              </Button>
+              <Button
+                color={lead.lifecycleStatus === 'active' ? (lifecycleDraftStatus === 'closed' ? 'red' : 'gray') : 'blue'}
+                onClick={() => void handleUpdateLifecycle(lead.lifecycleStatus === 'active' ? lifecycleDraftStatus : 'active')}
+                loading={isUpdatingLifecycle}
+                disabled={!canManageLead}
+                data-testid="lead-lifecycle-confirm-button"
+              >
+                {lifecycleConfirmLabel}
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Tabs value={activeShellTab} onChange={handleShellTabChange} className="premium-tabs-shell">
         <Tabs.List>
+          <Tabs.Tab value="work" leftSection={<IconPhone size={16} />}>
+            Work
+          </Tabs.Tab>
           <Tabs.Tab value="overview" leftSection={<IconArrowRight size={16} />}>
-            Overview
+            Details
           </Tabs.Tab>
-          <Tabs.Tab value="discovery" leftSection={<IconPhone size={16} />}>
-            Discovery
+          <Tabs.Tab value="activity" leftSection={<IconActivity size={16} />}>
+            Activity Log
           </Tabs.Tab>
-	          <Tabs.Tab value="cis" leftSection={<IconFileText size={16} />}>
-	            CIS, Finance & Setup
-	          </Tabs.Tab>
-	          <Tabs.Tab value="onboarding" leftSection={<IconCheck size={16} />}>
-	            Onboarding Readiness
-	          </Tabs.Tab>
-	          <Tabs.Tab value="activity" leftSection={<IconActivity size={16} />}>
-	            Activity Log
-	          </Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="overview" pt="md">
@@ -1130,35 +1325,35 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                   <Grid.Col span={{ base: 12, md: 6 }}>
                     <DetailItem label="Company" value={lead.companyName} />
                     <DetailItem label="Contact" value={lead.contactDisplayName} />
-                    <DetailItem label="Email" value={lead.email ?? 'N/A'} />
-                    <DetailItem label="Phone" value={lead.phone ?? 'N/A'} />
-                    <DetailItem label="State" value={lead.state ?? 'N/A'} />
+                    <DetailItem label="Email" value={lead.email ?? 'Not recorded'} />
+                    <DetailItem label="Phone" value={lead.phone ?? 'Not recorded'} />
+                    <DetailItem label="State" value={lead.state ?? 'Not recorded'} />
                     <DetailItem label="Business Segment" value={lead.businessSegmentCode} />
                     <DetailItem label="Lead Source" value={lead.leadSourceName} />
                     <DetailItem label="Capture Method" value={formatCaptureMethod(lead.leadCaptureMethod)} />
-                    <DetailItem label="Source Detail" value={lead.sourceDetail ?? 'N/A'} />
-                    <DetailItem label="Source Campaign" value={lead.sourceCampaign ?? 'N/A'} />
-                    <DetailItem label="Source Site ID" value={lead.sourceSiteId ?? 'N/A'} />
+                    <DetailItem label="Source Detail" value={lead.sourceDetail ?? 'Not recorded'} />
+                    <DetailItem label="Source Campaign" value={lead.sourceCampaign ?? 'Not recorded'} />
+                    <DetailItem label="Source Site Reference" value={lead.sourceSiteId ?? 'Not recorded'} />
                   </Grid.Col>
                   <Grid.Col span={{ base: 12, md: 6 }}>
                     <DetailItem label="Affinity Group" value={formatGroupAxisLabel(lead.affinityGroupSelection, lead.affinityGroupName)} />
                     <DetailItem label="Ownership Group" value={formatGroupAxisLabel(lead.ownershipGroupSelection, lead.ownershipGroupName)} />
                     <DetailItem label="Group Classification" value={formatGroupClassificationLabel(lead.groupClassification)} />
                     <DetailItem label="Private Label" value={lead.privateLabelName ?? 'Dynamic AQS'} />
-                    <DetailItem label="Source Site" value={lead.sourceSiteName ?? lead.sourceSiteId ?? 'N/A'} />
-                    <DetailItem label="Brand Tag" value={lead.sourceBrandTag ?? 'N/A'} />
+                    <DetailItem label="Source Site" value={lead.sourceSiteName ?? lead.sourceSiteId ?? 'Not recorded'} />
+                    <DetailItem label="Brand Tag" value={lead.sourceBrandTag ?? 'Not recorded'} />
                     <DetailItem label="Lead Rating" value={lead.leadRating ? formatLeadRatingLabel(lead.leadRating) : 'Unrated'} />
-                    <DetailItem label="Install Tech Count" value={lead.installTechCount !== undefined ? String(lead.installTechCount) : 'N/A'} />
-                    <DetailItem label="Truck Count" value={lead.truckCount !== undefined ? String(lead.truckCount) : 'N/A'} />
-                    <DetailItem label="Sales Person Count" value={lead.salesPersonCount !== undefined ? String(lead.salesPersonCount) : 'N/A'} />
-                    <DetailItem label="Potential Value" value={lead.potentialValueCents !== undefined ? formatCurrency(lead.potentialValueCents) : 'N/A'} />
-                    <DetailItem label="Routing Basis Snapshot" value={`${lead.routingBasis === 'truck_count' ? 'Truck Count' : 'Service Tech Count'} ≤ ${lead.routingThreshold}`} />
+                    <DetailItem label="Install Tech Count" value={lead.installTechCount !== undefined ? String(lead.installTechCount) : 'Not recorded'} />
+                    <DetailItem label="Truck Count" value={lead.truckCount !== undefined ? String(lead.truckCount) : 'Not recorded'} />
+                    <DetailItem label="Sales Person Count" value={lead.salesPersonCount !== undefined ? String(lead.salesPersonCount) : 'Not recorded'} />
+                    <DetailItem label="Potential Value" value={lead.potentialValueCents !== undefined ? formatCurrency(lead.potentialValueCents) : 'Not recorded'} />
+                    <DetailItem label="Routing Rule" value={`${lead.routingBasis === 'truck_count' ? 'Truck Count' : 'Service Tech Count'} up to ${lead.routingThreshold}`} />
                   </Grid.Col>
                 </Grid>
                 <Divider my="md" />
-                <Title order={5} mb="sm">Internal Notes</Title>
+                <Title order={5} mb="sm">Lead Notes</Title>
                 <Text size="sm" c="dimmed">
-                  {lead.discoverySummary ?? lead.notes ?? 'No notes recorded yet.'}
+                  {lead.discoverySummary ?? lead.notes ?? 'Notes will appear here after they are saved.'}
                 </Text>
                 {lead.lifecycleStatus !== 'active' ? (
                   <>
@@ -1174,24 +1369,6 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
 
             <Grid.Col span={{ base: 12, xl: 4 }}>
               <Stack gap="md">
-                <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-                  <Title order={5} mb="md">Next Best Action</Title>
-                  <Text size="sm" mb="md">
-                    {currentLead.stage === 'onboarding_completed'
-                      ? 'CRM-owned onboarding is complete. The next milestone is the first-order / Acumatica boundary.'
-                      : currentLead.workflowTask.reason}
-                  </Text>
-                  <Button
-                    fullWidth
-                    variant="light"
-                    color={workflowActionColor(currentLead.workflowTask.colorToken)}
-                    onClick={handleNextBestAction}
-                    disabled={currentLead.stage === 'onboarding_completed'}
-                  >
-                    {nextActionLabel}
-                  </Button>
-                </Card>
-
                 <Card withBorder radius="xl" p="lg" className="premium-detail-card">
                   <Group justify="space-between" mb="md">
                     <Title order={5}>Workflow Gates</Title>
@@ -1214,98 +1391,65 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                   </Stack>
                 </Card>
 
-                <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-                  <Title order={5} mb="md">Secondary Actions</Title>
-                  <Stack gap="xs">
-                    <Button variant="light" fullWidth onClick={() => setActiveTab('discovery')}>
-                      Open Discovery Workspace
-                    </Button>
-	                    <Button variant="light" fullWidth onClick={() => setActiveTab('cis')}>
-	                      Open CIS Workspace
-	                    </Button>
-	                    <Button variant="light" fullWidth onClick={() => setActiveTab('onboarding')}>
-	                      Open Onboarding Readiness
-	                    </Button>
-                    {canViewFinanceQueue ? (
-                      <Button component={Link} href="/leads/finance" variant="light" fullWidth>
-                        Open Finance Queue
-                      </Button>
-                    ) : null}
-                  </Stack>
-                </Card>
-
-                <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-                  <Title order={5} mb="md">Pipeline Lifecycle</Title>
-                  {lead.lifecycleStatus === 'active' ? (
-                    <Stack gap="sm">
-                      <Text size="sm" c="dimmed">
-                        Remove this lead from the active pipeline only with a documented reason. The stage stays intact so the lead can be reopened cleanly later.
-                      </Text>
-                      <Select
-                        label="Lifecycle Action"
-                        data={[
-                          { value: 'parked', label: 'Park Lead' },
-                          { value: 'closed', label: 'Close Lead' },
-                        ]}
-                        value={lifecycleDraftStatus}
-                        onChange={(value) => {
-                          const next = value === 'closed' ? 'closed' : 'parked';
-                          setLifecycleDraftStatus(next);
-                          setLifecycleReasonCode(next === 'closed' ? 'not_interested' : 'follow_up_later');
-                        }}
-                        disabled={!canManageLead || isUpdatingLifecycle}
-                      />
-                      <Select
-                        label="Reason"
-                        data={lifecycleReasonOptions}
-                        value={lifecycleReasonCode}
-                        onChange={(value) => setLifecycleReasonCode((value as LeadLifecycleReasonCodeKey) || (lifecycleDraftStatus === 'closed' ? 'not_interested' : 'follow_up_later'))}
-                        disabled={!canManageLead || isUpdatingLifecycle}
-                      />
-                      <Textarea
-                        label="Notes"
-                        placeholder="Document the context for future follow-up or audit."
-                        value={lifecycleReasonNote}
-                        onChange={(event) => setLifecycleReasonNote(event.currentTarget.value)}
-                        disabled={!canManageLead || isUpdatingLifecycle}
-                        minRows={3}
-                      />
-                      <Button
-                        color={lifecycleDraftStatus === 'closed' ? 'dark' : 'gray'}
-                        onClick={() => void handleUpdateLifecycle(lifecycleDraftStatus)}
-                        loading={isUpdatingLifecycle}
-                        disabled={!canManageLead}
-                      >
-                        {lifecycleDraftStatus === 'closed' ? 'Close Lead' : 'Park Lead'}
-                      </Button>
-                    </Stack>
-                  ) : (
-                    <Stack gap="sm">
+                {lead.lifecycleStatus !== 'active' ? (
+                  <Card
+                    withBorder
+                    radius="xl"
+                    p="lg"
+                    className="premium-detail-card"
+                    data-testid="lead-lifecycle-status-card"
+                  >
+                    <Group justify="space-between" mb="sm">
+                      <Title order={5}>Pipeline Status</Title>
+                      <Badge color={lead.lifecycleStatus === 'closed' ? 'dark' : 'gray'} variant="light">
+                        {lead.lifecycleStatus === 'closed' ? 'Closed' : 'Parked'}
+                      </Badge>
+                    </Group>
+                    <Stack gap="xs">
                       <Text size="sm" c="dimmed">
                         {formatLifecycleReason(lead.lifecycleReasonCode, lead.lifecycleReasonNote) ?? 'Lead is currently outside the active pipeline.'}
                       </Text>
                       <Text size="xs" c="dimmed">
                         {lead.lifecycleChangedAt ? `Updated ${formatDateLabel(lead.lifecycleChangedAt)}.` : 'No lifecycle timestamp recorded yet.'}
                       </Text>
-                      <Button
-                        color="blue"
-                        variant="light"
-                        onClick={() => void handleUpdateLifecycle('active')}
-                        loading={isUpdatingLifecycle}
-                        disabled={!canManageLead}
-                      >
-                        Reopen Lead
-                      </Button>
+                      <Text size="xs" c="dimmed">
+                        Use More → Reopen lead when work should resume.
+                      </Text>
                     </Stack>
-                  )}
-                </Card>
+                  </Card>
+                ) : null}
               </Stack>
             </Grid.Col>
           </Grid>
         </Tabs.Panel>
 
-        <Tabs.Panel value="discovery" pt="md">
-          <Stack gap="lg">
+        <Tabs.Panel value="work" pt="md">
+          <Stack gap="lg" data-testid="lead-work-flow">
+            {nextBestActionCard}
+
+            <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
+              <Group justify="space-between" align="flex-start" gap="lg">
+                <Stack gap={4} style={{ flex: 1 }}>
+                  <Title order={4}>Current Lead Work</Title>
+                  <Text size="sm" c="dimmed">
+                    Move through Discovery, CIS and Finance, then onboarding readiness from one work lane. The next action still opens the right step automatically.
+                  </Text>
+                </Stack>
+                <SegmentedControl
+                  data-testid="lead-work-step-panel"
+                  value={activeWorkStep}
+                  onChange={(value) => setActiveTab(value as LeadWorkStep)}
+                  data={[
+                    { value: 'discovery', label: 'Discovery' },
+                    { value: 'cis', label: 'CIS & Finance' },
+                    { value: 'onboarding', label: 'Onboarding' },
+                  ]}
+                />
+              </Group>
+            </Card>
+
+            {activeWorkStep === 'discovery' ? (
+            <Stack gap="lg" data-testid="lead-work-step-discovery">
             <Card withBorder radius="xl" p="lg" className="premium-subhero-panel">
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
@@ -1347,14 +1491,16 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 <Card withBorder radius="xl" p="lg" className="premium-detail-card">
                   <Title order={4} mb="md">Discovery & Qualification</Title>
 
-                  <Stepper
-                    active={lead.discoveryCompletedAt ? 2 : lead.discoveryScheduledAt ? 1 : 0}
-                    color="teal"
-                    size="sm"
-                    mb="xl"
-                  >
-                    <Stepper.Step label="1. Schedule Call" description={lead.discoveryScheduledAt ? formatDateLabel(lead.discoveryScheduledAt) : 'Not scheduled'}>
+                  <Stack gap="md" mb="xl">
+                    {!lead.discoveryScheduledAt && !lead.discoveryCompletedAt ? (
+                    <Paper withBorder p="md">
                       <Stack gap="sm" mt="md">
+                        <Group justify="space-between" align="flex-start">
+                          <Title order={5}>1. Schedule Call</Title>
+                          <Badge color={lead.discoveryScheduledAt ? 'blue' : 'gray'} variant="light">
+                            {lead.discoveryScheduledAt ? formatDateLabel(lead.discoveryScheduledAt) : 'Not scheduled'}
+                          </Badge>
+                        </Group>
                         <Text size="sm" c="dimmed">
                           Log the first contact and schedule discovery before the lead moves into structured qualification.
                         </Text>
@@ -1379,10 +1525,18 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                           </Button>
                         </Group>
                       </Stack>
-                    </Stepper.Step>
+                    </Paper>
+                    ) : null}
 
-                    <Stepper.Step label="2. Complete Discovery" description={lead.discoveryCompletedAt ? formatDateLabel(lead.discoveryCompletedAt) : 'Pending'}>
+                    {lead.discoveryScheduledAt && !lead.discoveryCompletedAt ? (
+                    <Paper withBorder p="md">
                       <Stack gap="sm" mt="md">
+                        <Group justify="space-between" align="flex-start">
+                          <Title order={5}>2. Complete Discovery</Title>
+                          <Badge color={lead.discoveryCompletedAt ? 'teal' : 'yellow'} variant="light">
+                            {lead.discoveryCompletedAt ? formatDateLabel(lead.discoveryCompletedAt) : 'Pending'}
+                          </Badge>
+                        </Group>
                         <MultiSelect
                           label="Pain Points"
                           placeholder="Select all that apply"
@@ -1492,18 +1646,25 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                           </Button>
                         </Group>
                       </Stack>
-                    </Stepper.Step>
+                    </Paper>
+                    ) : null}
 
-                    <Stepper.Step label="3. Ready for CIS" description={lead.discoveryCompletedAt ? 'Ready' : ''}>
+                    {lead.discoveryCompletedAt ? (
+                    <Paper withBorder p="md">
+                      <Group justify="space-between" align="flex-start" mb="sm">
+                        <Title order={5}>3. Ready for CIS</Title>
+                        {lead.discoveryCompletedAt ? <Badge color="teal" variant="light">Ready</Badge> : null}
+                      </Group>
                       <Alert color="teal" variant="light" icon={<IconCheck size={16} />} mt="md">
                         Discovery is closed. The lead can now move into the CIS workspace.
                       </Alert>
-                    </Stepper.Step>
-                  </Stepper>
+                    </Paper>
+                    ) : null}
+                  </Stack>
 
                   <Title order={5} mb="sm">Discovery Summary</Title>
                   <Stack gap="xs" p="md" className="premium-stat-card">
-                    <Text size="sm">{lead.discoverySummary ?? 'No discovery summary recorded yet.'}</Text>
+                    <Text size="sm">{lead.discoverySummary ?? 'Discovery summary will appear here after it is saved.'}</Text>
                     {lead.discoveryPainPoints?.length ? (
                       <Text size="sm" c="dimmed">Pain Points: {lead.discoveryPainPoints.join(', ')}</Text>
                     ) : null}
@@ -1533,7 +1694,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                     <DetailCompact label="Routing Team" value={formatRoutingTeam(lead.routingTeam)} />
                     <DetailCompact label="Service Tech Count" value={String(lead.serviceTechCount)} />
                     <DetailCompact label="Affinity" value={formatGroupAxisLabel(lead.affinityGroupSelection, lead.affinityGroupName)} />
-                    <DetailCompact label="State" value={lead.state ?? 'N/A'} />
+                    <DetailCompact label="State" value={lead.state ?? 'Not recorded'} />
                     <Alert color="blue" variant="light" mt="sm">
                       <Text size="xs">
                         Discovery hands off to CIS once the qualification summary is captured or the fast-track reason is documented.
@@ -1543,34 +1704,40 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 </Card>
               </Grid.Col>
             </Grid>
+            </Stack>
+            ) : null}
+
+            {activeWorkStep === 'cis' ? (
+              <Box data-testid="lead-work-step-cis">
+                <LeadCisPanel
+                  apiBaseUrl={apiBaseUrl}
+                  accessToken={currentAuth.tokens.accessToken}
+                  actorRole={currentAuth.identity.role}
+                  lead={currentLead}
+                  onLeadChanged={() => {
+                    void fetchLeadDetail(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id).then(setLead);
+                  }}
+                />
+              </Box>
+            ) : null}
+
+            {activeWorkStep === 'onboarding' ? (
+              <Box data-testid="lead-work-step-onboarding">
+                <LeadOnboardingReadyPanel
+                  apiBaseUrl={apiBaseUrl}
+                  accessToken={currentAuth.tokens.accessToken}
+                  actorRole={currentAuth.identity.role}
+                  lead={currentLead}
+                  onLeadChanged={() => {
+                    void fetchLeadDetail(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id).then(setLead);
+                  }}
+                />
+              </Box>
+            ) : null}
           </Stack>
         </Tabs.Panel>
 
-	        <Tabs.Panel value="cis" pt="md">
-	          <LeadCisPanel
-	            apiBaseUrl={apiBaseUrl}
-	            accessToken={currentAuth.tokens.accessToken}
-	            actorRole={currentAuth.identity.role}
-	            lead={currentLead}
-	            onLeadChanged={() => {
-	              void fetchLeadDetail(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id).then(setLead);
-	            }}
-	          />
-	        </Tabs.Panel>
-
-	        <Tabs.Panel value="onboarding" pt="md">
-	          <LeadOnboardingReadyPanel
-	            apiBaseUrl={apiBaseUrl}
-	            accessToken={currentAuth.tokens.accessToken}
-	            actorRole={currentAuth.identity.role}
-	            lead={currentLead}
-	            onLeadChanged={() => {
-	              void fetchLeadDetail(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id).then(setLead);
-	            }}
-	          />
-	        </Tabs.Panel>
-
-	        <Tabs.Panel value="activity" pt="md">
+        <Tabs.Panel value="activity" pt="md">
           <Card withBorder radius="xl" p="lg" className="premium-detail-card">
             <Title order={4} mb="xl">Activity Timeline</Title>
             <Timeline active={Math.max(activityItems.length - 1, 0)} bulletSize={24} lineWidth={2}>
@@ -1590,6 +1757,36 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       </Tabs>
     </Stack>
   );
+}
+
+function isLeadWorkStep(tab: LeadRecordTab): tab is LeadWorkStep {
+  return tab === 'discovery' || tab === 'cis' || tab === 'onboarding';
+}
+
+function getLeadShellTab(tab: LeadRecordTab): LeadShellTab {
+  if (tab === 'activity') {
+    return 'activity';
+  }
+
+  if (isLeadWorkStep(tab)) {
+    return 'work';
+  }
+
+  return 'overview';
+}
+
+function getRecommendedLeadWorkStep(lead: LeadDetail, hasInitialContact: boolean): LeadWorkStep {
+  if (!hasInitialContact || !lead.discoveryCompletedAt) {
+    return 'discovery';
+  }
+
+  const financeCleared = lead.workflowTask.financeDecisionStatus === 'approved'
+    || lead.workflowTask.financeDecisionStatus === 'conditional';
+  if (!lead.cisSignedAt || !financeCleared) {
+    return 'cis';
+  }
+
+  return 'onboarding';
 }
 
 function MetricDetail({ label, value }: { label: string; value: string }) {
@@ -1687,23 +1884,6 @@ function formatCaptureMethod(value: LeadDetail['leadCaptureMethod']) {
     case 'manual_entry':
     default:
       return 'Manual Entry';
-  }
-}
-
-function leadRatingColor(value: string) {
-  switch (value) {
-    case 'hot':
-      return 'orange';
-    case 'warm':
-      return 'yellow';
-    case 'cold':
-      return 'blue';
-    case 'whale':
-      return 'grape';
-    case 'not_interested':
-      return 'gray';
-    default:
-      return 'blue';
   }
 }
 

@@ -44,3 +44,30 @@ The next implementation slice should cover:
 3. API skeletons with list/detail/readiness endpoints.
 4. CRM web navigation and first internal Product Management/Asset Library screens.
 5. No real Acumatica or Widen import execution until field mappings, curated manifest, and access are approved.
+
+## UX-05 Slice D Trace - 2026-06-02
+
+| Requirement Area | UX-05 Slice D Coverage | Boundary |
+|---|---|---|
+| PM-002 product/category/family separation | Product Catalog default remains readiness-first; categories/families stay in Catalog Placement setup. | Acumatica item class and prototype CSV category mapping remain parked. |
+| PM-006/PM-007 dealer catalog visibility | Dealer Catalog View create/edit is now a 3-step wizard: `Who is this for?`, `What should they see?`, `Review before publish`. | Price class is not treated as visibility. |
+| PM-008/PM-009 publish controls | UI now puts `Review before publish` before publish actions and gates create/edit/publish controls by backend permissions. | Publish is still blocked by existing backend readiness rules. |
+| PM-010/PM-011 dealer portal catalog prep | The visibility table and publish checklist remain the operator path for dealer-facing catalog readiness. | Dealer pricing/order behavior remains out of scope. |
+| DA-001/DA-002 approved asset library | Digital Assets default now shows approved, current-file, dealer/customer share-ready files first. | Internal-only and pending-review files are still available through Show all files/detail review. |
+| DA-007/DA-009 customer/prospect sharing | Primary action copies an active revocable customer link or creates one through the existing share-link API. | Raw file URLs are not treated as customer share links. |
+| DA-010/DA-011 product usage and visibility | Product usage, versions, and source trace stay in detail/advanced sections so daily sharing stays simple. | Product assignment logic remains owned by Product Management. |
+| DA-013/DA-014 Widen replacement boundary | Migration review remains behind More, and legacy/source trace remains preserved. | Widen redirect cutover and curated migration execution remain parked. |
+
+## UX-07 Slice C Trace - 2026-06-04
+
+| Requirement Area | UX-07 Slice C Coverage | Boundary |
+|---|---|---|
+| PM-002 category/family separation | Product copy now explains categories as catalog sections and families as SKU groupings; Product readiness table labels placement as catalog placement. | Acumatica item class and prototype CSV mapping remain parked until source access/rules are certified. |
+| PM-006/PM-007 dealer catalog visibility | `/product-management?tab=visibility` no longer auto-selects the first Dealer Catalog View; users must choose the dealer context before seeing publish evidence. | Dealer Catalog View resolver logic and publish backend rules are unchanged. |
+| PM-008/PM-009 review before publish | Selected-view publish metrics and review actions remain available only after a Dealer Catalog View is selected. | Final publish still depends on existing backend readiness and permission checks. |
+| PM-010/PM-011 dealer portal catalog prep | Dealer Portal catalog/detail/dashboard/account copy now uses dealer-safe `available`, `Products and Files`, and `Account Access` language. | Dealer pricing, order placement, and Acumatica-backed product truth remain out of scope. |
+| PM-012 scoped presentation overrides | Product detail labels scoped overrides as advanced audience exceptions, with regional/relationship/ownership/brand/private-label audience names. | Override payloads and APIs are unchanged. |
+| DA-001/DA-002 approved asset library | Digital Assets first paint continues to show approved/share-ready files first; `Review All Files` moves into More and visibility filtering appears only in review mode. | Internal-only and pending-review files remain available to authorized CRM users through review paths. |
+| DA-007/DA-009 customer/prospect sharing | Selected asset detail keeps `Copy customer link` / `Create share link` as the visible primary job. | Share-link API, revocation, expiry, and audit behavior are unchanged. |
+| DA-010/DA-011 usage/version/source trace | Recipient fields, CRM context, share-link history, usage, versions, and source trace are available through focused advanced sections instead of default first-paint detail. | Product assignment remains owned by Product Management; Widen/source audit remains preserved. |
+| DA-013/DA-014 Widen replacement boundary | Migration language stays out of the Digital Assets header; migration review remains in More/advanced paths. | Widen redirect cutover and curated migration execution remain parked. |

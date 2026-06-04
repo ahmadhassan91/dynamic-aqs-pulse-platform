@@ -1860,9 +1860,9 @@ export async function fetchConsignmentDashboard(apiBaseUrl: string, accessToken:
           siteName: site.name,
           accountDisplayName: site.accountName,
           subject: (site.openDiscrepancyCount ?? 0) > 0
-            ? 'Manual variance / PO follow-up'
+            ? 'Site issue needs review'
             : site.status === 'ready_for_warehouse'
-              ? 'Acumatica warehouse handoff parked'
+              ? 'Warehouse setup waiting'
               : 'Consignment workflow follow-up',
           status: site.status,
         };

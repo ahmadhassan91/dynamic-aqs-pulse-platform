@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Stack } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { TrainingSessionSummary } from '@pulse/contracts/training';
@@ -5,6 +7,8 @@ import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill,
 import { formatDateTime, humanize } from '@/lib/format';
 import { isTrainingSessionCompleted, maxMobileProofFiles, useTrainingExecution } from '@/hooks/use-training-execution';
 import { colors, radius, spacing, typography } from '@/theme';
+
+type TrainingExecutionStep = 'check_in' | 'details' | 'proof' | 'follow_up' | 'submit';
 
 export default function TrainingExecutionScreen() {
   const training = useTrainingExecution();
@@ -39,6 +43,18 @@ export default function TrainingExecutionScreen() {
     setProofNotes,
     syncMessage,
   } = training;
+  const [currentStep, setCurrentStep] = useState<TrainingExecutionStep>('check_in');
+
+  useEffect(() => {
+    if (!selectedSession) {
+      setCurrentStep('check_in');
+      return;
+    }
+    setCurrentStep(selectedSession.checkedInAt || isTrainingSessionCompleted(selectedSession) ? 'details' : 'check_in');
+  }, [selectedSession?.checkedInAt, selectedSession?.id, selectedSession?.status]);
+
+  const attendeeTotal = Number.parseInt(attendeeCount, 10);
+  const detailsReady = Number.isFinite(attendeeTotal) && attendeeTotal > 0 && notes.trim().length > 0;
 
   return (
     <>
@@ -94,103 +110,140 @@ export default function TrainingExecutionScreen() {
                 <FieldChip label="Cert" value={selectedSession.isCertificationTrack ? humanize(selectedSession.certificationOutcome) : 'not applicable'} />
               </View>
 
-              <PrimaryButton
-                disabled={Boolean(selectedSession.checkedInAt) || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
-                icon={{ name: 'location.fill', fallback: 'In' }}
-                label={selectedSession.checkedInAt ? 'Checked in' : saveState === 'checking_in' ? 'Checking in...' : 'Check in'}
-                onPress={() => void checkIn()}
-              />
+              <TrainingStepPills currentStep={currentStep} />
 
-              <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                <View style={{ flex: 1, gap: spacing.sm }}>
-                  <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
-                    Attendees
-                  </Text>
-                  <TextInput
-                    keyboardType="number-pad"
-                    onChangeText={setAttendeeCount}
-                    placeholder="0"
-                    placeholderTextColor={colors.subtle}
-                    selectTextOnFocus
-                    value={attendeeCount}
-                    style={inputStyle}
+              {currentStep === 'check_in' ? (
+                <StepPanel title="Step 1 of 5" detail="Check in when you are with the dealer. Completion fields open after this step.">
+                  <PrimaryButton
+                    disabled={Boolean(selectedSession.checkedInAt) || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
+                    icon={{ name: 'location.fill', fallback: 'In' }}
+                    label={selectedSession.checkedInAt ? 'Checked in' : saveState === 'checking_in' ? 'Checking in...' : 'Check in'}
+                    onPress={() => void checkIn()}
                   />
-                </View>
-                <View style={{ flex: 1, gap: spacing.sm }}>
-                  <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
-                    Proof files
-                  </Text>
-                  <View style={[inputStyle, { justifyContent: 'center' }]}>
-                    <Text selectable style={{ ...typography.body, color: colors.subtle }}>
-                      {selectedProofCount}/{maxMobileProofFiles}
+                  {selectedSession.checkedInAt ? <PrimaryButton label="Continue" icon={{ name: 'arrow.right.circle.fill', fallback: 'Go' }} onPress={() => setCurrentStep('details')} /> : null}
+                </StepPanel>
+              ) : null}
+
+              {currentStep === 'details' ? (
+                <StepPanel title="Step 2 of 5" detail="Record who attended and the short office-ready completion note.">
+                  <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                    <View style={{ flex: 1, gap: spacing.sm }}>
+                      <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
+                        Attendees
+                      </Text>
+                      <TextInput
+                        keyboardType="number-pad"
+                        onChangeText={setAttendeeCount}
+                        placeholder="0"
+                        placeholderTextColor={colors.subtle}
+                        selectTextOnFocus
+                        value={attendeeCount}
+                        style={inputStyle}
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: spacing.sm }}>
+                      <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
+                        Proof files
+                      </Text>
+                      <View style={[inputStyle, { justifyContent: 'center' }]}>
+                        <Text selectable style={{ ...typography.body, color: colors.subtle }}>
+                          {selectedProofCount}/{maxMobileProofFiles}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <LabeledTextArea
+                    label="Completion notes"
+                    onChangeText={setNotes}
+                    placeholder="Topics covered, dealer questions, attendee readiness, next action..."
+                    helper="Required. Keep it simple: what happened and what the office should know."
+                    value={notes}
+                  />
+                  <StepNav
+                    back={() => setCurrentStep('check_in')}
+                    next={() => setCurrentStep('proof')}
+                    nextDisabled={!detailsReady}
+                    nextHelp={!detailsReady ? 'Add attendee count and completion notes to continue.' : undefined}
+                  />
+                </StepPanel>
+              ) : null}
+
+              {currentStep === 'proof' ? (
+                <StepPanel title="Step 3 of 5" detail="Add optional proof photos or explain where proof is kept. Photos upload directly to CRM when available.">
+                  <View style={{ gap: spacing.sm }}>
+                    <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                      <View style={{ flex: 1 }}>
+                        <SecondaryButton
+                          disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
+                          icon={{ name: 'camera.fill', fallback: 'C' }}
+                          label={saveState === 'uploading_proof' ? 'Uploading...' : 'Camera'}
+                          onPress={() => void pickProofImage(true)}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <SecondaryButton
+                          disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
+                          icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }}
+                          label="Gallery"
+                          onPress={() => void pickProofImage(false)}
+                        />
+                      </View>
+                    </View>
+                    <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+                      Optional photo proof uploads directly to CRM. Limit {maxMobileProofFiles} images, 4 MB each.
                     </Text>
+                    {proofStatus ? (
+                      <Text selectable style={{ ...typography.caption, color: proofStatus.tone === 'success' ? colors.success : colors.warning }}>
+                        {proofStatus.message}
+                      </Text>
+                    ) : null}
                   </View>
-                </View>
-              </View>
+                  <LabeledTextArea
+                    label="Proof notes"
+                    onChangeText={setProofNotes}
+                    placeholder="Roster names, certificate context, or what the proof photo shows..."
+                    helper="Optional. Add context for uploaded proof photos or note external proof kept outside the app."
+                    value={proofNotes}
+                  />
+                  <StepNav back={() => setCurrentStep('details')} next={() => setCurrentStep('follow_up')} />
+                </StepPanel>
+              ) : null}
 
-              <View style={{ gap: spacing.sm }}>
-                <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                  <View style={{ flex: 1 }}>
-                    <SecondaryButton
-                      disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
-                      icon={{ name: 'camera.fill', fallback: 'C' }}
-                      label={saveState === 'uploading_proof' ? 'Uploading...' : 'Camera'}
-                      onPress={() => void pickProofImage(true)}
-                    />
+              {currentStep === 'follow_up' ? (
+                <StepPanel title="Step 4 of 5" detail="Create a follow-up only if someone needs to do something after this session.">
+                  <FollowUpPanel
+                    description={followUpDescription}
+                    enabled={followUpEnabled}
+                    onClear={clearFollowUp}
+                    onDescriptionChange={setFollowUpDescription}
+                    onEnable={() => setFollowUpEnabled(true)}
+                    onTitleChange={setFollowUpTitle}
+                    title={followUpTitle}
+                  />
+                  <StepNav back={() => setCurrentStep('proof')} next={() => setCurrentStep('submit')} />
+                </StepPanel>
+              ) : null}
+
+              {currentStep === 'submit' ? (
+                <StepPanel title="Step 5 of 5" detail="Review the save boundary, then send the completed session to CRM.">
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                    <FieldChip label="Attendees" value={attendeeCount || '0'} />
+                    <FieldChip label="Proof" value={`${selectedProofCount}/${maxMobileProofFiles}`} />
+                    <FieldChip label="Follow-up" value={followUpEnabled ? 'yes' : 'no'} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <SecondaryButton
-                      disabled={selectedProofCount >= maxMobileProofFiles || isTrainingSessionCompleted(selectedSession) || saveState !== 'idle'}
-                      icon={{ name: 'photo.on.rectangle.angled', fallback: 'G' }}
-                      label="Gallery"
-                      onPress={() => void pickProofImage(false)}
-                    />
-                  </View>
-                </View>
-                <Text selectable style={{ ...typography.caption, color: colors.muted }}>
-                  Optional photo proof uploads directly to CRM. Limit {maxMobileProofFiles} images, 4 MB each.
-                </Text>
-                {proofStatus ? (
-                  <Text selectable style={{ ...typography.caption, color: proofStatus.tone === 'success' ? colors.success : colors.warning }}>
-                    {proofStatus.message}
-                  </Text>
-                ) : null}
-              </View>
-
-              <LabeledTextArea
-                label="Completion notes"
-                onChangeText={setNotes}
-                placeholder="Topics covered, dealer questions, attendee readiness, next action..."
-                helper="Required. Keep it simple: what happened and what the office should know."
-                value={notes}
-              />
-              <LabeledTextArea
-                label="Proof notes"
-                onChangeText={setProofNotes}
-                placeholder="Roster names, certificate context, or what the proof photo shows..."
-                helper="Optional. Add context for uploaded proof photos or note external proof kept outside the app."
-                value={proofNotes}
-              />
-              <FollowUpPanel
-                description={followUpDescription}
-                enabled={followUpEnabled}
-                onClear={clearFollowUp}
-                onDescriptionChange={setFollowUpDescription}
-                onEnable={() => setFollowUpEnabled(true)}
-                onTitleChange={setFollowUpTitle}
-                title={followUpTitle}
-              />
-
-              <PrimaryButton
-                disabled={!canComplete}
-                icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }}
-                label={saveState === 'completing' ? 'Saving training...' : 'Complete training'}
-                onPress={() => void complete()}
-              />
-              {completionBlocker ? (
-                <Text selectable style={{ ...typography.caption, color: colors.muted, textAlign: 'center' }}>
-                  {completionBlocker}
-                </Text>
+                  <PrimaryButton
+                    disabled={!canComplete}
+                    icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }}
+                    label={saveState === 'completing' ? 'Saving training...' : 'Complete training'}
+                    onPress={() => void complete()}
+                  />
+                  {completionBlocker ? (
+                    <Text selectable style={{ ...typography.caption, color: colors.muted, textAlign: 'center' }}>
+                      {completionBlocker}
+                    </Text>
+                  ) : null}
+                  <SecondaryButton label="Back to follow-up" icon={{ name: 'chevron.left', fallback: 'Back' }} onPress={() => setCurrentStep('follow_up')} />
+                </StepPanel>
               ) : null}
             </Card>
           </>
@@ -199,6 +252,67 @@ export default function TrainingExecutionScreen() {
         <SecondaryButton label="Refresh training" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void loadSessions()} />
       </Screen>
     </>
+  );
+}
+
+function TrainingStepPills({ currentStep }: { currentStep: TrainingExecutionStep }) {
+  const steps: Array<{ key: TrainingExecutionStep; label: string }> = [
+    { key: 'check_in', label: 'Check in' },
+    { key: 'details', label: 'Details' },
+    { key: 'proof', label: 'Proof' },
+    { key: 'follow_up', label: 'Follow-up' },
+    { key: 'submit', label: 'Submit' },
+  ];
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      {steps.map((step) => <Pill key={step.key} label={step.label} tone={step.key === currentStep ? 'active' : 'pending'} />)}
+    </View>
+  );
+}
+
+function StepPanel({ children, detail, title }: { children: ReactNode; detail: string; title: string }) {
+  return (
+    <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
+      <View style={{ gap: spacing.xs }}>
+        <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+          {title}
+        </Text>
+        <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+          {detail}
+        </Text>
+      </View>
+      {children}
+    </Card>
+  );
+}
+
+function StepNav({
+  back,
+  next,
+  nextDisabled,
+  nextHelp,
+}: {
+  back: () => void;
+  next: () => void;
+  nextDisabled?: boolean | undefined;
+  nextHelp?: string | undefined;
+}) {
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <View style={{ flex: 1 }}>
+          <SecondaryButton label="Back" icon={{ name: 'chevron.left', fallback: 'Back' }} onPress={back} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <PrimaryButton disabled={Boolean(nextDisabled)} label="Continue" icon={{ name: 'arrow.right.circle.fill', fallback: 'Go' }} onPress={next} />
+        </View>
+      </View>
+      {nextHelp ? (
+        <Text selectable style={{ ...typography.caption, color: colors.muted, textAlign: 'center' }}>
+          {nextHelp}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 

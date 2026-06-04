@@ -1083,7 +1083,7 @@ test('training compliance reporting summarizes certification and cadence risk by
         title: 'East cadence',
         status: 'ACTIVE',
         cadenceDays: 60,
-        nextDueAt: new Date('2026-06-01T00:00:00.000Z'),
+        nextDueAt: daysFromNow(60),
         ownerTmUserId: eastFixture.tm.id,
         ownerRdUserId: eastFixture.rd.id,
         startedAt: new Date('2026-03-01T00:00:00.000Z'),

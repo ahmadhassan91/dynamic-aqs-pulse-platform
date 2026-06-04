@@ -2,10 +2,9 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { ActionIcon, AppShell, Badge, Box, Burger, Button, Group, Menu, Stack, Text, ThemeIcon, rem } from '@mantine/core';
+import { AppShell, Badge, Box, Burger, Group, Menu, Stack, Text, ThemeIcon, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconBell, IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
+import { IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
 import { DealerNavigation } from './DealerNavigation';
 import { PulseLogo } from '@/components/ui/PulseLogo';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -20,12 +19,10 @@ export function BrandedDealerLayout({
 }) {
   const [opened, { toggle }] = useDisclosure();
   const { auth, logout } = usePulseSession();
-  const pathname = usePathname();
   const currentUser = dashboard?.currentUser;
   const portalAccount = dashboard?.portalAccount;
   const companyName = portalAccount?.accountDisplayName ?? currentUser?.displayName ?? auth?.identity.displayName ?? 'Dealer Portal';
   const roleProfile = currentUser ? getRoleProfile(currentUser.accessRole) : null;
-  const isDashboard = pathname === '/dealer/dashboard';
 
   return (
     <AppShell
@@ -46,9 +43,6 @@ export function BrandedDealerLayout({
           </Group>
 
           <Group gap="sm">
-            <ActionIcon variant="subtle" size="lg" color="gray" aria-label="Notifications">
-              <IconBell size={18} />
-            </ActionIcon>
             <Menu width={280} position="bottom-end" transitionProps={{ transition: 'pop-top-right' }} withinPortal>
               <Menu.Target>
                 <Box
@@ -76,11 +70,11 @@ export function BrandedDealerLayout({
                         <Text size="xs" c="dimmed">
                           {currentUser?.displayName ?? auth?.identity.displayName ?? auth?.identity.email ?? 'Dealer User'}
                         </Text>
-                        {portalAccount?.status ? (
-                          <Badge size="xs" color={statusColor(portalAccount.status)} variant="light">
-                            {portalAccount.status.replace(/_/g, ' ')}
-                          </Badge>
-                        ) : null}
+        {portalAccount?.status ? (
+          <Badge size="xs" color={statusColor(portalAccount.status)} variant="light">
+            {formatPortalStatus(portalAccount.status)}
+          </Badge>
+        ) : null}
                         {roleProfile ? (
                           <Badge size="xs" color={roleProfile.color} variant="light">
                             {roleProfile.label}
@@ -130,11 +124,6 @@ export function BrandedDealerLayout({
 
       <AppShell.Navbar p="md" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 72px)' }}>
         <Stack gap="md">
-          {!isDashboard ? (
-            <Button component={Link} href="/dealer/dashboard" variant="light" fullWidth justify="flex-start">
-              Dashboard
-            </Button>
-          ) : null}
           {roleProfile ? (
             <Stack gap={4}>
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
@@ -171,22 +160,22 @@ function getRoleProfile(role: DealerPortalAccessRoleKey) {
     description: string;
   }> = {
     admin: {
-      label: 'Admin',
+      label: 'Account Access',
       color: 'blue',
       shortDescription: 'Users and access',
-      description: 'Admin access highlights who can use this dealer account.',
+      description: 'Account access highlights who can use this dealer account.',
     },
     purchasing: {
-      label: 'Purchasing',
+      label: 'Products & Files',
       color: 'green',
       shortDescription: 'Products and files',
-      description: 'Purchasing access highlights products and files published for this account.',
+      description: 'Products and Files access highlights products and files available for this account.',
     },
     accounting: {
-      label: 'Accounting',
+      label: 'Account Health',
       color: 'orange',
       shortDescription: 'Account health',
-      description: 'Accounting access highlights account health once finance data is connected.',
+      description: 'Account Health access highlights account status once approved finance data is connected.',
     },
     viewer: {
       label: 'Viewer',
@@ -197,6 +186,26 @@ function getRoleProfile(role: DealerPortalAccessRoleKey) {
   };
 
   return profiles[role];
+}
+
+function formatPortalStatus(status: string) {
+  if (status === 'active') {
+    return 'Active';
+  }
+
+  if (status === 'ready_to_provision') {
+    return 'Access setup';
+  }
+
+  if (status === 'suspended') {
+    return 'Paused';
+  }
+
+  if (status === 'deactivated') {
+    return 'Inactive';
+  }
+
+  return status.replace(/_/g, ' ');
 }
 
 function statusColor(status: string) {

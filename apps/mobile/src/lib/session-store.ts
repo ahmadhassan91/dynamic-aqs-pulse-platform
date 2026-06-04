@@ -3,6 +3,10 @@ import { Platform } from 'react-native';
 import type { AuthBundle } from '@/lib/api';
 
 const sessionKey = 'pulse.field.session.v1';
+const chunkManifestKey = `${sessionKey}.chunks`;
+const chunkKeyPrefix = `${sessionKey}.chunk.`;
+const maxSecureStoreValueLength = 1800;
+const maxSessionChunks = 16;
 
 export type StoredSession = {
   apiBaseUrl?: string;
@@ -10,7 +14,7 @@ export type StoredSession = {
 };
 
 export async function loadStoredSession() {
-  const value = await readValue(sessionKey);
+  const value = await readSessionValue();
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -29,11 +33,11 @@ export async function loadStoredSession() {
 }
 
 export async function saveStoredSession(session: StoredSession) {
-  await writeValue(sessionKey, JSON.stringify(session));
+  await writeSessionValue(JSON.stringify(session));
 }
 
 export async function clearStoredSession() {
-  await deleteValue(sessionKey);
+  await deleteSessionValue();
 }
 
 async function readValue(key: string) {
@@ -57,6 +61,69 @@ async function deleteValue(key: string) {
     return;
   }
   await SecureStore.deleteItemAsync(key);
+}
+
+async function readSessionValue() {
+  if (Platform.OS === 'web') {
+    return readValue(sessionKey);
+  }
+
+  const manifestValue = await readValue(chunkManifestKey);
+  if (!manifestValue) {
+    return readValue(sessionKey);
+  }
+
+  try {
+    const manifest = JSON.parse(manifestValue) as { count?: unknown };
+    const count = typeof manifest.count === 'number' ? manifest.count : 0;
+    if (!Number.isInteger(count) || count < 1 || count > maxSessionChunks) {
+      await deleteSessionValue();
+      return null;
+    }
+
+    const chunks = await Promise.all(Array.from({ length: count }, (_, index) => readValue(`${chunkKeyPrefix}${index}`)));
+    if (chunks.some((chunk) => chunk === null)) {
+      await deleteSessionValue();
+      return null;
+    }
+
+    return chunks.join('');
+  } catch {
+    await deleteSessionValue();
+    return null;
+  }
+}
+
+async function writeSessionValue(value: string) {
+  if (Platform.OS === 'web') {
+    await writeValue(sessionKey, value);
+    return;
+  }
+
+  await deleteSessionValue();
+
+  const chunks = splitSecureStoreValue(value);
+  try {
+    await Promise.all(chunks.map((chunk, index) => writeValue(`${chunkKeyPrefix}${index}`, chunk)));
+    await writeValue(chunkManifestKey, JSON.stringify({ count: chunks.length }));
+  } catch (error) {
+    await deleteSessionValue();
+    throw error;
+  }
+}
+
+async function deleteSessionValue() {
+  await deleteValue(sessionKey);
+  await deleteValue(chunkManifestKey);
+  await Promise.all(Array.from({ length: maxSessionChunks }, (_, index) => deleteValue(`${chunkKeyPrefix}${index}`)));
+}
+
+function splitSecureStoreValue(value: string) {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < value.length; offset += maxSecureStoreValueLength) {
+    chunks.push(value.slice(offset, offset + maxSecureStoreValueLength));
+  }
+  return chunks.length ? chunks : [''];
 }
 
 function isStoredSessionEnvelope(value: unknown): value is StoredSession {

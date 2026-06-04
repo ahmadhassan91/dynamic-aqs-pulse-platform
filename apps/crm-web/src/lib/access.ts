@@ -13,7 +13,7 @@ export type WorkspaceLandingTarget = {
 };
 
 const WORKSPACE_LANDING_TARGETS: readonly WorkspaceLandingTarget[] = [
-  { href: '/leads', label: 'Lead Pipeline', module: 'leads' },
+  { href: '/leads', label: 'Lead Work Queue', module: 'leads' },
   { href: '/leads/import', label: 'Bulk Intake', module: 'leads', action: 'lead.intake_manage' },
   { href: '/leads/forms', label: 'Website Forms', module: 'leads' },
   { href: '/leads/activities', label: 'Workflow Queue', module: 'leads' },

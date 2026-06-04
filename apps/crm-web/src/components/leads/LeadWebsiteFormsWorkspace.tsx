@@ -1039,7 +1039,7 @@ export function LeadWebsiteFormsWorkspace() {
           <Tabs.Tab value="notifications" leftSection={<IconBell size={16} />}>Notifications</Tabs.Tab>
           <Tabs.Tab value="flow" leftSection={<IconArrowRight size={16} />}>Submission Flow</Tabs.Tab>
           <Tabs.Tab value="duplicates" leftSection={<IconHistory size={16} />}>Repeat Submissions ({duplicateSubmissionTotal})</Tabs.Tab>
-          <Tabs.Tab value="classification" leftSection={<IconUsers size={16} />}>Classification Stewardship</Tabs.Tab>
+          <Tabs.Tab value="classification" leftSection={<IconUsers size={16} />}>Dealer Classification</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="sites" pt="md">
@@ -1584,14 +1584,14 @@ export function LeadWebsiteFormsWorkspace() {
         <Tabs.Panel value="classification" pt="md">
           <Stack gap="md">
             <Alert color="blue" variant="light">
-              Affinity and ownership groups are governed classification masters. These values drive lead intake, CIS review,
-              account segmentation, and the independent vs hybrid business model without falling back to free-text drift.
+              Dealer classifications explain what kind of dealer an account is. Product Management uses those classifications to decide
+              which dealer group, products, and files the dealer can see.
             </Alert>
 
-            <SimpleGrid cols={{ base: 1, xl: 2 }}>
+            <SimpleGrid cols={1}>
               <GroupReferenceManager
                 title="Affinity groups"
-                description="Maintain buying-group, coaching-network, franchise, and community classifications used during lead and account setup."
+                description="Buying groups, coaching networks, franchises, and communities used during lead and account setup."
                 emptyMessage="No affinity groups are available yet. Seed at least Independent and Unknown before more intake flows go live."
                 typeLabel="Affinity type"
                 importTypeField="groupType"
@@ -1605,7 +1605,7 @@ export function LeadWebsiteFormsWorkspace() {
 
               <GroupReferenceManager
                 title="Ownership groups"
-                description="Maintain PE and common-owner groupings separately from affinity so hybrid accounts remain first-class."
+                description="PE and common-owner relationships kept separate from affinity, so hybrid accounts stay clear."
                 emptyMessage="No ownership groups are available yet. Add PE or common-owner groups here before operator setup begins."
                 typeLabel="Ownership type"
                 importTypeField="ownershipType"

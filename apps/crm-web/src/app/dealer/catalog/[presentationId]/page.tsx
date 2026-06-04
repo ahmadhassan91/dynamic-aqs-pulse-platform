@@ -50,7 +50,7 @@ export default function DealerCatalogProductPage() {
               <IconPackage size={36} />
               <Title order={3}>Product is not available</Title>
               <Text c="dimmed" ta="center" maw={620}>
-                This product is not published for your dealer catalog, or it is no longer visible to this account.
+                This product is not available for your company, or it is no longer visible to this account.
               </Text>
               <Button component={Link} href="/dealer/catalog" variant="light" leftSection={<IconArrowLeft size={16} />}>
                 Back To Catalog

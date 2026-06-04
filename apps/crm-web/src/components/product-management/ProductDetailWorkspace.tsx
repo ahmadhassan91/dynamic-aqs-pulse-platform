@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { useRouter } from 'next/navigation';
+import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
   type DigitalAssetSummary,
@@ -24,6 +25,7 @@ import {
   updateProductManagementPresentation,
   validateProductManagementPresentation,
 } from '@/lib/pulse-api';
+import { EmptyStateMessage, WorkbenchAdvancedSection, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip, WorkbenchMoreMenu, WorkbenchTable } from '@/components/ui/Workbench';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -47,6 +49,8 @@ type InclusionFormState = {
   publishStatus: ProductPublishStatusKey;
   notes: string;
 };
+
+type ProductDetailBoardSection = 'content' | 'files' | 'visibility' | 'checks';
 
 const emptyPresentationForm: PresentationFormState = {
   displayName: '',
@@ -83,15 +87,16 @@ const PRODUCT_ASSET_ROLE_OPTIONS: ProductAssetRoleKey[] = [
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
 const CATALOG_VIEW_TYPE_OPTIONS = [
   { value: 'all_dealers', label: 'Standard dealers' },
-  { value: 'region', label: 'Regional catalog view' },
-  { value: 'affinity_group', label: 'Affinity catalog view' },
-  { value: 'ownership_group', label: 'Ownership / PE catalog view' },
-  { value: 'brand', label: 'Brand catalog view' },
-  { value: 'private_label', label: 'Private-label catalog view' },
+  { value: 'region', label: 'Regional audience' },
+  { value: 'affinity_group', label: 'Approved relationship audience' },
+  { value: 'ownership_group', label: 'Ownership group audience' },
+  { value: 'brand', label: 'Brand audience' },
+  { value: 'private_label', label: 'Private-label audience' },
 ];
 
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
+  const router = useRouter();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
   const [availableAssets, setAvailableAssets] = useState<DigitalAssetSummary[]>([]);
@@ -100,6 +105,9 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [presentationForm, setPresentationForm] = useState<PresentationFormState>(emptyPresentationForm);
   const [inclusionForm, setInclusionForm] = useState<InclusionFormState>(emptyInclusionForm);
   const [editingInclusionId, setEditingInclusionId] = useState<string | null>(null);
+  const [isInclusionFormOpen, setIsInclusionFormOpen] = useState(false);
+  const [isPresentationFormOpen, setIsPresentationFormOpen] = useState(false);
+  const [isAssetAttachOpen, setIsAssetAttachOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAssigningAsset, setIsAssigningAsset] = useState(false);
   const [unlinkingAssignmentId, setUnlinkingAssignmentId] = useState<string | null>(null);
@@ -108,7 +116,15 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [activeBoardSection, setActiveBoardSection] = useState<ProductDetailBoardSection>('content');
   const canManageProducts = auth ? canPerformAction(auth.identity.role, 'product.manage') : false;
+  const canPublishProducts = auth ? canPerformAction(auth.identity.role, 'product.publish') : false;
+  const canLinkProductAssets = auth ? canPerformAction(auth.identity.role, 'product.asset_link') : false;
+  const approvedAttachableAssets = availableAssets.filter((asset) => (
+    asset.status === 'active'
+    && asset.reviewStatus === 'approved'
+    && Boolean(asset.currentVersion)
+  ));
 
   useEffect(() => {
     if (!auth) return;
@@ -180,6 +196,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         isRequired: selectedAssetRole === 'primary_image' || selectedAssetRole === 'spec_sheet',
       });
       setSelectedAssetId(null);
+      setIsAssetAttachOpen(false);
       await reloadProduct();
     } catch (assignError) {
       setAssetError(assignError instanceof Error ? assignError.message : String(assignError));
@@ -230,6 +247,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         brandLabel: emptyToNull(presentationForm.brandLabel),
         publishStatus: presentationForm.publishStatus,
       });
+      setIsPresentationFormOpen(false);
       await reloadProduct();
     } catch (saveError) {
       setAssetError(saveError instanceof Error ? saveError.message : String(saveError));
@@ -250,11 +268,13 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       publishStatus: inclusion.publishStatus,
       notes: inclusion.notes ?? '',
     });
+    setIsInclusionFormOpen(true);
   };
 
   const handleResetInclusion = () => {
     setEditingInclusionId(null);
     setInclusionForm(emptyInclusionForm);
+    setIsInclusionFormOpen(false);
   };
 
   const handleSaveInclusion = async () => {
@@ -309,108 +329,196 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const publishStatusOptions = PRODUCT_PUBLISH_STATUS_OPTIONS.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
   const catalogViewOptions = catalogViews.map((catalogView) => ({
     value: catalogView.id,
-    label: `${catalogView.name}${catalogView.resolverKey ? ` (${catalogView.resolverKey})` : ''}`,
+    label: catalogView.resolverLabel ? `${catalogView.name} - ${catalogView.resolverLabel}` : catalogView.name,
   }));
+  const visibleDealerViewCount = product.inclusions.filter((inclusion) => inclusion.isVisible).length;
+  const canRunReadiness = canPublishProducts && Boolean(primaryPresentation);
+  const needsContent = !primaryPresentation || !primaryPresentation.shortDescription;
+  const needsFiles = product.assetAssignments.length === 0;
+  const needsVisibility = visibleDealerViewCount === 0;
+  const productAttentionItems = [
+    ...(needsContent ? [{
+      id: 'catalog-content',
+      title: 'Dealer-facing content',
+      description: 'Add the approved product name and description dealers will see.',
+      count: 1,
+      tone: 'orange' as const,
+    }] : []),
+    ...(!product.assetAssignments.length ? [{
+      id: 'product-files',
+      title: 'Product files',
+      description: 'Attach at least one approved image, brochure, spec sheet, or install guide.',
+      count: 1,
+      tone: 'orange' as const,
+    }] : []),
+    ...(!visibleDealerViewCount ? [{
+      id: 'dealer-visibility',
+      title: 'Dealer group',
+      description: 'Choose which dealer group can see this product and its files.',
+      count: 1,
+      tone: 'orange' as const,
+    }] : []),
+    ...blockedChecks.slice(0, 3).map((check) => ({
+      id: `readiness-${check.id}`,
+      title: check.checkName,
+      description: check.message ?? 'Review this readiness check before publishing.',
+      count: 1,
+      tone: 'red' as const,
+    })),
+  ];
+  const productMetrics = [
+    { label: 'Category', value: product.category?.name ?? 'Unassigned', tone: product.category ? 'blue' as const : 'orange' as const },
+    { label: 'Family', value: product.family?.name ?? 'Unassigned', tone: product.family ? 'blue' as const : 'orange' as const },
+    { label: 'Files', value: product.assetAssignments.length, tone: product.assetAssignments.length ? 'green' as const : 'orange' as const },
+    { label: 'Dealer groups', value: visibleDealerViewCount, tone: visibleDealerViewCount ? 'green' as const : 'orange' as const },
+  ];
+  const openAddDealerCatalogView = () => {
+    setEditingInclusionId(null);
+    setInclusionForm(emptyInclusionForm);
+    setIsInclusionFormOpen(true);
+    setActiveBoardSection('visibility');
+  };
+  const detailPrimaryAction = needsContent && canManageProducts ? (
+    <Button variant="filled" onClick={() => {
+      setActiveBoardSection('content');
+      setIsPresentationFormOpen(true);
+    }}>
+      Edit Product Content
+    </Button>
+  ) : needsFiles && canLinkProductAssets ? (
+    <Button variant="filled" leftSection={<IconLink size={16} />} onClick={() => {
+      setActiveBoardSection('files');
+      setIsAssetAttachOpen(true);
+    }}>
+      Attach File
+    </Button>
+  ) : needsVisibility && canManageProducts && primaryPresentation ? (
+    <Button variant="filled" leftSection={<IconShieldCheck size={16} />} onClick={openAddDealerCatalogView}>
+      Add dealer group
+    </Button>
+  ) : canRunReadiness ? (
+    <Button variant="filled" leftSection={<IconRefresh size={16} />} onClick={handleValidatePresentation} loading={isValidating}>
+      Check Readiness
+    </Button>
+  ) : null;
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <Button component={Link} href="/product-management?tab=products" variant="subtle" leftSection={<IconArrowLeft size={16} />}>
-          Products
-        </Button>
-        <Badge variant="light">{product.sourceSystem}</Badge>
-      </Group>
+      <WorkbenchHeader
+        eyebrow="Product detail"
+        title={primaryPresentation?.displayName ?? product.productName}
+        description={primaryPresentation?.shortDescription ?? primaryPresentation?.specSummary ?? 'Review dealer-facing content, files, visibility, and readiness before publishing.'}
+        policyText={`SKU ${product.sku} · ${formatLabel(product.lifecycleStatus)} · ${primaryPresentation?.readyForDealerPortal ? 'Ready for dealer portal' : 'Needs readiness review'}`}
+        primaryAction={detailPrimaryAction}
+        secondaryActions={(
+          <Group gap="xs">
+            <Button component={Link} href="/product-management?tab=products" variant="default" leftSection={<IconArrowLeft size={16} />}>
+              Back to Products
+            </Button>
+            <WorkbenchMoreMenu
+              items={[
+                ...(canManageProducts ? [{
+                  id: 'edit-content',
+                  label: 'Edit Dealer Content',
+                  onClick: () => setIsPresentationFormOpen(true),
+                }] : []),
+                ...(canLinkProductAssets ? [{
+                  id: 'attach-file',
+                  label: 'Attach Product File',
+                  onClick: () => setIsAssetAttachOpen(true),
+                }] : []),
+                ...(canManageProducts && primaryPresentation ? [{
+                  id: 'add-dealer-view',
+                  label: 'Add Dealer Group',
+                  onClick: openAddDealerCatalogView,
+                }] : []),
+                {
+                  id: 'catalog-views',
+                  label: 'Manage Dealer Groups',
+                  onClick: () => router.push('/product-management?tab=visibility'),
+                },
+              ]}
+            />
+          </Group>
+        )}
+      />
 
-      <Stack gap={4}>
-        <Title order={2}>{primaryPresentation?.displayName ?? product.productName}</Title>
-        <Text c="dimmed">{product.sku} {product.acumaticaInventoryId ? `| Acumatica ${product.acumaticaInventoryId}` : '| Acumatica link pending'}</Text>
-      </Stack>
+      <WorkbenchMetricStrip metrics={productMetrics} />
 
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
-        <Paper withBorder p="md">
-          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Category</Text>
-          <Text fw={700}>{product.category?.name ?? 'Unassigned'}</Text>
-        </Paper>
-        <Paper withBorder p="md">
-          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Lifecycle</Text>
-          <Text fw={700}>{product.lifecycleStatus}</Text>
-        </Paper>
-        <Paper withBorder p="md">
-          <Text size="xs" tt="uppercase" fw={700} c="dimmed">Catalog Go-Live Blockers</Text>
-          <Text fw={700}>{blockedChecks.length}</Text>
-        </Paper>
-      </SimpleGrid>
+      {productAttentionItems.length > 0 ? (
+        <WorkbenchAttentionPanel
+          title="Readiness summary"
+          description="Publish blockers and missing dealer-facing work that need attention."
+          items={productAttentionItems}
+        />
+      ) : null}
 
       <Paper withBorder p="md">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Dealer-Facing Presentation</Title>
-          <Group>
-            {primaryPresentation ? (
-              <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} onClick={handleValidatePresentation} loading={isValidating}>
-                Run Validation
-              </Button>
-            ) : null}
-            <Badge color={primaryPresentation?.readyForDealerPortal ? 'green' : 'gray'}>{primaryPresentation?.publishStatus ?? 'draft'}</Badge>
-          </Group>
+        <Group justify="space-between" align="flex-end" gap="md">
+          <Stack gap={2}>
+            <Title order={4}>Product readiness board</Title>
+            <Text size="sm" c="dimmed">Review one part of the product at a time: content, files, who sees it, or checks.</Text>
+          </Stack>
+          <SegmentedControl
+            aria-label="Product readiness sections"
+            value={activeBoardSection}
+            onChange={(value) => setActiveBoardSection(value as ProductDetailBoardSection)}
+            data={[
+              { value: 'content', label: 'Content' },
+              { value: 'files', label: 'Files' },
+              { value: 'visibility', label: 'Who Sees It' },
+              { value: 'checks', label: 'Checks' },
+            ]}
+          />
         </Group>
-        <Text>{primaryPresentation?.shortDescription ?? 'No dealer-facing description has been approved yet.'}</Text>
-        {primaryPresentation && canManageProducts ? (
+      </Paper>
+
+      {activeBoardSection === 'content' ? (
+      <Paper withBorder p="md">
+        <Group justify="space-between" mb="sm">
+          <Title order={4}>Product Content</Title>
+          <Badge color={primaryPresentation?.readyForDealerPortal ? 'green' : 'gray'}>{formatLabel(primaryPresentation?.publishStatus ?? 'draft')}</Badge>
+        </Group>
+        <Text>{primaryPresentation?.shortDescription ?? 'Dealer-facing description still needs approval.'}</Text>
+      </Paper>
+      ) : null}
+
+      {primaryPresentation && canManageProducts ? (
+        <Modal
+          opened={isPresentationFormOpen}
+          onClose={() => setIsPresentationFormOpen(false)}
+          title="Edit Dealer Content"
+          size="xl"
+          centered
+        >
           <Stack gap="sm" mt="md">
+            <Text size="sm" c="dimmed">Update the dealer-facing name, copy, and review status. Region and brand labels only apply when this presentation is scoped.</Text>
             <SimpleGrid cols={{ base: 1, md: 2 }}>
               <TextInput label="Display name" value={presentationForm.displayName} onChange={(event) => setPresentationForm((current) => ({ ...current, displayName: event.currentTarget.value }))} />
               <Select label="Review status" data={publishStatusOptions} value={presentationForm.publishStatus} onChange={(value) => setPresentationForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
-              <TextInput label="Region scope" value={presentationForm.regionScope} onChange={(event) => setPresentationForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
-              <TextInput label="Brand label" value={presentationForm.brandLabel} onChange={(event) => setPresentationForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
             </SimpleGrid>
             <Textarea label="Short description" minRows={2} value={presentationForm.shortDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, shortDescription: event.currentTarget.value }))} />
             <Textarea label="Long description" minRows={3} value={presentationForm.longDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, longDescription: event.currentTarget.value }))} />
             <Textarea label="Spec summary" minRows={2} value={presentationForm.specSummary} onChange={(event) => setPresentationForm((current) => ({ ...current, specSummary: event.currentTarget.value }))} />
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput label="Region" value={presentationForm.regionScope} onChange={(event) => setPresentationForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+              <TextInput label="Brand / private label" value={presentationForm.brandLabel} onChange={(event) => setPresentationForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
+            </SimpleGrid>
             <Group justify="flex-end">
-              <Button onClick={handleSavePresentation} loading={isSavingPresentation}>Save Presentation</Button>
+              <Button variant="subtle" onClick={() => setIsPresentationFormOpen(false)}>Cancel</Button>
+              <Button onClick={handleSavePresentation} loading={isSavingPresentation}>Save Product Content</Button>
             </Group>
           </Stack>
-        ) : null}
-      </Paper>
+        </Modal>
+      ) : null}
 
+      {activeBoardSection === 'files' ? (
       <Paper withBorder p="md">
         <Group justify="space-between" mb="sm" align="flex-end">
           <Stack gap={2}>
-            <Title order={4}>Product Files</Title>
+            <Title order={4}>Files</Title>
             <Text c="dimmed" size="sm">Attach approved images, spec sheets, brochures, and install guides to the dealer-facing product presentation.</Text>
           </Stack>
-          {canManageProducts ? (
-            <Group align="flex-end">
-              <Select
-                w={280}
-                label="Asset"
-                searchable
-                clearable
-                placeholder="Select asset"
-                value={selectedAssetId}
-                onChange={setSelectedAssetId}
-                data={availableAssets.map((asset) => ({
-                  value: asset.id,
-                  label: `${asset.title} / ${asset.kind} / ${asset.status} / ${asset.reviewStatus}`,
-                }))}
-              />
-              <Select
-                w={190}
-                label="Role"
-                value={selectedAssetRole}
-                onChange={(value) => setSelectedAssetRole((value as ProductAssetRoleKey | null) ?? 'primary_image')}
-                data={assetRoleOptions}
-                allowDeselect={false}
-              />
-              <Button
-                leftSection={<IconLink size={16} />}
-                onClick={handleAssignAsset}
-                disabled={!selectedAssetId || !primaryPresentation}
-                loading={isAssigningAsset}
-              >
-                Attach
-              </Button>
-            </Group>
-          ) : null}
         </Group>
 
         {assetError ? (
@@ -419,139 +527,280 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           </Alert>
         ) : null}
 
-        <Table striped>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Asset</Table.Th>
-              <Table.Th>Role</Table.Th>
-              <Table.Th>Kind</Table.Th>
-              <Table.Th>Scope</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Required</Table.Th>
-              {canManageProducts ? <Table.Th /> : null}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {product.assetAssignments.map((assignment) => (
-              <Table.Tr key={assignment.id}>
-                <Table.Td>
+        <WorkbenchTable<ProductDetail['assetAssignments'][number]>
+          ariaLabel="Product files"
+          rows={product.assetAssignments}
+          getRowKey={(assignment) => assignment.id}
+          minWidth={760}
+          withContainer={false}
+          columns={[
+            {
+              key: 'file',
+              header: 'File',
+              render: (assignment) => (
+                <Stack gap={2}>
                   <Text fw={600}>{assignment.title}</Text>
-                  <Text size="xs" c="dimmed">/{assignment.stableSlug}</Text>
-                </Table.Td>
-                <Table.Td>{formatLabel(assignment.role)}</Table.Td>
-                <Table.Td>{assignment.kind}</Table.Td>
-                <Table.Td>{[assignment.brandScope, assignment.regionScope].filter(Boolean).join(' / ') || 'Unscoped'}</Table.Td>
-                <Table.Td><Badge variant="light">{assignment.status} / {assignment.reviewStatus}</Badge></Table.Td>
-                <Table.Td>{assignment.isRequired ? 'Yes' : 'No'}</Table.Td>
-                {canManageProducts ? (
-                  <Table.Td>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      color="red"
-                      leftSection={<IconUnlink size={14} />}
-                      onClick={() => handleUnlinkAsset(assignment.id)}
-                      loading={unlinkingAssignmentId === assignment.id}
-                    >
-                      Unlink
-                    </Button>
-                  </Table.Td>
-                ) : null}
-              </Table.Tr>
-            ))}
-            {!product.assetAssignments.length ? (
-              <Table.Tr><Table.Td colSpan={canManageProducts ? 7 : 6}><Text ta="center" c="dimmed" py="md">No files linked to this product yet.</Text></Table.Td></Table.Tr>
-            ) : null}
-          </Table.Tbody>
-        </Table>
+                  <Text size="xs" c="dimmed">Linked file</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'use',
+              header: 'Use',
+              render: (assignment) => (
+                <Stack gap={2}>
+                  <Text fw={600}>{formatLabel(assignment.role)}</Text>
+                  <Text size="xs" c="dimmed">{formatLabel(assignment.kind)}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'scope',
+              header: 'Scope',
+              render: (assignment) => [assignment.brandScope, assignment.regionScope].filter(Boolean).join(' / ') || 'Unscoped',
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (assignment) => (
+                <Stack gap={2}>
+                  <Badge variant="light">{formatLabel(assignment.status)} / {formatLabel(assignment.reviewStatus)}</Badge>
+                  <Text size="xs" c="dimmed">{assignment.isRequired ? 'Required before publish' : 'Optional for publish'}</Text>
+                </Stack>
+              ),
+            },
+          ]}
+          {...(canLinkProductAssets ? { rowActions: (assignment: ProductDetail['assetAssignments'][number]) => [{
+            id: 'unlink-file',
+            label: 'Unlink file',
+            color: 'danger' as const,
+            icon: <IconUnlink size={14} />,
+            disabled: unlinkingAssignmentId === assignment.id,
+            onClick: () => void handleUnlinkAsset(assignment.id),
+          }] } : {})}
+          emptyState={(
+            <EmptyStateMessage
+              kind="no-data"
+              title="No product files attached"
+              description="Link approved images, spec sheets, brochures, or install guides before publish."
+              action={canLinkProductAssets ? (
+                <Button size="xs" leftSection={<IconLink size={14} />} onClick={() => setIsAssetAttachOpen(true)}>
+                  Attach File
+                </Button>
+              ) : undefined}
+            />
+          )}
+        />
       </Paper>
+      ) : null}
 
+      {canLinkProductAssets ? (
+        <Modal
+          opened={isAssetAttachOpen}
+          onClose={() => setIsAssetAttachOpen(false)}
+          title="Attach Product File"
+          size="lg"
+          centered
+        >
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">Choose an active approved file, then choose how dealers will see it on this product.</Text>
+            <Select
+              label="File"
+              searchable
+              clearable
+              placeholder={approvedAttachableAssets.length ? 'Select approved file' : 'No approved files available'}
+              value={selectedAssetId}
+              onChange={setSelectedAssetId}
+              data={approvedAttachableAssets.map((asset) => ({
+                value: asset.id,
+                label: `${asset.title} / ${formatLabel(asset.kind)} / ${asset.currentVersion?.fileName ?? 'current file'}`,
+              }))}
+            />
+            {approvedAttachableAssets.length === 0 ? (
+              <Alert color="yellow" variant="light">
+                Review all files in Digital Assets to approve a file before attaching it to this product.
+              </Alert>
+            ) : null}
+            <Select
+              label="Use as"
+              value={selectedAssetRole}
+              onChange={(value) => setSelectedAssetRole((value as ProductAssetRoleKey | null) ?? 'primary_image')}
+              data={assetRoleOptions}
+              allowDeselect={false}
+            />
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setIsAssetAttachOpen(false)}>Cancel</Button>
+              <Button
+                leftSection={<IconLink size={16} />}
+                onClick={handleAssignAsset}
+                disabled={!selectedAssetId || !primaryPresentation}
+                loading={isAssigningAsset}
+              >
+                Attach File
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+      ) : null}
+
+      {activeBoardSection === 'visibility' ? (
       <Paper withBorder p="md">
-        <Group mb="sm">
-          <IconShieldCheck size={18} />
-          <Title order={4}>Dealer Catalog Views</Title>
+        <Group mb="sm" justify="space-between">
+          <Group>
+            <IconShieldCheck size={18} />
+            <Title order={4}>Who Sees It</Title>
+          </Group>
         </Group>
         <Text c="dimmed" size="sm" mb="sm">
-          Catalog views control which dealer context sees this product and its files. They are resolved from account attributes such as affinity, ownership/PE, independent status, region, private label, and portal eligibility. Pricing remains separate.
+          Dealer groups control who sees this product and its files. Pricing stays separate.
         </Text>
-        <Table striped>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Catalog view</Table.Th>
-              <Table.Th>Match value</Table.Th>
-              <Table.Th>Region</Table.Th>
-              <Table.Th>Brand</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {product.inclusions.map((inclusion) => (
-              <Table.Tr key={inclusion.id}>
-                <Table.Td>{inclusion.dealerCatalogView?.name ?? formatCatalogViewType(inclusion.dealerGroupType)}</Table.Td>
-                <Table.Td>{inclusion.dealerCatalogView?.resolverLabel ?? inclusion.dealerGroupId ?? 'Default eligible dealers'}</Table.Td>
-                <Table.Td>{inclusion.regionScope ?? 'Any'}</Table.Td>
-                <Table.Td>{inclusion.brandLabel ?? 'Neutral'}</Table.Td>
-                <Table.Td>{inclusion.isVisible ? inclusion.publishStatus : 'hidden'}</Table.Td>
-                <Table.Td>{canManageProducts ? <Button size="xs" variant="light" onClick={() => handleEditInclusion(inclusion)}>Edit</Button> : null}</Table.Td>
-              </Table.Tr>
-            ))}
-            {!product.inclusions.length ? (
-              <Table.Tr><Table.Td colSpan={6}><Text ta="center" c="dimmed" py="md">No dealer catalog view assignments yet.</Text></Table.Td></Table.Tr>
-            ) : null}
-          </Table.Tbody>
-        </Table>
+        <WorkbenchTable<ProductDetail['inclusions'][number]>
+          ariaLabel="Product dealer visibility"
+          rows={product.inclusions}
+          getRowKey={(inclusion) => inclusion.id}
+          minWidth={760}
+          withContainer={false}
+          columns={[
+            {
+              key: 'catalog-view',
+              header: 'Dealer group',
+              render: (inclusion) => inclusion.dealerCatalogView?.name ?? formatCatalogViewType(inclusion.dealerGroupType),
+            },
+            {
+              key: 'who-sees-it',
+              header: 'Who sees it',
+              render: (inclusion) => inclusion.dealerCatalogView?.resolverLabel ?? inclusion.dealerGroupId ?? 'Selected catalog audience',
+            },
+            {
+              key: 'scope',
+              header: 'Scope',
+              render: (inclusion) => (
+                <Stack gap={2}>
+                  <Text>{inclusion.regionScope ?? 'Any region'}</Text>
+                  <Text size="xs" c="dimmed">{inclusion.brandLabel ? `${inclusion.brandLabel} brand/private label` : 'Neutral brand'}</Text>
+                </Stack>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (inclusion) => (
+                <Badge color={inclusion.isVisible ? 'green' : 'gray'} variant="light">
+                  {formatLabel(inclusion.isVisible ? inclusion.publishStatus : 'hidden')}
+                </Badge>
+              ),
+            },
+          ]}
+          {...(canManageProducts ? { rowActions: (inclusion: ProductDetail['inclusions'][number]) => [{
+            id: 'edit-visibility',
+            label: 'Edit visibility',
+            onClick: () => handleEditInclusion(inclusion),
+          }] } : {})}
+          emptyState={(
+            <EmptyStateMessage
+              kind="no-data"
+              title="No dealer group selected"
+              description="Add this product to at least one dealer group before publish."
+              action={canManageProducts && primaryPresentation ? (
+                <Button size="xs" leftSection={<IconShieldCheck size={14} />} onClick={openAddDealerCatalogView}>
+                  Add dealer group
+                </Button>
+              ) : undefined}
+            />
+          )}
+        />
         {primaryPresentation && canManageProducts ? (
-          <Stack gap="sm" mt="md">
-            <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <Modal
+            opened={isInclusionFormOpen}
+            onClose={handleResetInclusion}
+            title={editingInclusionId ? 'Edit dealer group' : 'Add dealer group'}
+            size="xl"
+            centered
+          >
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">Choose the dealer group, decide if this product is visible there, and set review status.</Text>
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
               <Select
-                label="Use existing catalog view"
-                placeholder="Auto-create from fields below"
+                label="Dealer group"
+                placeholder="Select an existing dealer group"
+                description="Use advanced overrides only for scoped exceptions."
                 data={catalogViewOptions}
                 value={inclusionForm.dealerCatalogViewId}
                 onChange={(value) => setInclusionForm((current) => ({ ...current, dealerCatalogViewId: value }))}
                 clearable
               />
-              <Select label="Catalog view" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
-              <TextInput label="Match value" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
-              <Select label="Publish status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
-              <TextInput label="Region" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
-              <TextInput label="Brand / private label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
-              <Checkbox mt="xl" label="Visible" checked={inclusionForm.isVisible} onChange={(event) => setInclusionForm((current) => ({ ...current, isVisible: event.currentTarget.checked }))} />
+              <Select label="Review status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
             </SimpleGrid>
-            <Textarea label="Notes" minRows={2} value={inclusionForm.notes} onChange={(event) => setInclusionForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
+            <Checkbox label="Visible to this dealer group" checked={inclusionForm.isVisible} onChange={(event) => setInclusionForm((current) => ({ ...current, isVisible: event.currentTarget.checked }))} />
+            <WorkbenchAdvancedSection
+              title="Advanced scope and notes"
+              description="Use only when this product needs a region, brand, or catalog-audience override."
+            >
+              <SimpleGrid cols={{ base: 1, md: 2 }} mt="sm">
+                <Select label="Audience override" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
+                <TextInput label="Audience code" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+                <TextInput label="Region" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
+                <TextInput label="Brand / private label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
+              </SimpleGrid>
+              <Textarea label="Notes" minRows={2} mt="sm" value={inclusionForm.notes} onChange={(event) => setInclusionForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
+            </WorkbenchAdvancedSection>
             <Group justify="flex-end">
-              <Button variant="subtle" onClick={handleResetInclusion}>Reset</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save Catalog View Assignment' : 'Add To Catalog View'}</Button>
+              <Button variant="subtle" onClick={handleResetInclusion}>Cancel</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save dealer group' : 'Add dealer group'}</Button>
             </Group>
           </Stack>
+          </Modal>
         ) : null}
       </Paper>
+      ) : null}
 
+      {activeBoardSection === 'checks' ? (
       <Paper withBorder p="md">
-        <Title order={4} mb="sm">Go-Live Checklist</Title>
-        <Table striped>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Check</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Message</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {product.readinessChecks.map((check) => (
-              <Table.Tr key={check.id}>
-                <Table.Td>{check.checkName}</Table.Td>
-                <Table.Td><Badge color={check.status === 'pass' ? 'green' : check.status === 'warning' ? 'yellow' : 'red'}>{check.status}</Badge></Table.Td>
-                <Table.Td>{check.message ?? '-'}</Table.Td>
-              </Table.Tr>
-            ))}
-            {!product.readinessChecks.length ? (
-              <Table.Tr><Table.Td colSpan={3}><Text ta="center" c="dimmed" py="md">Run publish validation to generate checks.</Text></Table.Td></Table.Tr>
-            ) : null}
-          </Table.Tbody>
-        </Table>
+        <Title order={4} mb="sm">Checks</Title>
+        <WorkbenchTable<ProductDetail['readinessChecks'][number]>
+          ariaLabel="Product readiness checks"
+          rows={product.readinessChecks}
+          getRowKey={(check) => check.id}
+          minWidth={720}
+          withContainer={false}
+          columns={[
+            {
+              key: 'check',
+              header: 'Check',
+              render: (check) => check.checkName,
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (check) => (
+                <Badge color={check.status === 'pass' ? 'green' : check.status === 'warning' ? 'yellow' : 'red'}>
+                  {check.status}
+                </Badge>
+              ),
+              width: 140,
+            },
+            {
+              key: 'message',
+              header: 'Message',
+              render: (check) => check.message ?? '-',
+            },
+          ]}
+          emptyState={(
+            <EmptyStateMessage
+              kind="no-data"
+              title="No readiness checks yet"
+              description="Run publish validation to generate checks."
+              action={canRunReadiness ? (
+                <Button size="xs" leftSection={<IconRefresh size={14} />} onClick={handleValidatePresentation} loading={isValidating}>
+                  Check Readiness
+                </Button>
+              ) : undefined}
+            />
+          )}
+        />
       </Paper>
+      ) : null}
+
     </Stack>
   );
 }

@@ -336,7 +336,18 @@ export async function listConsignmentAudits(actor: AuthenticatedActor, siteId: s
 export async function createConsignmentAudit(actor: AuthenticatedActor, siteId: string, input: CreateConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
   assertConsignmentAuditManage(actor);
   await getSiteForMutation(actor, siteId);
-  const audit = await prisma.consignmentAudit.create({ data: compact({ siteId, scheduledFor: parseRequiredDate(input.scheduledFor, 'scheduledFor'), notes: cleanOptional(input.notes) }) as any, include: { lines: true, evidence: true } });
+  const scheduledFor = parseRequiredDate(input.scheduledFor, 'scheduledFor');
+  const audit = await prisma.$transaction(async (tx) => {
+    const created = await tx.consignmentAudit.create({
+      data: compact({ siteId, scheduledFor, notes: cleanOptional(input.notes) }) as any,
+      include: { lines: true, evidence: true },
+    });
+    await tx.consignmentSite.update({
+      where: { id: siteId },
+      data: { nextAuditDueAt: scheduledFor },
+    });
+    return created;
+  });
   return mapAudit(audit);
 }
 
@@ -438,7 +449,7 @@ export async function listConsignmentReadinessItems(actor: AuthenticatedActor, s
   const hasBlue = site.forms.some((form) => form.formType === 'blue' && ['signed', 'approved', 'current'].includes(form.status));
   return [
     { code: 'agreement_signed', label: 'Agreement signed', status: hasAgreement ? 'complete' : 'pending', blocking: !hasAgreement },
-    { code: 'warehouse_boundary', label: 'Acumatica warehouse setup boundary', status: site.warehouseCode ? 'complete' : 'blocked', blocking: !site.warehouseCode, detail: site.warehouseCode ? 'Manual warehouse reference is present.' : 'Warehouse creation remains parked until Acumatica sandbox access and certified mappings are available.' },
+    { code: 'warehouse_boundary', label: 'Setup handoff', status: site.warehouseCode ? 'complete' : 'blocked', blocking: !site.warehouseCode, detail: site.warehouseCode ? 'Setup reference is present.' : 'Warehouse creation remains parked until sandbox access and certified mappings are available.' },
     { code: 'blue_baseline', label: 'BLUE baseline captured', status: hasBlue || site.baselineEstablishedAt ? 'complete' : 'pending', blocking: !(hasBlue || site.baselineEstablishedAt) },
   ];
 }
@@ -482,8 +493,21 @@ async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId:
     await tx.consignmentSite.update({ where: { id: siteId }, data: { lastAuditCompletedAt: completedAt, nextAuditDueAt: addDays(completedAt, ROSE_CADENCE_DAYS) } });
     if (hasVariance) {
       const poDueAt = addBusinessDays(completedAt, PO_CLOCK_BUSINESS_DAYS);
-      await tx.consignmentDiscrepancyCase.create({ data: { siteId, auditId, status: ConsignmentDiscrepancyStatus.OPEN, poFollowUpStatus: ConsignmentPoFollowUpStatus.REQUIRED, trueUpConfirmedAt: completedAt, poDueAt, notes: 'Created from ROSE audit variance. Acumatica PO/order posting remains parked.' } });
-      await tx.consignmentWorkItem.create({ data: { siteId, type: ConsignmentWorkItemType.PO_FOLLOW_UP, status: ConsignmentWorkItemStatus.OPEN, title: 'Follow up on consignment variance PO within 5 business days', dueAt: poDueAt, notes: 'Track manual PO follow-up in Pulse; do not auto-create Acumatica PO.' } });
+      const existingDiscrepancy = await tx.consignmentDiscrepancyCase.findFirst({ where: { auditId } });
+      if (!existingDiscrepancy) {
+        await tx.consignmentDiscrepancyCase.create({ data: { siteId, auditId, status: ConsignmentDiscrepancyStatus.OPEN, poFollowUpStatus: ConsignmentPoFollowUpStatus.REQUIRED, trueUpConfirmedAt: completedAt, poDueAt, notes: 'Created from ROSE audit variance. Acumatica PO/order posting remains parked.' } });
+      }
+      const existingPoFollowUp = await tx.consignmentWorkItem.findFirst({
+        where: {
+          siteId,
+          type: ConsignmentWorkItemType.PO_FOLLOW_UP,
+          status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+          title: 'Follow up on consignment variance PO within 5 business days',
+        },
+      });
+      if (!existingPoFollowUp) {
+        await tx.consignmentWorkItem.create({ data: { siteId, type: ConsignmentWorkItemType.PO_FOLLOW_UP, status: ConsignmentWorkItemStatus.OPEN, title: 'Follow up on consignment variance PO within 5 business days', dueAt: poDueAt, notes: 'Track manual PO follow-up in Pulse; do not auto-create Acumatica PO.' } });
+      }
     }
     await tx.auditEntry.create({ data: buildAuditEntryData({ actorUserId: actor.userId, action: AuditAction.UPDATE, entityType: 'CONSIGNMENT_AUDIT', entityId: row.id, afterData: row, metadata: { generatedDiscrepancy: hasVariance, acumaticaPoCreation: 'parked' } }) });
     return row;

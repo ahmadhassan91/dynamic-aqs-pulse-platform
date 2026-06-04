@@ -72,6 +72,17 @@ It does not close external training-site replacement, provider meeting-policy fi
 | Training-adjacent contests, giveaways, and value delivered | `24 Feb 2026 Discovery session 4.md` and `25 Feb 2026 Session 5.md` want these tracked, but also say they are not the same thing as training itself | Missing | no dedicated value-delivered or contest model found in the training module | Model as linked account-history / marketing / training-adjacent records later, not as hidden training fields |
 | Outlook / Teams / WebEx meeting-provider policy | meetings mention Outlook reflection plus Teams and WebEx usage, but the final provider policy is not fully settled | Decision | shared calendar foundations exist elsewhere in the repo, but no final training-specific provider policy is locked | Finalize allowed provider set, default behavior, and fallback rules |
 
+## UX-05 Slice E Trace - 2026-06-04
+
+This slice does not change the external-provider or certification-authority boundary. It makes the implemented Training module easier for Dynamic AQS operators to use by making the first screen answer "what needs action next?" instead of mixing scheduling, reporting, setup, and catalog administration on one surface.
+
+| Requirement / pain point reinforced by discovery | Slice E response | Evidence | Boundary kept honest |
+| --- | --- | --- | --- |
+| Centralized training workspace should be usable without calling each TM | `/training` now defaults to a `Priority Queue` rather than a broad overview/reporting page | `apps/crm-web/src/components/training/TrainingWorkspace.tsx` | Reporting depth remains available behind More; this is a UX simplification, not a new reporting source |
+| Quarterly / six-month no-training and recertification exceptions should be easy to find | Queue chips now expose Recertification, Coaching Follow-up, Proof Review, Overdue Cadence, and Session Issues as filters on the same queue surface | `TrainingWorkspace.tsx`, `apps/crm-web/e2e/ux-depth.spec.mjs` | Does not claim provider-driven alerts or scheduled email delivery |
+| Admin-managed dropdown flexibility is needed, but it should not confuse day-to-day users | Catalog management moved into a guided `Catalog Setup` stepper for Category -> Training Type -> Template | `TrainingWorkspace.tsx` | External training-site coexistence and certification authority remain separate decisions |
+| Mobile field users need one next-action model, not a separate training mental model | Mobile next-action data now can include actionable training due count using the same mobile training policy predicate as the Training execution screen | `apps/mobile/src/lib/training-mobile-policy.ts`, `apps/mobile/src/hooks/use-mobile-data.ts`, `apps/mobile/src/providers/mobile-next-action-provider.tsx` | Offline audio/media retention, push/deep links, and provider route optimization remain parked |
+
 ## Status summary
 
 | Status | Count |

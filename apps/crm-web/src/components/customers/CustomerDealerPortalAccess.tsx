@@ -6,7 +6,6 @@ import {
   Badge,
   Button,
   Card,
-  Divider,
   Checkbox,
   Grid,
   Group,
@@ -37,6 +36,7 @@ import {
   updateDealerPortalUserStatus,
 } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { RowActionMenu, WorkbenchAdvancedSection } from '@/components/ui/Workbench';
 
 type Props = {
   account: AccountDetail;
@@ -108,7 +108,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
   }, [accessToken, account.id, apiBaseUrl, canManagePortal]);
 
   async function reloadPortalAccount() {
-    if (!accessToken) {
+    if (!accessToken || !canManagePortal) {
       return;
     }
 
@@ -117,7 +117,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
   }
 
   async function handleProvisionUser() {
-    if (!accessToken) {
+    if (!accessToken || !canManagePortal) {
       return;
     }
 
@@ -227,14 +227,30 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
 
   const sourceLeadStatus = portalAccount?.portalEligibilityStatus ?? 'unassessed';
 
+  if (!canManagePortal) {
+    return (
+      <Stack gap="lg">
+        <Alert color="yellow" variant="light">
+          Your role can review account context, but dealer portal provisioning is managed by authorized operations or admin users.
+        </Alert>
+        <Card withBorder radius="md" p="lg">
+          <Stack gap="xs">
+            <Title order={4}>Dealer portal access</Title>
+            <Text size="sm" c="dimmed">
+              Portal user invites, role changes, and internal dealer previews are hidden for this role.
+            </Text>
+            <MetadataRow label="Account" value={account.displayName} />
+            <MetadataRow label="Territory" value={account.territoryName ?? 'Not assigned'} />
+            <MetadataRow label="TM" value={account.assignedTmName ?? 'Not assigned'} />
+            <MetadataRow label="RD" value={account.assignedRdName ?? 'Not assigned'} />
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
   return (
     <Stack gap="lg">
-      {!canManagePortal ? (
-        <Alert color="yellow" variant="light">
-          Your role does not have dealer-portal provisioning access.
-        </Alert>
-      ) : null}
-
       {errorMessage ? <Alert color="red" variant="light">{errorMessage}</Alert> : null}
       {successMessage ? <Alert color="green" variant="light">{successMessage}</Alert> : null}
 
@@ -259,10 +275,6 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
               <MetadataRow label="TM" value={portalAccount?.assignedTmName ?? account.assignedTmName ?? 'Not assigned'} />
               <MetadataRow label="RD" value={portalAccount?.assignedRdName ?? account.assignedRdName ?? 'Not assigned'} />
               <MetadataRow label="Shipping Center" value={portalAccount?.shippingCenterName ?? account.shippingCenterName ?? 'Not assigned'} />
-              <Divider my="xs" />
-              <MetadataRow label="Affinity" value={formatGroupAxis(account.affinityGroupSelection, account.affinityGroupName ?? account.affinityGroupCode)} />
-              <MetadataRow label="Ownership / PE" value={formatGroupAxis(account.ownershipGroupSelection, account.ownershipGroupName ?? account.ownershipGroupCode)} />
-              <MetadataRow label="Dealer type" value={formatDisplayValue(account.groupClassification ?? 'unknown')} />
             </Stack>
           </Card>
         </Grid.Col>
@@ -298,7 +310,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                   loading={isPreviewLoading}
                   disabled={!accessToken || !canManagePortal}
                 >
-                  Preview Dealer View
+                  Preview Portal View
                 </Button>
               </Group>
             </Grid.Col>
@@ -317,40 +329,45 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                 account access.
               </Alert>
 
-              <Grid>
-                <Grid.Col span={{ base: 12, md: 6 }}>
-                  <Stack gap="xs">
-                    <Title order={5}>Dealer Classification</Title>
-                    <MetadataRow label="Account" value={dealerPreview.portalAccount.accountDisplayName} />
-                    <MetadataRow label="Account Number" value={dealerPreview.portalAccount.accountNumber ?? 'Not assigned'} />
-                    <MetadataRow label="Affinity" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.affinityGroupSelection, dealerPreview.diagnostics.membershipContext?.affinityGroupName ?? dealerPreview.diagnostics.membershipContext?.affinityGroupCode)} />
-                    <MetadataRow label="Ownership / PE" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.ownershipGroupSelection, dealerPreview.diagnostics.membershipContext?.ownershipGroupName ?? dealerPreview.diagnostics.membershipContext?.ownershipGroupCode)} />
-                    <MetadataRow label="Dealer type" value={formatDisplayValue(dealerPreview.diagnostics.membershipContext?.groupClassification ?? 'unknown')} />
-                    <MetadataRow label="Region" value={dealerPreview.diagnostics.membershipContext?.regionName ?? dealerPreview.diagnostics.membershipContext?.regionCode ?? 'Not assigned'} />
-                  </Stack>
-                </Grid.Col>
-                <Grid.Col span={{ base: 12, md: 6 }}>
-                  <Stack gap="xs">
-                    <Title order={5}>Catalog Decision</Title>
-                    <MetadataRow label="Role" value={formatProvisioningStatus(dealerPreview.previewRole)} />
-                    <MetadataRow label="Resolved by" value={formatDisplayValue(dealerPreview.diagnostics.catalogResolution.source)} />
-                    <MetadataRow label="Rule" value={dealerPreview.diagnostics.catalogResolution.ruleName ?? 'Default eligible catalog'} />
-                    <MetadataRow label="Catalog View" value={dealerPreview.catalog.catalogView?.name ?? 'Needs review'} />
-                    <MetadataRow label="Visible Products" value={String(dealerPreview.visibleProductCount)} />
-                    <MetadataRow label="Visible Files" value={String(dealerPreview.visibleFileCount)} />
-                  </Stack>
-                </Grid.Col>
-              </Grid>
-
-              {dealerPreview.diagnostics.warnings.length ? (
-                <Alert color="yellow" variant="light">
-                  {dealerPreview.diagnostics.warnings.join(' ')}
-                </Alert>
-              ) : null}
-
-              <Divider />
-
               <DealerCatalog catalog={dealerPreview.catalog} />
+
+              <WorkbenchAdvancedSection
+                title="Support diagnostics"
+                description="Internal-only membership, rule, and catalog resolution details for troubleshooting."
+              >
+                <Stack gap="md">
+                  <Grid>
+                    <Grid.Col span={{ base: 12, md: 6 }}>
+                      <Stack gap="xs">
+                        <Title order={5}>Dealer Classification</Title>
+                        <MetadataRow label="Account" value={dealerPreview.portalAccount.accountDisplayName} />
+                        <MetadataRow label="Account Number" value={dealerPreview.portalAccount.accountNumber ?? 'Not assigned'} />
+                        <MetadataRow label="Affinity" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.affinityGroupSelection, dealerPreview.diagnostics.membershipContext?.affinityGroupName ?? dealerPreview.diagnostics.membershipContext?.affinityGroupCode)} />
+                        <MetadataRow label="Ownership / PE" value={formatGroupAxis(dealerPreview.diagnostics.membershipContext?.ownershipGroupSelection, dealerPreview.diagnostics.membershipContext?.ownershipGroupName ?? dealerPreview.diagnostics.membershipContext?.ownershipGroupCode)} />
+                        <MetadataRow label="Dealer type" value={formatDisplayValue(dealerPreview.diagnostics.membershipContext?.groupClassification ?? 'unknown')} />
+                        <MetadataRow label="Region" value={dealerPreview.diagnostics.membershipContext?.regionName ?? dealerPreview.diagnostics.membershipContext?.regionCode ?? 'Not assigned'} />
+                      </Stack>
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 12, md: 6 }}>
+                      <Stack gap="xs">
+                        <Title order={5}>Catalog Decision</Title>
+                        <MetadataRow label="Role" value={formatProvisioningStatus(dealerPreview.previewRole)} />
+                        <MetadataRow label="Resolved by" value={formatDisplayValue(dealerPreview.diagnostics.catalogResolution.source)} />
+                        <MetadataRow label="Rule" value={dealerPreview.diagnostics.catalogResolution.ruleName ?? 'Default eligible catalog'} />
+                        <MetadataRow label="Dealer group" value={dealerPreview.catalog.catalogView?.name ?? 'Needs review'} />
+                        <MetadataRow label="Visible Products" value={String(dealerPreview.visibleProductCount)} />
+                        <MetadataRow label="Visible Files" value={String(dealerPreview.visibleFileCount)} />
+                      </Stack>
+                    </Grid.Col>
+                  </Grid>
+
+                  {dealerPreview.diagnostics.warnings.length ? (
+                    <Alert color="yellow" variant="light">
+                      {dealerPreview.diagnostics.warnings.join(' ')}
+                    </Alert>
+                  ) : null}
+                </Stack>
+              </WorkbenchAdvancedSection>
             </Stack>
           ) : null}
         </Stack>
@@ -476,28 +493,40 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                       <Text size="sm">{user.lastLoginAt ? formatTimestamp(user.lastLoginAt) : 'Never'}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Group gap="xs">
-                        {user.status !== 'active' ? (
-                          <Button size="xs" variant="light" onClick={() => void handleStatusChange(user.id, 'active')}>
-                            Activate
-                          </Button>
-                        ) : (
-                          <Button size="xs" variant="default" onClick={() => void handleStatusChange(user.id, 'suspended')}>
-                            Suspend
-                          </Button>
-                        )}
-                        {user.status !== 'deactivated' ? (
-                          <Button size="xs" color="red" variant="light" onClick={() => void handleStatusChange(user.id, 'deactivated')}>
-                            Deactivate
-                          </Button>
-                        ) : null}
-                        <Button size="xs" variant="subtle" leftSection={<IconKey size={14} />} onClick={() => void handlePasswordReset(user.id)}>
-                          Reset Password
-                        </Button>
-                        <Button size="xs" variant="subtle" leftSection={<IconMail size={14} />} onClick={() => void handleCreateInvite(user.id)}>
-                          Invite Link
-                        </Button>
-                      </Group>
+                      <RowActionMenu
+                        label={`Actions for ${user.displayName}`}
+                        items={[
+                          user.status !== 'active'
+                            ? {
+                              id: 'activate',
+                              label: 'Activate',
+                              onClick: () => void handleStatusChange(user.id, 'active'),
+                            }
+                            : {
+                              id: 'suspend',
+                              label: 'Suspend',
+                              onClick: () => void handleStatusChange(user.id, 'suspended'),
+                            },
+                          ...(user.status !== 'deactivated' ? [{
+                            id: 'deactivate',
+                            label: 'Deactivate',
+                            color: 'danger' as const,
+                            onClick: () => void handleStatusChange(user.id, 'deactivated'),
+                          }] : []),
+                          {
+                            id: 'reset-password',
+                            label: 'Reset password',
+                            icon: <IconKey size={14} />,
+                            onClick: () => void handlePasswordReset(user.id),
+                          },
+                          {
+                            id: 'invite-link',
+                            label: 'Invite link',
+                            icon: <IconMail size={14} />,
+                            onClick: () => void handleCreateInvite(user.id),
+                          },
+                        ]}
+                      />
                     </Table.Td>
                   </Table.Tr>
                 ))}
@@ -512,8 +541,8 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
 
 const dealerPortalRoleOptions = [
   { value: 'admin', label: 'Admin - manage company access' },
-  { value: 'purchasing', label: 'Purchasing - catalog and ordering' },
-  { value: 'accounting', label: 'Accounting - invoices and payments' },
+  { value: 'purchasing', label: 'Products & Files - catalog access' },
+  { value: 'accounting', label: 'Account Health - account status access' },
   { value: 'viewer', label: 'Viewer - read-only access' },
 ];
 

@@ -447,6 +447,22 @@ test('ROSE audit scheduler resets the 90-day due date and creates manual PO foll
   assert.equal(detail.nextAuditDueAt, '2026-09-30T16:30:00.000Z');
   assert.equal(detail.openDiscrepancyCount, 1);
   assert.ok(detail.workItems.some((item) => item.type === 'po_follow_up'));
+
+  await service.updateConsignmentAudit(actor, scheduled.id, {
+    status: 'completed',
+    completedAt: '2026-07-02T16:30:00.000Z',
+    lines: [
+      {
+        sku: 'DAQS-1',
+        productName: 'Dynamic Filter',
+        expectedQuantity: 10,
+        actualQuantity: 8,
+      },
+    ],
+  });
+  const retriedDetail = await service.getConsignmentSiteDetail(actor, site.id);
+  assert.equal(retriedDetail.openDiscrepancyCount, 1);
+  assert.equal(retriedDetail.workItems.filter((item) => item.type === 'po_follow_up').length, 1);
 });
 
 test('ROSE audit evidence upload stores CRM-owned photo evidence outside Acumatica', SERIAL, async () => {

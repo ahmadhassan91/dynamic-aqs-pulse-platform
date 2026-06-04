@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -11,8 +11,10 @@ import {
   Group,
   Paper,
   Select,
+  SegmentedControl,
   SimpleGrid,
   Stack,
+  Stepper,
   Switch,
   Table,
   TagsInput,
@@ -47,6 +49,7 @@ import {
   replaceTerritoryCoverage,
   updateTerritoryRecord,
 } from '@/lib/pulse-api';
+import { RowActionMenu } from '@/components/ui/Workbench';
 
 const BULK_REASON_OPTIONS = [
   { value: 'territory_realignment', label: 'Territory Realignment' },
@@ -55,6 +58,16 @@ const BULK_REASON_OPTIONS = [
   { value: 'shipping_alignment', label: 'Shipping Alignment' },
   { value: 'data_cleanup', label: 'Data Cleanup' },
 ] as const;
+
+type TerritoryOpsQueueView = 'accounts' | 'leads' | 'setup';
+type TerritorySetupStep = 'region' | 'shipping' | 'territory' | 'review';
+
+const TERRITORY_SETUP_STEPS: Array<{ value: TerritorySetupStep; label: string; description: string }> = [
+  { value: 'region', label: 'Region', description: 'Create or confirm the regional container.' },
+  { value: 'shipping', label: 'Shipping hub', description: 'Create or confirm the shipping center.' },
+  { value: 'territory', label: 'Territory', description: 'Create a territory and assign ownership.' },
+  { value: 'review', label: 'Coverage review', description: 'Review or edit live coverage and ownership.' },
+];
 
 function formatAccountLifecycle(value: string) {
   return value.replace(/_/g, ' ');
@@ -83,6 +96,7 @@ export function TerritoryOperationsPanel({
   canReassignTerritory,
   onRefresh,
   onOpenAccountHistory,
+  onOpenLeadHistory,
 }: {
   apiBaseUrl: string;
   accessToken: string;
@@ -96,7 +110,11 @@ export function TerritoryOperationsPanel({
   canReassignTerritory: boolean;
   onRefresh: () => void;
   onOpenAccountHistory: (account: AccountSummary) => void;
+  onOpenLeadHistory: (lead: LeadSummary) => void;
 }) {
+  const router = useRouter();
+  const [queueView, setQueueView] = useState<TerritoryOpsQueueView>(canReassignTerritory ? 'accounts' : 'setup');
+  const [activeSetupStep, setActiveSetupStep] = useState<TerritorySetupStep>('region');
   const [accountSearch, setAccountSearch] = useState('');
   const [sourceTerritoryFilter, setSourceTerritoryFilter] = useState<string | null>(null);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
@@ -151,6 +169,33 @@ export function TerritoryOperationsPanel({
   const [editTerritoryCoverage, setEditTerritoryCoverage] = useState<string[]>([]);
   const [editTerritoryIsActive, setEditTerritoryIsActive] = useState(true);
   const [isUpdatingTerritory, setIsUpdatingTerritory] = useState(false);
+
+  const queueOptions = useMemo(
+    () => [
+      ...(canReassignTerritory ? [
+        { value: 'accounts', label: `Accounts (${activeAccounts.length})` },
+        { value: 'leads', label: `Leads (${activeLeads.length})` },
+      ] : []),
+      ...(canAdminTerritory ? [{ value: 'setup', label: 'Setup & transfers' }] : []),
+    ],
+    [activeAccounts.length, activeLeads.length, canAdminTerritory, canReassignTerritory],
+  );
+
+  const activeSetupStepIndex = Math.max(
+    TERRITORY_SETUP_STEPS.findIndex((step) => step.value === activeSetupStep),
+    0,
+  );
+
+  useEffect(() => {
+    if (queueView === 'setup' && !canAdminTerritory) {
+      setQueueView(canReassignTerritory ? 'accounts' : 'setup');
+      return;
+    }
+
+    if ((queueView === 'accounts' || queueView === 'leads') && !canReassignTerritory) {
+      setQueueView(canAdminTerritory ? 'setup' : 'accounts');
+    }
+  }, [canAdminTerritory, canReassignTerritory, queueView]);
 
   const territorySelectData = useMemo(
     () =>
@@ -559,14 +604,29 @@ export function TerritoryOperationsPanel({
   return (
     <Stack gap="lg">
       <Alert icon={<IconAlertCircle size={16} />} color="blue" variant="light" radius="xl">
-        This production slice supports live territory creation, state/province coverage reassignment, and bulk customer
-        transfer. Polygon drawing, restructure workflows, and route optimization stay parked until the territory kernel
-        supports them for real.
+        {canAdminTerritory
+          ? 'Use one lane at a time: transfer accounts, transfer leads, or step through territory setup. Every assignment change keeps an audit trail.'
+          : 'Use these work queues to rebalance scoped accounts and leads with an audited reassignment. Region, shipping-center, and coverage setup is read-only for this role.'}
       </Alert>
+
+      {queueOptions.length > 1 ? (
+        <SegmentedControl
+          value={queueView}
+          onChange={(value) => setQueueView(value as TerritoryOpsQueueView)}
+          data={queueOptions}
+          fullWidth
+        />
+      ) : null}
 
       {canReassignTerritory ? (
         <Stack gap="lg">
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+        <Paper
+          withBorder
+          radius="xl"
+          p="lg"
+          className="premium-stat-card"
+          style={{ display: queueView === 'accounts' ? undefined : 'none' }}
+        >
           <Stack gap="lg">
             <Group gap="sm">
               <Paper radius="xl" p="xs" bg="orange.0">
@@ -581,7 +641,7 @@ export function TerritoryOperationsPanel({
               </div>
             </Group>
 
-            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
               <TextInput
                 label="Search accounts"
                 placeholder="Search by account, type, or territory"
@@ -600,50 +660,60 @@ export function TerritoryOperationsPanel({
                 clearable
                 searchable
               />
-              <Select
-                label="Target territory"
-                placeholder="Select target territory"
-                data={territorySelectData}
-                value={bulkTargetTerritoryId}
-                onChange={(value) => setBulkTargetTerritoryId(value ?? '')}
-                searchable
-              />
             </SimpleGrid>
 
-            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
-              <Select
-                label="Named TM override"
-                placeholder="Use territory default TM"
-                data={territoryManagerSelectData}
-                value={bulkAssignedTmUserId}
-                onChange={(value) => setBulkAssignedTmUserId(value ?? '')}
-                searchable
-                clearable
-              />
-              <Select
-                label="Named RD override"
-                placeholder="Use region default RD"
-                data={regionalDirectorSelectData}
-                value={bulkAssignedRdUserId}
-                onChange={(value) => setBulkAssignedRdUserId(value ?? '')}
-                searchable
-                clearable
-              />
-              <Select
-                label="Reason"
-                data={BULK_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                value={bulkReasonCode}
-                onChange={(value) => setBulkReasonCode(value ?? 'territory_realignment')}
-              />
-            </SimpleGrid>
+            {selectedAccountIds.length > 0 ? (
+              <>
+                <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+                  <Select
+                    label="Target territory"
+                    placeholder="Select target territory"
+                    data={territorySelectData}
+                    value={bulkTargetTerritoryId}
+                    onChange={(value) => setBulkTargetTerritoryId(value ?? '')}
+                    searchable
+                  />
+                  <Select
+                    label="Named TM override"
+                    placeholder="Use territory default TM"
+                    data={territoryManagerSelectData}
+                    value={bulkAssignedTmUserId}
+                    onChange={(value) => setBulkAssignedTmUserId(value ?? '')}
+                    searchable
+                    clearable
+                  />
+                  <Select
+                    label="Named RD override"
+                    placeholder="Use region default RD"
+                    data={regionalDirectorSelectData}
+                    value={bulkAssignedRdUserId}
+                    onChange={(value) => setBulkAssignedRdUserId(value ?? '')}
+                    searchable
+                    clearable
+                  />
+                </SimpleGrid>
 
-            <Textarea
-              label="Transfer note"
-              placeholder="Add optional context for the mass-transfer audit trail."
-              minRows={2}
-              value={bulkReasonNote}
-              onChange={(event) => setBulkReasonNote(event.currentTarget.value)}
-            />
+                <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+                  <Select
+                    label="Reason"
+                    data={BULK_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    value={bulkReasonCode}
+                    onChange={(value) => setBulkReasonCode(value ?? 'territory_realignment')}
+                  />
+                  <Textarea
+                    label="Transfer note"
+                    placeholder="Add optional context for the mass-transfer audit trail."
+                    minRows={2}
+                    value={bulkReasonNote}
+                    onChange={(event) => setBulkReasonNote(event.currentTarget.value)}
+                  />
+                </SimpleGrid>
+              </>
+            ) : (
+              <Text size="sm" c="dimmed">
+                Select one or more accounts, then choose the target territory and audit reason.
+              </Text>
+            )}
 
             <Paper withBorder radius="lg" p="md">
               <Group justify="space-between" mb="sm">
@@ -658,7 +728,7 @@ export function TerritoryOperationsPanel({
                 </Badge>
               </Group>
 
-              <Table.ScrollContainer minWidth={900}>
+              <Table.ScrollContainer minWidth={980}>
                 <Table highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
@@ -691,16 +761,22 @@ export function TerritoryOperationsPanel({
                           <Table.Td>{account.accountType ?? 'Customer'}</Table.Td>
                           <Table.Td>{account.territoryName ?? account.territoryCode ?? 'Unassigned'}</Table.Td>
                           <Table.Td>{formatAccountLifecycle(account.lifecycleStatus)}</Table.Td>
-                          <Table.Td>
-                            <Group gap="xs">
-                              <Button component={Link} href={`/customers/${account.id}`} variant="subtle" size="compact-sm">
-                                Open
-                              </Button>
-                              <Button variant="subtle" size="compact-sm" onClick={() => onOpenAccountHistory(account)}>
-                                History
-                              </Button>
-                            </Group>
-                          </Table.Td>
+	                          <Table.Td>
+	                            <RowActionMenu
+	                              items={[
+	                                {
+	                                  id: 'open-account',
+	                                  label: 'Open account',
+	                                  onClick: () => router.push(`/customers/${account.id}`),
+	                                },
+	                                {
+	                                  id: 'assignment-history',
+	                                  label: 'Assignment history',
+	                                  onClick: () => onOpenAccountHistory(account),
+	                                },
+	                              ]}
+	                            />
+	                          </Table.Td>
                         </Table.Tr>
                       ))
                     ) : (
@@ -732,7 +808,13 @@ export function TerritoryOperationsPanel({
           </Stack>
         </Paper>
 
-        <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
+        <Paper
+          withBorder
+          radius="xl"
+          p="lg"
+          className="premium-stat-card"
+          style={{ display: queueView === 'leads' ? undefined : 'none' }}
+        >
           <Stack gap="lg">
             <Group gap="sm">
               <Paper radius="xl" p="xs" bg="blue.0">
@@ -746,7 +828,7 @@ export function TerritoryOperationsPanel({
               </div>
             </Group>
 
-            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
               <TextInput
                 label="Search leads"
                 placeholder="Search by company, state, stage, or territory"
@@ -765,50 +847,60 @@ export function TerritoryOperationsPanel({
                 clearable
                 searchable
               />
-              <Select
-                label="Target territory"
-                placeholder="Select target territory"
-                data={territorySelectData}
-                value={bulkLeadTargetTerritoryId}
-                onChange={(value) => setBulkLeadTargetTerritoryId(value ?? '')}
-                searchable
-              />
             </SimpleGrid>
 
-            <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
-              <Select
-                label="Named TM override"
-                placeholder="Use territory default TM"
-                data={territoryManagerSelectData}
-                value={bulkLeadAssignedTmUserId}
-                onChange={(value) => setBulkLeadAssignedTmUserId(value ?? '')}
-                searchable
-                clearable
-              />
-              <Select
-                label="Named RD override"
-                placeholder="Use region default RD"
-                data={regionalDirectorSelectData}
-                value={bulkLeadAssignedRdUserId}
-                onChange={(value) => setBulkLeadAssignedRdUserId(value ?? '')}
-                searchable
-                clearable
-              />
-              <Select
-                label="Reason"
-                data={BULK_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                value={bulkLeadReasonCode}
-                onChange={(value) => setBulkLeadReasonCode(value ?? 'territory_realignment')}
-              />
-            </SimpleGrid>
+            {selectedLeadIds.length > 0 ? (
+              <>
+                <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+                  <Select
+                    label="Target territory"
+                    placeholder="Select target territory"
+                    data={territorySelectData}
+                    value={bulkLeadTargetTerritoryId}
+                    onChange={(value) => setBulkLeadTargetTerritoryId(value ?? '')}
+                    searchable
+                  />
+                  <Select
+                    label="Named TM override"
+                    placeholder="Use territory default TM"
+                    data={territoryManagerSelectData}
+                    value={bulkLeadAssignedTmUserId}
+                    onChange={(value) => setBulkLeadAssignedTmUserId(value ?? '')}
+                    searchable
+                    clearable
+                  />
+                  <Select
+                    label="Named RD override"
+                    placeholder="Use region default RD"
+                    data={regionalDirectorSelectData}
+                    value={bulkLeadAssignedRdUserId}
+                    onChange={(value) => setBulkLeadAssignedRdUserId(value ?? '')}
+                    searchable
+                    clearable
+                  />
+                </SimpleGrid>
 
-            <Textarea
-              label="Transfer note"
-              placeholder="Add optional context for the lead reassignment audit trail."
-              minRows={2}
-              value={bulkLeadReasonNote}
-              onChange={(event) => setBulkLeadReasonNote(event.currentTarget.value)}
-            />
+                <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+                  <Select
+                    label="Reason"
+                    data={BULK_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    value={bulkLeadReasonCode}
+                    onChange={(value) => setBulkLeadReasonCode(value ?? 'territory_realignment')}
+                  />
+                  <Textarea
+                    label="Transfer note"
+                    placeholder="Add optional context for the lead reassignment audit trail."
+                    minRows={2}
+                    value={bulkLeadReasonNote}
+                    onChange={(event) => setBulkLeadReasonNote(event.currentTarget.value)}
+                  />
+                </SimpleGrid>
+              </>
+            ) : (
+              <Text size="sm" c="dimmed">
+                Select one or more leads, then choose the target territory and audit reason.
+              </Text>
+            )}
 
             <Paper withBorder radius="lg" p="md">
               <Group justify="space-between" mb="sm">
@@ -823,7 +915,7 @@ export function TerritoryOperationsPanel({
                 </Badge>
               </Group>
 
-              <Table.ScrollContainer minWidth={900}>
+              <Table.ScrollContainer minWidth={980}>
                 <Table highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
@@ -833,6 +925,7 @@ export function TerritoryOperationsPanel({
                       <Table.Th>State</Table.Th>
                       <Table.Th>Current Territory</Table.Th>
                       <Table.Th>Owner</Table.Th>
+                      <Table.Th>Actions</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -852,11 +945,28 @@ export function TerritoryOperationsPanel({
                           <Table.Td>{lead.state ?? 'N/A'}</Table.Td>
                           <Table.Td>{lead.territoryName ?? lead.territoryCode ?? 'Unassigned'}</Table.Td>
                           <Table.Td>{lead.assignedTmName ?? lead.assignedRdName ?? 'Unassigned'}</Table.Td>
+                          <Table.Td>
+                            <RowActionMenu
+                              label={`Actions for ${lead.companyName}`}
+                              items={[
+                                {
+                                  id: 'open-lead',
+                                  label: 'Open lead',
+                                  onClick: () => router.push(`/leads/${lead.id}`),
+                                },
+                                {
+                                  id: 'assignment-history',
+                                  label: 'Assignment history',
+                                  onClick: () => onOpenLeadHistory(lead),
+                                },
+                              ]}
+                            />
+                          </Table.Td>
                         </Table.Tr>
                       ))
                     ) : (
                       <Table.Tr>
-                        <Table.Td colSpan={6}>
+                        <Table.Td colSpan={7}>
                           <Text size="sm" c="dimmed" ta="center" py="md">
                             No active leads match the current filters.
                           </Text>
@@ -885,306 +995,347 @@ export function TerritoryOperationsPanel({
         </Stack>
       ) : null}
 
-      {canAdminTerritory ? (
-        <>
-          <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group gap="sm">
-                  <Paper radius="xl" p="xs" bg="blue.0">
-                    <IconMapPin size={18} />
-                  </Paper>
-                  <div>
-                    <Title order={4}>Create region</Title>
-                    <Text size="sm" c="dimmed">
-                      Stand up a new regional container before you assign territories into it.
-                    </Text>
-                  </div>
-                </Group>
-                <TextInput label="Region code" value={newRegionCode} onChange={(event) => setNewRegionCode(event.currentTarget.value)} />
-                <TextInput label="Region name" value={newRegionName} onChange={(event) => setNewRegionName(event.currentTarget.value)} />
-                <Select
-                  label="Regional director"
-                  placeholder="Assign later"
-                  data={regionalDirectorSelectData}
-                  value={newRegionDirectorUserId}
-                  onChange={(value) => setNewRegionDirectorUserId(value ?? '')}
-                  searchable
-                  clearable
-                />
-                <Textarea
-                  label="Notes"
-                  minRows={2}
-                  value={newRegionNotes}
-                  onChange={(event) => setNewRegionNotes(event.currentTarget.value)}
-                />
-                <Switch
-                  checked={newRegionIsActive}
-                  onChange={(event) => setNewRegionIsActive(event.currentTarget.checked)}
-                  label="Region is active"
-                />
-                <Group justify="flex-end">
-                  <Button
-                    leftSection={<IconPlus size={16} />}
-                    loading={isSavingRegion}
-                    onClick={() => {
-                      void handleCreateRegion();
-                    }}
-                  >
-                    Create region
-                  </Button>
-                </Group>
-              </Stack>
-            </Paper>
+      {canAdminTerritory && queueView === 'setup' ? (
+        <Paper withBorder radius="xl" p="lg" className="premium-stat-card" data-testid="territory-setup-stepper">
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start">
+              <Group gap="sm" align="flex-start">
+                <Paper radius="xl" p="xs" bg="blue.0">
+                  <IconMapPin size={18} />
+                </Paper>
+                <div>
+                  <Title order={4}>Territory setup</Title>
+                  <Text size="sm" c="dimmed">
+                    Step through setup in order so region, shipping, territory ownership, and coverage review do not compete on one screen.
+                  </Text>
+                </div>
+              </Group>
+              <Badge color="blue" variant="light">
+                {TERRITORY_SETUP_STEPS[activeSetupStepIndex]?.label ?? 'Setup'}
+              </Badge>
+            </Group>
 
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group gap="sm">
-                  <Paper radius="xl" p="xs" bg="grape.0">
-                    <IconBuildingWarehouse size={18} />
-                  </Paper>
-                  <div>
-                    <Title order={4}>Create shipping center</Title>
-                    <Text size="sm" c="dimmed">
-                      Keep territory-to-shipping alignment current before reassignments ripple downstream.
-                    </Text>
-                  </div>
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                  <TextInput
-                    label="Center code"
-                    value={newShippingCenterCode}
-                    onChange={(event) => setNewShippingCenterCode(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="Center name"
-                    value={newShippingCenterName}
-                    onChange={(event) => setNewShippingCenterName(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="City"
-                    value={newShippingCenterCity}
-                    onChange={(event) => setNewShippingCenterCity(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="State / Province"
-                    value={newShippingCenterState}
-                    onChange={(event) => setNewShippingCenterState(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="Country code"
-                    value={newShippingCenterCountryCode}
-                    onChange={(event) => setNewShippingCenterCountryCode(event.currentTarget.value)}
-                  />
-                </SimpleGrid>
-                <Textarea
-                  label="Notes"
-                  minRows={2}
-                  value={newShippingCenterNotes}
-                  onChange={(event) => setNewShippingCenterNotes(event.currentTarget.value)}
-                />
-                <Switch
-                  checked={newShippingCenterIsActive}
-                  onChange={(event) => setNewShippingCenterIsActive(event.currentTarget.checked)}
-                  label="Shipping center is active"
-                />
-                <Group justify="flex-end">
-                  <Button
-                    leftSection={<IconPlus size={16} />}
-                    loading={isSavingShippingCenter}
-                    onClick={() => {
-                      void handleCreateShippingCenter();
-                    }}
-                  >
-                    Create shipping center
-                  </Button>
-                </Group>
-              </Stack>
-            </Paper>
-          </SimpleGrid>
+            <Stepper
+              active={activeSetupStepIndex}
+              onStepClick={(index) => setActiveSetupStep(TERRITORY_SETUP_STEPS[index]?.value ?? 'region')}
+              allowNextStepsSelect
+            >
+              {TERRITORY_SETUP_STEPS.map((step) => (
+                <Stepper.Step key={step.value} label={step.label} description={step.description} />
+              ))}
+            </Stepper>
 
-          <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group gap="sm">
-                  <Paper radius="xl" p="xs" bg="teal.0">
-                    <IconRouteSquare size={18} />
-                  </Paper>
-                  <div>
-                    <Title order={4}>Create territory</Title>
-                    <Text size="sm" c="dimmed">
-                      Add a new territory and immediately assign its covered states or provinces.
-                    </Text>
-                  </div>
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                  <TextInput
-                    label="Territory code"
-                    value={newTerritoryCode}
-                    onChange={(event) => setNewTerritoryCode(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="Territory name"
-                    value={newTerritoryName}
-                    onChange={(event) => setNewTerritoryName(event.currentTarget.value)}
-                  />
+            {activeSetupStep === 'region' ? (
+              <Paper withBorder radius="lg" p="md" data-testid="territory-region-step">
+                <Stack gap="md">
+                  <Group gap="sm">
+                    <Paper radius="xl" p="xs" bg="blue.0">
+                      <IconMapPin size={18} />
+                    </Paper>
+                    <div>
+                      <Title order={5}>Create region</Title>
+                      <Text size="sm" c="dimmed">
+                        Stand up a regional container before assigning territories into it.
+                      </Text>
+                    </div>
+                  </Group>
+                  <TextInput label="Region code" value={newRegionCode} onChange={(event) => setNewRegionCode(event.currentTarget.value)} />
+                  <TextInput label="Region name" value={newRegionName} onChange={(event) => setNewRegionName(event.currentTarget.value)} />
                   <Select
-                    label="Region"
-                    placeholder="Select region"
-                    data={regionSelectData}
-                    value={newTerritoryRegionId}
-                    onChange={(value) => setNewTerritoryRegionId(value ?? '')}
-                    searchable
-                  />
-                  <Select
-                    label="Territory manager"
+                    label="Regional director"
                     placeholder="Assign later"
-                    data={territoryManagerSelectData}
-                    value={newTerritoryManagerUserId}
-                    onChange={(value) => setNewTerritoryManagerUserId(value ?? '')}
+                    data={regionalDirectorSelectData}
+                    value={newRegionDirectorUserId}
+                    onChange={(value) => setNewRegionDirectorUserId(value ?? '')}
                     searchable
                     clearable
                   />
-                  <Select
-                    label="Shipping center"
-                    placeholder="Assign later"
-                    data={shippingCenterSelectData}
-                    value={newTerritoryShippingCenterId}
-                    onChange={(value) => setNewTerritoryShippingCenterId(value ?? '')}
-                    searchable
-                    clearable
+                  <Textarea
+                    label="Notes"
+                    minRows={2}
+                    value={newRegionNotes}
+                    onChange={(event) => setNewRegionNotes(event.currentTarget.value)}
                   />
-                </SimpleGrid>
-                <TagsInput
-                  label="Covered states / provinces"
-                  placeholder="Add codes like TX, FL, ON"
-                  value={newTerritoryCoverage}
-                  onChange={(values) => setNewTerritoryCoverage(normalizeCoverageTags(values))}
-                  clearable
-                />
-                <Textarea
-                  label="Notes"
-                  minRows={2}
-                  value={newTerritoryNotes}
-                  onChange={(event) => setNewTerritoryNotes(event.currentTarget.value)}
-                />
-                <Switch
-                  checked={newTerritoryIsActive}
-                  onChange={(event) => setNewTerritoryIsActive(event.currentTarget.checked)}
-                  label="Territory is active"
-                />
-                <Group justify="flex-end">
-                  <Button
-                    leftSection={<IconPlus size={16} />}
-                    loading={isSavingTerritory}
-                    onClick={() => {
-                      void handleCreateTerritory();
-                    }}
-                  >
-                    Create territory
-                  </Button>
-                </Group>
-              </Stack>
-            </Paper>
-
-            <Paper withBorder radius="xl" p="lg" className="premium-stat-card">
-              <Stack gap="md">
-                <Group gap="sm">
-                  <Paper radius="xl" p="xs" bg="orange.0">
-                    <IconArrowsShuffle size={18} />
-                  </Paper>
-                  <div>
-                    <Title order={4}>Edit territory coverage and ownership</Title>
+                  <Switch
+                    checked={newRegionIsActive}
+                    onChange={(event) => setNewRegionIsActive(event.currentTarget.checked)}
+                    label="Region is active"
+                  />
+                  <Group justify="space-between">
                     <Text size="sm" c="dimmed">
-                      Update live territory ownership, shipping alignment, status, and covered states without leaving
-                      the command center.
+                      Existing regions: {regions.length}
                     </Text>
-                  </div>
-                </Group>
-                <Select
-                  label="Territory"
-                  placeholder="Select a territory"
-                  data={territories.map((territory) => ({
-                    value: territory.id,
-                    label: `${territory.code} · ${territory.name}`,
-                  }))}
-                  value={editingTerritoryId}
-                  onChange={(value) => setEditingTerritoryId(value ?? '')}
-                  searchable
-                />
-                {editingTerritoryId ? (
-                  <>
-                    <Divider />
-                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                      <TextInput
-                        label="Territory name"
-                        value={editTerritoryName}
-                        onChange={(event) => setEditTerritoryName(event.currentTarget.value)}
-                      />
-                      <Select
-                        label="Region"
-                        data={regionSelectData}
-                        value={editTerritoryRegionId}
-                        onChange={(value) => setEditTerritoryRegionId(value ?? '')}
-                        searchable
-                      />
-                      <Select
-                        label="Territory manager"
-                        placeholder="Assign later"
-                        data={territoryManagerSelectData}
-                        value={editTerritoryManagerUserId}
-                        onChange={(value) => setEditTerritoryManagerUserId(value ?? '')}
-                        searchable
-                        clearable
-                      />
-                      <Select
-                        label="Shipping center"
-                        placeholder="Assign later"
-                        data={shippingCenterSelectData}
-                        value={editTerritoryShippingCenterId}
-                        onChange={(value) => setEditTerritoryShippingCenterId(value ?? '')}
-                        searchable
-                        clearable
-                      />
-                    </SimpleGrid>
-                    <TagsInput
-                      label="Covered states / provinces"
-                      placeholder="Add codes like TX, FL, ON"
-                      value={editTerritoryCoverage}
-                      onChange={(values) => setEditTerritoryCoverage(normalizeCoverageTags(values))}
+                    <Button
+                      leftSection={<IconPlus size={16} />}
+                      loading={isSavingRegion}
+                      onClick={() => {
+                        void handleCreateRegion();
+                      }}
+                    >
+                      Create region
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {activeSetupStep === 'shipping' ? (
+              <Paper withBorder radius="lg" p="md" data-testid="territory-shipping-center-step">
+                <Stack gap="md">
+                  <Group gap="sm">
+                    <Paper radius="xl" p="xs" bg="grape.0">
+                      <IconBuildingWarehouse size={18} />
+                    </Paper>
+                    <div>
+                      <Title order={5}>Create shipping hub</Title>
+                      <Text size="sm" c="dimmed">
+                        Keep shipping alignment current before reassignments ripple downstream.
+                      </Text>
+                    </div>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
+                      label="Hub code"
+                      value={newShippingCenterCode}
+                      onChange={(event) => setNewShippingCenterCode(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="Hub name"
+                      value={newShippingCenterName}
+                      onChange={(event) => setNewShippingCenterName(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="City"
+                      value={newShippingCenterCity}
+                      onChange={(event) => setNewShippingCenterCity(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="State / Province"
+                      value={newShippingCenterState}
+                      onChange={(event) => setNewShippingCenterState(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="Country code"
+                      value={newShippingCenterCountryCode}
+                      onChange={(event) => setNewShippingCenterCountryCode(event.currentTarget.value)}
+                    />
+                  </SimpleGrid>
+                  <Textarea
+                    label="Notes"
+                    minRows={2}
+                    value={newShippingCenterNotes}
+                    onChange={(event) => setNewShippingCenterNotes(event.currentTarget.value)}
+                  />
+                  <Switch
+                    checked={newShippingCenterIsActive}
+                    onChange={(event) => setNewShippingCenterIsActive(event.currentTarget.checked)}
+                    label="Shipping hub is active"
+                  />
+                  <Group justify="space-between">
+                    <Text size="sm" c="dimmed">
+                      Active shipping hubs: {shippingCenters.filter((center) => center.isActive).length}
+                    </Text>
+                    <Button
+                      leftSection={<IconPlus size={16} />}
+                      loading={isSavingShippingCenter}
+                      onClick={() => {
+                        void handleCreateShippingCenter();
+                      }}
+                    >
+                      Create shipping hub
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {activeSetupStep === 'territory' ? (
+              <Paper withBorder radius="lg" p="md" data-testid="territory-territory-step">
+                <Stack gap="md">
+                  <Group gap="sm">
+                    <Paper radius="xl" p="xs" bg="teal.0">
+                      <IconRouteSquare size={18} />
+                    </Paper>
+                    <div>
+                      <Title order={5}>Create territory</Title>
+                      <Text size="sm" c="dimmed">
+                        Add a territory, then assign ownership, shipping alignment, and covered states.
+                      </Text>
+                    </div>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
+                      label="Territory code"
+                      value={newTerritoryCode}
+                      onChange={(event) => setNewTerritoryCode(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="Territory name"
+                      value={newTerritoryName}
+                      onChange={(event) => setNewTerritoryName(event.currentTarget.value)}
+                    />
+                    <Select
+                      label="Region"
+                      placeholder="Select region"
+                      data={regionSelectData}
+                      value={newTerritoryRegionId}
+                      onChange={(value) => setNewTerritoryRegionId(value ?? '')}
+                      searchable
+                    />
+                    <Select
+                      label="Territory manager"
+                      placeholder="Assign later"
+                      data={territoryManagerSelectData}
+                      value={newTerritoryManagerUserId}
+                      onChange={(value) => setNewTerritoryManagerUserId(value ?? '')}
+                      searchable
                       clearable
                     />
-                    <Textarea
-                      label="Notes"
-                      minRows={2}
-                      value={editTerritoryNotes}
-                      onChange={(event) => setEditTerritoryNotes(event.currentTarget.value)}
+                    <Select
+                      label="Shipping hub"
+                      placeholder="Assign later"
+                      data={shippingCenterSelectData}
+                      value={newTerritoryShippingCenterId}
+                      onChange={(value) => setNewTerritoryShippingCenterId(value ?? '')}
+                      searchable
+                      clearable
                     />
-                    <Switch
-                      checked={editTerritoryIsActive}
-                      onChange={(event) => setEditTerritoryIsActive(event.currentTarget.checked)}
-                      label="Territory is active"
-                    />
-                    <Group justify="flex-end">
-                      <Button
-                        loading={isUpdatingTerritory}
-                        onClick={() => {
-                          void handleUpdateTerritory();
-                        }}
-                      >
-                        Save territory changes
-                      </Button>
-                    </Group>
-                  </>
-                ) : (
-                  <Text size="sm" c="dimmed">
-                    Pick a territory to update its manager, region, shipping center, or covered states.
-                  </Text>
-                )}
-              </Stack>
-            </Paper>
-          </SimpleGrid>
-        </>
+                  </SimpleGrid>
+                  <TagsInput
+                    label="Covered states / provinces"
+                    placeholder="Add codes like TX, FL, ON"
+                    value={newTerritoryCoverage}
+                    onChange={(values) => setNewTerritoryCoverage(normalizeCoverageTags(values))}
+                    clearable
+                  />
+                  <Textarea
+                    label="Notes"
+                    minRows={2}
+                    value={newTerritoryNotes}
+                    onChange={(event) => setNewTerritoryNotes(event.currentTarget.value)}
+                  />
+                  <Switch
+                    checked={newTerritoryIsActive}
+                    onChange={(event) => setNewTerritoryIsActive(event.currentTarget.checked)}
+                    label="Territory is active"
+                  />
+                  <Group justify="space-between">
+                    <Text size="sm" c="dimmed">
+                      Existing territories: {territories.length}
+                    </Text>
+                    <Button
+                      leftSection={<IconPlus size={16} />}
+                      loading={isSavingTerritory}
+                      onClick={() => {
+                        void handleCreateTerritory();
+                      }}
+                    >
+                      Create territory
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {activeSetupStep === 'review' ? (
+              <Paper withBorder radius="lg" p="md" data-testid="territory-setup-review-step">
+                <Stack gap="md">
+                  <Group gap="sm">
+                    <Paper radius="xl" p="xs" bg="orange.0">
+                      <IconArrowsShuffle size={18} />
+                    </Paper>
+                    <div>
+                      <Title order={5}>Coverage review</Title>
+                      <Text size="sm" c="dimmed">
+                        Review or edit territory ownership, shipping alignment, status, and covered states.
+                      </Text>
+                    </div>
+                  </Group>
+                  <Select
+                    label="Territory"
+                    placeholder="Select a territory"
+                    data={territories.map((territory) => ({
+                      value: territory.id,
+                      label: `${territory.code} · ${territory.name}`,
+                    }))}
+                    value={editingTerritoryId}
+                    onChange={(value) => setEditingTerritoryId(value ?? '')}
+                    searchable
+                  />
+                  {editingTerritoryId ? (
+                    <>
+                      <Divider />
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                        <TextInput
+                          label="Territory name"
+                          value={editTerritoryName}
+                          onChange={(event) => setEditTerritoryName(event.currentTarget.value)}
+                        />
+                        <Select
+                          label="Region"
+                          data={regionSelectData}
+                          value={editTerritoryRegionId}
+                          onChange={(value) => setEditTerritoryRegionId(value ?? '')}
+                          searchable
+                        />
+                        <Select
+                          label="Territory manager"
+                          placeholder="Assign later"
+                          data={territoryManagerSelectData}
+                          value={editTerritoryManagerUserId}
+                          onChange={(value) => setEditTerritoryManagerUserId(value ?? '')}
+                          searchable
+                          clearable
+                        />
+                        <Select
+                          label="Shipping hub"
+                          placeholder="Assign later"
+                          data={shippingCenterSelectData}
+                          value={editTerritoryShippingCenterId}
+                          onChange={(value) => setEditTerritoryShippingCenterId(value ?? '')}
+                          searchable
+                          clearable
+                        />
+                      </SimpleGrid>
+                      <TagsInput
+                        label="Covered states / provinces"
+                        placeholder="Add codes like TX, FL, ON"
+                        value={editTerritoryCoverage}
+                        onChange={(values) => setEditTerritoryCoverage(normalizeCoverageTags(values))}
+                        clearable
+                      />
+                      <Textarea
+                        label="Notes"
+                        minRows={2}
+                        value={editTerritoryNotes}
+                        onChange={(event) => setEditTerritoryNotes(event.currentTarget.value)}
+                      />
+                      <Switch
+                        checked={editTerritoryIsActive}
+                        onChange={(event) => setEditTerritoryIsActive(event.currentTarget.checked)}
+                        label="Territory is active"
+                      />
+                      <Group justify="flex-end">
+                        <Button
+                          loading={isUpdatingTerritory}
+                          onClick={() => {
+                            void handleUpdateTerritory();
+                          }}
+                        >
+                          Save territory changes
+                        </Button>
+                      </Group>
+                    </>
+                  ) : (
+                    <Text size="sm" c="dimmed">
+                      Pick a territory to review its manager, region, shipping hub, or covered states.
+                    </Text>
+                  )}
+                </Stack>
+              </Paper>
+            ) : null}
+          </Stack>
+        </Paper>
       ) : null}
     </Stack>
   );

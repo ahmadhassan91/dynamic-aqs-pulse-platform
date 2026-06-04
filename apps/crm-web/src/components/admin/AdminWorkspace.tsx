@@ -3,29 +3,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
   Card,
   Group,
   Loader,
+  Menu,
   Pagination,
   Paper,
   Select,
   SimpleGrid,
   Stack,
-  Table,
   Tabs,
   Text,
   TextInput,
-  ThemeIcon,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconActivity,
+  IconChevronDown,
   IconDashboard,
+  IconDotsVertical,
   IconEdit,
   IconFileImport,
   IconKey,
@@ -80,6 +80,14 @@ import {
 } from '@/lib/auth-catalog';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+import {
+  EmptyStateMessage,
+  WorkbenchAdvancedSection,
+  WorkbenchHeader,
+  WorkbenchMetricStrip,
+  WorkbenchMoreMenu,
+  WorkbenchTable,
+} from '@/components/ui/Workbench';
 import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
 import { AdminEntraIntegrationPanel } from './AdminEntraIntegrationPanel';
 import { AdminLeadAlertDeliveryPanel } from './AdminLeadAlertDeliveryPanel';
@@ -88,13 +96,24 @@ import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
 
 type AdminTab = 'overview' | 'users' | 'roles' | 'activity' | 'integrations';
+type AdminIntegrationProvider = 'entra' | 'calendar' | 'payments' | 'lead-alerts';
+type AdminRoleAccessSummary = AdminRoleAccessCatalogResponse['roles'][number];
 
 const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
 
+const adminIntegrationProviderOptions: Array<{ value: AdminIntegrationProvider; label: string }> = [
+  { value: 'entra', label: 'Microsoft Entra access' },
+  { value: 'calendar', label: 'Outlook calendar' },
+  { value: 'payments', label: 'Payment capture boundary' },
+  { value: 'lead-alerts', label: 'Lead alerts' },
+];
+
 export function AdminWorkspace({
-  initialTab = 'overview',
+  initialTab = 'users',
+  initialIntegrationProvider = 'entra',
 }: {
   initialTab?: AdminTab;
+  initialIntegrationProvider?: AdminIntegrationProvider;
 }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
@@ -130,6 +149,7 @@ export function AdminWorkspace({
   const [userFormLoading, setUserFormLoading] = useState(false);
   const [userImportLoading, setUserImportLoading] = useState(false);
   const [integrationSaving, setIntegrationSaving] = useState(false);
+  const [selectedIntegrationProvider, setSelectedIntegrationProvider] = useState<AdminIntegrationProvider>(initialIntegrationProvider);
   const [userMutationError, setUserMutationError] = useState<string | null>(null);
   const role = auth?.identity.role;
   const tabAccess = useMemo(
@@ -143,8 +163,9 @@ export function AdminWorkspace({
     [role],
   );
   const canManageIntegrations = role ? canPerformAction(role, 'admin.integration_manage') : false;
+  const canManageBusinessRules = role ? canPerformAction(role, 'product.manage') : false;
   const availableTabs = useMemo(
-    () => (['overview', 'users', 'roles', 'activity', 'integrations'] as const).filter((tab) => tabAccess[tab]),
+    () => (['users', 'roles', 'overview', 'activity', 'integrations'] as const).filter((tab) => tabAccess[tab]),
     [tabAccess],
   );
 
@@ -155,6 +176,10 @@ export function AdminWorkspace({
 
     setActiveTab(availableTabs.includes(initialTab) ? initialTab : (availableTabs[0] ?? 'overview'));
   }, [availableTabs, initialTab]);
+
+  useEffect(() => {
+    setSelectedIntegrationProvider(initialIntegrationProvider);
+  }, [initialIntegrationProvider]);
 
   useEffect(() => {
     const accessToken = auth?.tokens.accessToken;
@@ -362,6 +387,7 @@ export function AdminWorkspace({
 
   const users = usersResponse?.users ?? [];
   const totalPages = usersResponse ? Math.max(1, Math.ceil(usersResponse.total / usersResponse.limit)) : 1;
+  const hasActiveUserFilters = Boolean(filters.search || filters.role || filters.status);
 
   const roleOptions = useMemo(
     () => authRoleCatalog.map((entry) => ({ value: entry, label: getRoleDisplayName(entry) })),
@@ -812,140 +838,164 @@ export function AdminWorkspace({
   return (
     <>
       <Stack gap="md">
-        <Paper shadow="sm" p="md">
-          <Group justify="space-between" align="flex-start">
-            <Stack gap="xs">
-              <Title order={1}>System Administration</Title>
-              <Text size="sm" c="dimmed">
-                Manage users, roles, permissions, and audit visibility inside the approved Pulse CRM administration workspace.
-              </Text>
-            </Stack>
+        <WorkbenchHeader
+          eyebrow="Admin"
+          title="System Administration"
+          description="Manage users and access first. Setup, integrations, audit evidence, and business rules stay one layer deeper."
+          policyText="Role access, setup changes, and user mutations remain permission-gated and audit-backed."
+          primaryAction={tabAccess.users && activeTab === 'users' ? (
             <Group gap="sm">
-              {tabAccess.users ? (
-                <>
-                  <Button leftSection={<IconPlus size={16} />} onClick={() => {
-                    setSelectedUser(null);
-                    setUserMutationError(null);
-                    setUserFormOpen(true);
-                    setActiveTab('users');
-                  }}>
-                    Add User
+              <Button leftSection={<IconPlus size={16} />} onClick={() => {
+                setSelectedUser(null);
+                setUserMutationError(null);
+                setUserFormOpen(true);
+                setActiveTab('users');
+              }}>
+                Add User
+              </Button>
+              <Menu position="bottom-end" shadow="md" width={200}>
+                <Menu.Target>
+                  <Button variant="default" px="xs" aria-label="More user actions">
+                    <IconDotsVertical size={16} />
                   </Button>
-                  <Button variant="light" leftSection={<IconFileImport size={16} />} onClick={() => {
-                    setUserMutationError(null);
-                    setUserImportOpen(true);
-                    setActiveTab('users');
-                  }}>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<IconFileImport size={16} />}
+                    onClick={() => {
+                      setUserMutationError(null);
+                      setUserImportOpen(true);
+                      setActiveTab('users');
+                    }}
+                  >
                     Import Users
-                  </Button>
-                </>
-              ) : null}
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
             </Group>
-          </Group>
-        </Paper>
+          ) : null}
+        />
 
         {currentTabError ? (
           <Alert color="red">{currentTabError}</Alert>
         ) : null}
 
-        <Tabs value={activeTab} onChange={(value) => setActiveTab((value as AdminTab) || 'overview')}>
+        <Tabs value={activeTab} onChange={(value) => setActiveTab((value as AdminTab) || 'users')} keepMounted={false}>
           <Tabs.List>
-            {tabAccess.overview ? (
-              <Tabs.Tab value="overview" leftSection={<IconDashboard size={16} />}>
-                Overview
-              </Tabs.Tab>
-            ) : null}
             {tabAccess.users ? (
               <Tabs.Tab value="users" leftSection={<IconUsers size={16} />}>
-                User Management
+                Users & Access
               </Tabs.Tab>
             ) : null}
             {tabAccess.roles ? (
               <Tabs.Tab value="roles" leftSection={<IconShield size={16} />}>
-                Roles & Permissions
+                Access Profiles
               </Tabs.Tab>
             ) : null}
-            {tabAccess.activity ? (
-              <Tabs.Tab value="activity" leftSection={<IconActivity size={16} />}>
-                Activity Monitor
-              </Tabs.Tab>
-            ) : null}
-            {tabAccess.integrations ? (
-              <Tabs.Tab value="integrations" leftSection={<IconLink size={16} />}>
-                Integrations
-              </Tabs.Tab>
+            {tabAccess.overview || tabAccess.activity || tabAccess.integrations ? (
+              <Menu position="bottom-start" withinPortal shadow="md" width={220}>
+                <Menu.Target>
+                  <Button
+                    variant={activeTab === 'overview' || activeTab === 'activity' || activeTab === 'integrations' ? 'light' : 'subtle'}
+                    size="sm"
+                    rightSection={<IconChevronDown size={14} />}
+                  >
+                    More
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  {tabAccess.overview ? (
+                    <Menu.Item leftSection={<IconDashboard size={16} />} onClick={() => setActiveTab('overview')}>
+                      System Setup
+                    </Menu.Item>
+                  ) : null}
+                  {tabAccess.activity ? (
+                    <Menu.Item leftSection={<IconActivity size={16} />} onClick={() => setActiveTab('activity')}>
+                      Audit Monitor
+                    </Menu.Item>
+                  ) : null}
+                  {tabAccess.integrations ? (
+                    <Menu.Item leftSection={<IconLink size={16} />} onClick={() => setActiveTab('integrations')}>
+                      Integrations
+                    </Menu.Item>
+                  ) : null}
+                </Menu.Dropdown>
+              </Menu>
             ) : null}
           </Tabs.List>
 
           <Tabs.Panel value="overview" pt="md">
             <Stack gap="md">
-              <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
-                <AdminMetricCard title="Active Users" value={String(overview?.activeUsers ?? 0)} color="blue" icon={IconUsers} />
-                <AdminMetricCard title="Pending Users" value={String(overview?.pendingUsers ?? 0)} color="yellow" icon={IconUsers} />
-                <AdminMetricCard title="Active Sessions" value={String(overview?.activeSessions ?? 0)} color="green" icon={IconActivity} />
-                <AdminMetricCard title="Role Profiles" value={String(rolesCatalog?.roles.length ?? authRoleCatalog.length)} color="violet" icon={IconShield} />
-              </SimpleGrid>
+              <WorkbenchMetricStrip
+                metrics={[
+                  { label: 'Active Users', value: String(overview?.activeUsers ?? 0), tone: 'blue' },
+                  { label: 'Pending Users', value: String(overview?.pendingUsers ?? 0), tone: (overview?.pendingUsers ?? 0) > 0 ? 'yellow' : 'green' },
+                  { label: 'Live Sessions', value: String(overview?.activeSessions ?? 0), tone: 'green' },
+                  { label: 'Access Profiles', value: String(rolesCatalog?.roles.length ?? authRoleCatalog.length), tone: 'violet' },
+                ]}
+              />
 
               <Paper shadow="sm" p="md">
-                <Title order={3} mb="md">Quick Actions</Title>
+                <Title order={3} mb="md">Daily Admin Work</Title>
                 <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
                   {tabAccess.users ? (
                     <ActionCard
                       icon={IconUsers}
-                      title="Manage Users"
-                      description="Add, edit, or deactivate user accounts"
+                      title="Users & Access"
+                      description="Add, import, deactivate, or reset users."
                       onClick={() => setActiveTab('users')}
                     />
                   ) : null}
                   {tabAccess.roles ? (
                     <ActionCard
                       icon={IconShield}
-                      title="Review Access"
-                      description="Inspect role coverage and permission boundaries"
+                      title="Access Profiles"
+                      description="Review role scopes and boundaries."
                       onClick={() => setActiveTab('roles')}
-                    />
-                  ) : null}
-                  {tabAccess.activity ? (
-                    <ActionCard
-                      icon={IconActivity}
-                      title="Audit Activity"
-                      description="Review the latest admin and auth events"
-                      onClick={() => setActiveTab('activity')}
-                    />
-                  ) : null}
-                  {tabAccess.integrations ? (
-                    <ActionCard
-                      icon={IconLink}
-                      title="Calendar Integrations"
-                      description="Review Outlook rollout status and calendar sync controls"
-                      onClick={() => setActiveTab('integrations')}
                     />
                   ) : null}
                 </SimpleGrid>
               </Paper>
 
               <Paper shadow="sm" p="md">
-                <Title order={3} mb="md">Recent System Activity</Title>
-                <Stack gap="md">
-                  {(overview?.recentActivity.length ?? 0) === 0 ? (
-                    <Text size="sm" c="dimmed">No activity recorded yet.</Text>
-                  ) : (
-                    overview?.recentActivity.slice(0, 6).map((entry) => (
-                      <Group key={entry.id} align="flex-start">
-                        <ThemeIcon variant="light" size="lg" color="blue">
-                          <IconActivity size={16} />
-                        </ThemeIcon>
-                        <Stack gap={2}>
-                          <Text size="sm" fw={500}>{entry.summary}</Text>
-                          <Text size="xs" c="dimmed">
-                            {entry.actor ? `${entry.actor.displayName} • ` : ''}{formatDateTime(entry.createdAt)}
-                          </Text>
-                        </Stack>
-                      </Group>
-                    ))
-                  )}
-                </Stack>
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Title order={3}>Setup and Evidence</Title>
+                    <Text size="sm" c="dimmed">
+                      Configuration, integrations, and audit evidence stay one layer down from the daily user queue.
+                    </Text>
+                  </Stack>
+                  <WorkbenchMoreMenu
+                    label="Open setup"
+                    items={[
+                      ...(canManageBusinessRules ? [{
+                        id: 'business-rules',
+                        label: 'Business Rules',
+                        description: 'Manage dealer catalog rules.',
+                        icon: <IconShield size={16} />,
+                        onClick: () => {
+                          window.location.href = '/admin/catalog-rules';
+                        },
+                      }] : []),
+                      ...(tabAccess.activity ? [{
+                        id: 'audit-monitor',
+                        label: 'Audit Monitor',
+                        description: 'Review admin and auth events.',
+                        icon: <IconActivity size={16} />,
+                        onClick: () => setActiveTab('activity'),
+                      }] : []),
+                      ...(tabAccess.integrations ? [{
+                        id: 'integrations',
+                        label: 'Integrations',
+                        description: 'Review Outlook, Entra, payment, and alerts.',
+                        icon: <IconLink size={16} />,
+                        onClick: () => setActiveTab('integrations'),
+                      }] : []),
+                    ]}
+                  />
+                </Group>
               </Paper>
+
             </Stack>
           </Tabs.Panel>
 
@@ -974,23 +1024,25 @@ export function AdminWorkspace({
                     onChange={(value) => setFilters((current) => ({ ...current, status: value || '', page: 1 }))}
                     data={[
                       { value: '', label: 'All Statuses' },
-                      { value: 'ACTIVE', label: 'ACTIVE' },
-                      { value: 'PENDING', label: 'PENDING' },
-                      { value: 'INACTIVE', label: 'INACTIVE' },
+                      { value: 'ACTIVE', label: 'Active' },
+                      { value: 'PENDING', label: 'Pending' },
+                      { value: 'INACTIVE', label: 'Inactive' },
                     ]}
                   />
-                  <Button
-                    variant="light"
-                    onClick={() => setFilters({
-                      search: '',
-                      role: '',
-                      status: '',
-                      page: 1,
-                      limit: 10,
-                    })}
-                  >
-                    Clear Filters
-                  </Button>
+                  {hasActiveUserFilters ? (
+                    <Button
+                      variant="light"
+                      onClick={() => setFilters({
+                        search: '',
+                        role: '',
+                        status: '',
+                        page: 1,
+                        limit: 10,
+                      })}
+                    >
+                      Clear Filters
+                    </Button>
+                  ) : null}
                 </Group>
               </Paper>
 
@@ -1000,93 +1052,89 @@ export function AdminWorkspace({
                   {usersLoading ? <Loader size="sm" /> : null}
                 </Group>
 
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>User</Table.Th>
-                      <Table.Th>Role</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th>Active Sessions</Table.Th>
-                      <Table.Th>Last Login</Table.Th>
-                      <Table.Th>Actions</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {users.length === 0 ? (
-                      <Table.Tr>
-                        <Table.Td colSpan={6}>
-                          <Text size="sm" c="dimmed" ta="center" py="md">
-                            No users match the current filters.
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ) : (
-                      users.map((user) => (
-                        <Table.Tr key={user.id}>
-                          <Table.Td>
-                            <Stack gap={0}>
-                              <Text fw={500} size="sm">{user.displayName}</Text>
-                              <Text c="dimmed" size="xs">{user.email}</Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            <Stack gap={0}>
-                              <Text size="sm" fw={500}>{getRoleDisplayName(user.role)}</Text>
-                              <Text size="xs" c="dimmed">{user.role}</Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
+                <WorkbenchTable<AdminUserSummary>
+                  ariaLabel="Admin users"
+                  rows={users}
+                  getRowKey={(user) => user.id}
+                  minWidth={820}
+                  withContainer={false}
+                  columns={[
+                    {
+                      key: 'user',
+                      header: 'User',
+                      render: (user) => (
+                        <Stack gap={0}>
+                          <Text fw={500} size="sm">{user.displayName}</Text>
+                          <Text c="dimmed" size="xs">{user.email}</Text>
+                        </Stack>
+                      ),
+                    },
+                    {
+                      key: 'access',
+                      header: 'Access',
+                      render: (user) => (
+                        <Stack gap={4}>
+                          <Text size="sm" fw={500}>{getRoleDisplayName(user.role)}</Text>
+                          <Group gap="xs">
                             <Badge color={statusColor(user.status)} variant="light">
                               {user.status}
                             </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm">{user.activeSessionCount}</Text>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm" c="dimmed">
-                              {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Never'}
-                            </Text>
-                          </Table.Td>
-                          <Table.Td>
-                            <Group gap="xs">
-                              <ActionIcon
-                                variant="subtle"
-                                color="blue"
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setUserMutationError(null);
-                                  setUserFormOpen(true);
-                                }}
-                              >
-                                <IconEdit size={16} />
-                              </ActionIcon>
-                              <ActionIcon
-                                variant="subtle"
-                                color="grape"
-                                onClick={() => {
-                                  void handleResetPassword(user);
-                                }}
-                              >
-                                <IconKey size={16} />
-                              </ActionIcon>
-                              <Button
-                                size="xs"
-                                variant="light"
-                                color={user.isActive ? 'yellow' : 'green'}
-                                onClick={() => {
-                                  void handleToggleActive(user);
-                                }}
-                              >
-                                {user.isActive ? 'Deactivate' : 'Activate'}
-                              </Button>
-                            </Group>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))
-                    )}
-                  </Table.Tbody>
-                </Table>
+                          </Group>
+                        </Stack>
+                      ),
+                    },
+                    {
+                      key: 'sessions',
+                      header: 'Sessions',
+                      render: (user) => user.activeSessionCount,
+                      align: 'right',
+                    },
+                    {
+                      key: 'last-login',
+                      header: 'Last login',
+                      render: (user) => (
+                        <Text size="sm" c="dimmed">
+                          {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Never'}
+                        </Text>
+                      ),
+                    },
+                  ]}
+                  rowActions={(user) => [
+                    {
+                      id: 'edit-user',
+                      label: 'Edit user',
+                      icon: <IconEdit size={16} />,
+                      onClick: () => {
+                        setSelectedUser(user);
+                        setUserMutationError(null);
+                        setUserFormOpen(true);
+                      },
+                    },
+                    {
+                      id: 'reset-password',
+                      label: 'Reset password',
+                      icon: <IconKey size={16} />,
+                      onClick: () => {
+                        void handleResetPassword(user);
+                      },
+                    },
+                    {
+                      id: user.isActive ? 'deactivate-user' : 'activate-user',
+                      label: user.isActive ? 'Deactivate user' : 'Activate user',
+                      color: user.isActive ? 'yellow' : 'green',
+                      onClick: () => {
+                        void handleToggleActive(user);
+                      },
+                    },
+                  ]}
+                  emptyState={(
+                    <EmptyStateMessage
+                      kind="filtered-out"
+                      title="No users match the current filters"
+                      description="Clear filters or adjust the search to find a user."
+                    />
+                  )}
+                />
 
                 <Group justify="space-between" p="md">
                   <Text size="sm" c="dimmed">
@@ -1112,180 +1160,232 @@ export function AdminWorkspace({
                 clear profile per user and keep special exceptions rare.
               </Alert>
 
-              <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-                {(rolesCatalog?.roles ?? []).map((roleSummary) => (
-                  <Card key={roleSummary.role} shadow="sm" padding="lg" radius="md" withBorder>
-                    <Stack gap="md">
-                      <Group justify="space-between" align="flex-start">
-                        <Stack gap={2}>
-                          <Title order={4}>{roleSummary.displayName}</Title>
-                          <Text size="sm" c="dimmed">{roleSummary.summary}</Text>
-                        </Stack>
-                        <Badge color="grape" variant="light">Access Profile</Badge>
-                      </Group>
-
-                      <Paper p="sm" radius="md" withBorder>
-                        <Text fw={600} size="sm">Best for</Text>
-                        <Text size="sm" c="dimmed">{roleSummary.bestFor}</Text>
-                      </Paper>
-
-                      <Paper p="sm" radius="md" withBorder>
-                        <Text fw={600} size="sm">Scope</Text>
-                        <Text size="sm" c="dimmed">{roleSummary.scopeSummary}</Text>
-                      </Paper>
-
-                      <Stack gap="xs">
-                        <Text fw={600} size="sm">Everyday workspaces</Text>
-                        <Group gap="xs">
-                          {roleSummary.workspaceHighlights.map((module) => (
-                            <Badge key={module} variant="light" color="blue">
-                              {formatWorkspaceLabel(module)}
-                            </Badge>
-                          ))}
-                        </Group>
+              <WorkbenchTable<AdminRoleAccessSummary>
+                ariaLabel="Admin access profiles"
+                rows={rolesCatalog?.roles ?? []}
+                getRowKey={(roleSummary) => roleSummary.role}
+                minWidth={980}
+                columns={[
+                  {
+                    key: 'profile',
+                    header: 'Profile',
+                    render: (roleSummary) => (
+                      <Stack gap={2}>
+                        <Text fw={700}>{roleSummary.displayName}</Text>
+                        <Text size="xs" c="dimmed">{roleSummary.summary}</Text>
                       </Stack>
+                    ),
+                  },
+                  {
+                    key: 'best-for',
+                    header: 'Best for',
+                    render: (roleSummary) => <Text size="sm">{roleSummary.bestFor}</Text>,
+                  },
+                  {
+                    key: 'workspaces',
+                    header: 'Everyday work',
+                    render: (roleSummary) => (
+                      <Group gap={4}>
+                        {roleSummary.workspaceHighlights.slice(0, 4).map((module) => (
+                          <Badge key={module} variant="light" color="blue">
+                            {formatWorkspaceLabel(module)}
+                          </Badge>
+                        ))}
+                        {roleSummary.workspaceHighlights.length > 4 ? (
+                          <Badge variant="light" color="gray">+{roleSummary.workspaceHighlights.length - 4}</Badge>
+                        ) : null}
+                      </Group>
+                    ),
+                  },
+                  {
+                    key: 'capabilities',
+                    header: 'Typical capabilities',
+                    render: (roleSummary) => (
+                      <Group gap={4}>
+                        {roleSummary.actionHighlights.slice(0, 3).map((action) => (
+                          <Badge key={action} variant="light" color="gray">
+                            {formatActionLabel(action)}
+                          </Badge>
+                        ))}
+                        {roleSummary.actionHighlights.length > 3 ? (
+                          <Badge variant="light" color="gray">+{roleSummary.actionHighlights.length - 3}</Badge>
+                        ) : null}
+                      </Group>
+                    ),
+                  },
+                  {
+                    key: 'scope',
+                    header: 'Scope',
+                    render: (roleSummary) => <Text size="sm" c="dimmed">{roleSummary.scopeSummary}</Text>,
+                  },
+                ]}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No access profiles available"
+                    description="Access profiles appear here when the role catalog is loaded."
+                  />
+                )}
+              />
 
-                      {roleSummary.actionHighlights.length > 0 ? (
+              <WorkbenchAdvancedSection
+                title="Full access footprint"
+                description="Detailed module and action coverage for admin review."
+              >
+                <Stack gap="lg">
+                  {(rolesCatalog?.roles ?? []).map((roleSummary) => (
+                    <Paper key={roleSummary.role} withBorder p="md" radius="md">
+                      <Stack gap="sm">
+                        <Text fw={800}>{roleSummary.displayName}</Text>
                         <Stack gap="xs">
-                          <Text fw={600} size="sm">Typical capabilities</Text>
+                          <Text fw={600} size="sm">Modules ({roleSummary.modules.length})</Text>
                           <Group gap="xs">
-                            {roleSummary.actionHighlights.map((action) => (
+                            {roleSummary.modules.map((module) => (
+                              <Badge key={module} variant="light" color="blue">
+                                {formatWorkspaceLabel(module)}
+                              </Badge>
+                            ))}
+                          </Group>
+                        </Stack>
+                        <Stack gap="xs">
+                          <Text fw={600} size="sm">Actions ({roleSummary.actions.length})</Text>
+                          <Group gap="xs">
+                            {roleSummary.actions.map((action) => (
                               <Badge key={action} variant="light" color="gray">
                                 {formatActionLabel(action)}
                               </Badge>
                             ))}
                           </Group>
                         </Stack>
-                      ) : null}
-
-                      <details>
-                        <summary>
-                          <Text span size="sm" fw={600}>
-                            Show full access footprint
-                          </Text>
-                        </summary>
-                        <Stack gap="sm" mt="sm">
-                          <Stack gap="xs">
-                            <Text fw={600} size="sm">
-                              Full modules ({roleSummary.modules.length})
-                            </Text>
-                            <Group gap="xs">
-                              {roleSummary.modules.map((module) => (
-                                <Badge key={module} variant="light" color="blue">
-                                  {formatWorkspaceLabel(module)}
-                                </Badge>
-                              ))}
-                            </Group>
-                          </Stack>
-
-                          <Stack gap="xs">
-                            <Text fw={600} size="sm">
-                              Full actions ({roleSummary.actions.length})
-                            </Text>
-                            <Group gap="xs">
-                              {roleSummary.actions.map((action) => (
-                                <Badge key={action} variant="light" color="gray">
-                                  {formatActionLabel(action)}
-                                </Badge>
-                              ))}
-                            </Group>
-                          </Stack>
-                        </Stack>
-                      </details>
-                    </Stack>
-                  </Card>
-                ))}
-              </SimpleGrid>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              </WorkbenchAdvancedSection>
             </Stack>
           </Tabs.Panel>
 
           <Tabs.Panel value="activity" pt="md">
             <Paper shadow="sm" p="md">
               <Group justify="space-between" mb="md">
-                <Title order={3}>Recent Activity</Title>
+                <Title order={3}>Audit Monitor</Title>
                 <Button component={Link} href="/admin" variant="light" size="xs">
-                  Back to Overview
+                  Back to System Setup
                 </Button>
               </Group>
 
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>User</Table.Th>
-                    <Table.Th>Action</Table.Th>
-                    <Table.Th>Entity</Table.Th>
-                    <Table.Th>Timestamp</Table.Th>
-                    <Table.Th>Summary</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {activity.length === 0 ? (
-                    <Table.Tr>
-                      <Table.Td colSpan={5}>
-                        <Text size="sm" c="dimmed" ta="center" py="md">
-                          No audit activity recorded yet.
-                        </Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  ) : (
-                    activity.map((entry) => (
-                      <Table.Tr key={entry.id}>
-                        <Table.Td>
-                          <Text size="sm">{entry.actor?.displayName ?? 'System'}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge color="blue" variant="light">{entry.action}</Badge>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{entry.entityType}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" c="dimmed">{formatDateTime(entry.createdAt)}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{entry.summary}</Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))
-                  )}
-                </Table.Tbody>
-              </Table>
+              <WorkbenchTable<AdminActivityEntry>
+                ariaLabel="Admin audit activity"
+                rows={activity}
+                getRowKey={(entry) => entry.id}
+                minWidth={920}
+                withContainer={false}
+                columns={[
+                  {
+                    key: 'user',
+                    header: 'User',
+                    render: (entry) => <Text size="sm">{entry.actor?.displayName ?? 'System'}</Text>,
+                  },
+                  {
+                    key: 'action',
+                    header: 'Action',
+                    render: (entry) => <Badge color="blue" variant="light">{entry.action}</Badge>,
+                  },
+                  {
+                    key: 'entity',
+                    header: 'Entity',
+                    render: (entry) => <Text size="sm">{entry.entityType}</Text>,
+                  },
+                  {
+                    key: 'timestamp',
+                    header: 'Timestamp',
+                    render: (entry) => <Text size="sm" c="dimmed">{formatDateTime(entry.createdAt)}</Text>,
+                  },
+                  {
+                    key: 'summary',
+                    header: 'Summary',
+                    render: (entry) => <Text size="sm">{entry.summary}</Text>,
+                  },
+                ]}
+                emptyState={(
+                  <EmptyStateMessage
+                    kind="no-data"
+                    title="No audit activity recorded yet"
+                    description="Admin and auth activity will appear here after changes are made."
+                  />
+                )}
+              />
             </Paper>
           </Tabs.Panel>
 
           <Tabs.Panel value="integrations" pt="md">
             <Stack gap="md">
-              <AdminEntraIntegrationPanel
-                settings={entraIntegrationSettings}
-                statuses={integrationStatuses}
-                canManage={canManageIntegrations}
-                isSaving={integrationSaving}
-                onSave={handleEntraIntegrationSave}
-              />
-              <AdminCalendarIntegrationPanel
-                settings={calendarIntegrationSettings}
-                statuses={integrationStatuses}
-                canManage={canManageIntegrations}
-                isSaving={integrationSaving}
-                onSave={handleIntegrationSave}
-              />
-              <AdminPaymentIntegrationPanel
-                settings={paymentIntegrationSettings}
-                statuses={integrationStatuses}
-                canManage={canManageIntegrations}
-                isSaving={integrationSaving}
-                onSave={handlePaymentIntegrationSave}
-              />
-              <AdminLeadAlertDeliveryPanel
-                settings={leadAlertDeliverySettings}
-                statuses={integrationStatuses}
-                canManage={canManageIntegrations}
-                isSaving={integrationSaving}
-                onRetryFailed={handleLeadAlertRetry}
-                onDeadLetterLatestFailure={handleLeadAlertDeadLetter}
-                onQuietHoursChange={handleLeadAlertQuietHoursChange}
-                onRecipientChange={handleLeadAlertRecipientChange}
-              />
+              <Paper shadow="sm" p="md" data-testid="admin-integrations-provider-selector">
+                <Group justify="space-between" align="flex-end" gap="md" wrap="wrap">
+                  <Stack gap={4}>
+                    <Title order={3}>Integration setup</Title>
+                    <Text size="sm" c="dimmed">
+                      Choose one setup area at a time. Provider health and advanced policies stay inside the selected panel.
+                    </Text>
+                  </Stack>
+                  <Select
+                    aria-label="Integration setup area"
+                    data={adminIntegrationProviderOptions}
+                    value={selectedIntegrationProvider}
+                    onChange={(value) => setSelectedIntegrationProvider((value as AdminIntegrationProvider | null) ?? 'entra')}
+                    allowDeselect={false}
+                    w={{ base: '100%', sm: 280 }}
+                  />
+                </Group>
+              </Paper>
+
+              {selectedIntegrationProvider === 'entra' ? (
+                <div data-testid="admin-integration-panel-entra">
+                  <AdminEntraIntegrationPanel
+                    settings={entraIntegrationSettings}
+                    statuses={integrationStatuses}
+                    canManage={canManageIntegrations}
+                    isSaving={integrationSaving}
+                    onSave={handleEntraIntegrationSave}
+                  />
+                </div>
+              ) : null}
+              {selectedIntegrationProvider === 'calendar' ? (
+                <div data-testid="admin-integration-panel-calendar">
+                  <AdminCalendarIntegrationPanel
+                    settings={calendarIntegrationSettings}
+                    statuses={integrationStatuses}
+                    canManage={canManageIntegrations}
+                    isSaving={integrationSaving}
+                    onSave={handleIntegrationSave}
+                  />
+                </div>
+              ) : null}
+              {selectedIntegrationProvider === 'payments' ? (
+                <div data-testid="admin-integration-panel-payments">
+                  <AdminPaymentIntegrationPanel
+                    settings={paymentIntegrationSettings}
+                    statuses={integrationStatuses}
+                    canManage={canManageIntegrations}
+                    isSaving={integrationSaving}
+                    onSave={handlePaymentIntegrationSave}
+                  />
+                </div>
+              ) : null}
+              {selectedIntegrationProvider === 'lead-alerts' ? (
+                <div data-testid="admin-integration-panel-lead-alerts">
+                  <AdminLeadAlertDeliveryPanel
+                    settings={leadAlertDeliverySettings}
+                    statuses={integrationStatuses}
+                    canManage={canManageIntegrations}
+                    isSaving={integrationSaving}
+                    onRetryFailed={handleLeadAlertRetry}
+                    onDeadLetterLatestFailure={handleLeadAlertDeadLetter}
+                    onQuietHoursChange={handleLeadAlertQuietHoursChange}
+                    onRecipientChange={handleLeadAlertRecipientChange}
+                  />
+                </div>
+              ) : null}
             </Stack>
           </Tabs.Panel>
         </Tabs>
@@ -1319,48 +1419,40 @@ export function AdminWorkspace({
   );
 }
 
-function AdminMetricCard({
-  title,
-  value,
-  color,
-  icon: Icon,
-}: {
-  title: string;
-  value: string;
-  color: string;
-  icon: typeof IconUsers;
-}) {
-  return (
-    <Card shadow="sm" padding="lg" radius="md" withBorder>
-      <Group justify="space-between">
-        <Stack gap="xs">
-          <Text size="xl" fw={700} c={color}>{value}</Text>
-          <Text size="sm" c="dimmed">{title}</Text>
-        </Stack>
-        <Icon size={24} color={`var(--mantine-color-${color}-6)`} />
-      </Group>
-    </Card>
-  );
-}
-
 function ActionCard({
+  href,
   icon: Icon,
   title,
   description,
   onClick,
 }: {
+  href?: string;
   icon: typeof IconUsers;
   title: string;
   description: string;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
+  if (href) {
+    return (
+      <Card component={Link} href={href} shadow="sm" padding="md" radius="md" withBorder style={{ cursor: 'pointer', textDecoration: 'none' }}>
+        <Group>
+          <Icon size={24} color="var(--mantine-color-blue-6)" />
+          <Stack gap={2}>
+            <Text fw={500}>{title}</Text>
+            <Text size="xs" c="dimmed">{description}</Text>
+          </Stack>
+        </Group>
+      </Card>
+    );
+  }
+
   return (
-    <Card shadow="sm" padding="lg" radius="md" withBorder style={{ cursor: 'pointer' }} onClick={onClick}>
+    <Card shadow="sm" padding="md" radius="md" withBorder style={{ cursor: 'pointer' }} onClick={onClick}>
       <Group>
-        <Icon size={32} color="var(--mantine-color-blue-6)" />
-        <Stack gap="xs">
+        <Icon size={24} color="var(--mantine-color-blue-6)" />
+        <Stack gap={2}>
           <Text fw={500}>{title}</Text>
-          <Text size="sm" c="dimmed">{description}</Text>
+          <Text size="xs" c="dimmed">{description}</Text>
         </Stack>
       </Group>
     </Card>

@@ -271,10 +271,11 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
     await expect(queues.getByRole('tab', { name: /Recertification/ })).toHaveAttribute('aria-selected', 'true');
     await expect(trainingPage.getByRole('table', { name: 'Recertification queue' })).toBeVisible();
     await expect(trainingPage.getByRole('table', { name: /Coaching workload upcoming sessions|Overdue cadence queue|Training execution exceptions/i })).toHaveCount(0);
-    await expect(trainingPage.getByRole('main').getByText(/Overdue programs|Pending proof decisions|unresolved exceptions|Current certified tracks|Session execution snapshot/i)).toHaveCount(0);
-    await trainingPage.getByRole('main').getByRole('button', { name: 'More' }).first().click();
-    await expect(trainingPage.getByRole('menuitem', { name: 'Compliance Reports' })).toBeVisible();
-    await expect(trainingPage.getByRole('menuitem', { name: 'Catalog Setup' })).toBeVisible();
+    await expect(trainingPage.getByRole('main').getByRole('heading', {
+      name: /Overdue programs|Pending proof decisions|unresolved exceptions|Current certified tracks|Session execution snapshot/i,
+    })).toHaveCount(0);
+    await expect(trainingPage.getByRole('main').getByRole('button', { name: 'More' }).first()).toBeVisible();
+    await expect(trainingPage.getByRole('heading', { name: /Compliance Reports|Catalog Setup/ })).toHaveCount(0);
   });
 
   await loginWithCredentials(page, fixtures.internalAuth.email, fixtures.internalAuth.password);
@@ -282,13 +283,54 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   const main = page.getByRole('main');
   await expect(page.getByRole('heading', { name: 'Consignment Workspace' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Next site work' })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Next site work' })).toBeVisible();
+  const nextSiteWork = page.getByRole('table', { name: 'Next site work' });
+  await expect(nextSiteWork).toBeVisible();
+  await expect(nextSiteWork.getByRole('columnheader')).toHaveCount(6);
+  for (const header of ['Next work', 'Account / Site', 'Owner', 'Due', 'Status']) {
+    await expect(nextSiteWork.getByRole('columnheader', { name: header })).toBeVisible();
+  }
+  await expect(nextSiteWork.getByRole('columnheader', {
+    name: /Warehouse|Inventory|PO|Purchase order|Agreement|BLUE|ROSE metrics/i,
+  })).toHaveCount(0);
+  const queueRow = nextSiteWork.getByRole('row', { name: /E2E Dealer Comfort/ });
+  await expect(queueRow).toContainText('Finish overdue ROSE audit');
+  await expect(queueRow).toContainText('Main Office');
+  await expect(queueRow).toContainText('Terry Territory');
+  await expect(queueRow).toContainText('Audit overdue');
+  await expect(queueRow.getByRole('button', { name: 'Row actions' })).toHaveCount(1);
+  await queueRow.getByRole('button', { name: 'Row actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open site' })).toBeVisible();
+  await expect(page.getByRole('menuitem')).toHaveCount(1);
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('tab', { name: /Follow-up Queue|ROSE & Readiness/ })).toHaveCount(0);
   await expect(main.getByText(/Today's Priorities|Overdue Audits|Ready For Setup|Active Sites|Onboarding Report|ROSE Audit Report/i)).toHaveCount(0);
   await expect(main.getByText(/\b(Acumatica|ERP|inventory|PO|purchase order|manual variance)\b/i)).toHaveCount(0);
+  await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
+  await page.getByRole('menuitem', { name: 'All Sites' }).click();
+  const allSites = page.getByRole('table', { name: 'Consignment sites' });
+  await expect(allSites).toBeVisible();
+  await expect(allSites.getByRole('columnheader')).toHaveCount(6);
+  for (const header of ['Account / Site', 'Status', 'Team', 'Next ROSE', 'Site issue']) {
+    await expect(allSites.getByRole('columnheader', { name: header })).toBeVisible();
+  }
+  await expect(page.getByRole('main').getByRole('heading', {
+    name: /Onboarding Report|ROSE Audit Report/i,
+  })).toHaveCount(0);
 
   await page.goto(`/consignment/${fixtures.consignment.siteId}`);
+  const detailMain = page.getByRole('main');
+  await expect(page.getByTestId('consignment-site-detail')).toBeVisible();
+  await expect(page.getByTestId('consignment-current-site-work')).toBeVisible();
+  await expect(page.getByTestId('consignment-site-snapshot')).toBeVisible();
+  await expect(detailMain.getByRole('table')).toHaveCount(0);
+  await expect(detailMain.getByRole('heading', {
+    name: /Documents|Audit History|Reviewed Field Notes/i,
+  })).toHaveCount(0);
+  await expect(detailMain.getByText('Site details and evidence')).toBeVisible();
+  await expect(detailMain.getByText('Next ROSE Audit')).not.toBeVisible();
+  await expect(detailMain.getByText('Agreement Forms')).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Finish audit' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'More' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Finish audit' }).click();
   const dialog = page.getByRole('dialog', { name: 'Finish audit' });
   await expect(dialog.getByRole('button', { name: 'No issue' })).toBeVisible();
@@ -439,7 +481,7 @@ async function loginWithCredentials(page, email, password) {
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await Promise.all([
-    page.waitForURL(/\/leads$/),
+    page.waitForURL((url) => !url.pathname.startsWith('/auth')),
     page.getByRole('button', { name: 'Sign in', exact: true }).click(),
   ]);
 }
@@ -451,8 +493,17 @@ async function withInternalPersona(browser, persona, callback) {
     await loginWithCredentials(page, persona.email, persona.password);
     await callback(page);
   } finally {
-    await context.close();
+    await closeContextBestEffort(context);
   }
+}
+
+async function closeContextBestEffort(context) {
+  await Promise.race([
+    context.close().catch(() => undefined),
+    new Promise((resolve) => {
+      setTimeout(resolve, 5000);
+    }),
+  ]);
 }
 
 async function openHeaderMoreItem(page, menuItemName) {

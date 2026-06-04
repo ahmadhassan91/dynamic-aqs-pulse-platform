@@ -24,7 +24,7 @@ const routeInventory = [
   visual('/calendar', 'Calendar default workbench'),
   waived('/cis/:token', 'token-public', 'Legacy CIS alias must remain covered as a public token route until retired or merged.', 'CIS Owner', '2026-06-30', ['token-public']),
   visual('/consignment', 'Consignment default workbench'),
-  waived('/consignment/:siteId', 'detail-route', 'Consignment site detail remains a deep work route; Slice D covers default follow-up queue entry and direct detail routing stays next for functional hardening.', 'Consignment Ops', '2026-07-15', ['functional-e2e-pending', 'depth-e2e']),
+  waived('/consignment/:siteId', 'detail-route', 'Consignment site detail is covered functionally and by depth checks; visual promotion can follow after role UAT on the compact current-site-work model.', 'Consignment Ops', '2026-07-15', ['functional-e2e', 'depth-e2e']),
   visual('/customers', 'Accounts default workbench'),
   waived('/customers/:id', 'detail-route', 'Account detail density is deferred to UX-03 Slice C detail rail standardization.', 'Accounts', '2026-07-15', ['functional-e2e']),
   waived('/customers/field-activity', 'task-route', 'Field review subflow is a task route; visual work follows Slice C account cleanup.', 'Accounts + Field Ops', '2026-07-15', ['functional-e2e-pending']),

@@ -59,6 +59,19 @@ This slice keeps Samantha/Ops workflow visible without exposing Acumatica mechan
 | Reporting and Samantha workbook replacement over available data | Reports remain reachable behind More rather than being mixed into the first screen | `ConsignmentWorkspace.tsx` | Live sales/inventory/revenue truth remains parked until Acumatica read models are certified |
 | Parked warehouse/setup boundary | UI copy now uses `Setup handoff` instead of leading with Acumatica terminology | `apps/api/src/modules/consignment/service.ts` | Warehouse creation, transfer/receipt, PO, and financial truth stay parked |
 
+## UX-07 Slice J Trace - 2026-06-05
+
+This slice tightens the Consignment operator experience after the first queue/detail pass. It keeps the module aligned to Samantha's operational control model: Pulse can guide site work, document evidence, ROSE audit actions, setup confirmations, and follow-up ownership, while Acumatica remains the source of truth for warehouse, transfer/receipt, inventory, PO, and financial posting.
+
+| Requirement area | Slice J response | Evidence | Boundary kept honest |
+| --- | --- | --- | --- |
+| Samantha/Ops alert boundary and shared work queue | `Next site work` remains one ranked table; work item subjects are translated to `Site setup needs confirmation` or `Site issue needs review` instead of parked-provider language | `apps/crm-web/src/components/consignment/ConsignmentWorkspace.tsx`, `apps/crm-web/e2e/ux-depth.spec.mjs` | Mailbox/provider automation remains parked; Pulse-owned work items stay visible |
+| Consignment site master and readiness | Status labels now use `Setup ready` / `Setup pending`; all-site search remains behind More and is covered by six-column table assertions | `ConsignmentWorkspace.tsx`, `apps/crm-web/e2e/ux-depth.spec.mjs` | Warehouse creation and validation remain Acumatica-owned |
+| ROSE 90-day audit action | Active audit detail shows only the valid `Finish audit` action for audit-capable users; stale completed setup actions are removed from `More`. Live UAT records with Agreement/BLUE evidence and `activeSince` now route operators to ROSE work instead of redoing setup. | `apps/crm-web/src/components/consignment/ConsignmentSiteDetail.tsx`, `apps/crm-web/e2e/flows.spec.mjs`, deployed Slice J live smoke | Audit completion can open a site issue, but PO posting remains parked |
+| Agreement / BLUE / readiness evidence | Site detail keeps current work and snapshot first, then places cadence, readiness, form counts, documents, audit history, and reviewed field notes behind one `Site details and evidence` disclosure | `ConsignmentSiteDetail.tsx`, `apps/crm-web/e2e/ux-depth.spec.mjs` | Evidence is traceable without pretending signed/e-sign or ERP workflows are automated |
+| Permission-aware operator UI | `Create Site` requires `consignment.manage`; agreement/BLUE actions require `consignment.document_manage`; ROSE actions require `consignment.audit` | `ConsignmentWorkspace.tsx`, `ConsignmentSiteDetail.tsx` | Backend remains the enforcement authority; UI avoids encouraging role-level 403s |
+| Parked Acumatica wording | Default and detail clutter checks now fail if Acumatica, ERP, inventory, PO, purchase order, manual variance, warehouse confirmation, warehouse setup waiting, or approved handoff leak into first paint | `apps/crm-web/e2e/ux-clutter.spec.mjs` | Parked dependency is documented and hidden from daily work, not removed from the system boundary |
+
 ## Build-Now Slice Order
 
 | Slice | Name | Status | Acceptance Criteria |

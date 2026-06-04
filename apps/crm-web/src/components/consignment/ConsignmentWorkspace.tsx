@@ -42,13 +42,14 @@ import {
   type ConsignmentSiteStatus,
   type ConsignmentSiteSummary,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
 const statusOptions: Array<{ value: ConsignmentSiteStatus | ''; label: string }> = [
   { value: '', label: 'All statuses' },
   { value: 'onboarding_in_progress', label: 'Onboarding In Progress' },
-  { value: 'ready_for_warehouse', label: 'Ready For Setup' },
-  { value: 'warehouse_pending', label: 'Warehouse Pending' },
+  { value: 'ready_for_warehouse', label: 'Setup Ready' },
+  { value: 'warehouse_pending', label: 'Setup Pending' },
   { value: 'baseline_pending', label: 'Baseline Pending' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
@@ -207,6 +208,7 @@ export function ConsignmentWorkspace() {
     value: account.id,
     label: account.accountNumber ? `${account.displayName} (${account.accountNumber})` : account.displayName,
   }));
+  const canManageConsignment = canPerformAction(auth?.identity.role, 'consignment.manage');
 
   const handleCreateSite = async () => {
     if (!auth || !createForm.accountId) {
@@ -261,7 +263,7 @@ export function ConsignmentWorkspace() {
       <WorkbenchHeader
         eyebrow="Consignment operations"
         title="Consignment Workspace"
-        description="Work due audits, follow-up queue items, and site exceptions first; reports stay one tab away."
+        description="Work due audits, follow-ups, setup confirmations, and site issues first. Reports and all-site search stay in More."
         policyText="Pulse owns site readiness, document evidence, ROSE audits, and follow-up ownership."
         secondaryActions={(
           <WorkbenchMoreMenu
@@ -271,13 +273,13 @@ export function ConsignmentWorkspace() {
               description: 'Return to the ranked daily consignment queue.',
               icon: <IconArrowRight size={16} />,
               onClick: () => setActiveView('next'),
-            }, {
+            }, ...(canManageConsignment ? [{
               id: 'create-consignment-site',
               label: 'Create Site',
-              description: 'Add a new ROSE/readiness site when the account is known.',
+              description: 'Add a new program site when the account is known.',
               icon: <IconPlus size={16} />,
               onClick: () => setIsCreateModalOpen(true),
-            }, {
+            }] : []), {
               id: 'all-consignment-sites',
               label: 'All Sites',
               description: 'Search ROSE cadence, readiness, and site ownership.',
@@ -286,7 +288,7 @@ export function ConsignmentWorkspace() {
             }, {
               id: 'consignment-reports',
               label: 'Reports',
-              description: 'Onboarding and ROSE audit rollups.',
+              description: 'Program readiness and ROSE audit rollups.',
               icon: <IconClipboardList size={16} />,
               onClick: () => setActiveView('reports'),
             }]}
@@ -320,8 +322,8 @@ export function ConsignmentWorkspace() {
             description="Optional setup notes are available for operations, but they are not required to add the site."
           >
             <TextInput
-              label="Warehouse note"
-              aria-label="Warehouse note"
+              label="Setup note"
+              aria-label="Setup note"
               data-testid="consignment-warehouse-reference"
               value={createForm.warehouseCode}
               onChange={(event) => setCreateForm((current) => ({ ...current, warehouseCode: event.currentTarget.value }))}
@@ -573,7 +575,7 @@ function NextSiteWorkList({
           <Stack gap={2}>
             <Title order={3}>Next site work</Title>
             <Text size="sm" c="dimmed">
-              Ranked due audits, follow-ups, and site issues. Setup and reporting stay in More.
+              Ranked due audits, follow-ups, setup confirmations, and site issues. Reports and all sites stay in More.
             </Text>
           </Stack>
           <Badge color={rows.length > 0 ? 'orange' : 'green'} variant="light">
@@ -765,6 +767,11 @@ function formatDate(value: string | undefined) {
 }
 
 function formatStatus(value: string) {
+  const label = consignmentStatusLabel[value];
+  if (label) {
+    return label;
+  }
+
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -773,16 +780,54 @@ function formatStatus(value: string) {
 function formatConsignmentWorkSubject(value: string) {
   const normalized = value.toLowerCase();
 
-  if (normalized.includes('manual variance') || normalized.includes('po follow-up')) {
+  if (
+    normalized.includes('manual variance')
+    || normalized.includes('po follow-up')
+    || normalized.includes('purchase order')
+  ) {
     return 'Site issue needs review';
   }
 
-  if (normalized.includes('acumatica') || normalized.includes('warehouse handoff')) {
+  if (
+    normalized.includes('acumatica')
+    || normalized.includes('approved handoff')
+    || normalized.includes('warehouse confirmation')
+    || normalized.includes('warehouse handoff')
+    || normalized.includes('warehouse pending')
+    || normalized.includes('warehouse setup')
+    || normalized.includes('ready for warehouse')
+  ) {
     return 'Site setup needs confirmation';
   }
 
   return value;
 }
+
+const consignmentStatusLabel: Record<string, string> = {
+  active: 'Active',
+  approved: 'Approved',
+  baseline_pending: 'Baseline pending',
+  completed: 'Completed',
+  current: 'Current',
+  error: 'Error',
+  escalated: 'Escalated',
+  exited: 'Exited',
+  exiting: 'Exiting',
+  in_progress: 'In progress',
+  not_started: 'Not started',
+  onboarding_in_progress: 'Onboarding in progress',
+  open: 'Open',
+  overdue: 'Overdue',
+  parked: 'Parked',
+  pending: 'Pending',
+  ready_for_warehouse: 'Setup ready',
+  rejected: 'Rejected',
+  resolved: 'Resolved',
+  signed: 'Signed',
+  suspended: 'Suspended',
+  true_up_confirmed: 'Follow-up confirmed',
+  warehouse_pending: 'Setup pending',
+};
 
 function statusColor(value: string | undefined) {
   switch (value) {

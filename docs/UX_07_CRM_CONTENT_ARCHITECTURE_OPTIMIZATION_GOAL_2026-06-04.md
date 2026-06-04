@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-I deployed and QA passed; next consignment/table-density pass pending`
+Status: `In Progress - Slices A-J deployed and QA passed`
 
 ## Product Design Brief
 
@@ -401,6 +401,47 @@ Proof passed:
 - Deployed smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, expected parked Acumatica false/503, and `pulse-api`, `pulse-web`, and `nginx` were active.
 - Deployed live UI smoke passed for `/product-management` and `/product-management?tab=visibility` using an API-backed Super Admin session; results/screenshots: `output/playwright/ux-07-slice-i-live/`.
 
+### Slice J - Consignment Business-Language And Detail Density
+
+Purpose: finish the targeted Consignment pass called out after Slice I by keeping Samantha/Ops and TM/RD work focused on due audits, setup confirmations, and site issues without exposing Acumatica/warehouse/PO mechanics on the daily screen.
+
+Status: `Implemented - local typecheck, focused Playwright, route coverage, critical clutter QA, deploy, and live smoke passed`
+
+Delivered so far:
+
+- `/consignment` first-paint copy now says due audits, follow-ups, setup confirmations, and site issues; it no longer describes reports as a tab or exposes warehouse wording.
+- `Create Site` is shown only to roles with `consignment.manage`, so TM/RD audit users do not see a button that would 403.
+- Consignment work-subject formatting now scrubs warehouse setup/pending, approved handoff, Acumatica, PO, purchase order, and manual-variance subjects into business-safe `Site setup needs confirmation` or `Site issue needs review` copy.
+- Status labels now render `Setup ready` / `Setup pending` instead of raw warehouse-oriented labels.
+- Consignment site detail workflow actions are state-aware and permission-aware: completed/invalid actions are not left in `More`, and the seeded active audit page shows only the valid `Finish audit` action.
+- Live UAT records with signed Agreement/BLUE evidence and an `activeSince` timestamp now show ROSE audit work instead of stale setup actions even when legacy status text has not been normalized yet.
+- Site detail now shows `Current site work`, `Site Snapshot`, and one `Site details and evidence` disclosure instead of four competing advanced controls.
+- Route coverage now marks `/consignment/:siteId` as functionally/depth covered, and the clutter scan applies parked-term checks to the detail route.
+- The depth test helper now waits for the actual authenticated landing route instead of assuming every internal persona lands on `/leads`.
+
+Requirement trace:
+
+| Requirement area | Slice J response |
+| --- | --- |
+| Samantha/Ops daily work queue | Keeps `Next site work` as one ranked table with six columns and one row action. |
+| ROSE audit execution | Keeps `Finish audit` as the one valid primary action when an active audit is open. |
+| Audit vs reconciliation split | Keeps `No issue` vs `Log site issue` decision without surfacing PO mechanics first. |
+| Shared mailbox/follow-up style work | Maps work-item subjects into setup confirmation or site issue language. |
+| Parked Acumatica boundary | Warehouse/Acumatica/PO/inventory language is scrubbed from default and detail first-paint checks. |
+
+Proof passed:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `node --check apps/crm-web/e2e/flows.spec.mjs && node --check apps/crm-web/e2e/ux-depth.spec.mjs && node --check apps/crm-web/e2e/ux-clutter.spec.mjs && node --check apps/crm-web/e2e/route-coverage.spec.mjs`
+- `pnpm --filter @pulse/crm-web test:route-coverage`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.config.mjs -g "training and consignment seeded operator work" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "UX-05 slice E Training and Consignment" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- `git diff --check`
+- Manual EC2 release `manual-20260605040639-ux07-slice-j-active-state` deployed to `https://pulse-crm.theclustox.com`.
+- Deployed smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, expected parked Acumatica false/503, and `pulse-api`, `pulse-web`, and `nginx` were active.
+- Deployed live UI smoke passed for `/consignment` and seeded site detail `UAT Main Showroom Consignment`; screenshots: `output/playwright/ux-07-slice-j-live/consignment-default-live.png`, `output/playwright/ux-07-slice-j-live/consignment-detail-live.png`.
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`
@@ -427,6 +468,6 @@ These must not be pulled into first-paint UI while optimizing:
 
 ## Recommended Next Slice
 
-After Slice I deployed proof, move to a **targeted consignment/business-depth and table-density pass** only where operators still cannot scan the next action quickly.
+After Slice J, move to a **remaining table-density pass for Leads/Territory/Accounts detail surfaces** only where operators still cannot scan the next action quickly.
 
-The local critical clutter report, focused Training/Consignment E2E flow, Admin flow, Dealer catalog personas, UX-07 role/persona signoff, public deploy probe, deployed Super Admin/RD/TM/dealer smoke, and deployed Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten the remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.
+The local critical clutter report, focused Training/Consignment E2E flow, depth gate, route coverage, deployed Consignment smoke, and Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.

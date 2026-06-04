@@ -34,6 +34,7 @@ import {
   type ConsignmentReadinessItemSummary,
   type ConsignmentSiteDetail as ConsignmentSiteDetailRecord,
 } from '@/lib/pulse-api';
+import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { consignmentStatusColor, formatConsignmentDate, formatConsignmentStatus } from './ConsignmentWorkspace';
 
@@ -198,6 +199,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
 
   const hasSignedAgreement = Boolean(site?.forms.some((form) => form.formType === 'agreement' && form.status === 'signed'));
   const hasBlueBaseline = Boolean(site?.forms.some((form) => form.formType === 'blue' && form.status === 'signed'));
+  const isSiteActive = Boolean(site && (site.status === 'active' || site.activeSince));
   const hasOpenRoseAudit = Boolean(site?.audits.some((audit) => audit.status === 'scheduled' || audit.status === 'in_progress'));
   const hasEvidenceHistory = Boolean(site && (site.forms.length || site.audits.length || site.fieldActivity.length));
   const incompleteReadinessCount = readinessItems.filter((item) => item.status !== 'complete').length;
@@ -205,44 +207,46 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
     ? `${readinessItems.length - incompleteReadinessCount} of ${readinessItems.length} checks complete`
     : 'Readiness checks are not available for this site.';
   const blockedReadinessCount = readinessItems.filter((item) => item.status === 'blocked').length;
+  const canAuditConsignment = canPerformAction(auth?.identity.role, 'consignment.audit');
+  const canManageConsignment = canPerformAction(auth?.identity.role, 'consignment.manage');
+  const canManageConsignmentDocuments = canPerformAction(auth?.identity.role, 'consignment.document_manage');
 
   const workflowActions = site ? [
-    {
+    ...(!hasSignedAgreement && canManageConsignmentDocuments ? [{
       id: 'agreement',
       label: 'Add Agreement',
       description: 'Save signed program agreement evidence.',
       onClick: addSignedAgreement,
       isLoading: savingAction === 'agreement',
-    },
-    {
+    }] : []),
+    ...(hasSignedAgreement && !hasBlueBaseline && canManageConsignmentDocuments ? [{
       id: 'blue',
       label: 'Confirm baseline',
       description: 'Save initial verification evidence and recalculate ROSE cadence.',
       onClick: addBlueBaseline,
       isLoading: savingAction === 'blue',
-    },
-    {
+    }] : []),
+    ...(hasSignedAgreement && hasBlueBaseline && !isSiteActive && canManageConsignment ? [{
       id: 'activate',
       label: 'Mark Active',
-      description: 'Activate the Pulse consignment site with the available setup note.',
+      description: 'Activate the Pulse consignment site once setup confirmation is available.',
       onClick: activateSite,
       isLoading: savingAction === 'activate',
-    },
-    {
+    }] : []),
+    ...(isSiteActive && !hasOpenRoseAudit && canAuditConsignment ? [{
       id: 'schedule-rose',
       label: 'Schedule ROSE',
       description: 'Create the next ROSE audit workflow record.',
       onClick: scheduleRose,
       isLoading: savingAction === 'schedule-rose',
-    },
-    {
+    }] : []),
+    ...(hasOpenRoseAudit && canAuditConsignment ? [{
       id: 'complete-rose',
       label: 'Finish audit',
       description: 'Close the scheduled audit and open site issue follow-up when needed.',
       onClick: () => setIsFinishAuditModalOpen(true),
       isLoading: savingAction === 'complete-rose',
-      disabled: !hasOpenRoseAudit,
-    },
+    }] : []),
   ] : [];
 
   const primaryWorkflowAction = (() => {
@@ -250,20 +254,9 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
       return null;
     }
 
-    if (site.status === 'active') {
-      return workflowActions.find((action) => action.id === (hasOpenRoseAudit ? 'complete-rose' : 'schedule-rose')) ?? null;
-    }
-
-    if (!hasSignedAgreement) {
-      return workflowActions.find((action) => action.id === 'agreement') ?? null;
-    }
-
-    if (!hasBlueBaseline) {
-      return workflowActions.find((action) => action.id === 'blue') ?? null;
-    }
-
-    return workflowActions.find((action) => action.id === 'activate') ?? null;
+    return workflowActions[0] ?? null;
   })();
+  const secondaryWorkflowActions = workflowActions.filter((action) => action.id !== primaryWorkflowAction?.id);
 
   if (!isHydrated) {
     return <Loader color="blue" />;
@@ -281,7 +274,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
         description={site ? `Next step is based on site state and readiness. ${readinessSummary}.` : 'Review ROSE cadence, readiness, and workflow actions before opening evidence history.'}
         policyText={site?.status === 'ready_for_warehouse' ? 'Site setup needs confirmation.' : undefined}
         primaryAction={primaryWorkflowAction ? (
-          <Button onClick={primaryWorkflowAction.onClick} loading={primaryWorkflowAction.isLoading} disabled={Boolean(primaryWorkflowAction.disabled)}>
+          <Button onClick={primaryWorkflowAction.onClick} loading={primaryWorkflowAction.isLoading} disabled={Boolean(savingAction)}>
             {primaryWorkflowAction.label}
           </Button>
         ) : null}
@@ -295,17 +288,18 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                 View Account
               </Button>
             ) : null}
-            <WorkbenchMoreMenu
-              items={workflowActions
-                .filter((action) => action.id !== primaryWorkflowAction?.id)
-                .map((action) => ({
+            {secondaryWorkflowActions.length ? (
+              <WorkbenchMoreMenu
+                items={secondaryWorkflowActions
+                  .map((action) => ({
                   id: action.id,
                   label: action.label,
                   description: action.description,
-                  disabled: action.disabled || Boolean(savingAction),
+                  disabled: Boolean(savingAction),
                   onClick: action.onClick,
                 }))}
-            />
+              />
+            ) : null}
             {site ? (
               <Badge color={consignmentStatusColor(site.status)} variant="light">
                 {formatConsignmentStatus(site.status)}
@@ -377,64 +371,58 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
             </SimpleGrid>
           </Card>
 
-          <SimpleGrid cols={{ base: 1, lg: 2 }}>
-            <Card withBorder radius="md" p="lg" data-testid="consignment-site-snapshot">
-              <Title order={4} mb="md">Site Snapshot</Title>
-              <Stack gap="xs">
-                <MetadataRow label="Site" value={site.name} />
-                <MetadataRow label="Location" value={site.locationName ?? 'No location recorded'} />
-                <MetadataRow label="Primary Contact" value={site.primaryContactName ?? 'No contact recorded'} />
-                <MetadataRow label="Territory" value={site.territoryName ?? 'Not assigned'} />
-                <MetadataRow label="TM" value={site.ownerTmName ?? 'Not assigned'} />
-                <MetadataRow label="RD" value={site.ownerRdName ?? 'Not assigned'} />
-              </Stack>
-            </Card>
-
-            <WorkbenchAdvancedSection
-              title="ROSE and work metrics"
-              description="Cadence and open-work counts stay available without leading the daily site review."
-            >
-              <Stack gap="xs">
-                <MetadataRow label="Next ROSE Audit" value={formatConsignmentDate(site.nextAuditDueAt)} />
-                <MetadataRow label="Last Audit" value={formatConsignmentDate(site.lastAuditCompletedAt)} />
-                <MetadataRow label="Open Work Items" value={String(site.openWorkItemCount ?? 0)} />
-                <MetadataRow label="Open Discrepancies" value={String(site.openDiscrepancyCount ?? 0)} />
-              </Stack>
-            </WorkbenchAdvancedSection>
-          </SimpleGrid>
+          <Card withBorder radius="md" p="lg" data-testid="consignment-site-snapshot">
+            <Title order={4} mb="md">Site Snapshot</Title>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+              <MetadataRow label="Site" value={site.name} />
+              <MetadataRow label="Location" value={site.locationName ?? 'No location recorded'} />
+              <MetadataRow label="Primary Contact" value={site.primaryContactName ?? 'No contact recorded'} />
+              <MetadataRow label="Territory" value={site.territoryName ?? 'Not assigned'} />
+              <MetadataRow label="TM" value={site.ownerTmName ?? 'Not assigned'} />
+              <MetadataRow label="RD" value={site.ownerRdName ?? 'Not assigned'} />
+            </SimpleGrid>
+          </Card>
 
           <WorkbenchAdvancedSection
-            title="Readiness checks"
-            description="Open the full checklist when the current site action is blocked or needs setup review."
+            title="Site details and evidence"
+            description="Open for cadence, readiness checks, form counts, documents, audit history, and reviewed field notes."
           >
-            <Stack gap="xs">
-              {readinessItems.map((item) => (
-                <ReadinessRow key={item.code} item={item} />
-              ))}
-              {readinessItems.length === 0 ? (
-                <Text size="sm" c="dimmed">Readiness checks are not available for this site.</Text>
-              ) : null}
-            </Stack>
-          </WorkbenchAdvancedSection>
+            <SimpleGrid cols={{ base: 1, lg: 3 }} mb="md">
+              <Card withBorder radius="md" p="md">
+                <Title order={5} mb="sm">Cadence</Title>
+                <Stack gap="xs">
+                  <MetadataRow label="Next ROSE Audit" value={formatConsignmentDate(site.nextAuditDueAt)} />
+                  <MetadataRow label="Last Audit" value={formatConsignmentDate(site.lastAuditCompletedAt)} />
+                  <MetadataRow label="Open Work Items" value={String(site.openWorkItemCount ?? 0)} />
+                  <MetadataRow label="Open Discrepancies" value={String(site.openDiscrepancyCount ?? 0)} />
+                </Stack>
+              </Card>
 
-          <WorkbenchAdvancedSection
-            title="Setup and documents"
-            description="Form counts and setup notes remain available without leading the daily site review."
-          >
-            <Stack gap="xs">
-              <MetadataRow label="Agreement Forms" value={String(site.formCounts.agreement ?? 0)} />
-              <MetadataRow label="BLUE Forms" value={String(site.formCounts.blue ?? 0)} />
-              <MetadataRow label="ROSE Forms" value={String(site.formCounts.rose ?? 0)} />
-              <MetadataRow label="PURPLE Forms" value={String(site.formCounts.purple ?? 0)} />
-              <MetadataRow label="SAND Forms" value={String(site.formCounts.sand ?? 0)} />
-              <MetadataRow label="Setup note" value={site.acumaticaWarehouseId ? site.acumaticaWarehouseId : 'Site setup needs confirmation'} />
-            </Stack>
-          </WorkbenchAdvancedSection>
+              <Card withBorder radius="md" p="md">
+                <Title order={5} mb="sm">Readiness</Title>
+                <Stack gap="xs">
+                  {readinessItems.map((item) => (
+                    <ReadinessRow key={item.code} item={item} />
+                  ))}
+                  {readinessItems.length === 0 ? (
+                    <Text size="sm" c="dimmed">Readiness checks are not available for this site.</Text>
+                  ) : null}
+                </Stack>
+              </Card>
 
-          <WorkbenchAdvancedSection
-            title="Documents, audit history, and reviewed field notes"
-            description="Evidence and traceability stay one click away after the operator workflow actions."
-          >
+              <Card withBorder radius="md" p="md">
+                <Title order={5} mb="sm">Program evidence</Title>
+                <Stack gap="xs">
+                  <MetadataRow label="Agreement Forms" value={String(site.formCounts.agreement ?? 0)} />
+                  <MetadataRow label="BLUE Forms" value={String(site.formCounts.blue ?? 0)} />
+                  <MetadataRow label="ROSE Forms" value={String(site.formCounts.rose ?? 0)} />
+                  <MetadataRow label="PURPLE Forms" value={String(site.formCounts.purple ?? 0)} />
+                  <MetadataRow label="SAND Forms" value={String(site.formCounts.sand ?? 0)} />
+                  <MetadataRow label="Setup note" value={site.acumaticaWarehouseId ? site.acumaticaWarehouseId : 'Site setup needs confirmation'} />
+                </Stack>
+              </Card>
+            </SimpleGrid>
+
             {hasEvidenceHistory ? (
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 {site.forms.length ? (

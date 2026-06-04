@@ -137,6 +137,9 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
       new RegExp(escapeRegExp(fixtures.customer.displayName), 'i'),
       'deep',
       'Optional consignment site detail baseline when fixture data is present.',
+      {
+        forbiddenTerms: ['Acumatica', 'ERP', 'inventory', 'PO', 'purchase order', 'manual variance', 'warehouse confirmation', 'warehouse setup waiting', 'approved handoff'],
+      },
     ));
   }
 
@@ -198,8 +201,13 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
   const consignmentDefault = internalReport.find((entry) => entry.slug === 'consignment-default');
   expect(consignmentDefault?.routeReady).toBe(true);
   expect(consignmentDefault?.tableCount).toBeLessThanOrEqual(1);
+  expect(consignmentDefault?.maxTableColumns).toBeLessThanOrEqual(6);
+  expect(consignmentDefault?.maxRowActionsPerRow).toBeLessThanOrEqual(1);
   expect(consignmentDefault?.primaryButtons).toBeLessThanOrEqual(1);
+  expect(consignmentDefault?.secondaryButtons).toBeLessThanOrEqual(2);
   expect(consignmentDefault?.tabs).toBe(0);
+  expect(consignmentDefault?.visibleSections).toBeLessThanOrEqual(2);
+  expect(consignmentDefault?.topLevelPanels).toBeLessThanOrEqual(2);
   expect(consignmentDefault?.copyFindings).toEqual([]);
 
   const accountsDefault = internalReport.find((entry) => entry.slug === 'accounts-default');

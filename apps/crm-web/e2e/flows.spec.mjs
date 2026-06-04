@@ -196,6 +196,7 @@ test('training and consignment seeded operator work stays visible and dealer-saf
   await expect(page.getByRole('heading', { name: 'Activation Readiness' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Audit History' })).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Finish audit' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'More' })).toHaveCount(0);
   await expect(page.getByRole('main').getByRole('button', { name: /Add Agreement|Confirm baseline|Mark Active|Schedule ROSE/ })).toHaveCount(0);
   await expect(page.getByRole('main')).not.toContainText(/\b(Acumatica|ERP|inventory|PO|purchase order|manual variance|warehouse confirmation|warehouse setup waiting|approved handoff)\b/i);
 });

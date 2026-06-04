@@ -88,13 +88,13 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
   await loginWithCredentials(page, fixtures.internalAuth.email, fixtures.internalAuth.password);
 
   await page.goto('/product-management?tab=admin');
-  await expect(page.getByRole('heading', { name: 'Product Catalog' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Source Review' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Source file review' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Blocking Gaps' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Preview Legacy Products' }).click();
+  await page.getByRole('button', { name: 'Preview source files' }).click();
   await expect(page.getByText('Source preview only')).toBeVisible();
   await expect(page.getByRole('table', { name: 'Legacy product source preview' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'Candidate category' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Possible section' })).toBeVisible();
 
   await page.goto('/training?tab=ops');
   await expect(page.getByRole('heading', { name: 'Training Workbench' })).toBeVisible();
@@ -152,7 +152,7 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
     await expect(page.getByRole('menuitem', { name: 'Assignment history' })).toBeVisible();
     await page.keyboard.press('Escape');
   }
-  await page.getByRole('radio', { name: 'Setup & transfers' }).click();
+  await page.getByText('Setup & transfers', { exact: true }).click();
   await expect(page.getByTestId('territory-setup-stepper')).toBeVisible();
   const setupStepper = page.getByTestId('territory-setup-stepper');
   await expect(page.getByTestId('territory-region-step')).toBeVisible();
@@ -164,7 +164,7 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
   await expect(page.getByTestId('territory-setup-review-step')).toBeVisible();
 
   await page.goto('/admin/catalog-rules');
-  await expect(page.getByRole('heading', { name: 'Dealer Catalog Rules' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dealer Group Rules' })).toBeVisible();
   await expect(page.getByTestId('catalog-rules-draft-step')).toBeVisible();
   await expect(page.getByTestId('catalog-rule-sets-table')).toBeHidden();
   await expect(page.getByTestId('catalog-rule-preview-decisions-table')).toHaveCount(0);
@@ -188,23 +188,27 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByText('Mailbox')).toHaveCount(0);
 
   await page.goto('/product-management');
-  await expect(page.getByRole('heading', { name: 'Product Catalog' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Products' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Setup' })).toHaveCount(0);
-  await expect(page.getByRole('textbox', { name: 'Review status' })).toBeVisible();
-  await page.getByRole('tablist').getByRole('button', { name: 'More' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Setup' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Source Review' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Status' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products needing review' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Ready to show' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'What to fix' })).toBeVisible();
+  await page.getByRole('tablist').getByRole('button', { name: 'Setup' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Catalog sections' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'SKU families' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Source file review' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.goto('/product-management?tab=visibility');
   await expect(page.getByRole('tab', { name: 'Who Sees What' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Select a Dealer group').first()).toBeVisible();
   await expect(page.getByText('Selected', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Visible Products')).toHaveCount(0);
-  await expect(page.getByText('Missing Visibility', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Live Version')).toHaveCount(0);
-  await page.getByRole('button', { name: 'How catalog visibility works' }).click();
+  await expect(page.getByText('Products shown')).toHaveCount(0);
+  await expect(page.getByText('Needs dealer group', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Live version')).toHaveCount(0);
+  await page.getByRole('button', { name: 'How dealer groups work' }).click();
   await expect(page.getByText('Dealer group playbook')).toBeVisible();
   await expect(page.getByText(/Affinity and ownership\/PE are separate account signals/i)).toBeVisible();
   await page.keyboard.press('Escape');

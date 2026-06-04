@@ -140,7 +140,7 @@ const CATEGORY_TYPE_OPTIONS = [
   { value: 'product_line', label: 'Product line' },
   { value: 'application', label: 'Application / use case' },
   { value: 'brand', label: 'Brand / private label' },
-  { value: 'legacy_shopify_collection', label: 'Legacy Shopify collection' },
+  { value: 'legacy_shopify_collection', label: 'Legacy reference only' },
   { value: 'internal_reference', label: 'Internal reference' },
 ];
 const CATEGORY_REGION_OPTIONS = [
@@ -153,9 +153,9 @@ const CATEGORY_REGION_OPTIONS = [
   })),
 ];
 const SETUP_AREA_OPTIONS = [
-  { value: 'categories', label: 'Categories' },
-  { value: 'families', label: 'Families' },
-  { value: 'admin', label: 'Advanced setup' },
+  { value: 'categories', label: 'Catalog sections' },
+  { value: 'families', label: 'SKU families' },
+  { value: 'admin', label: 'Source file review' },
 ];
 const CATALOG_VIEW_WIZARD_STEPS: Array<{ value: CatalogViewWizardStep; label: string; helper: string }> = [
   { value: 'audience', label: 'Who is this for?', helper: 'Name the dealer audience.' },
@@ -287,7 +287,7 @@ export function ProductManagementWorkspace() {
       product.category ? null : 'Missing category',
       hasContent ? null : 'Missing dealer-facing content',
       hasPrimaryImage ? null : 'Missing approved primary image',
-      hasDealerVisibility ? null : 'Missing catalog view',
+      hasDealerVisibility ? null : 'Missing dealer group',
     ].filter(Boolean) as string[];
     const warnings = [
       product.family ? null : 'No family assigned',
@@ -572,7 +572,7 @@ export function ProductManagementWorkspace() {
     setError(null);
     try {
       await publishDealerCatalogSnapshot(apiBaseUrl, auth.tokens.accessToken, catalogView.id, {
-        notes: 'Published from Product Catalog screen',
+        notes: 'Published from Product Management screen',
       });
       await reloadCatalog();
       await loadCatalogSnapshots(catalogView);
@@ -658,11 +658,11 @@ export function ProductManagementWorkspace() {
       <Stack gap={2}>
         <Title order={4}>Setup</Title>
         <Text size="sm" c="dimmed">
-          Categories are the sections products appear under. Families group sibling SKUs. Neither decides who sees a product — that is set in Who Sees What.
+          Setup is where admins maintain catalog sections, SKU families, and source-file review. Dealer access is handled in Who Sees What.
         </Text>
       </Stack>
       <Select
-        label="Section"
+        label="Setup area"
         w={260}
         value={activeTab}
         data={SETUP_AREA_OPTIONS}
@@ -675,15 +675,15 @@ export function ProductManagementWorkspace() {
   return (
     <Stack gap="lg">
       <WorkbenchHeader
-        title="Product Catalog"
-        description="Three steps: (1) open Products to fix gaps and attach files, (2) use Who Sees What to choose which dealers see each product and publish, (3) use Setup for categories and families. Open any product to edit its content, files, visibility, and readiness in one place."
-        policyText="Commercial details stay governed separately until the approved integration is ready."
+        title="Product Management"
+        description="Start with Products to fix content, file, and dealer-group gaps. Use Who Sees What to confirm each dealer group sees the right products and files. Setup is only for catalog sections, SKU families, and source-file review."
+        policyText="Commercial details stay outside this workspace until the approved integration is ready."
       />
 
       <WorkbenchMetricStrip
         metrics={[
-          { label: 'Missing dealer visibility', value: visibilityRows.filter((row) => !row.isVisible).length, tone: 'orange' },
-          { label: 'Ready for Dealers', value: readinessRows.filter((row) => row.status === 'pass').length, tone: 'green' },
+          { label: 'Need dealer group', value: visibilityRows.filter((row) => !row.isVisible).length, tone: 'orange' },
+          { label: 'Ready to show', value: readinessRows.filter((row) => row.status === 'pass').length, tone: 'green' },
           { label: 'Products', value: metrics.totalProducts },
           { label: 'Dealer groups', value: catalogViewRows.length },
         ]}
@@ -709,15 +709,21 @@ export function ProductManagementWorkspace() {
             label="Setup"
             items={[
               {
-                id: 'catalog-placement',
-                label: 'Catalog Placement',
-                description: 'Categories and families used for dealer catalog organization.',
+                id: 'catalog-sections',
+                label: 'Catalog sections',
+                description: 'Sections dealers use to browse products.',
                 onClick: () => goToProductTab('categories'),
               },
               {
-                id: 'source-review',
-                label: 'Source Review',
-                description: 'Preview source files without changing the active catalog.',
+                id: 'sku-families',
+                label: 'SKU families',
+                description: 'Sibling SKUs and variant-like product groups.',
+                onClick: () => goToProductTab('families'),
+              },
+              {
+                id: 'source-file-review',
+                label: 'Source file review',
+                description: 'Preview source files without changing what dealers see.',
                 onClick: () => goToProductTab('admin'),
               },
             ]}
@@ -730,8 +736,8 @@ export function ProductManagementWorkspace() {
             <Paper withBorder p="md">
               <Group justify="space-between">
                 <Stack gap={2}>
-                  <Title order={4}>Categories</Title>
-                  <Text size="sm" c="dimmed">Review dealer catalog sections before adding new setup.</Text>
+                  <Title order={4}>Catalog sections</Title>
+                  <Text size="sm" c="dimmed">Sections are where products appear when dealers browse. They do not decide who can see a product.</Text>
                 </Stack>
                 <Button
                   variant={isCategoryFormOpen ? 'default' : 'light'}
@@ -745,7 +751,7 @@ export function ProductManagementWorkspace() {
                     }
                   }}
                 >
-                  {isCategoryFormOpen ? 'Close Setup' : 'Add Category'}
+                  {isCategoryFormOpen ? 'Close Setup' : 'Add Section'}
                 </Button>
               </Group>
             </Paper>
@@ -761,7 +767,7 @@ export function ProductManagementWorkspace() {
                 columns={[
                   {
                     key: 'category',
-                    header: 'Category',
+                    header: 'Section',
                     render: (category) => (
                       <Stack gap={2}>
                         <Text fw={600}>{category.name}</Text>
@@ -796,7 +802,7 @@ export function ProductManagementWorkspace() {
                   <EmptyStateMessage
                     kind="no-data"
                     title="No categories configured yet"
-                    description="Add categories when dealer catalog navigation needs a new section."
+                    description="Add catalog sections when dealer browsing needs a new section."
                   />
                 )}
               />
@@ -805,7 +811,7 @@ export function ProductManagementWorkspace() {
             {isCategoryFormOpen ? (
               <Paper withBorder p="md" data-testid="product-category-form">
               <Stack gap="sm">
-                <Title order={4}>{editingCategoryId ? 'Edit Category' : 'Create Category'}</Title>
+                <Title order={4}>{editingCategoryId ? 'Edit Catalog Section' : 'Create Catalog Section'}</Title>
                 <Text size="sm" c="dimmed">Name the catalog section first. Purpose, region, and display order stay in advanced options.</Text>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
@@ -887,7 +893,7 @@ export function ProductManagementWorkspace() {
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetCategoryForm}>Reset</Button>
                   <Button data-testid="product-category-save" onClick={handleSaveCategory} loading={isSavingCategory}>
-                    {editingCategoryId ? 'Save Category' : 'Create Category'}
+                    {editingCategoryId ? 'Save Section' : 'Create Section'}
                   </Button>
                 </Group>
               </Stack>
@@ -902,8 +908,8 @@ export function ProductManagementWorkspace() {
             <Paper withBorder p="md">
               <Group justify="space-between">
                 <Stack gap={2}>
-                  <Title order={4}>Families</Title>
-                  <Text size="sm" c="dimmed">Review SKU groupings before opening setup.</Text>
+                  <Title order={4}>SKU families</Title>
+                  <Text size="sm" c="dimmed">Families group related SKUs. They help staff compare sibling products but do not decide dealer access.</Text>
                 </Stack>
                 <Button
                   variant={isFamilyFormOpen ? 'default' : 'light'}
@@ -917,7 +923,7 @@ export function ProductManagementWorkspace() {
                     }
                   }}
                 >
-                  {isFamilyFormOpen ? 'Close Setup' : 'Add Family'}
+                  {isFamilyFormOpen ? 'Close Setup' : 'Add SKU Family'}
                 </Button>
               </Group>
             </Paper>
@@ -933,7 +939,7 @@ export function ProductManagementWorkspace() {
                 columns={[
                   {
                     key: 'family',
-                    header: 'Family',
+                    header: 'SKU family',
                     render: (family) => (
                       <Stack gap={2}>
                         <Text fw={600}>{family.name}</Text>
@@ -964,7 +970,7 @@ export function ProductManagementWorkspace() {
                   <EmptyStateMessage
                     kind="no-data"
                     title="No families configured yet"
-                    description="Add product families when related SKUs should be grouped together."
+                    description="Add SKU families when related products should be grouped together."
                   />
                 )}
               />
@@ -973,7 +979,7 @@ export function ProductManagementWorkspace() {
             {isFamilyFormOpen ? (
               <Paper withBorder p="md" data-testid="product-family-form">
               <Stack gap="sm">
-                <Title order={4}>{editingFamilyId ? 'Edit Family' : 'Create Family'}</Title>
+                <Title order={4}>{editingFamilyId ? 'Edit SKU Family' : 'Create SKU Family'}</Title>
                 <Text size="sm" c="dimmed">Name the SKU group dealers and staff will recognize. Display order and status stay in advanced options.</Text>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
@@ -1021,7 +1027,7 @@ export function ProductManagementWorkspace() {
                 </WorkbenchAdvancedSection>
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={handleResetFamilyForm}>Reset</Button>
-                  <Button data-testid="product-family-save" onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save Family' : 'Create Family'}</Button>
+                  <Button data-testid="product-family-save" onClick={handleSaveFamily} loading={isSavingFamily}>{editingFamilyId ? 'Save SKU Family' : 'Create SKU Family'}</Button>
                 </Group>
               </Stack>
             </Paper>
@@ -1034,8 +1040,8 @@ export function ProductManagementWorkspace() {
             <Paper withBorder>
               <Group justify="space-between" align="flex-start" p="md" pb={0}>
                 <Stack gap={2}>
-                  <Title order={4}>Dealer groups</Title>
-                  <Text size="sm" c="dimmed">Review what each dealer context sees, then publish the resolved storefront when it is ready.</Text>
+                  <Title order={4}>Who Sees What</Title>
+                  <Text size="sm" c="dimmed">Choose a dealer group, review the products and files that group will see, then publish only when the preview is clean.</Text>
                 </Stack>
                 <Group gap="xs">
                   <CatalogVisibilityPlaybookButton />
@@ -1072,12 +1078,12 @@ export function ProductManagementWorkspace() {
                       }] : []),
                       {
                         id: 'review-products',
-                        label: 'Review Product Readiness',
+                        label: 'Review products',
                         onClick: () => goToProductTab('products'),
                       },
                       ...(canManageProducts ? [{
                         id: 'advanced-setup',
-                        label: 'Open Advanced Setup',
+                        label: 'Open setup',
                         onClick: () => goToProductTab('admin'),
                       }] : []),
                     ]}
@@ -1088,7 +1094,7 @@ export function ProductManagementWorkspace() {
                 <Group justify="center" p="xl"><Loader /></Group>
               ) : (
                 <WorkbenchTable<CatalogViewRow>
-                  ariaLabel="Dealer catalog views"
+                  ariaLabel="Dealer groups"
                   rows={catalogViewRows}
                   getRowKey={(row) => row.key}
                   minWidth={880}
@@ -1104,7 +1110,7 @@ export function ProductManagementWorkspace() {
                             <Text fw={600}>{row.catalogView}</Text>
                             {selectedCatalogViewRow?.key === row.key ? <Badge color="blue" variant="light">Selected</Badge> : null}
                           </Group>
-                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Configured view' : 'Needs setup'}</Text>
+                          <Text size="xs" c="dimmed">{row.isConfigured ? 'Ready to review' : 'Needs setup'}</Text>
                         </Stack>
                       ),
                     },
@@ -1129,7 +1135,7 @@ export function ProductManagementWorkspace() {
                       render: (row) => (
                         <Stack gap={2}>
                           <Text fw={600}>{row.productCount}</Text>
-                          <Text size="xs" c="dimmed">{row.publishedCount} ready / {row.blockedCount} needs visibility</Text>
+                          <Text size="xs" c="dimmed">{row.publishedCount} ready / {row.blockedCount} needs dealer group</Text>
                         </Stack>
                       ),
                     },
@@ -1184,7 +1190,7 @@ export function ProductManagementWorkspace() {
               )}
             </Paper>
             <WorkbenchDetailRail
-              title={selectedCatalogViewRow ? `${selectedCatalogViewRow.catalogView} publish checklist` : 'Dealer group publish checklist'}
+              title={selectedCatalogViewRow ? `${selectedCatalogViewRow.catalogView} publish checklist` : 'Choose a dealer group'}
               description={selectedCatalogViewRow ? `${selectedCatalogViewRow.resolverInput} - ${selectedCatalogViewRow.region} / ${selectedCatalogViewRow.brand}` : 'Select a Dealer group to review publish readiness.'}
               emptyState={(
                 <EmptyStateMessage
@@ -1197,10 +1203,10 @@ export function ProductManagementWorkspace() {
               {selectedCatalogViewRow ? (
                 <Stack gap="md">
                   <SimpleGrid cols={{ base: 1, sm: 4 }}>
-                    <Metric label="Visible Products" value={selectedCatalogViewRow.productCount} />
+                    <Metric label="Products shown" value={selectedCatalogViewRow.productCount} />
                     <Metric label="Published" value={selectedCatalogViewRow.publishedCount} />
-                    <Metric label="Missing Visibility" value={selectedCatalogViewRow.blockedCount} />
-                    <Metric label="Live Version" value={selectedCatalogViewRow.activeSnapshot ? `v${selectedCatalogViewRow.activeSnapshot.version}` : 'None'} />
+                    <Metric label="Needs dealer group" value={selectedCatalogViewRow.blockedCount} />
+                    <Metric label="Live version" value={selectedCatalogViewRow.activeSnapshot ? `v${selectedCatalogViewRow.activeSnapshot.version}` : 'None'} />
                   </SimpleGrid>
                   <WorkbenchTable
                     ariaLabel="Selected Dealer group product visibility"
@@ -1214,7 +1220,7 @@ export function ProductManagementWorkspace() {
                         header: 'Product',
                         render: (row) => (
                           <Stack gap={2}>
-                            <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
+                          <Text fw={600}>{row.presentation?.displayName ?? row.product.productName}</Text>
                             <Text size="xs" c="dimmed">{row.product.sku}</Text>
                           </Stack>
                         ),
@@ -1229,7 +1235,7 @@ export function ProductManagementWorkspace() {
                         header: 'Portal status',
                         render: (row) => (
                           <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
-                            {row.isVisible ? formatLabel(row.publishStatus) : 'Needs catalog view'}
+                            {row.isVisible ? formatLabel(row.publishStatus) : 'Needs dealer group'}
                           </Badge>
                         ),
                       },
@@ -1358,10 +1364,10 @@ export function ProductManagementWorkspace() {
             <Paper withBorder p="md">
               <Group justify="space-between" align="flex-start">
                 <Stack gap={4}>
-                  <Title order={4}>Catalog readiness queue</Title>
+                  <Title order={4}>Products needing review</Title>
                   <Text size="sm" c="dimmed">
                     {readinessIssueRows.length
-                      ? `${readinessIssueRows.length} loaded product${readinessIssueRows.length === 1 ? '' : 's'} need content, files, or dealer visibility before publish.`
+                      ? `${readinessIssueRows.length} loaded product${readinessIssueRows.length === 1 ? '' : 's'} need content, files, or dealer-group visibility before publish.`
                       : 'Loaded products are ready for dealer review.'}
                   </Text>
                 </Stack>
@@ -1388,8 +1394,8 @@ export function ProductManagementWorkspace() {
               />
               <Select
                 w={220}
-                label="Category"
-                placeholder="All categories"
+                label="Catalog section"
+                placeholder="All sections"
                 clearable
                 searchable
                 data={categoryFilterOptions}
@@ -1398,7 +1404,7 @@ export function ProductManagementWorkspace() {
               />
               <Select
                 w={220}
-                label="Family"
+                label="SKU family"
                 placeholder="All families"
                 clearable
                 searchable
@@ -1408,7 +1414,7 @@ export function ProductManagementWorkspace() {
               />
               <Select
                 w={190}
-                label="Review status"
+                label="Status"
                 placeholder="Any status"
                 clearable
                 data={publishStatusOptions}
@@ -1443,7 +1449,7 @@ export function ProductManagementWorkspace() {
                   },
                   {
                     key: 'placement',
-                    header: 'Catalog placement',
+                    header: 'Section / family',
                     render: (product) => (
                       <Stack gap={2}>
                         <Text size="sm">{product.category?.name ?? 'Unassigned category'}</Text>
@@ -1453,19 +1459,19 @@ export function ProductManagementWorkspace() {
                   },
                   {
                     key: 'readiness',
-                    header: 'Dealer readiness',
+                    header: 'Ready to show',
                     render: (product) => {
                       const readiness = readinessRows.find((row) => row.product.id === product.id);
                       return (
                         <Badge color={readiness?.status === 'pass' ? 'green' : readiness?.status === 'warning' ? 'yellow' : 'red'} variant="light">
-                          {readiness?.status === 'pass' ? 'Ready' : readiness?.status === 'warning' ? 'Needs cleanup' : 'Blocked'}
+                          {readiness?.status === 'pass' ? 'Ready' : readiness?.status === 'warning' ? 'Needs review' : 'Cannot publish yet'}
                         </Badge>
                       );
                     },
                   },
                   {
                     key: 'gaps',
-                    header: 'Gaps',
+                    header: 'What to fix',
                     render: (product) => {
                       const readiness = readinessRows.find((row) => row.product.id === product.id);
                       const gaps = readiness ? [...readiness.blockers, ...readiness.warnings] : [];
@@ -1496,11 +1502,11 @@ export function ProductManagementWorkspace() {
             <Paper withBorder p="md">
               <Group justify="space-between" align="flex-start">
                 <Stack gap={4}>
-                  <Title order={4}>Source Review</Title>
-                  <Text size="sm" c="dimmed">Preview legacy product references without changing the active dealer catalog.</Text>
+                  <Title order={4}>Source file review</Title>
+                  <Text size="sm" c="dimmed">Preview source product references without changing what dealers see.</Text>
                 </Stack>
                 <Button variant="light" onClick={handlePreviewImport} loading={isPreviewingImport}>
-                  Preview Legacy Products
+                  Preview source files
                 </Button>
               </Group>
               {importPreview ? (
@@ -1508,7 +1514,7 @@ export function ProductManagementWorkspace() {
                   <Alert color="blue" title="Source preview only">
                     <Text size="sm">
                       {importPreview.uniqueSkus} unique SKUs from {importPreview.acumaticaRows} Acumatica rows and {importPreview.shopifyRows} Shopify rows.
-                      {' '}Detected {importPreview.candidateCategories} candidate categories and {importPreview.imageAssets} image links. Review only: final product load waits for certified Acumatica item mapping.
+                      {' '}Detected {importPreview.candidateCategories} possible catalog sections and {importPreview.imageAssets} image links. Review only: final product load waits for certified product mapping.
                     </Text>
                   </Alert>
                   {importPreview.warnings.length ? (
@@ -1552,7 +1558,7 @@ export function ProductManagementWorkspace() {
                       },
                       {
                         key: 'candidate-category',
-                        header: 'Candidate category',
+                        header: 'Possible section',
                         render: (product) => product.categoryName ?? 'Unmapped',
                       },
                       {
@@ -1607,12 +1613,12 @@ export function ProductManagementWorkspace() {
           {catalogViewWizardStep === 'audience' ? (
             <Stack gap="sm">
               <Text size="sm" c="dimmed">
-                Start with the dealer context Dynamic staff will recognize. Affinity, ownership/PE, independent, and regional rules stay flexible behind this view.
+                Start with the dealer context Dynamic staff will recognize. Buying groups, parent/PE ownership, independent dealers, and regional rules stay flexible behind this group.
               </Text>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <TextInput
-                  label="Audience name"
-                  aria-label="Catalog view name"
+                  label="Dealer group name"
+                  aria-label="Dealer group name"
                   data-testid="dealer-catalog-view-name"
                   placeholder="Standard US Dealer Catalog"
                   value={catalogViewForm.name}
@@ -1620,8 +1626,8 @@ export function ProductManagementWorkspace() {
                   required
                 />
                 <Select
-                  label="Audience type"
-                  aria-label="Catalog audience type"
+                  label="Dealer group type"
+                  aria-label="Dealer group type"
                   data={CATALOG_VIEW_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                   value={catalogViewForm.kind}
                   onChange={(value) => {
@@ -1636,7 +1642,7 @@ export function ProductManagementWorkspace() {
                 />
                 <TextInput
                   label="Internal staff label"
-                  aria-label="Catalog display label"
+                  aria-label="Dealer group display label"
                   data-testid="dealer-catalog-display-label"
                   placeholder="Nexstar, Redwood / Apollo, Canada"
                   value={catalogViewForm.resolverLabel}
@@ -1649,12 +1655,12 @@ export function ProductManagementWorkspace() {
           {catalogViewWizardStep === 'scope' ? (
             <Stack gap="sm">
               <Text size="sm" c="dimmed">
-                Add only the visible catalog scope. Price class and ERP pricing stay outside Product Catalog.
+                Add only the visible catalog scope. Commercial details stay outside this dealer group.
               </Text>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <Select
                   label="Region"
-                  aria-label="Catalog region"
+                  aria-label="Dealer group region"
                   placeholder="All regions"
                   data={CATEGORY_REGION_OPTIONS}
                   value={catalogViewForm.regionScope || null}
@@ -1664,7 +1670,7 @@ export function ProductManagementWorkspace() {
                 />
                 <TextInput
                   label="Brand / private label"
-                  aria-label="Catalog brand or private label"
+                  aria-label="Dealer group brand or private label"
                   data-testid="dealer-catalog-brand-label"
                   placeholder="Dynamic, dealer brand, private label"
                   value={catalogViewForm.brandLabel}
@@ -1673,7 +1679,7 @@ export function ProductManagementWorkspace() {
               </SimpleGrid>
               <Textarea
                 label="Notes"
-                aria-label="Catalog notes"
+                aria-label="Dealer group notes"
                 data-testid="dealer-catalog-notes"
                 minRows={2}
                 value={catalogViewForm.description}
@@ -1691,9 +1697,9 @@ export function ProductManagementWorkspace() {
             <Stack gap="sm">
               <SimpleGrid cols={{ base: 1, sm: 4 }}>
                 <Metric label="Audience" value={catalogViewForm.name || 'Not named'} />
-                <Metric label="Visible Products" value={editingCatalogViewRow?.productCount ?? 'New'} />
-                <Metric label="Missing Visibility" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
-                <Metric label="Live Version" value={editingCatalogViewRow?.activeSnapshot ? `v${editingCatalogViewRow.activeSnapshot.version}` : 'None'} />
+                <Metric label="Products shown" value={editingCatalogViewRow?.productCount ?? 'New'} />
+                <Metric label="Needs dealer group" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
+                <Metric label="Live version" value={editingCatalogViewRow?.activeSnapshot ? `v${editingCatalogViewRow.activeSnapshot.version}` : 'None'} />
               </SimpleGrid>
               <Paper withBorder p="md">
                 <Stack gap="xs">
@@ -1716,7 +1722,7 @@ export function ProductManagementWorkspace() {
                   <SimpleGrid cols={{ base: 1, md: 2 }}>
                     <NumberInput
                       label="View priority"
-                      aria-label="Catalog view priority"
+                      aria-label="Dealer group priority"
                       description="Lower numbers win when more than one Dealer group matches."
                       min={1}
                       max={999}
@@ -1725,7 +1731,7 @@ export function ProductManagementWorkspace() {
                     />
                     <TextInput
                       label="Matching code"
-                      aria-label="Catalog matching value"
+                      aria-label="Dealer group matching value"
                       data-testid="dealer-catalog-matching-value"
                       description="Optional code used by catalog setup."
                       placeholder="nexstar, redwood, CA, private-label-code"
@@ -1757,7 +1763,7 @@ export function ProductManagementWorkspace() {
                   onClick={() => setCatalogViewWizardStep(catalogViewWizardStep === 'audience' ? 'scope' : 'review')}
                   disabled={catalogViewWizardStep === 'audience' && !catalogViewForm.name.trim()}
                 >
-                  {catalogViewWizardStep === 'audience' ? 'Choose Scope' : 'Review Before Publish'}
+                  {catalogViewWizardStep === 'audience' ? 'Set Visibility' : 'Review'}
                 </Button>
               ) : (
                 <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
@@ -1777,7 +1783,7 @@ function CatalogVisibilityPlaybookButton() {
     <Popover width={360} position="bottom-end" shadow="md" withinPortal>
       <Popover.Target>
         <Button variant="light" size="sm">
-          How catalog visibility works
+          How dealer groups work
         </Button>
       </Popover.Target>
       <Popover.Dropdown>
@@ -1793,7 +1799,7 @@ function CatalogVisibilityPlaybookButton() {
             Region and brand scope change presentation and files, not the ERP product identity.
           </Text>
           <Text size="sm">
-            Price class remains separate from catalog visibility and is parked for the approved integration.
+            Price class is pricing context only; it does not decide who sees a product.
           </Text>
         </Stack>
       </Popover.Dropdown>

@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-H deployed and QA passed; next table-density/consignment-depth pass pending`
+Status: `In Progress - Slices A-H deployed and QA passed; Slice I Product Management clarity local QA passed; deploy pending`
 
 ## Product Design Brief
 
@@ -40,7 +40,7 @@ Internal evidence is even stronger:
 | --- | --- | --- | --- |
 | Leads + Accounts | Lead Management and Account Management | Leads still expose metrics, tabs, filters, board/list, and attention surfaces together; Accounts are mostly improved after UX-06 Slice B. | Make Leads a list-first next-action queue; demote Kanban and metrics to modes/Insights. |
 | Territory | Territory Management | Territory remains the strongest mismatch: `Dashboard`, `Map View`, `Territory List`, metrics, and setup/reporting compete before RD/TM daily work. | Make `Needs attention` the default action queue; move map/list/performance/setup into More or drill-ins. |
-| Product + Assets + Dealer Portal | Product Management, Digital Assets, Dealer Portal | Slice C removes the catalog-view auto-selection, makes asset sharing quick-link first, and cleans dealer-facing publish/missing-file/admin wording. | Verify Product visibility, Digital Assets library/detail, and Dealer Portal copy with focused Browser/Playwright once host resources allow. |
+| Product + Assets + Dealer Portal | Product Management, Digital Assets, Dealer Portal | Slice I keeps Product Management readable as a product-review workspace: Products needing review, Who Sees What, Catalog sections, SKU families, and source-file review only under Setup. | Deploy Slice I and run live Product Management smoke, then move to Digital Assets/Consignment second-click density if first-paint clarity remains green. |
 | Training + Consignment | Training, Consignment | Slice F now splits Training completion into guided steps and compacts Consignment site detail around the current site work. | Keep the guided flow; next pass should be role/persona signoff and any remaining deep-detail polish, not new parked dependency work. |
 | Admin + Calendar + Navigation | Admin, Roles/Permissions, Calendar, App Shell | Admin integrations stack multiple setup panels; Calendar is improved but still mixes schedule grid, health, and metrics; nav labels can drift from current defaults. | Add integration selector; keep Calendar schedule + Day Health only; align nav labels with default work surfaces. |
 | Requirements + Meeting Sentiment | Meetings and requirements maps | The strongest business requirement is not “show everything”; it is reduce manual work and friction while keeping truth/audit intact. | Optimize default hierarchy and language first, without weakening governance. |
@@ -68,7 +68,7 @@ Internal evidence is even stronger:
 | Territory | Strongest remaining clutter. Daily RD/TM work competes with map/list/reporting/setup. | Default to `Territory Action Queue`. Promote assignment/ownership gaps first. Move `Map View`, `Territory List`, `Performance details`, and `Setup & transfers` behind More/deep links. Convert setup to `Region -> Shipping hub -> Territory -> Coverage review`. |
 | Training | Slice F keeps `Priority Queue` as the visible primary tab and now splits session completion into `Completion`, `Proof`, `Certification`, and `Follow-up` steps without changing APIs. | Keep completion step-by-step. Next depth should tune copy/validation only after role UAT feedback. |
 | Consignment | Slice F proves realistic open ROSE audits appear in `Next site work` and the site detail first paint is now `Current site work` with readiness/metrics/setup/history behind advanced sections. | Keep Acumatica/ERP/PO/inventory terms parked out of first paint. Next depth should be role UAT and selected detail polish. |
-| Product Management | Slice H removes remaining `Dealer Catalog View` wording from operator UI and standardizes the mental model around products, files, dealer groups, and setup. | Keep `/product-management` readiness-first and `/product-management?tab=visibility` selection-first. Continue protecting Category/Family as catalog organization and Dealer group/Who Sees What as visibility, while leaving API/database names intact. |
+| Product Management | Slice I makes the default page understandable without schema knowledge: `Product Management`, `Products needing review`, `Ready to show`, `What to fix`, `Catalog sections`, `SKU families`, and `Who Sees What`. | Keep `/product-management` product-review-first and `/product-management?tab=visibility` dealer-group-selection-first. Continue protecting Category/Family as catalog organization and Dealer group/Who Sees What as visibility, while leaving API/database names intact. |
 | Digital Assets | Slice C keeps share-ready files first, moves review-all-files into More, and collapses recipient/context/history under share options. | Keep `Copy customer link` / `Create share link` as the visible selected-asset job. Keep upload/migration/source trace in More or advanced sections. |
 | Dealer Portal | Slice C removes internal publishing/missing-file/admin copy from catalog/detail/dashboard/account surfaces. | Dealer sees `Start Here`, `Account Center`, `Account Health`, `Products and Files`; unavailable/internal file records should not appear. |
 | Admin/Roles | Integrations tab stacks Entra, Calendar, Payment, and Lead Alerts together. Admin default mixes metrics/daily work/setup. | Admin default = `Users & Access`. Integrations use a selector so only one setup panel is open. Metrics/health/provider notes move into detail disclosures. |
@@ -138,7 +138,7 @@ Status: `Implemented - static and focused Browser/Playwright QA passed`
 Delivered:
 
 - Product Management no longer auto-selects the first visibility row on `/product-management?tab=visibility`; the detail rail starts with `Select a Dealer group`.
-- Product Catalog metrics and copy use business terms such as `Missing dealer visibility`, `ready`, `catalog sections`, and `SKU groupings`.
+- Product Management metrics and copy use business terms such as `Need dealer group`, `Ready to show`, `Catalog sections`, and `SKU families`.
 - Product detail scoped-presentation overrides now read as advanced exceptions, with `Regional audience`, `Approved relationship audience`, and ownership/private-label audience labels.
 - Digital Assets keeps the approved/share-ready library as the first paint, moves `Review all files` into `More`, hides visibility filtering until review mode, and keeps upload/migration out of the default work surface.
 - Selected Digital Asset detail keeps `Copy customer link` / `Create share link` first and collapses recipient fields, CRM context, and share-link history into `Share options and link history`.
@@ -361,6 +361,43 @@ Proof passed:
 - Deployed smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, expected parked Acumatica false/503, and `pulse-api`, `pulse-web`, and `nginx` were active.
 - Deployed live UI smoke passed for `/product-management`, `/product-management?tab=visibility`, `/leads/forms` Dealer Classification, and `/admin/catalog-rules`; results/screenshots: `output/playwright/ux-07-slice-h-live/`.
 
+### Slice I - Product Management First-Paint Clarity
+
+Purpose: make Product Management understandable to client users as a governed dealer-catalog workbench, not a schema/admin/import screen.
+
+Status: `Implemented - local typecheck, focused Playwright, and critical clutter QA passed; deployment pending`
+
+Delivered so far:
+
+- Product Management now starts with the plain job: `Products needing review`.
+- First-paint language uses `Product Management`, `Need dealer group`, `Ready to show`, and `What to fix`.
+- Setup is expressed as `Catalog sections`, `SKU families`, and `Source file review`; source review stays behind Setup and is not visible on the default page.
+- The dealer access path stays `Who Sees What`, with the helper action renamed to `How dealer groups work`.
+- The PRD now includes a plain-language playbook: Product Management decides which approved products, copy, files, and catalog sections each dealer group should see.
+- The Product/Digital Assets requirements map now has a Slice I trace linking the UI clarity pass back to PM-001, PM-002, PM-006/PM-007, PM-008/PM-009, and PM-012.
+- Product default clutter is now a critical QA route and fails if Acumatica, Widen, pricing, price class, import, source-file review, or setup actions leak into first paint.
+
+Client-safe mental model:
+
+```mermaid
+flowchart LR
+  A["Product truth"] --> B["Products needing review"]
+  C["Digital Assets"] --> B
+  D["Catalog sections + SKU families"] --> B
+  B --> E["Who Sees What\nDealer groups"]
+  E --> F["Ready to show"]
+  F --> G["Dealer Portal\nProducts and files"]
+```
+
+Proof passed:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `git diff --check`
+- `node --check apps/crm-web/e2e/ux-depth.spec.mjs && node --check apps/crm-web/e2e/ux-clutter.spec.mjs && node --check apps/crm-web/e2e/ux-visual.spec.mjs && node --check apps/crm-web/e2e/flows.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "product" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "advanced tables" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`
@@ -387,6 +424,6 @@ These must not be pulled into first-paint UI while optimizing:
 
 ## Recommended Next Slice
 
-After Slice G deployed proof, move to a **targeted table-density pass** only where operators still cannot scan the next action quickly.
+After Slice I deploys, move to a **targeted consignment/business-depth and table-density pass** only where operators still cannot scan the next action quickly.
 
-The local critical clutter report, focused Training/Consignment E2E flow, Admin flow, Dealer catalog personas, UX-07 role/persona signoff, public deploy probe, and deployed Super Admin/RD/TM/dealer smoke are green. The next useful cleanup is not a new feature; it is to tighten the remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.
+The local critical clutter report, focused Training/Consignment E2E flow, Admin flow, Dealer catalog personas, UX-07 role/persona signoff, public deploy probe, deployed Super Admin/RD/TM/dealer smoke, and local Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten the remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.

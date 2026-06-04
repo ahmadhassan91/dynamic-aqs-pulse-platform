@@ -17,6 +17,33 @@ Pulse Product Management is the governed catalog layer between Acumatica, Digita
 
 The central product rule is: a product is not a Shopify row. Pulse should model Acumatica sellable items, product families, and dealer/brand/region presentations separately so private-label and region-specific catalog behavior can be managed without cloning product truth.
 
+## Plain-Language Product Management Playbook
+
+Product Management answers one business question:
+
+> Which approved products, copy, files, and catalog sections should each dealer group see?
+
+It is easier to explain the module as four jobs:
+
+| Job | UI language | What it means | What it is not |
+|---|---|---|---|
+| Review products | Products needing review | Fix missing content, files, catalog section, SKU family, and dealer-group gaps before publishing. | It is not the final ERP product master. |
+| Organize the catalog | Catalog sections and SKU families | Catalog sections are where products appear when dealers browse. SKU families group sibling/variant-like SKUs. | These do not decide dealer access. |
+| Decide who sees what | Dealer groups / Who Sees What | A dealer group is the resolved catalog audience for affinity, ownership/PE, independent/hybrid, region, brand, and portal eligibility rules. | It is not a price class and does not change product identity. |
+| Publish safely | Ready to show / What to fix | Only publish when the product has content, files, catalog organization, and dealer-group visibility. | It is not order placement, inventory, invoicing, or payment. |
+
+```mermaid
+flowchart LR
+    A["Product truth<br/>Acumatica later, approved references now"] --> B["Product Management<br/>review products"]
+    C["Digital Assets<br/>images, brochures, spec sheets"] --> B
+    D["Setup<br/>catalog sections + SKU families"] --> B
+    B --> E["Who Sees What<br/>dealer groups"]
+    E --> F["Ready to show<br/>publish-safe catalog"]
+    F --> G["Dealer Portal<br/>products and files"]
+```
+
+This is why the UI must keep the first screen focused on products needing review. Setup, source-file review, and parked integrations remain available, but they should not be the first thing a product user has to understand.
+
 ## Source-Of-Truth Boundaries
 
 | Area | Source Of Truth | Pulse Responsibility | Parked Dependency |
@@ -187,7 +214,7 @@ flowchart TD
     H --> I["Approved Product List"]
     H --> J["Approved Assets"]
     H --> K["Allowed Product Presentations"]
-    I --> L["Dealer Portal Product Catalog"]
+    I --> L["Dealer Portal Products and Files"]
     J --> L
     K --> L
 ```
@@ -267,7 +294,7 @@ flowchart LR
 | PM0 | PRD, traceability, source-of-truth boundaries | This document plus requirements map. |
 | PM1 | Schema, contracts, permissions | Explicit Product/Digital Asset tables, RBAC actions, shared contracts. |
 | PM2 | API foundation | Product list/detail/category/family/presentation/visibility/readiness endpoints. |
-| PM3 | CRM web workspace | Product Catalog, Product Detail, Categories, Who Sees It, Files, Go-Live Check. |
+| PM3 | CRM web workspace | Product Management, Product Detail, Products needing review, Catalog sections, SKU families, Who Sees What, Files, readiness checks. |
 | PM4 | Digital Assets linkage | Link approved assets, brand/dealer group warnings, stable asset URLs. |
 | PM5 | Publish feed | Approved catalog read model for Dealer Portal. |
 | PM6 | Acumatica sync | Resume when sandbox credentials, mappings, sample data, and replay/reconciliation rules are approved. |

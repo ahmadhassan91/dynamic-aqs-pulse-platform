@@ -803,7 +803,7 @@ async function assertInternalDefaultRoutes(page, routeKeys) {
     customers: ['/customers', /Account Management/i],
     training: ['/training', /Training Workbench/i],
     consignment: ['/consignment', /Consignment Workspace/i],
-    'product-management': ['/product-management', /Product Catalog/i],
+    'product-management': ['/product-management', /Product Management/i],
     'digital-assets': ['/digital-assets', /Digital Assets/i],
     admin: ['/admin', /System Administration/i],
     calendar: ['/calendar', /CRM Calendar/i],

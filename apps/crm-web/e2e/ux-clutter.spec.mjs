@@ -116,10 +116,13 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
       critical: true,
       forbiddenTerms: ['Acumatica', 'ERP', 'inventory', 'PO', 'purchase order', 'manual variance', 'warehouse confirmation', 'warehouse setup waiting', 'approved handoff'],
     }),
-    route('product-default', '/product-management', /Product Catalog/i, 'default', 'Products and dealer group baseline.'),
-    route('product-visibility', '/product-management?tab=visibility', /Product Catalog/i, 'setup', 'Dealer group selection should not auto-open publish detail.', {
+    route('product-default', '/product-management', /Product Management/i, 'default', 'Products and dealer group baseline.', {
       critical: true,
-      forbiddenTerms: ['Selected', 'Visible Products', 'Missing Visibility', 'Live Version', 'Review before publish:'],
+      forbiddenTerms: ['Acumatica', 'Widen', 'pricing', 'price class', 'import', 'Preview source files', 'Source file review'],
+    }),
+    route('product-visibility', '/product-management?tab=visibility', /Product Management/i, 'setup', 'Dealer group selection should not auto-open publish detail.', {
+      critical: true,
+      forbiddenTerms: ['Selected', 'Products shown', 'Live version', 'Review before publish:'],
     }),
     route('product-detail', `/product-management/products/${fixtures.product.productId}`, new RegExp(escapeRegExp(fixtures.product.displayName), 'i'), 'deep', 'Product readiness board/detail density baseline.'),
     route('digital-assets-default', '/digital-assets', /Digital Assets/i, 'default', 'Fast share first candidate baseline.', { critical: true }),
@@ -168,10 +171,11 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
   const productDefault = internalReport.find((entry) => entry.slug === 'product-default');
   if (productDefault) {
     expect(productDefault.routeReady).toBe(true);
+    expect(productDefault.copyFindings).toEqual([]);
     expect(productDefault.primaryButtons).toBeLessThanOrEqual(1);
     expect(productDefault.tabs).toBeLessThanOrEqual(2);
     expect(productDefault.samples.buttons.some((sample) => (
-      /\b(Add Category|Add Family|Preview Legacy Products|Open Advanced Setup|Publish|Rollback)\b/i.test(sample.label)
+      /\b(Add Section|Add SKU Family|Preview source files|Open setup|Publish|Rollback)\b/i.test(sample.label)
     ))).toBe(false);
   }
 

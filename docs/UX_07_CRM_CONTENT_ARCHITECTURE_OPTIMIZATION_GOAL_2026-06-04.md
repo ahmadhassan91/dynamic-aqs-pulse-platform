@@ -658,6 +658,39 @@ Proof passed so far:
 - Manual EC2 release `manual-20260605161520-training-desktop-layout` deployed to `https://pulse-crm.theclustox.com`.
 - Public smoke passed: `/training` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
 
+### Slice Q - Consignment Selected Work Detail Rail
+
+Purpose: make Consignment feel like a real workbench instead of a basic list while keeping the default screen simple. The selected daily work item now explains the next action in a desktop detail rail, using the right-side canvas without adding ERP or report clutter to first paint.
+
+Status: `Implemented - local QA passed; manual EC2 deploy and public smoke passed`
+
+Delivered so far:
+
+- `/consignment` keeps `Next site work` as the daily default queue.
+- The queue now opens with a selected-work detail rail beside it on desktop, showing the action, site, owner, due date, and reason it is in the queue.
+- Clicking a queue row updates the selected-work rail; `Open site` remains the single primary next action for deeper evidence/history.
+- The shared `WorkbenchDetailRail` title now renders as a semantic heading while keeping the compact visual treatment.
+- UX depth coverage now asserts that the Consignment selected-work detail rail is present on the default workbench.
+
+Requirement trace:
+
+| Requirement area | Slice Q response |
+| --- | --- |
+| Consignment daily work | Makes due audits, follow-ups, setup confirmations, and site issues easier to understand before opening a record. |
+| CRM simplicity principle | Keeps one default queue and one selected detail explanation instead of reintroducing report cards or setup tabs. |
+| Samantha/Ops process clarity | Explains why the site is in the queue without exposing warehouse, PO, purchase-order, or Acumatica mechanics. |
+| Parked dependency boundary | Does not add inventory truth, transfer/receipt posting, PO creation, settlement, or Acumatica command/sync work. |
+
+Proof passed so far:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `pnpm --filter @pulse/crm-web build`
+- `node --check apps/crm-web/e2e/ux-depth.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "UX-05 slice E Training and Consignment" --workers=1 --max-failures=1`
+- `git diff --check`
+- Manual EC2 release `manual-20260606014625-consignment-detail-rail` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/consignment` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`

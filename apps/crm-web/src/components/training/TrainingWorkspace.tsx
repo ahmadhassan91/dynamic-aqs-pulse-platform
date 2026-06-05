@@ -1046,44 +1046,42 @@ export function TrainingWorkspace() {
 
             <Tabs.Panel value="ops" pt="lg" data-testid="training-ops-panel">
               <Stack gap="md">
-                <Group justify="space-between" align="flex-end">
-                  <WorkbenchAdvancedSection
-                    title="Filters"
-                    description="Narrow by owner or due window when the queue is too broad."
-                  >
-                    <Group align="flex-end">
-                      <Select
-                        label="Territory manager"
-                        placeholder="All TMs"
-                        clearable
-                        data={tmFilterOptions}
-                        value={opsTmFilter}
-                        onChange={setOpsTmFilter}
-                        searchable
-                      />
-                      <Select
-                        label="Regional director"
-                        placeholder="All RDs"
-                        clearable
-                        data={rdFilterOptions}
-                        value={opsRdFilter}
-                        onChange={setOpsRdFilter}
-                        searchable
-                      />
-                      <Select
-                        label="Due window"
-                        value={opsCertificationWindowDays}
-                        onChange={(value) => setOpsCertificationWindowDays(value ?? '45')}
-                        data={[
-                          { value: '30', label: 'Next 30 days' },
-                          { value: '45', label: 'Next 45 days' },
-                          { value: '60', label: 'Next 60 days' },
-                          { value: '90', label: 'Next 90 days' },
-                        ]}
-                      />
-                    </Group>
-                  </WorkbenchAdvancedSection>
-                </Group>
+                <WorkbenchAdvancedSection
+                  title="Filters"
+                  description="Narrow by owner or due window when the queue is too broad."
+                >
+                  <Group align="flex-end">
+                    <Select
+                      label="Territory manager"
+                      placeholder="All TMs"
+                      clearable
+                      data={tmFilterOptions}
+                      value={opsTmFilter}
+                      onChange={setOpsTmFilter}
+                      searchable
+                    />
+                    <Select
+                      label="Regional director"
+                      placeholder="All RDs"
+                      clearable
+                      data={rdFilterOptions}
+                      value={opsRdFilter}
+                      onChange={setOpsRdFilter}
+                      searchable
+                    />
+                    <Select
+                      label="Due window"
+                      value={opsCertificationWindowDays}
+                      onChange={(value) => setOpsCertificationWindowDays(value ?? '45')}
+                      data={[
+                        { value: '30', label: 'Next 30 days' },
+                        { value: '45', label: 'Next 45 days' },
+                        { value: '60', label: 'Next 60 days' },
+                        { value: '90', label: 'Next 90 days' },
+                      ]}
+                    />
+                  </Group>
+                </WorkbenchAdvancedSection>
 
                 <Group gap="xs" role="tablist" aria-label="Training priority queues">
                   {trainingOpsQueueOptions.map((option) => (
@@ -1105,8 +1103,8 @@ export function TrainingWorkspace() {
                   ))}
                 </Group>
 
-                <SimpleGrid cols={{ base: 1, xl: 2 }}>
-                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'recertification' ? undefined : 'none' }}>
+                {opsQueueView === 'recertification' ? (
+                  <Paper withBorder radius="md" p="lg" w="100%" data-testid="training-priority-work-surface">
                     <Stack gap="sm">
                       <Title order={4}>Recertification queue</Title>
                       <Text size="sm" c="dimmed">
@@ -1150,8 +1148,10 @@ export function TrainingWorkspace() {
                       />
                     </Stack>
                   </Paper>
+                ) : null}
 
-                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'coaching' ? undefined : 'none' }}>
+                {opsQueueView === 'coaching' ? (
+                  <Paper withBorder radius="md" p="lg" w="100%" data-testid="training-priority-work-surface">
                     <Stack gap="sm">
                       <Title order={4}>Coaching workload</Title>
                       <Text size="sm" c="dimmed">
@@ -1191,42 +1191,43 @@ export function TrainingWorkspace() {
                       />
                     </Stack>
                   </Paper>
-                </SimpleGrid>
+                ) : null}
 
-                <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'proof' ? undefined : 'none' }}>
-                  <Stack gap="sm">
-                    <Title order={4}>Proof and certification review</Title>
-                    <Table striped highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Account</Table.Th>
-                          <Table.Th>Session</Table.Th>
-                          <Table.Th>Detail</Table.Th>
-                          {canSchedule ? <Table.Th>Action</Table.Th> : null}
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {proofExceptionItems.length > 0 ? proofExceptionItems.map((item) => (
-                          <Table.Tr key={`${item.sessionId}-${item.type}`}>
-                            <Table.Td>
-                              <Stack gap={0}>
-                                <Text fw={600}>{item.accountName ?? 'Account'}</Text>
-                                <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>{item.title}</Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text size="sm">{item.detail}</Text>
-                                <Badge size="xs" color={exceptionSeverityColor(item.severity)} variant="light">
-                                  {formatTrainingLabel(item.type)}
-                                </Badge>
-                              </Stack>
-                            </Table.Td>
-		                            {canSchedule ? (
-		                              <Table.Td>
-		                                <RowActionMenu
-		                                  items={[
+                {opsQueueView === 'proof' ? (
+                  <Paper withBorder radius="md" p="lg" w="100%" data-testid="training-priority-work-surface">
+                    <Stack gap="sm">
+                      <Title order={4}>Proof and certification review</Title>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Session</Table.Th>
+                            <Table.Th>Detail</Table.Th>
+                            {canSchedule ? <Table.Th>Action</Table.Th> : null}
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {proofExceptionItems.length > 0 ? proofExceptionItems.map((item) => (
+                            <Table.Tr key={`${item.sessionId}-${item.type}`}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{item.accountName ?? 'Account'}</Text>
+                                  <Text size="sm" c="dimmed">{item.territoryName ?? item.regionName ?? 'Unassigned territory'}</Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{item.title}</Table.Td>
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Text size="sm">{item.detail}</Text>
+                                  <Badge size="xs" color={exceptionSeverityColor(item.severity)} variant="light">
+                                    {formatTrainingLabel(item.type)}
+                                  </Badge>
+                                </Stack>
+                              </Table.Td>
+                              {canSchedule ? (
+                                <Table.Td>
+                                  <RowActionMenu
+                                    items={[
                                       ...(item.type === 'certification_decision_pending' ? [{
                                         id: 'resolve-decision',
                                         label: 'Resolve decision',
@@ -1238,24 +1239,25 @@ export function TrainingWorkspace() {
                                         onClick: () => router.push(`/customers/${item.accountId}?tab=training-history`),
                                       },
                                     ]}
-		                                />
-		                              </Table.Td>
-		                            ) : null}
-                          </Table.Tr>
-                        )) : (
-                          <Table.Tr>
-                            <Table.Td colSpan={canSchedule ? 4 : 3}>
-                              <TrainingQueueAllClear />
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Table.Tbody>
-                    </Table>
-                  </Stack>
-                </Paper>
+                                  />
+                                </Table.Td>
+                              ) : null}
+                            </Table.Tr>
+                          )) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={canSchedule ? 4 : 3}>
+                                <TrainingQueueAllClear />
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Stack>
+                  </Paper>
+                ) : null}
 
-                <SimpleGrid cols={{ base: 1, xl: 2 }}>
-                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'cadence' ? undefined : 'none' }}>
+                {opsQueueView === 'cadence' ? (
+                  <Paper withBorder radius="md" p="lg" w="100%" data-testid="training-priority-work-surface">
                     <Stack gap="sm">
                       <Title order={4}>Overdue cadence queue</Title>
                       <WorkbenchTable<TrainingOverdueProgramRow>
@@ -1309,8 +1311,10 @@ export function TrainingWorkspace() {
                       />
                     </Stack>
                   </Paper>
+                ) : null}
 
-                  <Paper withBorder radius="md" p="lg" style={{ display: opsQueueView === 'exceptions' ? undefined : 'none' }}>
+                {opsQueueView === 'exceptions' ? (
+                  <Paper withBorder radius="md" p="lg" w="100%" data-testid="training-priority-work-surface">
                     <Stack gap="sm">
                       <Title order={4}>Session issues</Title>
                       <WorkbenchTable<TrainingOperationalExceptionQueueItem>
@@ -1361,7 +1365,7 @@ export function TrainingWorkspace() {
                       />
                     </Stack>
                   </Paper>
-                </SimpleGrid>
+                ) : null}
               </Stack>
             </Tabs.Panel>
 

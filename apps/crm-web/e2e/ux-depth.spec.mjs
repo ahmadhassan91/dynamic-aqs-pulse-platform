@@ -112,15 +112,19 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
   await page.goto('/training?tab=ops');
   await expect(page.getByRole('heading', { name: 'Training Workbench' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Recertification queue' })).toBeVisible();
+  await expectTrainingWorkSurfaceWide(page);
   await expect(page.getByRole('table', { name: 'Coaching workload upcoming sessions' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Coaching' }).click();
   await expect(page.getByRole('table', { name: 'Coaching workload upcoming sessions' })).toBeVisible();
+  await expectTrainingWorkSurfaceWide(page);
   await expect(page.getByRole('table', { name: 'Recertification queue' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Overdue Cadence' }).click();
   await expect(page.getByRole('table', { name: 'Overdue cadence queue' })).toBeVisible();
+  await expectTrainingWorkSurfaceWide(page);
   await expect(page.getByRole('table', { name: 'Coaching workload upcoming sessions' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Session Issues' }).click();
   await expect(page.getByRole('table', { name: 'Training execution exceptions' })).toBeVisible();
+  await expectTrainingWorkSurfaceWide(page);
 
   await page.goto('/territories');
   await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
@@ -616,6 +620,14 @@ async function captureDialogBudget(page, slug, title) {
     .toBeLessThanOrEqual(dialogBudget.maxEmptyMessages);
 
   return { slug, title, ...budget };
+}
+
+async function expectTrainingWorkSurfaceWide(page) {
+  const workSurface = page.getByTestId('training-priority-work-surface');
+  await expect(workSurface).toHaveCount(1);
+  await expect(workSurface).toBeVisible();
+  const width = await workSurface.evaluate((element) => Math.round(element.getBoundingClientRect().width));
+  expect(width).toBeGreaterThan(900);
 }
 
 async function capturePageBudget(page, slug) {

@@ -116,15 +116,15 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
       critical: true,
       forbiddenTerms: ['Acumatica', 'ERP', 'inventory', 'PO', 'purchase order', 'manual variance', 'warehouse confirmation', 'warehouse setup waiting', 'approved handoff'],
     }),
-    route('product-default', '/product-management', /Product Management/i, 'default', 'Products and dealer group baseline.', {
+    route('product-default', '/product-management', /Product Management/i, 'default', 'Product publish-readiness default workbench.', {
       critical: true,
-      forbiddenTerms: ['Acumatica', 'Widen', 'pricing', 'price class', 'import', 'Preview source files', 'Source file review'],
+      forbiddenTerms: ['Acumatica', 'Widen', 'pricing', 'price class', 'import', 'Preview source files', 'Source file review', 'Catalog sections', 'SKU families', 'Rollback'],
     }),
     route('product-visibility', '/product-management?tab=visibility', /Product Management/i, 'setup', 'Dealer group selection should not auto-open publish detail.', {
       critical: true,
       forbiddenTerms: ['Selected', 'Products shown', 'Live version', 'Review before publish:'],
     }),
-    route('product-detail', `/product-management/products/${fixtures.product.productId}`, new RegExp(escapeRegExp(fixtures.product.displayName), 'i'), 'deep', 'Product readiness board/detail density baseline.'),
+    route('product-detail', `/product-management/products/${fixtures.product.productId}`, new RegExp(escapeRegExp(fixtures.product.displayName), 'i'), 'deep', 'Product publish-checklist detail baseline.'),
     route('digital-assets-default', '/digital-assets', /Digital Assets/i, 'default', 'Fast share first candidate baseline.', { critical: true }),
     route('admin-default', '/admin', /System Administration/i, 'default', 'Users-first admin baseline.'),
     route('admin-business-rules', '/admin/catalog-rules', /Dealer Group Rules/i, 'setup', 'Dealer Group Rules wizard default-draft baseline.', { critical: true }),

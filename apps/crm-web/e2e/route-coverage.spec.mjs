@@ -45,7 +45,7 @@ const routeInventory = [
   waived('/leads/finance', 'task-route', 'Permissioned finance queue route; UI cleanup follows finance queue standardization.', 'Finance + Leads', '2026-07-15', ['functional-e2e-pending']),
   waived('/leads/forms', 'task-route', 'Website form admin behavior is covered functionally; visual cleanup follows Slice C.', 'Lead Capture', '2026-06-30', ['functional-e2e']),
   waived('/leads/import', 'advanced-route', 'Advanced import and migration surface stays outside default workbench budget.', 'Leads', '2026-07-15', ['advanced-waiver']),
-  visual('/product-management', 'Product catalog default workbench'),
+  visual('/product-management', 'Product publish-readiness default workbench'),
   waived('/product-management/products/:productId', 'detail-route', 'Product detail is covered by depth checks; visual waiver remains for dense file, readiness, and dealer visibility detail rail work.', 'Product + Marketing', '2026-07-15', ['visual-captured-waived', 'depth-e2e']),
   waived('/public/cis/:token', 'token-public', 'Public CIS package flow is a token route, not an internal workbench.', 'CIS Owner', '2026-06-30', ['functional-e2e']),
   waived('/settings/lead-capture', 'redirect', 'Legacy settings route redirects to the admin lead-capture surface.', 'Platform', '2026-06-30', ['redirect']),

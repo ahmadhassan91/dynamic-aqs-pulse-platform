@@ -81,3 +81,12 @@ The next implementation slice should cover:
 | PM-006/PM-007 dealer group visibility | `Who Sees What` remains the dealer-group selection surface, with the helper renamed to `How dealer groups work` instead of catalog-visibility jargon. | Resolver/publish backend behavior is unchanged. |
 | PM-008/PM-009 publish readiness | Critical clutter QA now treats the Product Management first paint as a protected route: no Acumatica, Widen, pricing, price class, import, source-review, or setup actions should appear before the user chooses the relevant setup path. | Readiness rules and permission checks remain backend-owned. |
 | PM-012 legacy/source review | `Source file review` remains available under `Setup`, and its copy says preview-only so source data cannot be mistaken for production product truth. | Final import/apply remains parked until Acumatica mappings are certified. |
+
+## UX-07 Slice M Product Clarity Trace
+
+| Requirement Area | Slice M Coverage | Boundary |
+|---|---|---|
+| PM-001 product work queue | `/product-management` now opens on workflow metrics `Need info`, `Need files`, `Need visibility`, and `Ready to publish`, with `Products needing review` as the primary work surface. | Product creation/import remains parked until source mappings are certified. |
+| PM-001 / PM-008 operator next action | Product rows now use `Publish readiness`, `Next fix`, and `Fix product`, making the next product action clear before users open detail. | The readiness calculation remains backend/data-driven; this slice only changes UI language and ordering. |
+| PM-006/PM-007 dealer group visibility | Product detail now uses the sequence `Info`, `Files`, `Visibility`, and `Publish check`; dealer group assignment is presented as `Set visibility`. | Dealer Catalog View remains the backend/API concept; no schema rename or visibility-rule rewrite happened in this slice. |
+| PM-008/PM-009 publish safety | Source-file review, catalog setup, and publish mechanics stay behind `More`, direct setup routes, or detail checks instead of first paint. | Product publish promotion rules and Acumatica-backed commercial truth remain parked until mappings and approval rules are certified. |

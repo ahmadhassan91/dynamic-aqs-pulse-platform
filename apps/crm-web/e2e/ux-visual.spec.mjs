@@ -35,7 +35,7 @@ test('capture CRM and dealer default UX budgets', async ({ page, browser }) => {
     { slug: 'territory-map', path: '/territory_map', heading: /Territory Coverage Map/i, assertVisualBudget: true },
     { slug: 'training', path: '/training', heading: /Training Workbench/i, assertVisualBudget: true },
     { slug: 'consignment', path: '/consignment', heading: /Consignment Workspace/i, assertVisualBudget: true },
-    { slug: 'product-catalog', path: '/product-management', heading: /Product Management/i, assertVisualBudget: true },
+    { slug: 'product-catalog-readiness', path: '/product-management', heading: /Product Management/i, assertVisualBudget: true },
     { slug: 'product-dealer-visibility', path: '/product-management?tab=visibility', heading: /Product Management/i, assertVisualBudget: true },
     ...(fixtures.product ? [{
       slug: 'product-detail',

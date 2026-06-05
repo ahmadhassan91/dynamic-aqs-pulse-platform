@@ -30,7 +30,7 @@ It is easier to explain the module as four jobs:
 | Review products | Products needing review | Fix missing content, files, catalog section, SKU family, and dealer-group gaps before publishing. | It is not the final ERP product master. |
 | Organize the catalog | Catalog sections and SKU families | Catalog sections are where products appear when dealers browse. SKU families group sibling/variant-like SKUs. | These do not decide dealer access. |
 | Decide who sees what | Dealer groups / Who Sees What | A dealer group is the resolved catalog audience for affinity, ownership/PE, independent/hybrid, region, brand, and portal eligibility rules. | It is not a price class and does not change product identity. |
-| Publish safely | Ready to show / What to fix | Only publish when the product has content, files, catalog organization, and dealer-group visibility. | It is not order placement, inventory, invoicing, or payment. |
+| Publish safely | Need info / Need files / Need visibility / Ready to publish | Only publish when the product has approved info, approved files, catalog organization, and dealer-group visibility. | It is not order placement, inventory, invoicing, or payment. |
 
 ```mermaid
 flowchart LR
@@ -38,7 +38,7 @@ flowchart LR
     C["Digital Assets<br/>images, brochures, spec sheets"] --> B
     D["Setup<br/>catalog sections + SKU families"] --> B
     B --> E["Who Sees What<br/>dealer groups"]
-    E --> F["Ready to show<br/>publish-safe catalog"]
+    E --> F["Ready to publish<br/>publish-safe catalog"]
     F --> G["Dealer Portal<br/>products and files"]
 ```
 

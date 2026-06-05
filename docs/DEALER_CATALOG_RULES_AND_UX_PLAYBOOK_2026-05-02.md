@@ -211,11 +211,11 @@ Use this standard:
 
 Recommended primary flow:
 
-1. Pick `Dealer Catalog View`.
-2. See products for that view.
-3. Attach or review files.
-4. Fix readiness blockers.
-5. Publish to Dealer Portal.
+1. Open `Products needing review`.
+2. Fix product info, approved files, and dealer visibility.
+3. Use `Who Sees What` to review the dealer group.
+4. Run the publish check.
+5. Publish to Dealer Portal when the dealer group review is clean.
 
 Avoid starting Product Management on categories, families, or raw product creation. Those are setup areas.
 

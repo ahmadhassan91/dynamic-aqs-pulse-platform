@@ -255,14 +255,6 @@ export function ProductManagementWorkspace() {
     };
   }, [apiBaseUrl, auth, categoryFilter, familyFilter, publishStatusFilter, search]);
 
-  const metrics = useMemo(() => ({
-    totalProducts: products.total,
-    categories: categories.length,
-    families: families.length,
-    dealerVisible: catalogViews.length,
-    acumaticaLinked: products.items.filter((product) => product.acumaticaInventoryId).length,
-  }), [catalogViews.length, categories.length, families.length, products]);
-
   const categoryParentOptions = useMemo(() => categories
     .filter((category) => category.id !== editingCategoryId)
     .map((category) => ({ value: category.id, label: `${category.name} (${category.code})` })), [categories, editingCategoryId]);
@@ -304,6 +296,19 @@ export function ProductManagementWorkspace() {
   }), [productDetails]);
   const readinessIssueRows = useMemo(() => readinessRows.filter((row) => row.status !== 'pass'), [readinessRows]);
   const firstReadinessIssue = readinessIssueRows[0];
+  const workflowMetrics = useMemo(() => {
+    const countByGap = (matcher: (gap: string) => boolean) => readinessRows.filter((row) => {
+      const gaps = [...row.blockers, ...row.warnings];
+      return gaps.some(matcher);
+    }).length;
+
+    return {
+      needInfo: countByGap((gap) => gap.includes('content') || gap.includes('category') || gap.includes('family')),
+      needFiles: countByGap((gap) => gap.includes('image') || gap.includes('spec sheet') || gap.includes('brochure')),
+      needVisibility: countByGap((gap) => gap.includes('dealer group')),
+      readyToPublish: readinessRows.filter((row) => row.status === 'pass').length,
+    };
+  }, [readinessRows]);
   const visibilityRows = useMemo(() => productDetails.flatMap((product) => {
     const presentation = product.presentations[0];
     if (!product.inclusions.length) {
@@ -676,16 +681,16 @@ export function ProductManagementWorkspace() {
     <Stack gap="lg">
       <WorkbenchHeader
         title="Product Management"
-        description="Start with Products to fix content, file, and dealer-group gaps. Use Who Sees What to confirm each dealer group sees the right products and files. Setup is only for catalog sections, SKU families, and source-file review."
+        description="Work the product review queue: fix info, approved files, and dealer visibility before publishing to the Dealer Portal."
         policyText="Commercial details stay outside this workspace until the approved integration is ready."
       />
 
       <WorkbenchMetricStrip
         metrics={[
-          { label: 'Need dealer group', value: visibilityRows.filter((row) => !row.isVisible).length, tone: 'orange' },
-          { label: 'Ready to show', value: readinessRows.filter((row) => row.status === 'pass').length, tone: 'green' },
-          { label: 'Products', value: metrics.totalProducts },
-          { label: 'Dealer groups', value: catalogViewRows.length },
+          { label: 'Need info', value: workflowMetrics.needInfo, tone: workflowMetrics.needInfo ? 'orange' : 'green' },
+          { label: 'Need files', value: workflowMetrics.needFiles, tone: workflowMetrics.needFiles ? 'orange' : 'green' },
+          { label: 'Need visibility', value: workflowMetrics.needVisibility, tone: workflowMetrics.needVisibility ? 'orange' : 'green' },
+          { label: 'Ready to publish', value: workflowMetrics.readyToPublish, tone: 'green' },
         ]}
       />
 
@@ -706,7 +711,7 @@ export function ProductManagementWorkspace() {
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
           <Tabs.Tab value="visibility" leftSection={<IconShieldCheck size={16} />}>Who Sees What</Tabs.Tab>
           <WorkbenchMoreMenu
-            label="Setup"
+            label="More"
             items={[
               {
                 id: 'catalog-sections',
@@ -1367,8 +1372,8 @@ export function ProductManagementWorkspace() {
                   <Title order={4}>Products needing review</Title>
                   <Text size="sm" c="dimmed">
                     {readinessIssueRows.length
-                      ? `${readinessIssueRows.length} loaded product${readinessIssueRows.length === 1 ? '' : 's'} need content, files, or dealer-group visibility before publish.`
-                      : 'Loaded products are ready for dealer review.'}
+                      ? `${readinessIssueRows.length} loaded product${readinessIssueRows.length === 1 ? '' : 's'} need product info, approved files, or dealer-group visibility before publish.`
+                      : 'Loaded products are ready to publish when the dealer group review is clean.'}
                   </Text>
                 </Stack>
                 <Button
@@ -1380,7 +1385,7 @@ export function ProductManagementWorkspace() {
                     }
                   }}
                 >
-                  Review first gap
+                  Fix first product
                 </Button>
               </Group>
             </Paper>
@@ -1459,19 +1464,19 @@ export function ProductManagementWorkspace() {
                   },
                   {
                     key: 'readiness',
-                    header: 'Ready to show',
+                    header: 'Publish readiness',
                     render: (product) => {
                       const readiness = readinessRows.find((row) => row.product.id === product.id);
                       return (
                         <Badge color={readiness?.status === 'pass' ? 'green' : readiness?.status === 'warning' ? 'yellow' : 'red'} variant="light">
-                          {readiness?.status === 'pass' ? 'Ready' : readiness?.status === 'warning' ? 'Needs review' : 'Cannot publish yet'}
+                          {readiness?.status === 'pass' ? 'Ready to publish' : readiness?.status === 'warning' ? 'Needs review' : 'Cannot publish yet'}
                         </Badge>
                       );
                     },
                   },
                   {
                     key: 'gaps',
-                    header: 'What to fix',
+                    header: 'Next fix',
                     render: (product) => {
                       const readiness = readinessRows.find((row) => row.product.id === product.id);
                       const gaps = readiness ? [...readiness.blockers, ...readiness.warnings] : [];
@@ -1481,7 +1486,7 @@ export function ProductManagementWorkspace() {
                 ]}
                 rowActions={(product) => [{
                   id: 'review-product',
-                  label: 'Review product',
+                  label: 'Fix product',
                   onClick: () => router.push(`/product-management/products/${product.id}`),
                 }]}
                 emptyState={(

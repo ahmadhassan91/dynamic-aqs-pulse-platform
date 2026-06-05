@@ -383,22 +383,22 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       setActiveBoardSection('content');
       setIsPresentationFormOpen(true);
     }}>
-      Edit Product Content
+      Fix product info
     </Button>
   ) : needsFiles && canLinkProductAssets ? (
     <Button variant="filled" leftSection={<IconLink size={16} />} onClick={() => {
       setActiveBoardSection('files');
       setIsAssetAttachOpen(true);
     }}>
-      Attach File
+      Attach approved file
     </Button>
   ) : needsVisibility && canManageProducts && primaryPresentation ? (
     <Button variant="filled" leftSection={<IconShieldCheck size={16} />} onClick={openAddDealerCatalogView}>
-      Add dealer group
+      Set visibility
     </Button>
   ) : canRunReadiness ? (
     <Button variant="filled" leftSection={<IconRefresh size={16} />} onClick={handleValidatePresentation} loading={isValidating}>
-      Check Readiness
+      Run publish check
     </Button>
   ) : null;
 
@@ -419,22 +419,22 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               items={[
                 ...(canManageProducts ? [{
                   id: 'edit-content',
-                  label: 'Edit Dealer Content',
+                  label: 'Fix product info',
                   onClick: () => setIsPresentationFormOpen(true),
                 }] : []),
                 ...(canLinkProductAssets ? [{
                   id: 'attach-file',
-                  label: 'Attach Product File',
+                  label: 'Attach approved file',
                   onClick: () => setIsAssetAttachOpen(true),
                 }] : []),
                 ...(canManageProducts && primaryPresentation ? [{
                   id: 'add-dealer-view',
-                  label: 'Add Dealer Group',
+                  label: 'Set visibility',
                   onClick: openAddDealerCatalogView,
                 }] : []),
                 {
                   id: 'catalog-views',
-                  label: 'Manage Dealer Groups',
+                  label: 'Manage dealer groups',
                   onClick: () => router.push('/product-management?tab=visibility'),
                 },
               ]}
@@ -456,18 +456,18 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       <Paper withBorder p="md">
         <Group justify="space-between" align="flex-end" gap="md">
           <Stack gap={2}>
-            <Title order={4}>Product readiness board</Title>
-            <Text size="sm" c="dimmed">Review one part of the product at a time: content, files, who sees it, or checks.</Text>
+            <Title order={4}>Product publish checklist</Title>
+            <Text size="sm" c="dimmed">Fix one part at a time: info, files, visibility, then publish check.</Text>
           </Stack>
           <SegmentedControl
             aria-label="Product readiness sections"
             value={activeBoardSection}
             onChange={(value) => setActiveBoardSection(value as ProductDetailBoardSection)}
             data={[
-              { value: 'content', label: 'Content' },
+              { value: 'content', label: 'Info' },
               { value: 'files', label: 'Files' },
-              { value: 'visibility', label: 'Who Sees It' },
-              { value: 'checks', label: 'Checks' },
+              { value: 'visibility', label: 'Visibility' },
+              { value: 'checks', label: 'Publish check' },
             ]}
           />
         </Group>
@@ -476,7 +476,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       {activeBoardSection === 'content' ? (
       <Paper withBorder p="md">
         <Group justify="space-between" mb="sm">
-          <Title order={4}>Product Content</Title>
+          <Title order={4}>Product info</Title>
           <Badge color={primaryPresentation?.readyForDealerPortal ? 'green' : 'gray'}>{formatLabel(primaryPresentation?.publishStatus ?? 'draft')}</Badge>
         </Group>
         <Text>{primaryPresentation?.shortDescription ?? 'Dealer-facing description still needs approval.'}</Text>
@@ -487,7 +487,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         <Modal
           opened={isPresentationFormOpen}
           onClose={() => setIsPresentationFormOpen(false)}
-          title="Edit Dealer Content"
+          title="Fix product info"
           size="xl"
           centered
         >
@@ -506,7 +506,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             </SimpleGrid>
             <Group justify="flex-end">
               <Button variant="subtle" onClick={() => setIsPresentationFormOpen(false)}>Cancel</Button>
-              <Button onClick={handleSavePresentation} loading={isSavingPresentation}>Save Product Content</Button>
+              <Button onClick={handleSavePresentation} loading={isSavingPresentation}>Save product info</Button>
             </Group>
           </Stack>
         </Modal>
@@ -516,7 +516,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       <Paper withBorder p="md">
         <Group justify="space-between" mb="sm" align="flex-end">
           <Stack gap={2}>
-            <Title order={4}>Files</Title>
+            <Title order={4}>Approved files</Title>
             <Text c="dimmed" size="sm">Attach approved images, spec sheets, brochures, and install guides to the dealer-facing product presentation.</Text>
           </Stack>
         </Group>
@@ -585,7 +585,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               description="Link approved images, spec sheets, brochures, or install guides before publish."
               action={canLinkProductAssets ? (
                 <Button size="xs" leftSection={<IconLink size={14} />} onClick={() => setIsAssetAttachOpen(true)}>
-                  Attach File
+                  Attach approved file
                 </Button>
               ) : undefined}
             />
@@ -598,7 +598,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         <Modal
           opened={isAssetAttachOpen}
           onClose={() => setIsAssetAttachOpen(false)}
-          title="Attach Product File"
+          title="Attach approved file"
           size="lg"
           centered
         >
@@ -636,7 +636,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 disabled={!selectedAssetId || !primaryPresentation}
                 loading={isAssigningAsset}
               >
-                Attach File
+                Attach approved file
               </Button>
             </Group>
           </Stack>
@@ -648,7 +648,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         <Group mb="sm" justify="space-between">
           <Group>
             <IconShieldCheck size={18} />
-            <Title order={4}>Who Sees It</Title>
+            <Title order={4}>Visibility</Title>
           </Group>
         </Group>
         <Text c="dimmed" size="sm" mb="sm">
@@ -703,7 +703,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               description="Add this product to at least one dealer group before publish."
               action={canManageProducts && primaryPresentation ? (
                 <Button size="xs" leftSection={<IconShieldCheck size={14} />} onClick={openAddDealerCatalogView}>
-                  Add dealer group
+                  Set visibility
                 </Button>
               ) : undefined}
             />
@@ -713,7 +713,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Modal
             opened={isInclusionFormOpen}
             onClose={handleResetInclusion}
-            title={editingInclusionId ? 'Edit dealer group' : 'Add dealer group'}
+            title={editingInclusionId ? 'Edit visibility' : 'Set visibility'}
             size="xl"
             centered
           >
@@ -746,7 +746,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             </WorkbenchAdvancedSection>
             <Group justify="flex-end">
               <Button variant="subtle" onClick={handleResetInclusion}>Cancel</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save dealer group' : 'Add dealer group'}</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save visibility' : 'Set visibility'}</Button>
             </Group>
           </Stack>
           </Modal>
@@ -756,7 +756,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
 
       {activeBoardSection === 'checks' ? (
       <Paper withBorder p="md">
-        <Title order={4} mb="sm">Checks</Title>
+        <Title order={4} mb="sm">Publish check</Title>
         <WorkbenchTable<ProductDetail['readinessChecks'][number]>
           ariaLabel="Product readiness checks"
           rows={product.readinessChecks}
@@ -792,7 +792,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               description="Run publish validation to generate checks."
               action={canRunReadiness ? (
                 <Button size="xs" leftSection={<IconRefresh size={14} />} onClick={handleValidatePresentation} loading={isValidating}>
-                  Check Readiness
+                  Run publish check
                 </Button>
               ) : undefined}
             />

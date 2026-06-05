@@ -830,6 +830,17 @@ async function assertInternalDefaultRoutes(page, routeKeys) {
     await page.goto(routePath);
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
     await expect(page.getByRole('main')).not.toContainText(/\b(Acumatica|ERP|Widen|resolver|manifest|source ID|provider|migration|purchase order|manual variance|warehouse confirmation|approved handoff)\b/i);
+    if (key === 'product-management') {
+      await expect(page.getByRole('heading', { name: 'Products needing review' })).toBeVisible();
+      await expect(page.getByText('Need info')).toBeVisible();
+      await expect(page.getByText('Need files')).toBeVisible();
+      await expect(page.getByText('Need visibility')).toBeVisible();
+      await expect(page.getByText('Ready to publish')).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Next fix' })).toBeVisible();
+      await expect(page.getByText('Source file review')).toHaveCount(0);
+      await expect(page.getByText('Preview source files')).toHaveCount(0);
+    }
   }
 }
 

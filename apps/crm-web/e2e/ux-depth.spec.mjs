@@ -36,8 +36,8 @@ test('common internal detail modals stay action-light and task-first', async ({ 
 
   await page.goto(`/product-management/products/${fixtures.product.productId}`);
   await expect(page.getByRole('heading', { name: fixtures.product.displayName })).toBeVisible();
-  await openHeaderMoreItem(page, 'Edit Dealer Content');
-  report.push(await captureDialogBudget(page, 'product-edit-dealer-content', 'Edit Dealer Content'));
+  await openHeaderMoreItem(page, 'Fix product info');
+  report.push(await captureDialogBudget(page, 'product-fix-product-info', 'Fix product info'));
   await page.keyboard.press('Escape');
 
   await page.goto('/digital-assets');
@@ -214,11 +214,17 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Products' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Setup' })).toHaveCount(0);
+  await expect(page.getByText('Need info')).toBeVisible();
+  await expect(page.getByText('Need files')).toBeVisible();
+  await expect(page.getByText('Need visibility')).toBeVisible();
+  await expect(page.getByText('Ready to publish')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Status' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Products needing review' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'Ready to show' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'What to fix' })).toBeVisible();
-  await page.getByRole('tablist').getByRole('button', { name: 'Setup' }).click();
+  await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Next fix' })).toBeVisible();
+  await expect(page.getByText('Source file review')).toHaveCount(0);
+  await expect(page.getByText('Preview source files')).toHaveCount(0);
+  await page.getByRole('tablist').getByRole('button', { name: 'More' }).click();
   await expect(page.getByRole('menuitem', { name: 'Catalog sections' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'SKU families' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Source file review' })).toBeVisible();
@@ -459,14 +465,14 @@ test('UX-03 product and asset detail surfaces keep review work in context', asyn
 
   await page.goto(`/product-management/products/${fixtures.product.productId}`);
   await expect(page.getByRole('heading', { name: fixtures.product.displayName })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Product readiness board' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Product publish checklist' })).toBeVisible();
   await page.getByLabel('Product readiness sections').getByText('Files', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Approved files' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Last Publish State' })).toHaveCount(0);
   await expect(page.getByRole('columnheader', { name: 'Selection' })).toHaveCount(0);
 
   const filesPanel = page
-    .getByRole('heading', { name: 'Files' })
+    .getByRole('heading', { name: 'Approved files' })
     .locator('xpath=ancestor::*[contains(@class, "mantine-Paper-root")][1]');
   const fileActionMenu = filesPanel.getByRole('button', { name: 'Row actions' }).first();
   if (await fileActionMenu.count()) {
@@ -475,8 +481,8 @@ test('UX-03 product and asset detail surfaces keep review work in context', asyn
     await expect(page.getByRole('menuitem', { name: 'Unlink file' })).toBeVisible();
     await page.keyboard.press('Escape');
   }
-  await page.getByLabel('Product readiness sections').getByText('Who Sees It', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Who Sees It' })).toBeVisible();
+  await page.getByLabel('Product readiness sections').getByText('Visibility', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Visibility' })).toBeVisible();
   report.push({ slug: 'product-detail', result: 'file unlink moved to row menu and duplicate publish card removed' });
 
   await page.goto('/digital-assets?tab=delivery-health');

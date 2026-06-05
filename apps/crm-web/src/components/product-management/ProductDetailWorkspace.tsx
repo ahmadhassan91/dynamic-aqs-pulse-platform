@@ -371,7 +371,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     }] : []),
     ...(!visibleDealerViewCount ? [{
       id: 'dealer-visibility',
-      title: 'Dealer visibility',
+      title: 'Dealer group',
       description: 'Choose which dealer group can see this product and its files.',
       count: 1,
       tone: 'orange' as const,
@@ -412,7 +412,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     </Button>
   ) : needsVisibility && canManageProducts && primaryPresentation ? (
     <Button variant="filled" leftSection={<IconShieldCheck size={16} />} onClick={openAddDealerCatalogView}>
-      Set visibility
+      Add to dealer group
     </Button>
   ) : canRunReadiness ? (
     <Button variant="filled" leftSection={<IconRefresh size={16} />} onClick={handleValidatePresentation} loading={isValidating}>
@@ -447,7 +447,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 }] : []),
                 ...(canManageProducts && primaryPresentation ? [{
                   id: 'add-dealer-view',
-                  label: 'Set visibility',
+                  label: 'Add to dealer group',
                   onClick: openAddDealerCatalogView,
                 }] : []),
                 {
@@ -484,7 +484,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             data={[
               { value: 'content', label: 'Info' },
               { value: 'files', label: 'Files' },
-              { value: 'visibility', label: 'Visibility' },
+              { value: 'visibility', label: 'Dealer group' },
               { value: 'checks', label: 'Publish check' },
             ]}
           />
@@ -513,7 +513,14 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             <Text size="sm" c="dimmed">Update the dealer-facing name, copy, and review status. Region and brand labels only apply when this presentation is scoped.</Text>
             <SimpleGrid cols={{ base: 1, md: 2 }}>
               <TextInput label="Display name" value={presentationForm.displayName} onChange={(event) => setPresentationForm((current) => ({ ...current, displayName: event.currentTarget.value }))} />
-              <Select label="Review status" data={publishStatusOptions} value={presentationForm.publishStatus} onChange={(value) => setPresentationForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
+              <Select
+                label="Content approval status"
+                description="This makes the product content eligible. Live catalog publish still happens from Who Sees What."
+                data={publishStatusOptions}
+                value={presentationForm.publishStatus}
+                onChange={(value) => setPresentationForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))}
+                allowDeselect={false}
+              />
             </SimpleGrid>
             <Textarea label="Short description" minRows={2} value={presentationForm.shortDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, shortDescription: event.currentTarget.value }))} />
             <Textarea label="Long description" minRows={3} value={presentationForm.longDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, longDescription: event.currentTarget.value }))} />
@@ -666,7 +673,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         <Group mb="sm" justify="space-between">
           <Group>
             <IconShieldCheck size={18} />
-            <Title order={4}>Visibility</Title>
+            <Title order={4}>Dealer group</Title>
           </Group>
         </Group>
         <Text c="dimmed" size="sm" mb="sm">
@@ -717,11 +724,11 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           emptyState={(
             <EmptyStateMessage
               kind="no-data"
-              title="No dealer visibility set"
+              title="No dealer group selected"
               description="Add this product to at least one dealer group before publish."
               action={canManageProducts && primaryPresentation ? (
                 <Button size="xs" leftSection={<IconShieldCheck size={14} />} onClick={openAddDealerCatalogView}>
-                  Set visibility
+                  Add to dealer group
                 </Button>
               ) : undefined}
             />
@@ -731,7 +738,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           <Modal
             opened={isInclusionFormOpen}
             onClose={handleResetInclusion}
-            title={editingInclusionId ? 'Edit visibility' : 'Set visibility'}
+            title={editingInclusionId ? 'Edit dealer group' : 'Add to dealer group'}
             size="xl"
             centered
           >
@@ -746,16 +753,23 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
                 value={inclusionForm.dealerCatalogViewId}
                 onChange={(value) => setInclusionForm((current) => ({ ...current, dealerCatalogViewId: value }))}
               />
-              <Select label="Review status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
+              <Select
+                label="Dealer-group visibility status"
+                description="This makes the product eligible for this dealer group. Live catalog publish still happens from Who Sees What."
+                data={publishStatusOptions}
+                value={inclusionForm.publishStatus}
+                onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))}
+                allowDeselect={false}
+              />
             </SimpleGrid>
             <Checkbox label="Visible to this dealer group" checked={inclusionForm.isVisible} onChange={(event) => setInclusionForm((current) => ({ ...current, isVisible: event.currentTarget.checked }))} />
             <WorkbenchAdvancedSection
-              title="Advanced scope and notes"
-              description="Use only when this product needs a region, brand, or catalog-audience override."
+              title="Advanced matching and notes"
+              description="Use only when a legacy record needs extra matching detail. The selected dealer group stays required."
             >
               <SimpleGrid cols={{ base: 1, md: 2 }} mt="sm">
-                <Select label="Audience override" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
-                <TextInput label="Audience code" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
+                <Select label="Advanced matching type" data={CATALOG_VIEW_TYPE_OPTIONS} value={inclusionForm.dealerGroupType} onChange={(value) => setInclusionForm((current) => ({ ...current, dealerGroupType: value ?? 'all_dealers' }))} allowDeselect={false} />
+                <TextInput label="Advanced matching code" placeholder="e.g. Service Experts, Nexstar, Redwood, Canada" value={inclusionForm.dealerGroupId} onChange={(event) => setInclusionForm((current) => ({ ...current, dealerGroupId: event.currentTarget.value }))} />
                 <TextInput label="Region" value={inclusionForm.regionScope} onChange={(event) => setInclusionForm((current) => ({ ...current, regionScope: event.currentTarget.value }))} />
                 <TextInput label="Brand / private label" value={inclusionForm.brandLabel} onChange={(event) => setInclusionForm((current) => ({ ...current, brandLabel: event.currentTarget.value }))} />
               </SimpleGrid>
@@ -763,7 +777,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             </WorkbenchAdvancedSection>
             <Group justify="flex-end">
               <Button variant="subtle" onClick={handleResetInclusion}>Cancel</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion} disabled={!inclusionForm.dealerCatalogViewId}>{editingInclusionId ? 'Save visibility' : 'Set visibility'}</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion} disabled={!inclusionForm.dealerCatalogViewId}>{editingInclusionId ? 'Save dealer group' : 'Add to dealer group'}</Button>
             </Group>
           </Stack>
           </Modal>

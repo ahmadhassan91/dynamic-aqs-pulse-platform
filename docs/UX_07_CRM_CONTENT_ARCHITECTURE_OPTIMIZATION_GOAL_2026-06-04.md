@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-N deployed and QA passed`
+Status: `In Progress - Slices A-O deployed and QA passed`
 
 ## Product Design Brief
 
@@ -68,7 +68,7 @@ Internal evidence is even stronger:
 | Territory | Slice K now turns the default action queue into a work-item scan instead of a count-only attention panel. | Keep `Territory Action Queue` as the default. Show `Next territory work` when scoped lead/account assignment rows exist, keep zero-work RD/TM states calm, and keep map/list/performance/setup behind More or disclosures. |
 | Training | Slice F keeps `Priority Queue` as the visible primary tab and now splits session completion into `Completion`, `Proof`, `Certification`, and `Follow-up` steps without changing APIs. | Keep completion step-by-step. Next depth should tune copy/validation only after role UAT feedback. |
 | Consignment | Slice F proves realistic open ROSE audits appear in `Next site work` and the site detail first paint is now `Current site work` with readiness/metrics/setup/history behind advanced sections. | Keep Acumatica/ERP/PO/inventory terms parked out of first paint. Next depth should be role UAT and selected detail polish. |
-| Product Management | Slice M makes the default page read as a publish-readiness workflow: `Need info`, `Need files`, `Need visibility`, `Ready to publish`, `Publish readiness`, and `Next fix`. | Keep `/product-management` product-review-first and `/product-management?tab=visibility` dealer-group-selection-first. Continue protecting Category/Family as catalog organization and Dealer group/Who Sees What as visibility, while leaving API/database names intact. |
+| Product Management | Slices M-O make the default page read as a publish-readiness workflow: `Review products`, `Need info`, `Need files`, `Need dealer group`, `Ready to publish`, `Publish readiness`, and `Next fix`. | Keep `/product-management` product-review-first and `/product-management?tab=visibility` dealer-group-selection-first. Continue protecting catalog setup and source review behind `More`, while leaving API/database names intact. |
 | Digital Assets | Slice C keeps share-ready files first, moves review-all-files into More, and collapses recipient/context/history under share options. | Keep `Copy customer link` / `Create share link` as the visible selected-asset job. Keep upload/migration/source trace in More or advanced sections. |
 | Dealer Portal | Slice C removes internal publishing/missing-file/admin copy from catalog/detail/dashboard/account surfaces. | Dealer sees `Start Here`, `Account Center`, `Account Health`, `Products and Files`; unavailable/internal file records should not appear. |
 | Admin/Roles | Integrations tab stacks Entra, Calendar, Payment, and Lead Alerts together. Admin default mixes metrics/daily work/setup. | Admin default = `Users & Access`. Integrations use a selector so only one setup panel is open. Metrics/health/provider notes move into detail disclosures. |
@@ -138,7 +138,7 @@ Status: `Implemented - static and focused Browser/Playwright QA passed`
 Delivered:
 
 - Product Management no longer auto-selects the first visibility row on `/product-management?tab=visibility`; the detail rail starts with `Select a Dealer group`.
-- Product Management metrics and copy use business terms such as `Need dealer group`, `Ready to show`, `Catalog sections`, and `SKU families`.
+- Product Management metrics and copy use business terms such as `Need visibility`, `Ready to publish`, `Catalog sections`, and `SKU families`.
 - Product detail scoped-presentation overrides now read as advanced exceptions, with `Regional audience`, `Approved relationship audience`, and ownership/private-label audience labels.
 - Digital Assets keeps the approved/share-ready library as the first paint, moves `Review all files` into `More`, hides visibility filtering until review mode, and keeps upload/migration out of the default work surface.
 - Selected Digital Asset detail keeps `Copy customer link` / `Create share link` first and collapses recipient fields, CRM context, and share-link history into `Share options and link history`.
@@ -370,7 +370,7 @@ Status: `Implemented - local typecheck, focused Playwright, critical clutter QA,
 Delivered so far:
 
 - Product Management now starts with the plain job: `Products needing review`.
-- First-paint language uses `Product Management`, `Need dealer group`, `Ready to show`, and `What to fix`.
+- First-paint language uses `Product Management`, `Need visibility`, `Ready to publish`, and `Next fix`.
 - Setup is expressed as `Catalog sections`, `SKU families`, and `Source file review`; source review stays behind Setup and is not visible on the default page.
 - The dealer access path stays `Who Sees What`, with the helper action renamed to `How dealer groups work`.
 - The PRD now includes a plain-language playbook: Product Management decides which approved products, copy, files, and catalog sections each dealer group should see.
@@ -385,7 +385,7 @@ flowchart LR
   C["Digital Assets"] --> B
   D["Catalog sections + SKU families"] --> B
   B --> E["Who Sees What\nDealer groups"]
-  E --> F["Ready to show"]
+  E --> F["Ready to publish"]
   F --> G["Dealer Portal\nProducts and files"]
 ```
 
@@ -584,6 +584,45 @@ Proof passed so far:
 - `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
 - `git diff --check`
 - Manual EC2 release `manual-20260605151331-ux07-slice-n-product-publish-handoff` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
+### Slice O - Product Demo-Flow Language
+
+Purpose: make Product Management understandable without a developer explanation. The first screen now says what Dynamic staff actually need to decide: which approved products, copy, and files each dealer group sees in the Dealer Portal.
+
+Status: `Implemented - local QA passed; manual EC2 deploy and public smoke passed`
+
+Delivered so far:
+
+- `/product-management` now starts on `Review products`, not a generic `Products` tab.
+- The third readiness metric is now `Need dealer group`, replacing the less obvious `Need visibility`.
+- The first-paint description no longer exposes setup language such as catalog sections; setup remains available behind `More`.
+- The `Who Sees What` helper is now `Why dealer group first?` and explains the storefront mental model in plain language.
+- Product detail now uses `Dealer group` / `Add to dealer group` instead of `Visibility` / `Set visibility` on the normal operator path.
+- Review-status fields were split into `Content approval status` and `Dealer-group visibility status`, so users can distinguish product content readiness from dealer-group readiness.
+- Advanced matching fields now make clear they are legacy matching details and that the selected dealer group is still required.
+- Product route tests now assert the new demo language and the clutter gate protects against setup/source terms leaking onto first paint.
+
+Requirement trace:
+
+| Requirement area | Slice O response |
+| --- | --- |
+| Product team daily work | Makes the opening workflow readable as review products first, then dealer-group availability. |
+| Dealer group visibility | Treats dealer group as the operator noun and keeps affinity/ownership/PE/independent complexity behind the helper. |
+| Category/family separation | Keeps setup concepts behind `More` instead of presenting them as first-screen decisions. |
+| Publish safety | Keeps live publish under `Who Sees What` review and changes the button language to `Publish live catalog`. |
+| Parked dependency boundary | Does not introduce product creation/import, pricing, inventory, orders, or Acumatica truth. |
+
+Proof passed so far:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `node --check apps/crm-web/e2e/flows.spec.mjs && node --check apps/crm-web/e2e/ux-depth.spec.mjs && node --check apps/crm-web/e2e/ux-clutter.spec.mjs && node --check apps/crm-web/e2e/ux-visual.spec.mjs && node --check apps/crm-web/e2e/route-coverage.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "product" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "role-first queues" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.config.mjs -g "internal workspace auth and core module routes" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- `git diff --check`
+- Manual EC2 release `manual-20260605155028-ux07-slice-o-product-demo-flow` deployed to `https://pulse-crm.theclustox.com`.
 - Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
 
 Static proof for each slice:

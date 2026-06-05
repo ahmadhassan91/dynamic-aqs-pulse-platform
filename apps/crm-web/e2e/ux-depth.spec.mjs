@@ -212,20 +212,20 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
 
   await page.goto('/product-management');
   await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Products' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Review products' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Setup' })).toHaveCount(0);
   await expect(page.getByText('Need info')).toBeVisible();
   await expect(page.getByText('Need files')).toBeVisible();
-  await expect(page.getByText('Need visibility')).toBeVisible();
+  await expect(page.getByText('Need dealer group')).toBeVisible();
   await expect(page.getByText('Ready to publish')).toBeVisible();
   await expect(page.getByText('Products become eligible here; live catalog versions are published from Who Sees What after review.')).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Status' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Product review status' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Products needing review' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Catalog section / SKU family' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Next fix' })).toBeVisible();
-  await expect(page.getByText('Source file review')).toHaveCount(0);
-  await expect(page.getByText('Preview source files')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Source file review' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Preview source files' })).toHaveCount(0);
   await page.getByRole('tablist').getByRole('button', { name: 'More' }).click();
   await expect(page.getByRole('menuitem', { name: 'Catalog sections' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'SKU families' })).toBeVisible();
@@ -234,19 +234,20 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
 
   await page.goto('/product-management?tab=visibility');
   await expect(page.getByRole('tab', { name: 'Who Sees What' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByText('Select a Dealer group').first()).toBeVisible();
+  await expect(page.getByText('Select a dealer group').first()).toBeVisible();
   await expect(page.getByText('Selected', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Products shown')).toHaveCount(0);
   await expect(page.getByText('Needs dealer group', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Live version')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Publish catalog view' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'How dealer groups work' }).click();
-  await expect(page.getByText('Dealer group playbook')).toBeVisible();
-  await expect(page.getByText(/Affinity and ownership\/PE are separate account signals/i)).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.getByLabel('Dealer groups', { exact: true }).getByRole('button', { name: 'More' }).click();
-  await page.getByRole('menuitem', { name: 'Add Dealer group' }).click();
-  const catalogViewDialog = page.getByRole('dialog', { name: 'Create Dealer group' });
+  await expect(page.getByRole('button', { name: 'Publish live catalog' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Why dealer group first?' }).click();
+  await expect(page.getByRole('heading', { name: 'Dealer group first' })).toBeVisible();
+  await expect(page.getByText(/Start with the dealer group because it is the storefront/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Why dealer group first?' }).click();
+  await page.getByRole('tabpanel', { name: 'Who Sees What' }).getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Add dealer group' }).click();
+  const catalogViewDialog = page.getByRole('dialog', { name: 'Create dealer group' });
   await expect(catalogViewDialog).toBeVisible();
   await expect(catalogViewDialog.getByText('Who is this for?')).toBeVisible();
   await expect(catalogViewDialog.getByText('What should they see?')).toBeVisible();
@@ -282,7 +283,7 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByTestId('admin-integration-panel-calendar')).toHaveCount(0);
   await expect(page.getByTestId('admin-integration-panel-payments')).toHaveCount(0);
   await expect(page.getByTestId('admin-integration-panel-lead-alerts')).toHaveCount(0);
-  await page.getByLabel('Integration setup area').click();
+  await page.getByRole('textbox', { name: 'Integration setup area' }).click();
   await page.getByRole('option', { name: 'Outlook calendar' }).click();
   await expect(page.getByTestId('admin-integration-panel-calendar')).toBeVisible();
   await expect(page.getByTestId('admin-integration-panel-entra')).toHaveCount(0);
@@ -487,8 +488,8 @@ test('UX-03 product and asset detail surfaces keep review work in context', asyn
     await expect(page.getByRole('menuitem', { name: 'Unlink file' })).toBeVisible();
     await page.keyboard.press('Escape');
   }
-  await page.getByLabel('Product readiness sections').getByText('Visibility', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Visibility' })).toBeVisible();
+  await page.getByLabel('Product readiness sections').getByText('Dealer group', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Dealer group' })).toBeVisible();
   report.push({ slug: 'product-detail', result: 'file unlink moved to row menu and duplicate publish card removed' });
 
   await page.goto('/digital-assets?tab=delivery-health');

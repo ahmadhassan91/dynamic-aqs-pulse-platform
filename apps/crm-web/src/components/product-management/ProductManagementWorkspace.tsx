@@ -126,7 +126,7 @@ const emptyFamilyForm: FamilyFormState = {
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
 const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'admin'];
 const CATALOG_VIEW_KIND_OPTIONS: Array<{ value: DealerCatalogViewSummary['kind']; label: string; helper: string; precedence: number }> = [
-  { value: 'standard', label: 'Standard dealers', helper: 'Default eligible Dealer group', precedence: 100 },
+  { value: 'standard', label: 'Standard dealers', helper: 'Default eligible dealer group', precedence: 100 },
   { value: 'affinity', label: 'Approved relationship dealers', helper: 'Known dealer network or buying-group relationship', precedence: 50 },
   { value: 'ownership', label: 'Ownership group dealers', helper: 'Common-owner relationship overlay', precedence: 40 },
   { value: 'independent', label: 'Independent dealers', helper: 'Dealers without a relationship or ownership overlay', precedence: 80 },
@@ -676,12 +676,25 @@ export function ProductManagementWorkspace() {
       />
     </Group>
   );
+  const productQueueAction = firstReadinessIssue ? {
+    label: 'Fix first product',
+    disabled: false,
+    onClick: () => router.push(`/product-management/products/${firstReadinessIssue.product.id}`),
+  } : products.items.length ? {
+    label: 'Review dealer groups',
+    disabled: false,
+    onClick: () => goToProductTab('visibility'),
+  } : {
+    label: 'Fix first product',
+    disabled: true,
+    onClick: () => undefined,
+  };
 
   return (
     <Stack gap="lg">
       <WorkbenchHeader
         title="Product Management"
-        description="Work the product review queue: fix info, approved files, and dealer visibility before publishing to the Dealer Portal."
+        description="Decide which approved products, copy, and files each dealer group sees in the Dealer Portal."
         policyText="Products become eligible here; live catalog versions are published from Who Sees What after review."
       />
 
@@ -689,7 +702,7 @@ export function ProductManagementWorkspace() {
         metrics={[
           { label: 'Need info', value: workflowMetrics.needInfo, tone: workflowMetrics.needInfo ? 'orange' : 'green' },
           { label: 'Need files', value: workflowMetrics.needFiles, tone: workflowMetrics.needFiles ? 'orange' : 'green' },
-          { label: 'Need visibility', value: workflowMetrics.needVisibility, tone: workflowMetrics.needVisibility ? 'orange' : 'green' },
+          { label: 'Need dealer group', value: workflowMetrics.needVisibility, tone: workflowMetrics.needVisibility ? 'orange' : 'green' },
           { label: 'Ready to publish', value: workflowMetrics.readyToPublish, tone: 'green' },
         ]}
       />
@@ -708,7 +721,7 @@ export function ProductManagementWorkspace() {
         }}
       >
         <Tabs.List>
-          <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Products</Tabs.Tab>
+          <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Review products</Tabs.Tab>
           <Tabs.Tab value="visibility" leftSection={<IconShieldCheck size={16} />}>Who Sees What</Tabs.Tab>
           <WorkbenchMoreMenu
             label="More"
@@ -821,7 +834,7 @@ export function ProductManagementWorkspace() {
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label="Code"
-                    aria-label="Category code"
+                    aria-label="Section code"
                     data-testid="product-category-code"
                     value={categoryForm.code}
                     onChange={(event) => setCategoryForm((current) => ({ ...current, code: event.currentTarget.value }))}
@@ -829,7 +842,7 @@ export function ProductManagementWorkspace() {
                   />
                   <TextInput
                     label="Name"
-                    aria-label="Category name"
+                    aria-label="Section name"
                     data-testid="product-category-name"
                     value={categoryForm.name}
                     onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.currentTarget.value }))}
@@ -846,7 +859,7 @@ export function ProductManagementWorkspace() {
                 />
                 <Textarea
                   label="Description"
-                  aria-label="Category description"
+                  aria-label="Section description"
                   data-testid="product-category-description"
                   minRows={3}
                   value={categoryForm.description}
@@ -869,8 +882,8 @@ export function ProductManagementWorkspace() {
                         onChange={(value) => setCategoryForm((current) => ({ ...current, categoryType: value ?? '' }))}
                       />
                       <Select
-                        label="Show this category for"
-                        aria-label="Category region"
+                        label="Section display region"
+                        aria-label="Section display region"
                         placeholder="All regions"
                         clearable
                         searchable
@@ -1066,7 +1079,7 @@ export function ProductManagementWorkspace() {
                       ] : []),
                       ...(canManageProducts ? [{
                         id: 'add-dealer-view',
-                        label: 'Add Dealer group',
+                        label: 'Add dealer group',
                         icon: <IconPackage size={16} />,
                         onClick: () => {
                           setEditingCatalogViewId(null);
@@ -1175,8 +1188,8 @@ export function ProductManagementWorkspace() {
                   emptyState={(
                     <EmptyStateMessage
                       kind="no-data"
-                      title="No Dealer groups have products yet"
-                      description="Create a Dealer group, then attach visible products before publishing."
+                      title="No dealer groups have products yet"
+                      description="Create a dealer group, then attach visible products before publishing."
                     />
                   )}
                 />
@@ -1184,12 +1197,12 @@ export function ProductManagementWorkspace() {
             </Paper>
             <WorkbenchDetailRail
               title={selectedCatalogViewRow ? `${selectedCatalogViewRow.catalogView} publish checklist` : 'Choose a dealer group'}
-              description={selectedCatalogViewRow ? `${selectedCatalogViewRow.resolverInput} - ${selectedCatalogViewRow.region} / ${selectedCatalogViewRow.brand}` : 'Select a Dealer group to review publish readiness.'}
+              description={selectedCatalogViewRow ? `${selectedCatalogViewRow.resolverInput} - ${selectedCatalogViewRow.region} / ${selectedCatalogViewRow.brand}` : 'Select a dealer group to review publish readiness.'}
               emptyState={(
                 <EmptyStateMessage
                   kind="no-data"
-                  title="Select a Dealer group"
-                  description="Product visibility evidence appears here after you choose a view."
+                  title="Select a dealer group"
+                  description="Product visibility evidence appears here after you choose a dealer group."
                 />
               )}
             >
@@ -1202,7 +1215,7 @@ export function ProductManagementWorkspace() {
                     <Metric label="Live version" value={selectedCatalogViewRow.activeSnapshot ? `v${selectedCatalogViewRow.activeSnapshot.version}` : 'None'} />
                   </SimpleGrid>
                   <WorkbenchTable
-                    ariaLabel="Selected Dealer group product visibility"
+                    ariaLabel="Selected dealer group product visibility"
                     rows={selectedCatalogVisibilityRows}
                     getRowKey={(row) => row.id}
                     minWidth={760}
@@ -1242,7 +1255,7 @@ export function ProductManagementWorkspace() {
                       <EmptyStateMessage
                         kind="no-data"
                         title="No product visibility rows for this view"
-                        description="Attach visible products before publishing this dealer catalog view."
+                        description="Attach visible products before publishing this dealer group catalog."
                       />
                     )}
                   />
@@ -1262,7 +1275,7 @@ export function ProductManagementWorkspace() {
                         loading={publishingCatalogViewId === selectedSnapshotCatalogView.id}
                         onClick={() => void handlePublishCatalogSnapshot(selectedSnapshotCatalogView)}
                       >
-                        Publish catalog view
+                        Publish live catalog
                       </Button>
                     ) : null}
                     <Button variant="subtle" size="xs" onClick={() => {
@@ -1355,7 +1368,7 @@ export function ProductManagementWorkspace() {
                     <EmptyStateMessage
                       kind="no-data"
                       title="No published versions yet"
-                      description="Publish when this dealer catalog view is ready."
+                      description="Publish when this dealer group catalog is ready."
                     />
                   )}
                 />
@@ -1378,14 +1391,10 @@ export function ProductManagementWorkspace() {
                 </Stack>
                 <Button
                   variant="light"
-                  disabled={!firstReadinessIssue}
-                  onClick={() => {
-                    if (firstReadinessIssue) {
-                      router.push(`/product-management/products/${firstReadinessIssue.product.id}`);
-                    }
-                  }}
+                  disabled={productQueueAction.disabled}
+                  onClick={productQueueAction.onClick}
                 >
-                  Fix first product
+                  {productQueueAction.label}
                 </Button>
               </Group>
             </Paper>
@@ -1419,7 +1428,7 @@ export function ProductManagementWorkspace() {
               />
               <Select
                 w={190}
-                label="Status"
+                label="Product review status"
                 placeholder="Any status"
                 clearable
                 data={publishStatusOptions}
@@ -1591,7 +1600,7 @@ export function ProductManagementWorkspace() {
       <Modal
         opened={isCatalogViewModalOpen}
         onClose={resetCatalogViewForm}
-        title={editingCatalogViewId ? 'Edit Dealer group' : 'Create Dealer group'}
+        title={editingCatalogViewId ? 'Edit dealer group' : 'Create dealer group'}
         size="xl"
         centered
       >
@@ -1702,7 +1711,7 @@ export function ProductManagementWorkspace() {
             <Stack gap="sm">
               <SimpleGrid cols={{ base: 1, sm: 4 }}>
                 <Metric label="Audience" value={catalogViewForm.name || 'Not named'} />
-                <Metric label="Products shown" value={editingCatalogViewRow?.productCount ?? 'New'} />
+                  <Metric label="Products shown" value={editingCatalogViewRow?.productCount ?? 'New'} />
                 <Metric label="Not visible here" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
                 <Metric label="Live version" value={editingCatalogViewRow?.activeSnapshot ? `v${editingCatalogViewRow.activeSnapshot.version}` : 'None'} />
               </SimpleGrid>
@@ -1716,11 +1725,11 @@ export function ProductManagementWorkspace() {
               </Paper>
               <WorkbenchAdvancedSection
                 title="Advanced matching details"
-                description="Use when the Dealer group needs an explicit priority or account matching code."
+                description="Use when the dealer group needs an explicit priority or account matching code."
               >
                 <Stack gap="sm" mt="sm">
                   <Switch
-                    label="Default eligible Dealer group"
+                    label="Default eligible dealer group"
                     checked={catalogViewForm.isDefault}
                     onChange={(event) => setCatalogViewForm((current) => ({ ...current, isDefault: event.currentTarget.checked }))}
                   />
@@ -1728,7 +1737,7 @@ export function ProductManagementWorkspace() {
                     <NumberInput
                       label="View priority"
                       aria-label="Dealer group priority"
-                      description="Lower numbers win when more than one Dealer group matches."
+                      description="Lower numbers win when more than one dealer group matches."
                       min={1}
                       max={999}
                       value={catalogViewForm.precedence}
@@ -1772,7 +1781,7 @@ export function ProductManagementWorkspace() {
                 </Button>
               ) : (
                 <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>
-                  {editingCatalogViewId ? 'Save Dealer group' : 'Create Dealer group'}
+                  {editingCatalogViewId ? 'Save dealer group' : 'Create dealer group'}
                 </Button>
               )}
             </Group>
@@ -1788,20 +1797,20 @@ function CatalogVisibilityPlaybookButton() {
     <Popover width={360} position="bottom-end" shadow="md" withinPortal>
       <Popover.Target>
         <Button variant="light" size="sm">
-          How dealer groups work
+          Why dealer group first?
         </Button>
       </Popover.Target>
       <Popover.Dropdown>
         <Stack gap="sm">
-          <Title order={5}>Dealer group playbook</Title>
+          <Title order={5}>Dealer group first</Title>
           <Text size="sm">
-            Affinity and ownership/PE are separate account signals. Pulse resolves them into the right Dealer group before the catalog is shown.
+            Start with the dealer group because it is the storefront a dealer will see in the Dealer Portal.
           </Text>
           <Text size="sm">
-            Independent is an outcome: if no approved relationship or ownership overlay applies, the dealer falls back to the independent/default view.
+            Account labels like affinity, ownership/PE, independent, region, and brand resolve into one dealer group catalog.
           </Text>
           <Text size="sm">
-            Region and brand scope change presentation and files, not the ERP product identity.
+            That dealer group decides the approved products, copy, and files. It does not change the ERP product identity.
           </Text>
           <Text size="sm">
             Price class is pricing context only; it does not decide who sees a product.
@@ -1831,14 +1840,14 @@ function formatCatalogAudience(dealerGroupType: string, dealerGroupId?: string) 
     case 'all_dealers':
       return 'Standard dealers';
     case 'affinity_group':
-      return `Matched Dealer group${suffix}`;
+      return `Matched dealer group${suffix}`;
     case 'ownership_group':
-      return `Ownership Dealer group${suffix}`;
+      return `Ownership dealer group${suffix}`;
     case 'brand':
     case 'private_label':
-      return `Brand Dealer group${suffix}`;
+      return `Brand dealer group${suffix}`;
     case 'region':
-      return `Regional Dealer group${suffix}`;
+      return `Regional dealer group${suffix}`;
     default:
       return `${formatLabel(dealerGroupType)}${suffix}`;
   }

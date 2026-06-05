@@ -323,6 +323,8 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   await expect(page.getByRole('heading', { name: 'Next site work' })).toBeVisible();
   const nextSiteWork = page.getByRole('table', { name: 'Next site work' });
   await expect(nextSiteWork).toBeVisible();
+  await expect(page.getByTestId('consignment-next-work-detail')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Selected site work' })).toBeVisible();
   await expect(nextSiteWork.getByRole('columnheader')).toHaveCount(6);
   for (const header of ['Next work', 'Account / Site', 'Owner', 'Due', 'Status']) {
     await expect(nextSiteWork.getByRole('columnheader', { name: header })).toBeVisible();

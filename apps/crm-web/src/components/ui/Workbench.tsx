@@ -485,7 +485,9 @@ export function WorkbenchDetailRail({
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" gap="md">
           <Stack gap={2}>
-            <Text fw={800}>{title}</Text>
+            <Text component="h2" fw={800} size="md" lh={1.2} m={0}>
+              {title}
+            </Text>
             {description ? (
               <Text size="sm" c="dimmed">
                 {description}

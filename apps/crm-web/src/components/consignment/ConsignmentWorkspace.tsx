@@ -28,6 +28,7 @@ import {
 import {
   EmptyStateMessage,
   WorkbenchAdvancedSection,
+  WorkbenchDetailRail,
   WorkbenchHeader,
   WorkbenchMoreMenu,
   WorkbenchTable,
@@ -557,6 +558,20 @@ function NextSiteWorkList({
 }) {
   const [renderedAt] = useState(() => Date.now());
   const rows = useMemo(() => buildNextSiteWorkRows({ dashboard, renderedAt, sites }), [dashboard, renderedAt, sites]);
+  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const selectedWork = rows.find((row) => row.id === selectedWorkId) ?? rows[0] ?? null;
+
+  useEffect(() => {
+    if (!rows.length) {
+      setSelectedWorkId(null);
+      return;
+    }
+
+    const firstRow = rows[0];
+    if (firstRow && (!selectedWorkId || !rows.some((row) => row.id === selectedWorkId))) {
+      setSelectedWorkId(firstRow.id);
+    }
+  }, [rows, selectedWorkId]);
 
   if (isLoading) {
     return (
@@ -582,67 +597,128 @@ function NextSiteWorkList({
             {rows.length > 0 ? `${rows.length} site${rows.length === 1 ? '' : 's'}` : 'All clear'}
           </Badge>
         </Group>
-        <WorkbenchTable<NextSiteWorkRow>
-          ariaLabel="Next site work"
-          rows={rows}
-          getRowKey={(item) => item.id}
-          columns={[
-            {
-              key: 'work',
-              header: 'Next work',
-              render: (item) => (
-                <Stack gap={2}>
-                  <Text fw={700}>{item.summary}</Text>
-                  <Text size="xs" c="dimmed">
-                    {item.detail}{item.secondaryCount > 0 ? ` · ${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'}` : ''}
-                  </Text>
-                </Stack>
-              ),
-            },
-            {
-              key: 'site',
-              header: 'Account / Site',
-              render: (item) => (
-                <Stack gap={2}>
-                  <Text size="sm" fw={600}>{item.accountName}</Text>
-                  <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
-                </Stack>
-              ),
-            },
-            {
-              key: 'owner',
-              header: 'Owner',
-              render: (item) => item.ownerName ?? 'Unassigned',
-            },
-            {
-              key: 'due',
-              header: 'Due',
-              render: (item) => formatDate(item.dueAt),
-            },
-            {
-              key: 'status',
-              header: 'Status',
-              render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
-            },
-          ]}
-          rowActions={(item) => [{
-            id: 'open-site',
-            label: 'Open site',
-            icon: <IconArrowRight size={16} />,
-            onClick: () => {
-              window.location.href = `/consignment/${item.siteId}`;
-            },
-          }]}
-          emptyState={(
-            <EmptyStateMessage
-              kind="all-clear"
-              title="All clear"
-              description="No due audits, follow-up work, or site issues need review for this view."
-            />
-          )}
-        />
+        <SimpleGrid cols={{ base: 1, xl: rows.length ? 2 : 1 }} spacing="md" verticalSpacing="md">
+          <WorkbenchTable<NextSiteWorkRow>
+            ariaLabel="Next site work"
+            rows={rows}
+            getRowKey={(item) => item.id}
+            onRowClick={(item) => setSelectedWorkId(item.id)}
+            minWidth={640}
+            columns={[
+              {
+                key: 'work',
+                header: 'Next work',
+                render: (item) => (
+                  <Stack gap={2}>
+                    <Text fw={700}>{item.summary}</Text>
+                    <Text size="xs" c="dimmed">
+                      {item.detail}{item.secondaryCount > 0 ? ` · ${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'}` : ''}
+                    </Text>
+                  </Stack>
+                ),
+              },
+              {
+                key: 'site',
+                header: 'Account / Site',
+                render: (item) => (
+                  <Stack gap={2}>
+                    <Text size="sm" fw={600}>{item.accountName}</Text>
+                    <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
+                  </Stack>
+                ),
+              },
+              {
+                key: 'owner',
+                header: 'Owner',
+                render: (item) => item.ownerName ?? 'Unassigned',
+              },
+              {
+                key: 'due',
+                header: 'Due',
+                render: (item) => formatDate(item.dueAt),
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
+              },
+            ]}
+            rowActions={(item) => [{
+              id: 'open-site',
+              label: 'Open site',
+              icon: <IconArrowRight size={16} />,
+              onClick: () => {
+                window.location.href = `/consignment/${item.siteId}`;
+              },
+            }]}
+            emptyState={(
+              <EmptyStateMessage
+                kind="all-clear"
+                title="All clear"
+                description="No due audits, follow-up work, or site issues need review for this view."
+              />
+            )}
+          />
+          {rows.length ? <NextSiteWorkDetailPanel item={selectedWork} /> : null}
+        </SimpleGrid>
       </Stack>
     </Paper>
+  );
+}
+
+function NextSiteWorkDetailPanel({ item }: { item: NextSiteWorkRow | null }) {
+  return (
+    <WorkbenchDetailRail
+      title="Selected site work"
+      description="Use this rail to understand the next action before opening the full site record."
+      actions={item ? (
+        <Button
+          size="xs"
+          rightSection={<IconArrowRight size={14} />}
+          onClick={() => {
+            window.location.href = `/consignment/${item.siteId}`;
+          }}
+        >
+          Open site
+        </Button>
+      ) : null}
+    >
+      {item ? (
+        <Stack gap="md" data-testid="consignment-next-work-detail">
+          <Group justify="space-between" align="flex-start" gap="md">
+            <Stack gap={2}>
+              <Text fw={800}>{item.summary}</Text>
+              <Text size="sm" c="dimmed">{item.accountName}</Text>
+            </Stack>
+            <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>
+          </Group>
+          <Stack gap="xs">
+            <ConsignmentDetailRow label="Site" value={item.siteName ?? 'Site detail pending'} />
+            <ConsignmentDetailRow label="Owner" value={item.ownerName ?? 'Unassigned'} />
+            <ConsignmentDetailRow label="Due" value={formatDate(item.dueAt)} />
+            <ConsignmentDetailRow label="Why it is here" value={item.detail} />
+            {item.secondaryCount > 0 ? (
+              <ConsignmentDetailRow
+                label="Other open work"
+                value={`${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'} on this site`}
+              />
+            ) : null}
+          </Stack>
+          <Text size="xs" c="dimmed">
+            Reports, setup details, and audit history stay inside the site record so the daily queue remains simple.
+          </Text>
+        </Stack>
+      ) : null}
+    </WorkbenchDetailRail>
+  );
+}
+
+function ConsignmentDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Group justify="space-between" align="flex-start" gap="md" wrap="nowrap">
+      <Text size="sm" c="dimmed">{label}</Text>
+      <Text size="sm" ta="right">{value}</Text>
+    </Group>
   );
 }
 

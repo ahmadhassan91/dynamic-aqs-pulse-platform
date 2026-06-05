@@ -27,6 +27,9 @@ test('common internal detail modals stay action-light and task-first', async ({ 
 
   await page.goto(`/leads/${fixtures.cis.leadId}`);
   await expect(page.getByRole('heading', { name: fixtures.cis.companyName })).toBeVisible();
+  await expect(page.getByTestId('lead-next-best-action-card')).toBeVisible();
+  await expect(page.getByTestId('lead-work-step-cis')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Contacted' })).toHaveCount(0);
   await openHeaderMoreItem(page, 'Edit lead details');
   report.push(await captureDialogBudget(page, 'lead-edit-record', 'Edit Lead Details'));
   await page.keyboard.press('Escape');

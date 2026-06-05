@@ -13,7 +13,17 @@ test('internal workspace auth and core module routes stay backend-wired', async 
 
   await expect(page).toHaveURL(/\/leads$/);
   await expect(page.getByRole('heading', { name: 'Lead Work Queue' })).toBeVisible();
-  await expect(page.getByTestId('lead-work-queue')).toBeVisible();
+  const leadQueue = page.getByTestId('lead-work-queue');
+  await expect(leadQueue).toBeVisible();
+  await expect(leadQueue.getByRole('columnheader', { name: 'Next action' })).toBeVisible();
+  await expect(leadQueue.getByRole('columnheader', { name: 'Stage / next action' })).toHaveCount(0);
+  await expect(page.getByTestId('lead-pipeline-board')).toHaveCount(0);
+  const firstLeadRow = leadQueue.locator('tbody tr').first();
+  await expect(firstLeadRow.getByRole('cell').first()).toContainText(/Make Initial Contact|Schedule Discovery Call|Complete Discovery|Send CIS Link|Review Returned CIS|Follow Up CIS|Submit for Credit Approval|Track Finance Decision|Complete Onboarding|Secure First Order|Review Lead/);
+  await expect(firstLeadRow.getByRole('link', { name: 'Open lead' })).toHaveCount(1);
+  await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
+  await expect(page.getByRole('menuitem', { name: 'Pipeline board' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await openNewIntake(page);
   const intakeDialog = page.getByRole('dialog');
   await expect(intakeDialog.getByText('New Intake')).toBeVisible();
@@ -407,11 +417,14 @@ test('internal lead kanban supports dragging a card into the next stage', async 
   await expect(page.getByRole('tab', { name: 'Work' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('lead-work-flow')).toBeVisible();
   await expect(page.getByTestId('lead-next-best-action-card')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Contacted' })).toHaveCount(0);
   const leadDetailUrl = page.url();
 
   await page.goto('/leads');
   await expect(page.getByTestId('lead-work-queue')).toBeVisible();
-  await page.getByText('Pipeline board', { exact: true }).click();
+  await expect(page.getByTestId('lead-pipeline-board')).toHaveCount(0);
+  await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
+  await page.getByRole('menuitem', { name: 'Pipeline board' }).click();
   await expect(page.getByTestId('lead-pipeline-board')).toBeVisible();
 
   const sourceCard = page
@@ -489,7 +502,9 @@ test('super admin can edit a lead record and sees prototype-style hero and card 
 
   await page.goto('/leads');
   await expect(page.getByTestId('lead-work-queue')).toBeVisible();
-  await page.getByText('Pipeline board', { exact: true }).click();
+  await expect(page.getByTestId('lead-pipeline-board')).toHaveCount(0);
+  await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
+  await page.getByRole('menuitem', { name: 'Pipeline board' }).click();
   await expect(page.getByTestId('lead-pipeline-board')).toBeVisible();
   await page.getByPlaceholder('Search leads, companies, emails...').fill(companyName);
 

@@ -755,6 +755,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         setActiveTab('discovery');
         break;
       case 'Send CIS Link':
+      case 'Review Returned CIS':
       case 'Follow Up CIS':
       case 'Submit for Credit Approval':
       case 'Resolve Finance Info Request':
@@ -943,15 +944,17 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
                 Back to Lead Work Queue
               </Text>
               <WorkbenchMoreMenu label="More" items={leadMoreMenuItems} />
-              <Button
-                color="teal"
-                leftSection={<IconPhone size={16} />}
-                onClick={() => void handleLogInitialContact()}
-                loading={isLoggingCall}
-                disabled={!canManageLead || hasInitialContact || !leadIsActive}
-              >
-                {hasInitialContact ? 'Contacted' : 'Log Call'}
-              </Button>
+              {!hasInitialContact ? (
+                <Button
+                  color="teal"
+                  leftSection={<IconPhone size={16} />}
+                  onClick={() => void handleLogInitialContact()}
+                  loading={isLoggingCall}
+                  disabled={!canManageLead || !leadIsActive}
+                >
+                  Log Call
+                </Button>
+              ) : null}
             </Group>
           </Group>
 
@@ -1776,6 +1779,11 @@ function getLeadShellTab(tab: LeadRecordTab): LeadShellTab {
 }
 
 function getRecommendedLeadWorkStep(lead: LeadDetail, hasInitialContact: boolean): LeadWorkStep {
+  const backendWorkStep = getLeadWorkStepForNextAction(lead.workflowTask.nextAction);
+  if (backendWorkStep) {
+    return backendWorkStep;
+  }
+
   if (!hasInitialContact || !lead.discoveryCompletedAt) {
     return 'discovery';
   }
@@ -1787,6 +1795,28 @@ function getRecommendedLeadWorkStep(lead: LeadDetail, hasInitialContact: boolean
   }
 
   return 'onboarding';
+}
+
+function getLeadWorkStepForNextAction(nextAction: string): LeadWorkStep | null {
+  switch (nextAction) {
+    case 'Make Initial Contact':
+    case 'Schedule Discovery Call':
+    case 'Complete Discovery':
+      return 'discovery';
+    case 'Send CIS Link':
+    case 'Review Returned CIS':
+    case 'Follow Up CIS':
+    case 'Submit for Credit Approval':
+    case 'Resolve Finance Info Request':
+    case 'Resolve Credit Decline':
+    case 'Track Finance Decision':
+      return 'cis';
+    case 'Complete Onboarding':
+    case 'Secure First Order':
+      return 'onboarding';
+    default:
+      return null;
+  }
 }
 
 function MetricDetail({ label, value }: { label: string; value: string }) {

@@ -476,7 +476,12 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
     ];
   }
 
-  const [items, total] = await Promise.all([
+  const [policy, items, total] = await Promise.all([
+    prisma.leadRoutingPolicy.findUnique({
+      where: {
+        id: 'default',
+      },
+    }),
     prisma.lead.findMany({
       where: scopeWhere ? { AND: [scopeWhere, where] } : where,
       orderBy: [
@@ -484,13 +489,17 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
         { createdAt: 'desc' },
       ],
       take: limit,
-      include: LEAD_SUMMARY_INCLUDE,
+      include: LEAD_WORKFLOW_INCLUDE,
     }),
     prisma.lead.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
   ]);
 
+  if (!policy) {
+    throw new Error('Lead routing policy is not seeded');
+  }
+
   return {
-    items: items.map(toLeadSummary),
+    items: items.map((lead) => toLeadSummaryWithWorkflowTask(lead, policy)),
     total,
   };
 }
@@ -5413,6 +5422,19 @@ function toLeadSummary(lead: LeadWithRefs): LeadSummary {
     ...(initialContactDueAt ? { initialContactDueAt } : {}),
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
+  };
+}
+
+function toLeadSummaryWithWorkflowTask(lead: LeadWithWorkflowRefs, policy: LeadRoutingPolicyRecord): LeadSummary {
+  const now = new Date();
+  const initialContactSla = getInitialContactSlaState(lead, now, policy);
+  const discoverySchedulingSla = getDiscoverySchedulingSlaState(lead, now, policy);
+  const cisFollowUpSla = getCisFollowUpSlaState(lead, now, policy);
+  const workflowTask = buildWorkflowTask(lead, policy, initialContactSla, discoverySchedulingSla, cisFollowUpSla);
+
+  return {
+    ...toLeadSummary(lead),
+    workflowTask: toLeadWorkflowTaskSummary(workflowTask),
   };
 }
 

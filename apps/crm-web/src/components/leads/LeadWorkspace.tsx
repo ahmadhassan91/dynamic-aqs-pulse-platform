@@ -858,6 +858,17 @@ export function LeadWorkspace({
                       Open Latest Intake
                     </Menu.Item>
                   ) : null}
+                  {viewMode === 'kanban' ? (
+                    <Menu.Item
+                      leftSection={<IconTimeline size={14} />}
+                      onClick={() => {
+                        setActiveTab('queue');
+                        setViewMode('list');
+                      }}
+                    >
+                      Lead Work Queue
+                    </Menu.Item>
+                  ) : null}
                   <Menu.Item
                     leftSection={<IconTimeline size={14} />}
                     onClick={() => {
@@ -977,14 +988,6 @@ export function LeadWorkspace({
                     clearable
                     searchable
                     w={220}
-                  />
-                  <SegmentedControl
-                    value={viewMode}
-                    onChange={(value) => setViewMode(value as ViewMode)}
-                    data={[
-                      { label: 'Lead Work Queue', value: 'list' },
-                      { label: 'Pipeline board', value: 'kanban' },
-                    ]}
                   />
                   <ActionIcon variant="light" size="lg" onClick={() => setRefreshNonce((value) => value + 1)}>
                     <IconRefresh size={16} />
@@ -1142,7 +1145,7 @@ export function LeadWorkspace({
                                     <Divider />
                                     <Group justify="space-between" align="center">
                                       <Stack gap={0}>
-                                        <Text fw={600} size="sm">{primaryLeadActionLabel(lead)}</Text>
+                                        <Text fw={600} size="sm">{leadActionLabel(lead)}</Text>
                                         <Text size="xs" c="dimmed">Updated {formatDateLabel(lead.updatedAt)}</Text>
                                       </Stack>
                                       <Group gap="xs" wrap="nowrap">
@@ -1190,9 +1193,9 @@ export function LeadWorkspace({
                     <Table highlightOnHover verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>Next action</Table.Th>
                           <Table.Th>Company</Table.Th>
                           <Table.Th>Contact</Table.Th>
-                          <Table.Th>Stage / next action</Table.Th>
                           <Table.Th>Owner / routing</Table.Th>
                           <Table.Th>Updated / SLA</Table.Th>
                         </Table.Tr>
@@ -1200,6 +1203,32 @@ export function LeadWorkspace({
                       <Table.Tbody>
                         {leads.map((lead) => (
                           <Table.Tr key={lead.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/leads/${lead.id}`)}>
+                            <Table.Td>
+                              <Stack gap={6}>
+                                <Group gap="xs" wrap="wrap">
+                                  <Text fw={700}>{leadActionLabel(lead)}</Text>
+                                  <Badge color={leadActionColor(lead)} variant="light">
+                                    {formatStageLabel(lead.stage)}
+                                  </Badge>
+                                </Group>
+                                {lead.workflowTask?.reason ? (
+                                  <Text size="xs" c="dimmed" lineClamp={2}>
+                                    {lead.workflowTask.reason}
+                                  </Text>
+                                ) : null}
+                                <Button
+                                  component={Link}
+                                  href={`/leads/${lead.id}`}
+                                  variant="light"
+                                  color={leadActionColor(lead)}
+                                  size="xs"
+                                  w="fit-content"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  Open lead
+                                </Button>
+                              </Stack>
+                            </Table.Td>
                             <Table.Td>
                               <Stack gap={2}>
                                 <Text fw={600}>{lead.companyName}</Text>
@@ -1210,14 +1239,6 @@ export function LeadWorkspace({
                               <Stack gap={2}>
                                 <Text size="sm">{lead.contactDisplayName}</Text>
                                 <Text size="xs" c="dimmed">{lead.state ?? 'State pending'}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={4}>
-                                <Badge color={STAGE_META.find((stage) => stage.key === lead.stage)?.color ?? 'gray'} variant="light">
-                                  {formatStageLabel(lead.stage)}
-                                </Badge>
-                                <Text size="xs" c="dimmed">{primaryLeadActionLabel(lead)}</Text>
                               </Stack>
                             </Table.Td>
                             <Table.Td>
@@ -1856,6 +1877,14 @@ function primaryLeadActionLabel(lead: LeadSummary) {
     default:
       return 'Open Lead';
   }
+}
+
+function leadActionLabel(lead: LeadSummary) {
+  return lead.workflowTask?.nextAction ?? primaryLeadActionLabel(lead);
+}
+
+function leadActionColor(lead: LeadSummary) {
+  return lead.workflowTask?.colorToken ?? STAGE_META.find((stage) => stage.key === lead.stage)?.color ?? 'gray';
 }
 
 function formatOcrMode(value: PreviewLeadOcrCaptureResponse['extractionMode']) {

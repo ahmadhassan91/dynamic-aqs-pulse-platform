@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-K deployed and QA passed`
+Status: `In Progress - Slices A-L deployed and QA passed`
 
 ## Product Design Brief
 
@@ -38,7 +38,7 @@ Internal evidence is even stronger:
 
 | Agent lane | Scope | Main finding | Best next move |
 | --- | --- | --- | --- |
-| Leads + Accounts | Lead Management and Account Management | Leads still expose metrics, tabs, filters, board/list, and attention surfaces together; Accounts are mostly improved after UX-06 Slice B. | Make Leads a list-first next-action queue; demote Kanban and metrics to modes/Insights. |
+| Leads + Accounts | Lead Management and Account Management | Slice L now makes Leads scan by backend workflow next action first; Accounts are mostly improved after UX-06 Slice B but still need a smaller filter/detail-density pass. | Keep Leads as a next-action queue with Kanban behind More. Then do the smaller Accounts filter/detail-density pass. |
 | Territory | Territory Management | Territory remains the strongest mismatch: `Dashboard`, `Map View`, `Territory List`, metrics, and setup/reporting compete before RD/TM daily work. | Make `Needs attention` the default action queue; move map/list/performance/setup into More or drill-ins. |
 | Product + Assets + Dealer Portal | Product Management, Digital Assets, Dealer Portal | Slice I keeps Product Management readable as a product-review workspace: Products needing review, Who Sees What, Catalog sections, SKU families, and source-file review only under Setup. | Move to Digital Assets/Consignment second-click density if first-paint clarity remains green during client UAT. |
 | Training + Consignment | Training, Consignment | Slice F now splits Training completion into guided steps and compacts Consignment site detail around the current site work. | Keep the guided flow; next pass should be role/persona signoff and any remaining deep-detail polish, not new parked dependency work. |
@@ -63,7 +63,7 @@ Internal evidence is even stronger:
 
 | Module | Current UX risk | Optimization direction |
 | --- | --- | --- |
-| Leads | Slice A reduced the default page clutter; remaining risk is browser proof, large-dataset/server-aggregate hardening, and downstream trigger clarity. | Keep `/leads` defaulted to `Lead Work Queue` with next action/SLA/owner/source. Keep `Pipeline board` as a mode, metrics in `Insights`, and lead detail action-first with source/routing/evidence/lifecycle behind secondary detail. |
+| Leads | Slice L makes the default work queue action-first by using backend workflow next-action truth as the first scannable column; remaining risk is large-dataset/server-aggregate hardening and downstream trigger clarity. | Keep `/leads` defaulted to `Lead Work Queue` with backend next action/SLA/owner/source. Keep `Pipeline board` behind More, metrics in `Insights`, and lead detail action-first with source/routing/evidence/lifecycle behind secondary detail. |
 | Accounts | Mostly aligned after UX-06 Slice B; remaining risk is filter/header noise in follow-up mode. | Keep `Needs follow-up` default. Hide lifecycle filters unless `All accounts` mode is active or `More filters` is opened. Keep readiness/payment/training/portal/consignment in More drawer. |
 | Territory | Slice K now turns the default action queue into a work-item scan instead of a count-only attention panel. | Keep `Territory Action Queue` as the default. Show `Next territory work` when scoped lead/account assignment rows exist, keep zero-work RD/TM states calm, and keep map/list/performance/setup behind More or disclosures. |
 | Training | Slice F keeps `Priority Queue` as the visible primary tab and now splits session completion into `Completion`, `Proof`, `Certification`, and `Follow-up` steps without changing APIs. | Keep completion step-by-step. Next depth should tune copy/validation only after role UAT feedback. |
@@ -476,6 +476,44 @@ Proof passed:
 - Manual EC2 release `manual-20260605135006-ux07-slice-k-territory-work` deployed to `https://pulse-crm.theclustox.com`.
 - Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
 
+### Slice L - Lead Action Scan Pass
+
+Purpose: finish the lead follow-up after Slice A by making the default `/leads` queue scan by real workflow work, not by stage labels or a board-first mental model.
+
+Status: `Implemented - local QA passed; manual EC2 deploy and public smoke passed`
+
+Delivered so far:
+
+- `LeadSummary` now carries an optional `workflowTask` computed by the existing backend workflow engine during `listLeads`.
+- The default `Lead Work Queue` table now starts with `Next action`, backed by `workflowTask.nextAction`, `workflowTask.reason`, and the workflow color token when available.
+- The old `Stage / next action` column is removed; stage remains as a supporting badge inside the action cell.
+- Each lead row exposes one visible `Open lead` action. Pipeline board access moves behind the header `More` menu instead of competing on first paint.
+- Lead detail now opens the active Work lane from the same backend next-action truth, including `Review Returned CIS` routing into the CIS lane.
+- The inactive `Contacted` button is no longer shown after initial contact; users see `Log Call` only when it is still actionable.
+
+Requirement trace:
+
+| Requirement area | Slice L response |
+| --- | --- |
+| Lead team daily work | Makes the first column answer what needs to happen next for each lead. |
+| Workflow truth | Reuses the existing backend workflow task builder instead of duplicating action rules in the browser. |
+| Detail/list consistency | Aligns lead detail's active work lane with the same next-action value shown in the queue. |
+| Keep it simple | Removes the visible board/list switch from first paint and keeps one row action visible. |
+| Parked dependency boundary | Does not add new ERP, payment, product import, or external workflow dependencies. |
+
+Proof passed:
+
+- `pnpm --filter @pulse/contracts build`
+- `pnpm --filter @pulse/api build`
+- `pnpm --filter @pulse/crm-web typecheck`
+- `node --check apps/crm-web/e2e/flows.spec.mjs && node --check apps/crm-web/e2e/ux-depth.spec.mjs && node --check apps/crm-web/e2e/ux-clutter.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.config.mjs -g "internal workspace auth|internal lead kanban" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "common internal detail modals" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- `git diff --check`
+- Manual EC2 release `manual-20260605141810-ux07-slice-l-lead-action` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`
@@ -502,6 +540,6 @@ These must not be pulled into first-paint UI while optimizing:
 
 ## Recommended Next Slice
 
-After Slice K, move to **Lead Action Scan Pass** if continuing the same UX goal: make `/leads` use backend workflow next-action truth as the first scannable column and align lead detail's active work lane to that same backend action. Accounts can follow with a smaller filter/detail-density pass.
+After Slice L, move to the smaller **Accounts filter/detail-density pass**: keep the default account page on follow-up work, reduce filter/header noise, and make account detail second-click areas easier to scan without pulling ERP/payment dependencies forward.
 
 The local critical clutter report, focused Territory depth pass, focused Training/Consignment E2E flow, route coverage, deployed Consignment smoke, and Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.

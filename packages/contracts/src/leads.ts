@@ -491,6 +491,7 @@ export interface LeadSummary {
   territoryAssignmentMethod?: TerritoryAssignmentMethodKey;
   territoryAssignedAt?: string;
   initialContactDueAt?: string;
+  workflowTask?: LeadWorkflowTaskSummary;
   createdAt: string;
   updatedAt: string;
 }

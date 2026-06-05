@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-M deployed and QA passed`
+Status: `In Progress - Slices A-N deployed and QA passed`
 
 ## Product Design Brief
 
@@ -548,6 +548,42 @@ Proof passed:
 - `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.config.mjs -g "internal workspace auth and core module routes" --workers=1 --max-failures=1`
 - `git diff --check`
 - Manual EC2 release `manual-20260605144024-ux07-slice-m-product-readiness` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
+### Slice N - Product Publish-Handoff Safety
+
+Purpose: remove the remaining Product Management confusion by separating product eligibility from dealer-catalog-view publish. Product rows become eligible; the dealer catalog view is reviewed and then published from `Who Sees What`.
+
+Status: `Implemented - local QA passed; manual EC2 deploy and public smoke passed`
+
+Delivered so far:
+
+- `/product-management` now explains the handoff in one quiet line: products become eligible here, while live catalog versions are published from `Who Sees What` after review.
+- Product gaps now use client language: `Missing catalog section`, `No SKU family assigned`, and `Missing dealer-group visibility`.
+- Direct publish actions were removed from dealer-group row/header menus. The `Publish catalog view` action now appears only inside the published-version review rail after current-vs-live comparison loads.
+- Product detail opened from `Who Sees What` returns to that tab, and the normal visibility save path requires an existing dealer group.
+- Product detail first paint now opens on the first unresolved blocker: `Info`, `Files`, `Visibility`, then `Publish check`.
+- Publish-status options expose `Published` only to users with publish permission, so eligible products/inclusions can be prepared through the UI without giving ordinary manage users a publish control.
+
+Requirement trace:
+
+| Requirement area | Slice N response |
+| --- | --- |
+| Product team daily work | Keeps the product queue action-oriented and removes backend category/family wording from the visible gap list. |
+| Category/family separation | Uses `Catalog section` and `SKU family` in visible labels while leaving backend identifiers unchanged. |
+| Dealer group visibility | Requires a real dealer group for the normal visibility path and preserves return context from `Who Sees What`. |
+| Publish safety | Enforces review-first UI flow for dealer catalog view publish without changing schema or endpoint contracts. |
+| Parked dependency boundary | Keeps pricing, inventory, source import, and Acumatica migration out of the publish-handoff slice. |
+
+Proof passed so far:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `node --check apps/crm-web/e2e/flows.spec.mjs && node --check apps/crm-web/e2e/ux-depth.spec.mjs && node --check apps/crm-web/e2e/ux-clutter.spec.mjs && node --check apps/crm-web/e2e/ux-visual.spec.mjs && node --check apps/crm-web/e2e/route-coverage.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "product" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.config.mjs -g "internal workspace auth and core module routes" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- `git diff --check`
+- Manual EC2 release `manual-20260605151331-ux07-slice-n-product-publish-handoff` deployed to `https://pulse-crm.theclustox.com`.
 - Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
 
 Static proof for each slice:

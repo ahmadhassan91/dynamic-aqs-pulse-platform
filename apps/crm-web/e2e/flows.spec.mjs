@@ -836,6 +836,8 @@ async function assertInternalDefaultRoutes(page, routeKeys) {
       await expect(page.getByText('Need files')).toBeVisible();
       await expect(page.getByText('Need visibility')).toBeVisible();
       await expect(page.getByText('Ready to publish')).toBeVisible();
+      await expect(page.getByText('Products become eligible here; live catalog versions are published from Who Sees What after review.')).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Catalog section / SKU family' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Next fix' })).toBeVisible();
       await expect(page.getByText('Source file review')).toHaveCount(0);

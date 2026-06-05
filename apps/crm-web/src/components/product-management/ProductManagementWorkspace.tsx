@@ -276,13 +276,13 @@ export function ProductManagementWorkspace() {
     const hasPrimaryImage = product.assetAssignments.some((assignment) => assignment.role === 'primary_image' && assignment.status === 'active' && assignment.reviewStatus === 'approved');
     const hasDealerVisibility = product.inclusions.some((inclusion) => inclusion.isVisible);
     const blockers = [
-      product.category ? null : 'Missing category',
+      product.category ? null : 'Missing catalog section',
       hasContent ? null : 'Missing dealer-facing content',
       hasPrimaryImage ? null : 'Missing approved primary image',
-      hasDealerVisibility ? null : 'Missing dealer group',
+      hasDealerVisibility ? null : 'Missing dealer-group visibility',
     ].filter(Boolean) as string[];
     const warnings = [
-      product.family ? null : 'No family assigned',
+      product.family ? null : 'No SKU family assigned',
       product.assetAssignments.some((assignment) => assignment.role === 'spec_sheet') ? null : 'No spec sheet attached',
       product.assetAssignments.some((assignment) => assignment.role === 'brochure') ? null : 'No brochure attached',
     ].filter(Boolean) as string[];
@@ -303,9 +303,9 @@ export function ProductManagementWorkspace() {
     }).length;
 
     return {
-      needInfo: countByGap((gap) => gap.includes('content') || gap.includes('category') || gap.includes('family')),
+      needInfo: countByGap((gap) => gap.includes('content') || gap.includes('catalog section') || gap.includes('SKU family')),
       needFiles: countByGap((gap) => gap.includes('image') || gap.includes('spec sheet') || gap.includes('brochure')),
-      needVisibility: countByGap((gap) => gap.includes('dealer group')),
+      needVisibility: countByGap((gap) => gap.includes('dealer-group visibility')),
       readyToPublish: readinessRows.filter((row) => row.status === 'pass').length,
     };
   }, [readinessRows]);
@@ -682,7 +682,7 @@ export function ProductManagementWorkspace() {
       <WorkbenchHeader
         title="Product Management"
         description="Work the product review queue: fix info, approved files, and dealer visibility before publishing to the Dealer Portal."
-        policyText="Commercial details stay outside this workspace until the approved integration is ready."
+        policyText="Products become eligible here; live catalog versions are published from Who Sees What after review."
       />
 
       <WorkbenchMetricStrip
@@ -800,13 +800,13 @@ export function ProductManagementWorkspace() {
                 ]}
                 rowActions={(category) => ([{
                   id: 'edit-category',
-                  label: 'Edit category',
+                  label: 'Edit section',
                   onClick: () => handleEditCategory(category),
                 }])}
                 emptyState={(
                   <EmptyStateMessage
                     kind="no-data"
-                    title="No categories configured yet"
+                    title="No catalog sections configured yet"
                     description="Add catalog sections when dealer browsing needs a new section."
                   />
                 )}
@@ -837,8 +837,8 @@ export function ProductManagementWorkspace() {
                   />
                 </SimpleGrid>
                 <Select
-                  label="Parent category"
-                  aria-label="Parent category"
+                  label="Parent section"
+                  aria-label="Parent section"
                   clearable
                   data={categoryParentOptions}
                   value={categoryForm.parentId}
@@ -853,14 +853,14 @@ export function ProductManagementWorkspace() {
                   onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.currentTarget.value }))}
                 />
                 <WorkbenchAdvancedSection
-                  title="Advanced category options"
-                  description="Use when a category needs a specific purpose, region, or display order."
+                  title="Advanced section options"
+                  description="Use when a catalog section needs a specific purpose, region, or display order."
                 >
                   <Stack gap="sm" mt="sm">
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                       <Select
-                        label="Category purpose"
-                        aria-label="Category purpose"
+                        label="Section purpose"
+                        aria-label="Section purpose"
                         placeholder="Choose only when needed"
                         clearable
                         searchable
@@ -968,13 +968,13 @@ export function ProductManagementWorkspace() {
                 ]}
                 rowActions={(family) => ([{
                   id: 'edit-family',
-                  label: 'Edit family',
+                  label: 'Edit SKU family',
                   onClick: () => handleEditFamily(family),
                 }])}
                 emptyState={(
                   <EmptyStateMessage
                     kind="no-data"
-                    title="No families configured yet"
+                    title="No SKU families configured yet"
                     description="Add SKU families when related products should be grouped together."
                   />
                 )}
@@ -1013,7 +1013,7 @@ export function ProductManagementWorkspace() {
                   onChange={(event) => setFamilyForm((current) => ({ ...current, description: event.currentTarget.value }))}
                 />
                 <WorkbenchAdvancedSection
-                  title="Advanced family options"
+                  title="Advanced SKU family options"
                   description="Use when a family needs a specific display order or should be hidden from setup lists."
                 >
                   <Group align="flex-end" mt="sm">
@@ -1058,12 +1058,6 @@ export function ProductManagementWorkspace() {
                           label: `Review before publish: ${selectedCatalogView.name}`,
                           onClick: () => void loadCatalogSnapshots(selectedCatalogView),
                         },
-                        ...(canPublishProducts ? [{
-                          id: 'publish-selected',
-                          label: `Publish ${selectedCatalogView.name}`,
-                          disabled: publishingCatalogViewId === selectedCatalogView.id,
-                          onClick: () => void handlePublishCatalogSnapshot(selectedCatalogView),
-                        }] : []),
                         ...(canManageProducts ? [{
                           id: 'edit-selected',
                           label: `Edit ${selectedCatalogView.name}`,
@@ -1140,7 +1134,7 @@ export function ProductManagementWorkspace() {
                       render: (row) => (
                         <Stack gap={2}>
                           <Text fw={600}>{row.productCount}</Text>
-                          <Text size="xs" c="dimmed">{row.publishedCount} ready / {row.blockedCount} needs dealer group</Text>
+                          <Text size="xs" c="dimmed">{row.publishedCount} eligible / {row.blockedCount} not visible in this group</Text>
                         </Stack>
                       ),
                     },
@@ -1167,12 +1161,6 @@ export function ProductManagementWorkspace() {
                         label: 'Review before publish',
                         onClick: () => void loadCatalogSnapshots(catalogView),
                       },
-                      ...(canPublishProducts ? [{
-                        id: 'publish-catalog-view',
-                        label: `Publish ${catalogView.name}`,
-                        disabled: publishingCatalogViewId === catalogView.id,
-                        onClick: () => void handlePublishCatalogSnapshot(catalogView),
-                      }] : []),
                       ...(canManageProducts ? [{
                         id: 'edit-catalog-view',
                         label: 'Edit view',
@@ -1209,8 +1197,8 @@ export function ProductManagementWorkspace() {
                 <Stack gap="md">
                   <SimpleGrid cols={{ base: 1, sm: 4 }}>
                     <Metric label="Products shown" value={selectedCatalogViewRow.productCount} />
-                    <Metric label="Published" value={selectedCatalogViewRow.publishedCount} />
-                    <Metric label="Needs dealer group" value={selectedCatalogViewRow.blockedCount} />
+                    <Metric label="Eligible products" value={selectedCatalogViewRow.publishedCount} />
+                    <Metric label="Not visible here" value={selectedCatalogViewRow.blockedCount} />
                     <Metric label="Live version" value={selectedCatalogViewRow.activeSnapshot ? `v${selectedCatalogViewRow.activeSnapshot.version}` : 'None'} />
                   </SimpleGrid>
                   <WorkbenchTable
@@ -1240,21 +1228,21 @@ export function ProductManagementWorkspace() {
                         header: 'Portal status',
                         render: (row) => (
                           <Badge color={row.isVisible ? 'green' : 'red'} variant="light">
-                            {row.isVisible ? formatLabel(row.publishStatus) : 'Needs dealer group'}
+                            {row.isVisible ? formatLabel(row.publishStatus) : 'Not visible here'}
                           </Badge>
                         ),
                       },
                     ]}
                     rowActions={(row) => [{
                       id: 'review-product',
-                      label: 'Review product',
-                      onClick: () => router.push(`/product-management/products/${row.product.id}`),
+                      label: 'Fix product',
+                      onClick: () => router.push(`/product-management/products/${row.product.id}?returnTab=visibility`),
                     }]}
                     emptyState={(
                       <EmptyStateMessage
                         kind="no-data"
                         title="No product visibility rows for this view"
-                        description="Attach visible products before publishing this Dealer group."
+                        description="Attach visible products before publishing this dealer catalog view."
                       />
                     )}
                   />
@@ -1266,13 +1254,25 @@ export function ProductManagementWorkspace() {
                 title="Published versions"
                 description={selectedSnapshotCatalogView.name}
                 actions={(
-                  <Button variant="subtle" size="xs" onClick={() => {
-                    setSelectedSnapshotCatalogView(null);
-                    setCatalogSnapshots([]);
-                    setSnapshotCompare(null);
-                  }}>
-                    Close
-                  </Button>
+                  <Group gap="xs">
+                    {canPublishProducts ? (
+                      <Button
+                        size="xs"
+                        disabled={!snapshotCompare || isLoadingSnapshotCompare || publishingCatalogViewId === selectedSnapshotCatalogView.id}
+                        loading={publishingCatalogViewId === selectedSnapshotCatalogView.id}
+                        onClick={() => void handlePublishCatalogSnapshot(selectedSnapshotCatalogView)}
+                      >
+                        Publish catalog view
+                      </Button>
+                    ) : null}
+                    <Button variant="subtle" size="xs" onClick={() => {
+                      setSelectedSnapshotCatalogView(null);
+                      setCatalogSnapshots([]);
+                      setSnapshotCompare(null);
+                    }}>
+                      Close
+                    </Button>
+                  </Group>
                 )}
               >
                 <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
@@ -1355,7 +1355,7 @@ export function ProductManagementWorkspace() {
                     <EmptyStateMessage
                       kind="no-data"
                       title="No published versions yet"
-                      description="Publish when this Dealer group is ready."
+                      description="Publish when this dealer catalog view is ready."
                     />
                   )}
                 />
@@ -1454,11 +1454,11 @@ export function ProductManagementWorkspace() {
                   },
                   {
                     key: 'placement',
-                    header: 'Section / family',
+                    header: 'Catalog section / SKU family',
                     render: (product) => (
                       <Stack gap={2}>
-                        <Text size="sm">{product.category?.name ?? 'Unassigned category'}</Text>
-                        <Text size="xs" c="dimmed">{product.family?.name ?? 'Unassigned family'}</Text>
+                        <Text size="sm">{product.category?.name ?? 'Unassigned catalog section'}</Text>
+                        <Text size="xs" c="dimmed">{product.family?.name ?? 'No SKU family assigned'}</Text>
                       </Stack>
                     ),
                   },
@@ -1703,7 +1703,7 @@ export function ProductManagementWorkspace() {
               <SimpleGrid cols={{ base: 1, sm: 4 }}>
                 <Metric label="Audience" value={catalogViewForm.name || 'Not named'} />
                 <Metric label="Products shown" value={editingCatalogViewRow?.productCount ?? 'New'} />
-                <Metric label="Needs dealer group" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
+                <Metric label="Not visible here" value={editingCatalogViewRow?.blockedCount ?? 'Review'} />
                 <Metric label="Live version" value={editingCatalogViewRow?.activeSnapshot ? `v${editingCatalogViewRow.activeSnapshot.version}` : 'None'} />
               </SimpleGrid>
               <Paper withBorder p="md">
@@ -1768,7 +1768,7 @@ export function ProductManagementWorkspace() {
                   onClick={() => setCatalogViewWizardStep(catalogViewWizardStep === 'audience' ? 'scope' : 'review')}
                   disabled={catalogViewWizardStep === 'audience' && !catalogViewForm.name.trim()}
                 >
-                  {catalogViewWizardStep === 'audience' ? 'Set Visibility' : 'Review'}
+                  {catalogViewWizardStep === 'audience' ? 'Next: scope' : 'Review dealer group'}
                 </Button>
               ) : (
                 <Button data-testid="dealer-catalog-save" onClick={handleSaveCatalogView} loading={isSavingCatalogView} disabled={!catalogViewForm.name.trim()}>

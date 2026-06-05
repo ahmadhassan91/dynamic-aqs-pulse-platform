@@ -27,10 +27,10 @@ It is easier to explain the module as four jobs:
 
 | Job | UI language | What it means | What it is not |
 |---|---|---|---|
-| Review products | Products needing review | Fix missing content, files, catalog section, SKU family, and dealer-group gaps before publishing. | It is not the final ERP product master. |
+| Review products | Products needing review | Fix missing content, files, catalog section, SKU family, and dealer-group visibility gaps so the product becomes eligible for a dealer catalog view. | It is not the final ERP product master. |
 | Organize the catalog | Catalog sections and SKU families | Catalog sections are where products appear when dealers browse. SKU families group sibling/variant-like SKUs. | These do not decide dealer access. |
 | Decide who sees what | Dealer groups / Who Sees What | A dealer group is the resolved catalog audience for affinity, ownership/PE, independent/hybrid, region, brand, and portal eligibility rules. | It is not a price class and does not change product identity. |
-| Publish safely | Need info / Need files / Need visibility / Ready to publish | Only publish when the product has approved info, approved files, catalog organization, and dealer-group visibility. | It is not order placement, inventory, invoicing, or payment. |
+| Publish safely | Need info / Need files / Need visibility / Ready to publish | Product rows become eligible first; live dealer catalog versions are published from Who Sees What after the dealer-group review is clean. | It is not order placement, inventory, invoicing, or payment. |
 
 ```mermaid
 flowchart LR
@@ -38,8 +38,9 @@ flowchart LR
     C["Digital Assets<br/>images, brochures, spec sheets"] --> B
     D["Setup<br/>catalog sections + SKU families"] --> B
     B --> E["Who Sees What<br/>dealer groups"]
-    E --> F["Ready to publish<br/>publish-safe catalog"]
-    F --> G["Dealer Portal<br/>products and files"]
+    E --> F["Review catalog view<br/>current draft vs live"]
+    F --> G["Publish catalog view<br/>dealer-safe version"]
+    G --> H["Dealer Portal<br/>products and files"]
 ```
 
 This is why the UI must keep the first screen focused on products needing review. Setup, source-file review, and parked integrations remain available, but they should not be the first thing a product user has to understand.
@@ -227,15 +228,16 @@ This is not a separate workflow engine. It is a lightweight publish validation s
 
 ```mermaid
 flowchart TD
-    A["Product marked Ready for Portal"] --> B{"Has category?"}
-    B -- No --> X["Block publish: missing category"]
+    A["Product eligible for portal review"] --> B{"Has catalog section?"}
+    B -- No --> X["Block publish: missing catalog section"]
     B -- Yes --> C{"Has display name and description?"}
     C -- No --> Y["Block publish: missing content"]
     C -- Yes --> D{"Has required assets?"}
     D -- No --> Z["Block publish: missing image/spec sheet"]
     D -- Yes --> E{"Has dealer visibility rules?"}
-    E -- No --> W["Block publish: no dealer group/region"]
-    E -- Yes --> F["Publish to Dealer Portal"]
+    E -- No --> W["Block publish: no dealer-group visibility"]
+    E -- Yes --> F["Review dealer catalog view"]
+    F --> G["Publish catalog view to Dealer Portal"]
 ```
 
 Minimum checks:

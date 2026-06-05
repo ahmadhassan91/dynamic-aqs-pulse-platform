@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
@@ -97,6 +97,7 @@ const CATALOG_VIEW_TYPE_OPTIONS = [
 export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const { apiBaseUrl, auth } = usePulseSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [catalogViews, setCatalogViews] = useState<DealerCatalogViewSummary[]>([]);
   const [availableAssets, setAvailableAssets] = useState<DigitalAssetSummary[]>([]);
@@ -117,6 +118,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [activeBoardSection, setActiveBoardSection] = useState<ProductDetailBoardSection>('content');
+  const [hasAutoSelectedBoardSection, setHasAutoSelectedBoardSection] = useState(false);
   const canManageProducts = auth ? canPerformAction(auth.identity.role, 'product.manage') : false;
   const canPublishProducts = auth ? canPerformAction(auth.identity.role, 'product.publish') : false;
   const canLinkProductAssets = auth ? canPerformAction(auth.identity.role, 'product.asset_link') : false;
@@ -151,6 +153,17 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       cancelled = true;
     };
   }, [apiBaseUrl, auth, productId]);
+
+  useEffect(() => {
+    setActiveBoardSection('content');
+    setHasAutoSelectedBoardSection(false);
+  }, [productId]);
+
+  useEffect(() => {
+    if (!product || hasAutoSelectedBoardSection) return;
+    setActiveBoardSection(getInitialProductBoardSection(product));
+    setHasAutoSelectedBoardSection(true);
+  }, [hasAutoSelectedBoardSection, product]);
 
   const reloadProduct = async () => {
     if (!auth) return;
@@ -326,7 +339,12 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const primaryPresentation = product.presentations[0];
   const blockedChecks = product.readinessChecks.filter((check) => check.status === 'blocked');
   const assetRoleOptions = PRODUCT_ASSET_ROLE_OPTIONS.map((role) => ({ value: role, label: formatLabel(role) }));
-  const publishStatusOptions = PRODUCT_PUBLISH_STATUS_OPTIONS.filter((status) => status !== 'published').map((status) => ({ value: status, label: formatLabel(status) }));
+  const publishStatusOptions = PRODUCT_PUBLISH_STATUS_OPTIONS
+    .filter((status) => canPublishProducts || status !== 'published')
+    .map((status) => ({ value: status, label: formatLabel(status) }));
+  const returnTab = searchParams.get('returnTab') === 'visibility' ? 'visibility' : 'products';
+  const backHref = `/product-management?tab=${returnTab}`;
+  const backLabel = returnTab === 'visibility' ? 'Back to Who Sees What' : 'Back to Products';
   const catalogViewOptions = catalogViews.map((catalogView) => ({
     value: catalogView.id,
     label: catalogView.resolverLabel ? `${catalogView.name} - ${catalogView.resolverLabel}` : catalogView.name,
@@ -353,7 +371,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     }] : []),
     ...(!visibleDealerViewCount ? [{
       id: 'dealer-visibility',
-      title: 'Dealer group',
+      title: 'Dealer visibility',
       description: 'Choose which dealer group can see this product and its files.',
       count: 1,
       tone: 'orange' as const,
@@ -367,8 +385,8 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     })),
   ];
   const productMetrics = [
-    { label: 'Category', value: product.category?.name ?? 'Unassigned', tone: product.category ? 'blue' as const : 'orange' as const },
-    { label: 'Family', value: product.family?.name ?? 'Unassigned', tone: product.family ? 'blue' as const : 'orange' as const },
+    { label: 'Catalog section', value: product.category?.name ?? 'Unassigned', tone: product.category ? 'blue' as const : 'orange' as const },
+    { label: 'SKU family', value: product.family?.name ?? 'Unassigned', tone: product.family ? 'blue' as const : 'orange' as const },
     { label: 'Files', value: product.assetAssignments.length, tone: product.assetAssignments.length ? 'green' as const : 'orange' as const },
     { label: 'Dealer groups', value: visibleDealerViewCount, tone: visibleDealerViewCount ? 'green' as const : 'orange' as const },
   ];
@@ -412,8 +430,8 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         primaryAction={detailPrimaryAction}
         secondaryActions={(
           <Group gap="xs">
-            <Button component={Link} href="/product-management?tab=products" variant="default" leftSection={<IconArrowLeft size={16} />}>
-              Back to Products
+            <Button component={Link} href={backHref} variant="default" leftSection={<IconArrowLeft size={16} />}>
+              {backLabel}
             </Button>
             <WorkbenchMoreMenu
               items={[
@@ -699,7 +717,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           emptyState={(
             <EmptyStateMessage
               kind="no-data"
-              title="No dealer group selected"
+              title="No dealer visibility set"
               description="Add this product to at least one dealer group before publish."
               action={canManageProducts && primaryPresentation ? (
                 <Button size="xs" leftSection={<IconShieldCheck size={14} />} onClick={openAddDealerCatalogView}>
@@ -718,16 +736,15 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             centered
           >
           <Stack gap="sm">
-            <Text size="sm" c="dimmed">Choose the dealer group, decide if this product is visible there, and set review status.</Text>
+            <Text size="sm" c="dimmed">Choose an existing dealer group, decide if this product is visible there, and set review status.</Text>
             <SimpleGrid cols={{ base: 1, md: 2 }}>
               <Select
                 label="Dealer group"
                 placeholder="Select an existing dealer group"
-                description="Use advanced overrides only for scoped exceptions."
+                description="Required for the normal visibility path. Advanced fields refine scope; they do not replace the dealer group."
                 data={catalogViewOptions}
                 value={inclusionForm.dealerCatalogViewId}
                 onChange={(value) => setInclusionForm((current) => ({ ...current, dealerCatalogViewId: value }))}
-                clearable
               />
               <Select label="Review status" data={publishStatusOptions} value={inclusionForm.publishStatus} onChange={(value) => setInclusionForm((current) => ({ ...current, publishStatus: (value as ProductPublishStatusKey | null) ?? 'draft' }))} allowDeselect={false} />
             </SimpleGrid>
@@ -746,7 +763,7 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             </WorkbenchAdvancedSection>
             <Group justify="flex-end">
               <Button variant="subtle" onClick={handleResetInclusion}>Cancel</Button>
-              <Button onClick={handleSaveInclusion} loading={isSavingInclusion}>{editingInclusionId ? 'Save visibility' : 'Set visibility'}</Button>
+              <Button onClick={handleSaveInclusion} loading={isSavingInclusion} disabled={!inclusionForm.dealerCatalogViewId}>{editingInclusionId ? 'Save visibility' : 'Set visibility'}</Button>
             </Group>
           </Stack>
           </Modal>
@@ -811,6 +828,14 @@ function formatLabel(value: string) {
 
 function formatCatalogViewType(value: string) {
   return CATALOG_VIEW_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? formatLabel(value);
+}
+
+function getInitialProductBoardSection(product: ProductDetail): ProductDetailBoardSection {
+  const primaryPresentation = product.presentations[0];
+  if (!primaryPresentation || !primaryPresentation.shortDescription) return 'content';
+  if (!product.assetAssignments.length) return 'files';
+  if (!product.inclusions.some((inclusion) => inclusion.isVisible)) return 'visibility';
+  return 'checks';
 }
 
 function emptyToNull(value: string) {

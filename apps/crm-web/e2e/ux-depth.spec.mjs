@@ -218,8 +218,10 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByText('Need files')).toBeVisible();
   await expect(page.getByText('Need visibility')).toBeVisible();
   await expect(page.getByText('Ready to publish')).toBeVisible();
+  await expect(page.getByText('Products become eligible here; live catalog versions are published from Who Sees What after review.')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Status' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Products needing review' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Catalog section / SKU family' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Next fix' })).toBeVisible();
   await expect(page.getByText('Source file review')).toHaveCount(0);
@@ -237,6 +239,7 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByText('Products shown')).toHaveCount(0);
   await expect(page.getByText('Needs dealer group', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Live version')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Publish catalog view' })).toHaveCount(0);
   await page.getByRole('button', { name: 'How dealer groups work' }).click();
   await expect(page.getByText('Dealer group playbook')).toBeVisible();
   await expect(page.getByText(/Affinity and ownership\/PE are separate account signals/i)).toBeVisible();
@@ -248,6 +251,7 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(catalogViewDialog.getByText('Who is this for?')).toBeVisible();
   await expect(catalogViewDialog.getByText('What should they see?')).toBeVisible();
   await expect(catalogViewDialog.getByText('Review before publish')).toBeVisible();
+  await expect(catalogViewDialog.getByRole('button', { name: 'Next: scope' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.goto('/digital-assets');
@@ -466,6 +470,8 @@ test('UX-03 product and asset detail surfaces keep review work in context', asyn
   await page.goto(`/product-management/products/${fixtures.product.productId}`);
   await expect(page.getByRole('heading', { name: fixtures.product.displayName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Product publish checklist' })).toBeVisible();
+  await expect(page.getByText('Catalog section')).toBeVisible();
+  await expect(page.getByText('SKU family')).toBeVisible();
   await page.getByLabel('Product readiness sections').getByText('Files', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Approved files' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Last Publish State' })).toHaveCount(0);

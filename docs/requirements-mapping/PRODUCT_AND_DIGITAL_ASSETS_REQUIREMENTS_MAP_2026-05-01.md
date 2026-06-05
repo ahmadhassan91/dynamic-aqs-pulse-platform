@@ -90,3 +90,12 @@ The next implementation slice should cover:
 | PM-001 / PM-008 operator next action | Product rows now use `Publish readiness`, `Next fix`, and `Fix product`, making the next product action clear before users open detail. | The readiness calculation remains backend/data-driven; this slice only changes UI language and ordering. |
 | PM-006/PM-007 dealer group visibility | Product detail now uses the sequence `Info`, `Files`, `Visibility`, and `Publish check`; dealer group assignment is presented as `Set visibility`. | Dealer Catalog View remains the backend/API concept; no schema rename or visibility-rule rewrite happened in this slice. |
 | PM-008/PM-009 publish safety | Source-file review, catalog setup, and publish mechanics stay behind `More`, direct setup routes, or detail checks instead of first paint. | Product publish promotion rules and Acumatica-backed commercial truth remain parked until mappings and approval rules are certified. |
+
+## UX-07 Slice N Product Publish-Handoff Trace
+
+| Requirement Area | Slice N Coverage | Boundary |
+|---|---|---|
+| PM-001 product work queue | Product gaps now use the client-facing terms `Missing catalog section`, `No SKU family assigned`, and `Missing dealer-group visibility`, so the queue explains what the user must fix without backend vocabulary. | Database/API names remain unchanged. |
+| PM-006/PM-007 dealer group visibility | Product detail deep-links opened from `Who Sees What` return to that tab, and the visibility modal requires an existing dealer group for the normal save path. | Advanced/manual audience override remains intentionally constrained until final business rules are signed off. |
+| PM-008 publish safety | Direct publish actions were removed from dealer-group row/header menus; the visible `Publish catalog view` action now appears only inside the published-version review rail after current-vs-live comparison has been loaded. | Backend still distinguishes product/inclusion publish status from dealer-catalog snapshot publish; this slice clarifies the handoff without a schema migration. |
+| PM-009 operator clarity | Product detail now opens on the first unresolved blocker: info, files, visibility, then publish check. Users land on the work they need to do instead of always landing on product info. | Existing seeded/test product data drives which blocker is shown first. |

@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type {
   TerritoryDashboardAlert,
@@ -31,6 +32,17 @@ import { IconAlertTriangle } from '@tabler/icons-react';
 
 type TerritoryDetailView = 'workload' | 'regions' | 'owners';
 
+export type TerritoryNextWorkItem = {
+  id: string;
+  recordName: string;
+  recordMeta: string;
+  gapLabel: string;
+  locationLabel: string;
+  ownerLabel: string;
+  tone: 'blue' | 'teal' | 'orange' | 'grape' | 'red';
+  actions: ReactNode;
+};
+
 export function TerritoryCommandDashboard({
   stats,
   coverage,
@@ -42,6 +54,7 @@ export function TerritoryCommandDashboard({
   queue,
   regionRollups,
   ownerMetrics,
+  nextWorkItems,
   canManageTerritorySetup = false,
 }: {
   stats: TerritoryDashboardStats;
@@ -54,6 +67,7 @@ export function TerritoryCommandDashboard({
   queue: TerritoryDashboardQueueSummary;
   regionRollups: TerritoryDashboardRegionRollupSummary[];
   ownerMetrics: TerritoryDashboardOwnerMetricSummary[];
+  nextWorkItems: TerritoryNextWorkItem[];
   canManageTerritorySetup?: boolean;
 }) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -72,6 +86,8 @@ export function TerritoryCommandDashboard({
   ]);
   const additionalAlerts = alerts.filter((alert) => !coveredAttentionLabels.has(alert.label));
   const attentionItemCount = additionalAlerts.length + hygieneIssues + queue.unassignedLeads + queue.unassignedAccounts;
+  const nextWorkTotal = queue.unassignedLeads + queue.unassignedAccounts;
+  const hiddenNextWorkCount = Math.max(nextWorkTotal - nextWorkItems.length, 0);
 
   return (
     <Stack gap="lg">
@@ -147,6 +163,70 @@ export function TerritoryCommandDashboard({
               ))}
             </Stack>
           )}
+
+          {nextWorkItems.length > 0 ? (
+            <Stack gap="sm">
+              <Group justify="space-between" align="center">
+                <div>
+                  <Title order={4}>Next territory work</Title>
+                  <Text size="sm" c="dimmed">
+                    Open the record, assign territory, or review history without leaving the action queue first.
+                  </Text>
+                </div>
+                <Badge color="orange" variant="light">
+                  Showing {nextWorkItems.length} of {nextWorkTotal}
+                </Badge>
+              </Group>
+
+              <Table.ScrollContainer minWidth={560}>
+                <Table aria-label="Next territory work" striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Work item</Table.Th>
+                      <Table.Th>Gap</Table.Th>
+                      <Table.Th>State / territory</Table.Th>
+                      <Table.Th>Owner / scope</Table.Th>
+                      <Table.Th>Action</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {nextWorkItems.map((item) => (
+                      <Table.Tr key={item.id}>
+                        <Table.Td>
+                          <Stack gap={2}>
+                            <Text fw={700} lineClamp={1}>
+                              {item.recordName}
+                            </Text>
+                            <Text size="xs" c="dimmed" lineClamp={1}>
+                              {item.recordMeta}
+                            </Text>
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={item.tone} variant="light">
+                            {item.gapLabel}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{item.locationLabel}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{item.ownerLabel}</Text>
+                        </Table.Td>
+                        <Table.Td>{item.actions}</Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+
+              {hiddenNextWorkCount > 0 ? (
+                <Text size="xs" c="dimmed">
+                  {hiddenNextWorkCount} more assignment {hiddenNextWorkCount === 1 ? 'item is' : 'items are'} available from Work Queues.
+                </Text>
+              ) : null}
+            </Stack>
+          ) : null}
         </Stack>
       </Paper>
 

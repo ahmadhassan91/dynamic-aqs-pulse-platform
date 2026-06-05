@@ -198,6 +198,14 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
     /\b(Current certified tracks|Session execution snapshot|Compliance reporting|Catalog Setup)\b/i.test(sample.label)
   ))).toBe(false);
 
+  const territoryDefault = internalReport.find((entry) => entry.slug === 'territory-default');
+  expect(territoryDefault?.routeReady).toBe(true);
+  expect(territoryDefault?.tableCount).toBeLessThanOrEqual(1);
+  expect(territoryDefault?.maxTableColumns).toBeLessThanOrEqual(5);
+  expect(territoryDefault?.maxRowActionsPerRow).toBeLessThanOrEqual(1);
+  expect(territoryDefault?.primaryButtons).toBeLessThanOrEqual(1);
+  expect(territoryDefault?.copyFindings).toEqual([]);
+
   const consignmentDefault = internalReport.find((entry) => entry.slug === 'consignment-default');
   expect(consignmentDefault?.routeReady).toBe(true);
   expect(consignmentDefault?.tableCount).toBeLessThanOrEqual(1);

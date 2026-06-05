@@ -72,7 +72,7 @@ import {
 import { usePulseSession } from '@/lib/pulse-session';
 import { TerritoryCalendarFeed } from './TerritoryCalendarFeed';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
-import { TerritoryCommandDashboard } from './TerritoryCommandDashboard';
+import { TerritoryCommandDashboard, type TerritoryNextWorkItem } from './TerritoryCommandDashboard';
 import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
 import { RowActionMenu, WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
@@ -506,6 +506,79 @@ export function TerritoryManagement({
     [canViewCustomers, regions.length, territories.length, territoryAccountRoster.length, territoryLeadRoster.length, unassignedLeads.length],
   );
 
+  const nextTerritoryWorkItems = useMemo<TerritoryNextWorkItem[]>(() => {
+    const maxVisibleItems = 6;
+    const leadLimit = canViewCustomers && unassignedAccounts.length > 0
+      ? Math.min(3, unassignedLeads.length)
+      : Math.min(maxVisibleItems, unassignedLeads.length);
+    const leadItems: TerritoryNextWorkItem[] = unassignedLeads.slice(0, leadLimit).map((lead) => ({
+      id: `lead:${lead.id}`,
+      recordName: lead.companyName,
+      recordMeta: lead.sourceSiteName ?? lead.leadSourceName ?? 'Lead',
+      gapLabel: 'Lead needs territory',
+      locationLabel: lead.state ?? 'State missing',
+      ownerLabel: formatRoutingTeam(lead.routingTeam),
+      tone: lead.state ? 'orange' : 'red',
+      actions: (
+        <RowActionMenu
+          label={`Actions for ${lead.companyName}`}
+          items={[
+            {
+              id: 'open',
+              label: 'Open lead',
+              onClick: () => router.push(`/leads/${lead.id}`),
+            },
+            ...(canReassignTerritory ? [{
+              id: 'reassign',
+              label: 'Assign territory',
+              onClick: () => openReassignmentModal(lead),
+            }] : []),
+            {
+              id: 'history',
+              label: 'Assignment history',
+              onClick: () => setHistoryLead(lead),
+            },
+          ]}
+        />
+      ),
+    }));
+
+    const accountLimit = canViewCustomers ? maxVisibleItems - leadItems.length : 0;
+    const accountItems: TerritoryNextWorkItem[] = unassignedAccounts.slice(0, accountLimit).map((account) => ({
+      id: `account:${account.id}`,
+      recordName: account.displayName,
+      recordMeta: account.accountType ?? 'Customer',
+      gapLabel: 'Account needs territory',
+      locationLabel: account.regionName ?? 'No territory',
+      ownerLabel: formatAccountLifecycle(account.lifecycleStatus),
+      tone: 'orange',
+      actions: (
+        <RowActionMenu
+          label={`Actions for ${account.displayName}`}
+          items={[
+            {
+              id: 'open',
+              label: 'Open account',
+              onClick: () => router.push(`/customers/${account.id}`),
+            },
+            ...(canReassignTerritory ? [{
+              id: 'reassign',
+              label: 'Assign territory',
+              onClick: () => openAccountReassignmentModal(account),
+            }] : []),
+            {
+              id: 'history',
+              label: 'Assignment history',
+              onClick: () => setHistoryAccount(account),
+            },
+          ]}
+        />
+      ),
+    }));
+
+    return [...leadItems, ...accountItems];
+  }, [canReassignTerritory, canViewCustomers, router, unassignedAccounts, unassignedLeads]);
+
   useEffect(() => {
     if (!canViewCustomers && territoryRegistryView === 'accounts') {
       setTerritoryRegistryView('territories');
@@ -902,6 +975,7 @@ export function TerritoryManagement({
               queue={dashboardData.queue}
               regionRollups={dashboardData.regionRollups}
               ownerMetrics={dashboardData.ownerMetrics}
+              nextWorkItems={nextTerritoryWorkItems}
               canManageTerritorySetup={canAdminTerritory}
             />
           </Stack>

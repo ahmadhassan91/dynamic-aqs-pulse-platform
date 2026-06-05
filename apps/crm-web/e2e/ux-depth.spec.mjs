@@ -67,6 +67,11 @@ test('TM and RD scoped workspaces avoid setup-first default clutter', async ({ b
     await expect(page.getByRole('tab', { name: 'Setup & Transfers' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Calendar' })).toHaveCount(0);
     await expect(page.getByTestId('territory-action-queue')).toBeVisible();
+    const nextWorkTable = page.getByRole('table', { name: 'Next territory work' });
+    if (await nextWorkTable.count()) {
+      await expect(nextWorkTable).toBeVisible();
+      await expect(nextWorkTable.getByRole('columnheader')).toHaveCount(5);
+    }
     report.push(await capturePageBudget(page, 'rd-territory-default'));
   });
 
@@ -76,6 +81,11 @@ test('TM and RD scoped workspaces avoid setup-first default clutter', async ({ b
     await expect(page.getByRole('tab', { name: 'Setup & Transfers' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Calendar' })).toHaveCount(0);
     await expect(page.getByTestId('territory-action-queue')).toBeVisible();
+    const nextWorkTable = page.getByRole('table', { name: 'Next territory work' });
+    if (await nextWorkTable.count()) {
+      await expect(nextWorkTable).toBeVisible();
+      await expect(nextWorkTable.getByRole('columnheader')).toHaveCount(5);
+    }
     report.push(await capturePageBudget(page, 'tm-territory-default'));
   });
 
@@ -112,6 +122,16 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
   await page.goto('/territories');
   await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
   await expect(page.getByTestId('territory-action-queue')).toBeVisible();
+  const nextTerritoryWorkTable = page.getByRole('table', { name: 'Next territory work' });
+  await expect(nextTerritoryWorkTable).toBeVisible();
+  await expect(nextTerritoryWorkTable.getByRole('columnheader')).toHaveCount(5);
+  await expect(page.getByRole('menuitem', { name: /Open (lead|account)/ })).toHaveCount(0);
+  const nextWorkRowAction = nextTerritoryWorkTable.getByRole('button', { name: /Actions for / }).first();
+  await expect(nextWorkRowAction).toBeVisible();
+  await nextWorkRowAction.click();
+  await expect(page.getByRole('menuitem', { name: /Open (lead|account)/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menuitem', { name: /Open (lead|account)/ })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Lead routing posture' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Show Details' }).click();
   await expect(page.getByRole('heading', { name: 'Lead routing posture' })).toBeVisible();

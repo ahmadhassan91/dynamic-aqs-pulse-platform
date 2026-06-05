@@ -2,7 +2,7 @@
 
 Date: 2026-06-04
 
-Status: `In Progress - Slices A-J deployed and QA passed`
+Status: `In Progress - Slices A-K deployed and QA passed`
 
 ## Product Design Brief
 
@@ -65,7 +65,7 @@ Internal evidence is even stronger:
 | --- | --- | --- |
 | Leads | Slice A reduced the default page clutter; remaining risk is browser proof, large-dataset/server-aggregate hardening, and downstream trigger clarity. | Keep `/leads` defaulted to `Lead Work Queue` with next action/SLA/owner/source. Keep `Pipeline board` as a mode, metrics in `Insights`, and lead detail action-first with source/routing/evidence/lifecycle behind secondary detail. |
 | Accounts | Mostly aligned after UX-06 Slice B; remaining risk is filter/header noise in follow-up mode. | Keep `Needs follow-up` default. Hide lifecycle filters unless `All accounts` mode is active or `More filters` is opened. Keep readiness/payment/training/portal/consignment in More drawer. |
-| Territory | Strongest remaining clutter. Daily RD/TM work competes with map/list/reporting/setup. | Default to `Territory Action Queue`. Promote assignment/ownership gaps first. Move `Map View`, `Territory List`, `Performance details`, and `Setup & transfers` behind More/deep links. Convert setup to `Region -> Shipping hub -> Territory -> Coverage review`. |
+| Territory | Slice K now turns the default action queue into a work-item scan instead of a count-only attention panel. | Keep `Territory Action Queue` as the default. Show `Next territory work` when scoped lead/account assignment rows exist, keep zero-work RD/TM states calm, and keep map/list/performance/setup behind More or disclosures. |
 | Training | Slice F keeps `Priority Queue` as the visible primary tab and now splits session completion into `Completion`, `Proof`, `Certification`, and `Follow-up` steps without changing APIs. | Keep completion step-by-step. Next depth should tune copy/validation only after role UAT feedback. |
 | Consignment | Slice F proves realistic open ROSE audits appear in `Next site work` and the site detail first paint is now `Current site work` with readiness/metrics/setup/history behind advanced sections. | Keep Acumatica/ERP/PO/inventory terms parked out of first paint. Next depth should be role UAT and selected detail polish. |
 | Product Management | Slice I makes the default page understandable without schema knowledge: `Product Management`, `Products needing review`, `Ready to show`, `What to fix`, `Catalog sections`, `SKU families`, and `Who Sees What`. | Keep `/product-management` product-review-first and `/product-management?tab=visibility` dealer-group-selection-first. Continue protecting Category/Family as catalog organization and Dealer group/Who Sees What as visibility, while leaving API/database names intact. |
@@ -442,6 +442,40 @@ Proof passed:
 - Deployed smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, expected parked Acumatica false/503, and `pulse-api`, `pulse-web`, and `nginx` were active.
 - Deployed live UI smoke passed for `/consignment` and seeded site detail `UAT Main Showroom Consignment`; screenshots: `output/playwright/ux-07-slice-j-live/consignment-default-live.png`, `output/playwright/ux-07-slice-j-live/consignment-detail-live.png`.
 
+### Slice K - Territory Next-Work Table Density Pass
+
+Purpose: finish the table-density follow-up after Slice J by making Territory managers and regional leaders see concrete assignment work first, without turning the default route back into a report dashboard.
+
+Status: `Implemented - local typecheck, focused Playwright depth, critical clutter QA, deploy, and public smoke passed`
+
+Delivered so far:
+
+- `Territory Action Queue` now renders a compact `Next territory work` table whenever the current persona can see unassigned lead/account rows.
+- The table is capped to five columns: work item, gap, state/territory, owner/scope, and one row action menu.
+- Lead and account row actions reuse the existing open, assign territory, and assignment-history handlers; no new backend route or fake workflow was introduced.
+- RD/TM zero-work states remain clean and scoped: if their backend-visible queue has no rows, the page shows `0 items` and keeps setup/reporting hidden.
+- `Performance details`, map, registry, setup, calendar, route optimization, polygons, and ERP-backed reporting stay outside first paint.
+- The clutter budget now asserts `/territories` default has at most one table, five columns, one row action, one primary button, and no forbidden setup/reporting copy.
+
+Requirement trace:
+
+| Requirement area | Slice K response |
+| --- | --- |
+| TM/RD daily assignment work | Converts unassigned lead/account counts into directly openable work rows when the scoped backend exposes records. |
+| Territory truth and audit | Reuses existing territory reassignment and assignment-history paths, preserving audit behavior. |
+| Role-scoped visibility | Allows RD/TM zero-work states without leaking hidden records or setup tabs. |
+| Keep it simple | Keeps only one compact work table before performance/reporting details. |
+| Parked dependency boundary | Does not introduce route optimization, polygon editing, ERP revenue truth, or route-activity analytics. |
+
+Proof passed:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `node --check apps/crm-web/e2e/ux-clutter.spec.mjs && node --check apps/crm-web/e2e/ux-depth.spec.mjs && git diff --check`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "TM and RD scoped workspaces|UX-03 slice C advanced tables" --workers=1 --max-failures=1`
+- `PULSE_UX_CLUTTER_SCOPE=critical PULSE_UX_CLUTTER_VIEWPORTS=desktop pnpm --filter @pulse/crm-web test:ux-clutter:quick`
+- Manual EC2 release `manual-20260605135006-ux07-slice-k-territory-work` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`
@@ -468,6 +502,6 @@ These must not be pulled into first-paint UI while optimizing:
 
 ## Recommended Next Slice
 
-After Slice J, move to a **remaining table-density pass for Leads/Territory/Accounts detail surfaces** only where operators still cannot scan the next action quickly.
+After Slice K, move to **Lead Action Scan Pass** if continuing the same UX goal: make `/leads` use backend workflow next-action truth as the first scannable column and align lead detail's active work lane to that same backend action. Accounts can follow with a smaller filter/detail-density pass.
 
-The local critical clutter report, focused Training/Consignment E2E flow, depth gate, route coverage, deployed Consignment smoke, and Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.
+The local critical clutter report, focused Territory depth pass, focused Training/Consignment E2E flow, route coverage, deployed Consignment smoke, and Product Management clarity proof are green. The next useful cleanup is not a new feature; it is to tighten remaining wide tables and ledgers where the first paint is correct but dense detail still slows scanning.

@@ -625,6 +625,39 @@ Proof passed so far:
 - Manual EC2 release `manual-20260605155028-ux07-slice-o-product-demo-flow` deployed to `https://pulse-crm.theclustox.com`.
 - Public smoke passed: `/` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
 
+### Slice P - Training Queue Desktop Layout
+
+Purpose: fix the Training Workbench priority queue so it uses the available desktop canvas instead of rendering the selected queue as a half-width card with avoidable horizontal table scroll.
+
+Status: `Implemented - local QA passed; manual EC2 deploy and public smoke passed`
+
+Delivered so far:
+
+- `/training?tab=ops` now renders only the selected queue work surface instead of hiding inactive queues inside two-column grid slots.
+- Recertification, Coaching, Proof Review, Overdue Cadence, and Session Issues each use one full-width work surface on desktop.
+- The Filters accordion now spans the workbench content width instead of shrink-wrapping like a small form card.
+- The UX depth test now asserts that the selected Training work surface is wider than 900px on the desktop viewport, preventing the half-width regression from coming back.
+
+Requirement trace:
+
+| Requirement area | Slice P response |
+| --- | --- |
+| Training team daily work | Keeps the page focused on one active priority queue and removes wasted blank desktop space. |
+| CRM simplicity principle | Preserves one visible work surface per selected queue instead of showing multiple hidden/competing panels. |
+| Field-training execution | Does not change training data, scheduling, certification, proof review, or queue API contracts. |
+| Parked dependency boundary | Does not pull in external LMS, final certificate authority, or Acumatica-dependent training/commercial data. |
+
+Proof passed so far:
+
+- `pnpm --filter @pulse/crm-web typecheck`
+- `pnpm --filter @pulse/crm-web build`
+- `node --check apps/crm-web/e2e/ux-depth.spec.mjs`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "UX-03 slice C advanced tables stay sampled" --workers=1 --max-failures=1`
+- `pnpm --filter @pulse/crm-web exec playwright test -c e2e/playwright.depth.config.mjs -g "UX-05 slice E Training and Consignment" --workers=1 --max-failures=1`
+- `git diff --check`
+- Manual EC2 release `manual-20260605161520-training-desktop-layout` deployed to `https://pulse-crm.theclustox.com`.
+- Public smoke passed: `/training` returned `200`, unauthenticated `/api/v1/auth/me` returned `401`, `/api/v1/health/ready` returned healthy database and queue status, and `pulse-api`, `pulse-web`, and `nginx` were active.
+
 Static proof for each slice:
 
 - `pnpm --filter @pulse/crm-web typecheck`

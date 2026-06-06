@@ -166,6 +166,7 @@ import type {
   ReassignLeadTerritoryRequest,
   AffinityGroupReferenceSummary,
   OwnershipGroupReferenceSummary,
+  BrandLabelReferenceSummary,
   ReferenceValueSummary,
   ScheduleLeadDiscoveryRequest,
   SavePublicCisDraftRequest,
@@ -448,6 +449,7 @@ export async function fetchProductManagementProducts(apiBaseUrl: string, accessT
   appendQuery(searchParams, 'regionScope', input.regionScope);
   appendQuery(searchParams, 'brandLabel', input.brandLabel);
   appendQuery(searchParams, 'sourceSystem', input.sourceSystem);
+  if (input.includeDetail) appendQuery(searchParams, 'includeDetail', 'true');
   appendQuery(searchParams, 'limit', input.limit);
   return requestJson<ListProductsResponse>(apiBaseUrl, `/api/v1/product-management/products?${searchParams.toString()}`, {
     method: 'GET',
@@ -1234,6 +1236,13 @@ export async function fetchAffinityGroups(apiBaseUrl: string, accessToken: strin
 
 export async function fetchOwnershipGroups(apiBaseUrl: string, accessToken: string) {
   return requestJson<ReferenceListResponse<OwnershipGroupReferenceSummary>>(apiBaseUrl, '/api/v1/reference/ownership-groups', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchBrandLabels(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ReferenceListResponse<BrandLabelReferenceSummary>>(apiBaseUrl, '/api/v1/reference/brand-labels', {
     method: 'GET',
     accessToken,
   });

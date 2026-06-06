@@ -85,6 +85,7 @@ export async function handleProductManagementRoutes(req: IncomingMessage, res: S
         regionScope: readTrimmedQuery(url, 'regionScope'),
         brandLabel: readTrimmedQuery(url, 'brandLabel'),
         sourceSystem: readTrimmedQuery(url, 'sourceSystem') as any,
+        includeDetail: url.searchParams.get('includeDetail') === 'true' ? true : undefined,
         limit: readIntegerQuery(url, 'limit'),
       }) as any));
     }

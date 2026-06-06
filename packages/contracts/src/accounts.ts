@@ -27,6 +27,8 @@ export interface AccountSummary {
   ownershipGroupId?: string;
   ownershipGroupCode?: string;
   ownershipGroupName?: string;
+  brandLabelId?: string;
+  brandLabelName?: string;
   groupClassification?: GroupClassificationKey;
   territoryId?: string;
   territoryCode?: string;
@@ -195,6 +197,7 @@ export interface UpdateAccountRequest {
   ownershipGroupId?: string | null;
   ownershipGroupCode?: string;
   ownershipGroupName?: string;
+  brandLabelId?: string | null;
   isActive?: boolean;
 }
 

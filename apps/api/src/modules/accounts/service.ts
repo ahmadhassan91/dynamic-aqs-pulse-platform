@@ -46,6 +46,7 @@ const ACCOUNT_PAYMENT_METHOD_ENTITY_TYPE = 'ACCOUNT_PAYMENT_METHOD';
 const ACCOUNT_SUMMARY_INCLUDE = {
   affinityGroup: true,
   ownershipGroup: true,
+  brandLabel: true,
   territory: {
     include: {
       region: true,
@@ -224,6 +225,20 @@ export async function updateAccount(
     data.isActive = input.isActive;
   }
 
+  if (input.brandLabelId !== undefined) {
+    if (input.brandLabelId === null) {
+      data.brandLabel = { disconnect: true };
+    } else {
+      const brandLabel = await prisma.brandLabelRef.findUnique({
+        where: { id: input.brandLabelId },
+      });
+      if (!brandLabel) {
+        throw new Error(`Brand label not found: ${input.brandLabelId}`);
+      }
+      data.brandLabel = { connect: { id: input.brandLabelId } };
+    }
+  }
+
   const isAffinityInputPresent = input.affinityGroupSelection !== undefined || input.affinityGroupId !== undefined || input.affinityGroupCode !== undefined || input.affinityGroupName !== undefined;
   const isOwnershipInputPresent = input.ownershipGroupSelection !== undefined || input.ownershipGroupId !== undefined || input.ownershipGroupCode !== undefined || input.ownershipGroupName !== undefined;
   const affinityGroupSelection = input.affinityGroupSelection ?? toGroupAxisSelectionKey(account.affinityGroupSelection);
@@ -291,6 +306,7 @@ export async function updateAccount(
           displayName: account.displayName,
           legalName: account.legalName,
           accountType: account.accountType,
+          brandLabelId: account.brandLabelId,
           lifecycleStatus: account.lifecycleStatus,
           lifecycleReasonNote: account.lifecycleReasonNote,
           isActive: account.isActive,
@@ -299,6 +315,7 @@ export async function updateAccount(
           displayName: next.displayName,
           legalName: next.legalName,
           accountType: next.accountType,
+          brandLabelId: next.brandLabelId,
           lifecycleStatus: next.lifecycleStatus,
           lifecycleReasonNote: next.lifecycleReasonNote,
           isActive: next.isActive,
@@ -442,6 +459,7 @@ export async function getAccountDetail(actor: AuthenticatedActor, accountId: str
     include: {
       affinityGroup: true,
       ownershipGroup: true,
+      brandLabel: true,
       territory: {
         include: {
           region: true,
@@ -1516,6 +1534,7 @@ function toAccountSummary(account: {
   affinityGroupId?: string | null;
   ownershipGroupSelection: import('@pulse/db').GroupAxisSelection;
   ownershipGroupId?: string | null;
+  brandLabelId?: string | null;
   groupClassification?: import('@pulse/db').GroupClassification | null;
   territoryId?: string | null;
   territoryAssignmentMethod?: TerritoryAssignmentMethod | null;
@@ -1560,6 +1579,11 @@ function toAccountSummary(account: {
     name: string;
   } | null;
   ownershipGroup?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  brandLabel?: {
     id: string;
     code: string;
     name: string;
@@ -1618,6 +1642,12 @@ function toAccountSummary(account: {
     summary.ownershipGroupName = account.ownershipGroup.name;
   } else if (account.ownershipGroupId) {
     summary.ownershipGroupId = account.ownershipGroupId;
+  }
+  if (account.brandLabel?.id) {
+    summary.brandLabelId = account.brandLabel.id;
+    summary.brandLabelName = account.brandLabel.name;
+  } else if (account.brandLabelId) {
+    summary.brandLabelId = account.brandLabelId;
   }
   if (account.groupClassification) {
     summary.groupClassification = toGroupClassificationKey(account.groupClassification);

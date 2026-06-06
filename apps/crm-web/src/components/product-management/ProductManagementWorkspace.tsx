@@ -21,7 +21,6 @@ import {
   fetchDealerCatalogSnapshotCompare,
   fetchDealerCatalogSnapshots,
   fetchProductManagementFamilies,
-  fetchProductManagementProductDetail,
   fetchProductManagementProducts,
   previewProductReferenceImport,
   publishDealerCatalogSnapshot,
@@ -224,6 +223,7 @@ export function ProductManagementWorkspace() {
         const productQuery = {
           search,
           limit: 100,
+          includeDetail: true,
           ...(categoryFilter ? { categoryId: categoryFilter } : {}),
           ...(familyFilter ? { familyId: familyFilter } : {}),
           ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
@@ -234,12 +234,9 @@ export function ProductManagementWorkspace() {
           fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
           fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
         ]);
-        const detailResponse = await Promise.all(
-          productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
-        );
         if (!cancelled) {
           setProducts(productResponse);
-          setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
+          setProductDetails(productResponse.details ?? []);
           setCategories(categoryResponse.items);
           setFamilies(familyResponse.items);
           setCatalogViews(catalogViewResponse.items);
@@ -411,6 +408,7 @@ export function ProductManagementWorkspace() {
     const productQuery = {
       search,
       limit: 100,
+      includeDetail: true,
       ...(categoryFilter ? { categoryId: categoryFilter } : {}),
       ...(familyFilter ? { familyId: familyFilter } : {}),
       ...(publishStatusFilter ? { publishStatus: publishStatusFilter } : {}),
@@ -421,11 +419,8 @@ export function ProductManagementWorkspace() {
       fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
       fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
     ]);
-    const detailResponse = await Promise.all(
-      productResponse.items.map((product) => fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, product.id)),
-    );
     setProducts(productResponse);
-    setProductDetails(detailResponse.filter(Boolean) as ProductDetail[]);
+    setProductDetails(productResponse.details ?? []);
     setCategories(categoryResponse.items);
     setFamilies(familyResponse.items);
     setCatalogViews(catalogViewResponse.items);

@@ -191,6 +191,14 @@ export interface OwnershipGroupReferenceSummary extends ReferenceValueSummary {
   notes?: string;
 }
 
+export interface BrandLabelReferenceSummary {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export interface GroupRosterImportTargetFieldOption {
   value: GroupRosterImportTargetFieldKey;
   label: string;

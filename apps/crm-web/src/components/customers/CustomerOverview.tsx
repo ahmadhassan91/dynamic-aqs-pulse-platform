@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -18,8 +18,8 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import type { AccountDetail, AccountLifecycleStatusKey } from '@pulse/contracts';
-import { updateAccountLifecycle, updateAccountRecord } from '@/lib/pulse-api';
+import type { AccountDetail, AccountLifecycleStatusKey, BrandLabelReferenceSummary } from '@pulse/contracts';
+import { fetchBrandLabels, updateAccountLifecycle, updateAccountRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 import { WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
@@ -32,11 +32,46 @@ export function CustomerOverview(
   const [displayName, setDisplayName] = useState(account.displayName);
   const [legalName, setLegalName] = useState(account.legalName ?? '');
   const [accountType, setAccountType] = useState(account.accountType ?? '');
+  const [brandLabelId, setBrandLabelId] = useState<string | null>(account.brandLabelId ?? null);
+  const [brandLabels, setBrandLabels] = useState<BrandLabelReferenceSummary[]>([]);
   const [isActive, setIsActive] = useState(account.isActive);
   const [lifecycleOpened, setLifecycleOpened] = useState(false);
   const [isLifecycleSaving, setIsLifecycleSaving] = useState(false);
   const [nextLifecycleStatus, setNextLifecycleStatus] = useState<AccountLifecycleStatusKey>(account.lifecycleStatus);
   const [lifecycleReasonNote, setLifecycleReasonNote] = useState(account.lifecycleReasonNote ?? '');
+
+  useEffect(() => {
+    if (!auth) {
+      setBrandLabels([]);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetchBrandLabels(apiBaseUrl, auth.tokens.accessToken);
+        if (!cancelled) {
+          setBrandLabels(response.items);
+        }
+      } catch {
+        if (!cancelled) {
+          setBrandLabels([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth]);
+
+  const brandLabelOptions = useMemo(
+    () => brandLabels.map((brand) => ({ value: brand.id, label: brand.name })),
+    [brandLabels],
+  );
+  const currentBrandLabel = account.brandLabelName
+    ?? brandLabels.find((brand) => brand.id === account.brandLabelId)?.name
+    ?? null;
 
   const activeLocations = useMemo(
     () => account.locations.filter((location) => location.isActive),
@@ -81,6 +116,7 @@ export function CustomerOverview(
         displayName,
         legalName: legalName.trim() || null,
         accountType: accountType.trim() || null,
+        brandLabelId: brandLabelId ?? null,
         isActive,
       });
       await onUpdated();
@@ -105,6 +141,7 @@ export function CustomerOverview(
     setDisplayName(account.displayName);
     setLegalName(account.legalName ?? '');
     setAccountType(account.accountType ?? '');
+    setBrandLabelId(account.brandLabelId ?? null);
     setIsActive(account.isActive);
     setEditOpened(true);
   }
@@ -161,6 +198,7 @@ export function CustomerOverview(
               <MetadataRow label="Display Name" value={account.displayName} />
               <MetadataRow label="Legal Name" value={account.legalName ?? 'Not provided'} />
               <MetadataRow label="Account Type" value={account.accountType ?? 'Not classified'} />
+              <MetadataRow label="Brand / Private Label" value={currentBrandLabel ?? 'Not assigned'} />
               <MetadataRow label="Lifecycle" value={formatLifecycle(account.lifecycleStatus)} />
               <MetadataRow label="Record Status" value={account.isActive ? 'Active In Pulse' : 'Inactive In Pulse'} />
               <MetadataRow label="Primary Location" value={formatLocation(primaryLocation)} />
@@ -233,6 +271,15 @@ export function CustomerOverview(
               { value: 'Independent', label: 'Independent' },
             ]}
             clearable
+          />
+          <Select
+            label="Brand / Private Label"
+            placeholder="No brand assigned"
+            value={brandLabelId}
+            onChange={(value) => setBrandLabelId(value)}
+            data={brandLabelOptions}
+            clearable
+            searchable
           />
           <Switch
             checked={isActive}

@@ -209,6 +209,7 @@ export interface CatalogRuleConditionOption {
 export interface CatalogRuleConditionOptionsResponse {
   affinityGroups: CatalogRuleConditionOption[];
   ownershipGroups: CatalogRuleConditionOption[];
+  brandLabels: CatalogRuleConditionOption[];
   regions: CatalogRuleConditionOption[];
   dealerCatalogViews: CatalogRuleConditionOption[];
 }
@@ -364,12 +365,14 @@ export interface ListProductsRequest {
   regionScope?: string;
   brandLabel?: string;
   sourceSystem?: ProductSourceSystemKey;
+  includeDetail?: boolean;
   limit?: number;
 }
 
 export interface ListProductsResponse {
   items: BaseProductSummary[];
   total: number;
+  details?: ProductDetail[];
 }
 
 export interface CreateProductCategoryRequest {
@@ -506,6 +509,10 @@ export interface ProductReferenceImportPreviewResponse extends ProductReferenceI
 
 export interface CommitProductReferenceImportRequest extends ProductReferenceImportPreviewRequest {
   dryRun?: boolean;
+  // Opt-in legacy product-image ingestion. Only honored when the non-authoritative
+  // product seed is enabled (PULSE_ALLOW_LEGACY_PRODUCT_SEED=true). Defaults to false
+  // so the standard product seed stays fully offline (no network) for tests/CI.
+  ingestImages?: boolean;
 }
 
 export interface CommitProductReferenceImportResponse extends ProductReferenceImportSummary {
@@ -517,4 +524,7 @@ export interface CommitProductReferenceImportResponse extends ProductReferenceIm
   categoriesUpserted: number;
   imageAssetsUpserted: number;
   assetAssignmentsUpserted: number;
+  // Additive: number of image targets that were skipped because their source download
+  // failed (download error, SSRF rejection, non-200). The import never fails on these.
+  imageAssetsFailed?: number;
 }

@@ -2014,6 +2014,21 @@ model AffinityGroupRef {
   @@index([sortOrder])
 }
 
+model BrandLabelRef {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts Account[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
 model OwnershipGroupRef {
   id            String             @id @default(uuid()) @db.Uuid
   code          String             @unique
@@ -2917,6 +2932,7 @@ model Account {
   affinityGroupId           String?                    @db.Uuid
   ownershipGroupSelection   GroupAxisSelection         @default(UNKNOWN)
   ownershipGroupId          String?                    @db.Uuid
+  brandLabelId              String?                    @db.Uuid
   groupClassification       GroupClassification?
   isMixedBusinessAccount    Boolean                    @default(false)
   classificationDriftFlag   Boolean                    @default(false)
@@ -2939,6 +2955,7 @@ model Account {
   businessSegment          BusinessSegmentRef?            @relation(fields: [businessSegmentId], references: [id], onDelete: SetNull)
   affinityGroup            AffinityGroupRef?              @relation(fields: [affinityGroupId], references: [id], onDelete: SetNull)
   ownershipGroup           OwnershipGroupRef?             @relation(fields: [ownershipGroupId], references: [id], onDelete: SetNull)
+  brandLabel               BrandLabelRef?                 @relation(fields: [brandLabelId], references: [id])
   sourceLead               Lead?                          @relation("LeadToAccount", fields: [sourceLeadId], references: [id], onDelete: SetNull)
   territory                Territory?                     @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   shippingCenter           ShippingCenter?                @relation("AccountShippingCenter", fields: [shippingCenterId], references: [id], onDelete: SetNull)
@@ -2964,6 +2981,7 @@ model Account {
   @@index([businessSegmentId])
   @@index([affinityGroupId])
   @@index([ownershipGroupId])
+  @@index([brandLabelId])
   @@index([groupClassification])
   @@index([territoryId])
   @@index([shippingCenterId])

@@ -3,6 +3,7 @@ import { AuditAction, LeadStage, prisma } from '@pulse/db';
 import type {
   AffinityGroupReferenceSummary,
   AffinityGroupTypeKey,
+  BrandLabelReferenceSummary,
   AffinityGroupImportRow,
   CreateAffinityGroupRequest,
   CreateLeadSourceRequest,
@@ -392,6 +393,22 @@ export async function listOwnershipGroups(actor: AuthenticatedActor): Promise<Re
 
   return {
     items: items.map(toOwnershipGroupReferenceSummary),
+  };
+}
+
+export async function listBrandLabels(actor: AuthenticatedActor): Promise<ReferenceListResponse<BrandLabelReferenceSummary>> {
+  assertActionAccess(actor.role, 'reference.view');
+
+  const items = await prisma.brandLabelRef.findMany({
+    where: { isActive: true },
+    orderBy: [
+      { sortOrder: 'asc' },
+      { name: 'asc' },
+    ],
+  });
+
+  return {
+    items: items.map(toBrandLabelReferenceSummary),
   };
 }
 
@@ -1359,6 +1376,22 @@ function toLeadStageReferenceSummary(value: {
   }
 
   return summary;
+}
+
+function toBrandLabelReferenceSummary(value: {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+}): BrandLabelReferenceSummary {
+  return {
+    id: value.id,
+    code: value.code,
+    name: value.name,
+    isActive: value.isActive,
+    sortOrder: value.sortOrder,
+  };
 }
 
 function toAffinityGroupReferenceSummary(value: {

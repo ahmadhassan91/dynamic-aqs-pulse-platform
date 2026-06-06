@@ -500,7 +500,7 @@ test('catalog rule preview surfaces review requirements instead of guessing', SE
   );
 });
 
-test('catalog rule options are active approved values and brand-label conditions stay parked', SERIAL, async () => {
+test('catalog rule options are active approved values and brand-label conditions resolve', SERIAL, async () => {
   await prisma.affinityGroupRef.createMany({
     data: [
       { code: 'nexstar', name: 'Nexstar', groupType: 'BUYING_GROUP', isActive: true },
@@ -511,6 +511,12 @@ test('catalog rule options are active approved values and brand-label conditions
     data: [
       { code: 'redwood', name: 'Redwood / Apollo', ownershipType: 'PRIVATE_EQUITY', isActive: true },
       { code: 'old_owner', name: 'Old Owner', ownershipType: 'OTHER', isActive: false },
+    ],
+  });
+  await prisma.brandLabelRef.createMany({
+    data: [
+      { code: 'STS', name: 'StratosAire', isActive: true },
+      { code: 'retired_brand', name: 'Retired Brand', isActive: false },
     ],
   });
   await prisma.region.createMany({
@@ -530,21 +536,20 @@ test('catalog rule options are active approved values and brand-label conditions
 
   assert.deepEqual(options.affinityGroups.map((item) => item.value), ['nexstar']);
   assert.deepEqual(options.ownershipGroups.map((item) => item.value), ['redwood']);
+  assert.deepEqual(options.brandLabels.map((item) => item.value), ['STS']);
   assert.deepEqual(options.regions.map((item) => item.value), ['south']);
   assert.equal(options.dealerCatalogViews[0].value, catalogView.id);
 
-  await assert.rejects(
-    () => createCatalogRuleSet(actor, {
-      name: 'Parked brand rules',
-      rules: [{
-        name: 'Brand match is not active yet',
-        conditions: [{ field: 'brand_label', operator: 'is', value: 'Dynamic' }],
-        resultAction: 'assign_catalog_view',
-        dealerCatalogViewId: catalogView.id,
-      }],
-    }),
-    /Brand\/private-label rule conditions are parked/,
-  );
+  const ruleSet = await createCatalogRuleSet(actor, {
+    name: 'Brand rules now active',
+    rules: [{
+      name: 'Brand match resolves',
+      conditions: [{ field: 'brand_label', operator: 'is', value: 'STS' }],
+      resultAction: 'assign_catalog_view',
+      dealerCatalogViewId: catalogView.id,
+    }],
+  });
+  assert.equal(ruleSet.rules[0].conditions[0].field, 'brand_label');
 });
 
 test('publish validation blocks missing primary image and warns on expected missing document roles', SERIAL, async () => {
@@ -625,15 +630,105 @@ test('catalog publish is blocked until products have dealer-safe files', SERIAL,
   assert.equal(snapshot.fileCount, 1);
 });
 
-test('product reference import cannot commit before Acumatica/catalog signoff', SERIAL, async () => {
+test('catalog publish is blocked when a product is a legacy CSV seed (FILE_IMPORT)', SERIAL, async () => {
+  const fixture = await seedProductFixture();
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Seed Block Catalog',
+    kind: 'standard',
+    isDefault: true,
+  });
+  const inclusion = await prisma.catalogInclusion.findFirst({ where: { presentationId: fixture.presentation.id } });
+  await updateCatalogInclusion(actor, inclusion.id, {
+    dealerCatalogViewId: catalogView.id,
+    isVisible: true,
+    publishStatus: 'published',
+  });
+  await prisma.productPresentation.update({
+    where: { id: fixture.presentation.id },
+    data: { publishStatus: 'PUBLISHED', readyForDealerPortal: true },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: fixture.presentation.id,
+      assetId: fixture.primaryImage.id,
+      role: 'PRIMARY_IMAGE',
+      isRequired: true,
+    },
+  });
+  // Product is otherwise fully publishable; mark it as a legacy CSV seed — publish must now be blocked (PRD boundary).
+  await prisma.baseProduct.update({ where: { id: fixture.product.id }, data: { sourceSystem: 'FILE_IMPORT' } });
+
+  await assert.rejects(
+    () => publishDealerCatalogSnapshot(actor, catalogView.id, { notes: 'should block legacy seed' }),
+    /legacy-seed|reconciled|FILE_IMPORT|parked/i,
+  );
+});
+
+test('catalog publish excludes a product whose only image is PENDING_REVIEW', SERIAL, async () => {
+  // Guards isDealerVisibleSnapshotAsset: a PENDING_REVIEW image must NOT count as a
+  // dealer-safe file, so a product whose only asset is pending review cannot be published.
+  const fixture = await seedProductFixture();
+  const catalogView = await createDealerCatalogView(actor, {
+    name: 'Pending Review Catalog',
+    kind: 'standard',
+    isDefault: true,
+  });
+  const inclusion = await prisma.catalogInclusion.findFirst({ where: { presentationId: fixture.presentation.id } });
+  await updateCatalogInclusion(actor, inclusion.id, {
+    dealerCatalogViewId: catalogView.id,
+    isVisible: true,
+    publishStatus: 'published',
+  });
+  await prisma.productPresentation.update({
+    where: { id: fixture.presentation.id },
+    data: { publishStatus: 'PUBLISHED', readyForDealerPortal: true },
+  });
+  const pendingImage = await prisma.digitalAsset.create({
+    data: {
+      stableSlug: `pending-review-${Date.now()}`,
+      title: 'Pending review image',
+      kind: 'IMAGE',
+      status: 'ACTIVE',
+      visibility: 'DEALER_PORTAL',
+      reviewStatus: 'PENDING_REVIEW',
+      sourceSystem: 'PULSE',
+      sourceOfTruthSystem: 'PULSE',
+      audience: 'dealer',
+    },
+  });
+  await prisma.productAssetAssignment.create({
+    data: {
+      presentationId: fixture.presentation.id,
+      assetId: pendingImage.id,
+      role: 'PRIMARY_IMAGE',
+      isRequired: true,
+    },
+  });
+
+  // The product is PULSE (not FILE_IMPORT), so the rejection is specifically because the
+  // PENDING_REVIEW image is not a dealer-safe file — proving the review gate holds.
+  await assert.rejects(
+    () => publishDealerCatalogSnapshot(actor, catalogView.id, { notes: 'pending-review image is not dealer-safe' }),
+    /at least one approved dealer-safe file/i,
+  );
+});
+
+test('product reference import commits products and presentations when seed flag is enabled', SERIAL, async () => {
   const dryRun = await commitProductReferenceImport(actor, { dryRun: true, limit: 5 });
   assert.equal(dryRun.dryRun, true);
   assert.equal(dryRun.productsCreated, 0);
 
-  await assert.rejects(
-    () => commitProductReferenceImport(actor, { dryRun: false, limit: 5 }),
-    /preview-only until Acumatica field mappings/i,
-  );
+  const prev = process.env.PULSE_ALLOW_LEGACY_PRODUCT_SEED;
+  process.env.PULSE_ALLOW_LEGACY_PRODUCT_SEED = 'true';
+  try {
+    const committed = await commitProductReferenceImport(actor, { dryRun: false, limit: 5 });
+    assert.equal(committed.dryRun, false);
+    assert.ok(committed.productsCreated + committed.productsUpdated > 0);
+    assert.ok(committed.presentationsCreated + committed.presentationsUpdated >= 0);
+  } finally {
+    if (prev === undefined) delete process.env.PULSE_ALLOW_LEGACY_PRODUCT_SEED;
+    else process.env.PULSE_ALLOW_LEGACY_PRODUCT_SEED = prev;
+  }
 });
 
 test('product asset assignments can be unlinked with audit trail', SERIAL, async () => {

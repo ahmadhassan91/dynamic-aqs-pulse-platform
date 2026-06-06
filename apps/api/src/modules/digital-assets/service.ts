@@ -565,16 +565,17 @@ async function downloadSourceAsset(sourceDownloadUrl: string) {
     if (!response.ok) {
       throw new Error(`sourceDownloadUrl returned HTTP ${response.status}`);
     }
-    const contentLength = Number(response.headers.get('content-length') ?? 0);
-    if (contentLength > MAX_SOURCE_DOWNLOAD_INGEST_BYTES) {
+    // A declared Content-Length over the cap is rejected up front, but it is never
+    // trusted: a missing/zero header (server-controlled chunked encoding) must NOT mean
+    // "unlimited". We stream the body and abort the moment cumulative bytes exceed the cap,
+    // so a malicious/misbehaving endpoint cannot OOM the process with an unbounded body.
+    const declaredLength = Number(response.headers.get('content-length') ?? 0);
+    if (declaredLength > MAX_SOURCE_DOWNLOAD_INGEST_BYTES) {
       throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = await readBodyWithCap(response, MAX_SOURCE_DOWNLOAD_INGEST_BYTES, abortController);
     if (!buffer.byteLength) {
       throw new Error('sourceDownloadUrl payload is empty');
-    }
-    if (buffer.byteLength > MAX_SOURCE_DOWNLOAD_INGEST_BYTES) {
-      throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
     }
     return {
       buffer,
@@ -583,6 +584,39 @@ async function downloadSourceAsset(sourceDownloadUrl: string) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Streams a fetch Response body, enforcing a hard byte cap as chunks arrive (never trusts
+// Content-Length, never buffers an unbounded body). Aborts the request if the cap is hit.
+async function readBodyWithCap(response: Response, maxBytes: number, abortController: AbortController): Promise<Buffer> {
+  const body = response.body;
+  if (!body) {
+    const fallback = Buffer.from(await response.arrayBuffer());
+    if (fallback.byteLength > maxBytes) {
+      throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
+    }
+    return fallback;
+  }
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength) {
+        total += value.byteLength;
+        if (total > maxBytes) {
+          try { abortController.abort(); } catch { /* already aborted */ }
+          throw new Error('sourceDownloadUrl payload is too large for asset ingestion');
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* reader already released */ }
+  }
+  return Buffer.concat(chunks);
 }
 
 function assertSafeSourceDownloadHost(hostname: string) {

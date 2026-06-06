@@ -96,12 +96,19 @@ export async function listProducts(actor: AuthenticatedActor, input: ListProduct
   const [items, total] = await Promise.all([
     prisma.baseProduct.findMany({
       where,
-      include: { category: true, family: true },
+      include: input.includeDetail ? PRODUCT_INCLUDE : { category: true, family: true },
       orderBy: [{ updatedAt: 'desc' }],
       take: clampLimit(input.limit),
     }),
     prisma.baseProduct.count({ where }),
   ]);
+  if (input.includeDetail) {
+    return {
+      items: items.map(mapBaseProduct),
+      total,
+      details: items.map(mapProductDetail),
+    };
+  }
   return { items: items.map(mapBaseProduct), total };
 }
 
@@ -339,6 +346,20 @@ export async function publishDealerCatalogSnapshot(
   if (snapshotItems.some((item) => item.assetCount === 0)) {
     throw new Error('Every dealer-visible product needs at least one approved dealer-safe file before publishing.');
   }
+  // PRD parked boundary: legacy CSV-seeded products (sourceSystem FILE_IMPORT) must not
+  // become dealer-facing catalog truth before Acumatica reconciliation. Block publish if
+  // any are present — they must be reconciled (re-sourced via Acumatica) first.
+  const seedProducts = await prisma.baseProduct.findMany({
+    where: { id: { in: snapshotItems.map((item) => item.baseProductId) }, sourceSystem: ProductSourceSystem.FILE_IMPORT },
+    select: { sku: true },
+  });
+  if (seedProducts.length) {
+    throw new Error(
+      `Cannot publish: ${seedProducts.length} product(s) are legacy-seed imports not yet reconciled with Acumatica `
+      + `(e.g. ${seedProducts.slice(0, 5).map((product) => product.sku).join(', ')}). `
+      + 'Per the Product Management PRD, legacy CSV data must not become dealer-facing catalog truth before Acumatica mappings are certified.',
+    );
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     const latest = await tx.dealerCatalogSnapshot.findFirst({
@@ -483,12 +504,16 @@ export async function listCatalogRuleSets(actor: AuthenticatedActor): Promise<{ 
 export async function listCatalogRuleConditionOptions(actor: AuthenticatedActor): Promise<CatalogRuleConditionOptionsResponse> {
   assertModuleAccess(actor.role, 'product_management');
   assertActionAccess(actor.role, 'product.view');
-  const [affinityGroups, ownershipGroups, regions, dealerCatalogViews] = await Promise.all([
+  const [affinityGroups, ownershipGroups, brandLabels, regions, dealerCatalogViews] = await Promise.all([
     prisma.affinityGroupRef.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
     prisma.ownershipGroupRef.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.brandLabelRef.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
@@ -512,6 +537,11 @@ export async function listCatalogRuleConditionOptions(actor: AuthenticatedActor)
       value: item.code,
       label: item.name,
       helper: item.shortName ?? item.code,
+    })),
+    brandLabels: brandLabels.map((item) => ({
+      value: item.code,
+      label: item.name,
+      helper: item.code,
     })),
     regions: regions.map((item) => ({
       value: item.code,
@@ -1416,6 +1446,7 @@ async function evaluateCatalogRuleSetPreview(
     include: {
       affinityGroup: true,
       ownershipGroup: true,
+      brandLabel: true,
       territory: { include: { region: true } },
       dealerPortalAccount: true,
       sourceLead: { include: { conversionPreparation: true } },
@@ -1507,9 +1538,6 @@ function normalizeConditionArray(value: unknown): CatalogRuleConditionInput[] {
   return value.map((condition) => {
     const item = condition as Partial<CatalogRuleConditionInput>;
     if (!CATALOG_RULE_CONDITION_FIELDS.includes(item.field as any)) throw new Error('Catalog rule condition has an unsupported field');
-    if (item.field === 'brand_label') {
-      throw new Error('Brand/private-label rule conditions are parked until Dynamic confirms the account-level matching source. Use Dealer Catalog View brand labels and product/asset scoping for now.');
-    }
     if (!CATALOG_RULE_CONDITION_OPERATORS.includes(item.operator as any)) throw new Error('Catalog rule condition has an unsupported operator');
     if (!['is_any', 'is_empty', 'is_not_empty'].includes(String(item.operator)) && (item.value === undefined || item.value === null || String(item.value).trim() === '')) {
       throw new Error('Catalog rule conditions using "is" or "is not" need a selected value');
@@ -1527,7 +1555,6 @@ function catalogRuleMatchesAccount(conditions: CatalogRuleConditionInput[], acco
 }
 
 function conditionMatchesAccount(condition: CatalogRuleConditionInput, account: any) {
-  if (condition.field === 'brand_label') return false;
   const actualValue = readAccountConditionValue(condition.field, account);
   if (condition.operator === 'is_empty') return actualValue === undefined || actualValue === null || actualValue === '';
   if (condition.operator === 'is_not_empty') return actualValue !== undefined && actualValue !== null && actualValue !== '';
@@ -1541,6 +1568,7 @@ function conditionMatchesAccount(condition: CatalogRuleConditionInput, account: 
 function readAccountConditionValue(field: CatalogRuleConditionInput['field'], account: any) {
   if (field === 'affinity_group') return account.affinityGroup?.code ?? account.affinityGroup?.name ?? '';
   if (field === 'ownership_group') return account.ownershipGroup?.code ?? account.ownershipGroup?.name ?? '';
+  if (field === 'brand_label') return account.brandLabel?.code ?? account.brandLabel?.name ?? '';
   if (field === 'independent') return account.groupClassification === 'INDEPENDENT' || (account.affinityGroupSelection === 'NONE' && account.ownershipGroupSelection === 'NONE');
   if (field === 'region') return account.territory?.region?.code ?? account.territory?.region?.name ?? '';
   if (field === 'portal_eligible') {

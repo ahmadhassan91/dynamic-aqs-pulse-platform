@@ -902,3 +902,58 @@ test('finance roles can register and promote tokenized account payment methods w
   const nextDefault = paymentMethods.items.find((item) => item.isDefault);
   assert.equal(nextDefault?.id, manualMethod.id);
 });
+
+test('updateAccount assigns, clears, and validates brand / private label', SERIAL, async () => {
+  const actor = await createAdminActor();
+
+  const brand = await prisma.brandLabelRef.create({
+    data: {
+      code: 'currie_brand_regression',
+      name: 'Currie Regression Brand',
+      isActive: true,
+      sortOrder: 10,
+    },
+  });
+
+  const account = await prisma.account.create({
+    data: {
+      displayName: 'Brand Label Regression Dealer',
+      accountType: 'Dealer',
+      affinityGroupSelection: 'NONE',
+      ownershipGroupSelection: 'NONE',
+      isActive: true,
+    },
+  });
+
+  // Assign a brand label and confirm it persists on the read model.
+  const assigned = await updateAccount(actor, account.id, {
+    brandLabelId: brand.id,
+  });
+  assert.equal(assigned.brandLabelId, brand.id);
+  assert.equal(assigned.brandLabelName, brand.name);
+
+  const persisted = await prisma.account.findUniqueOrThrow({ where: { id: account.id } });
+  assert.equal(persisted.brandLabelId, brand.id);
+
+  const detail = await getAccountDetail(actor, account.id);
+  assert.equal(detail.brandLabelId, brand.id);
+  assert.equal(detail.brandLabelName, brand.name);
+
+  // Clearing to null removes the brand assignment.
+  const cleared = await updateAccount(actor, account.id, {
+    brandLabelId: null,
+  });
+  assert.equal(cleared.brandLabelId, undefined);
+  assert.equal(cleared.brandLabelName, undefined);
+
+  const clearedRecord = await prisma.account.findUniqueOrThrow({ where: { id: account.id } });
+  assert.equal(clearedRecord.brandLabelId, null);
+
+  // An unknown brand label id is rejected.
+  await assert.rejects(
+    () => updateAccount(actor, account.id, {
+      brandLabelId: '00000000-0000-0000-0000-000000000000',
+    }),
+    /brand label not found/i,
+  );
+});

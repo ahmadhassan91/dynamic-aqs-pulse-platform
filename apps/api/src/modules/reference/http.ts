@@ -39,6 +39,7 @@ import {
   importAffinityGroups,
   getGroupRosterImportRun,
   listAffinityGroups,
+  listBrandLabels,
   importLeadSources,
   importLeadStages,
   importOwnershipGroups,
@@ -62,6 +63,7 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
     pathname === '/api/v1/reference/business-segments'
     || pathname === '/api/v1/reference/affinity-groups'
     || pathname === '/api/v1/reference/affinity-groups/import'
+    || pathname === '/api/v1/reference/brand-labels'
     || pathname === '/api/v1/reference/group-rosters/preview'
     || pathname === '/api/v1/reference/group-rosters/review'
     || pathname === '/api/v1/reference/lead-stages'
@@ -186,6 +188,18 @@ export async function handleReferenceRoutes(req: IncomingMessage, res: ServerRes
       });
       const body = (await readJsonBody(req)) as ReferenceImportRequest<LeadSourceImportRow>;
       const response = await importLeadSources(actor, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/reference/brand-labels') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        action: 'reference.view',
+      });
+      const response = await listBrandLabels(actor);
       return jsonResponse(res, 200, response);
     }
 

@@ -123,6 +123,19 @@ export type AppMonerisHostedTokenizationConfig = {
   cleanupIntervalMinutes: number;
 };
 
+export type AppProductReferenceImportConfig = {
+  acumaticaStockItemsPath: string;
+  shopifyUsProductsPath: string;
+  shopifyCaProductsPath: string;
+  // PRD parked boundary: the legacy CSV apply/import must NOT become production
+  // product truth before Acumatica mappings are certified. This is OFF by default;
+  // dev/UAT may opt in to seed non-authoritative product data for building/testing.
+  seedEnabled: boolean;
+  // SSRF guard for legacy product-image ingestion: only image URLs whose host is in this
+  // allowlist are downloaded. Defaults to the known Shopify CDN + Dynamic storefront hosts.
+  imageHostAllowlist: string[];
+};
+
 export type AppAiConfig = {
   voiceNotes: {
     provider: 'disabled' | 'openai';
@@ -154,6 +167,7 @@ export type AppConfig = {
   auth: AppAuthConfig;
   outlookCalendar: AppOutlookCalendarConfig;
   monerisHostedTokenization: AppMonerisHostedTokenizationConfig;
+  productReferenceImport: AppProductReferenceImportConfig;
   ai: AppAiConfig;
 };
 
@@ -323,6 +337,18 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       encryptionKey: outlookEncryptionKey,
       tokenTtlMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_TOKEN_TTL_MINUTES, 30),
       cleanupIntervalMinutes: parseNumber(env.MONERIS_HOSTED_TOKENIZATION_CLEANUP_INTERVAL_MINUTES, 15),
+    },
+    productReferenceImport: {
+      acumaticaStockItemsPath: optionalString(env.PULSE_PRODUCT_IMPORT_ACUMATICA_CSV)
+        ?? path.resolve(process.cwd(), 'apps/api/seed-data/product-reference/acumatica-stock-items.csv'),
+      shopifyUsProductsPath: optionalString(env.PULSE_PRODUCT_IMPORT_SHOPIFY_US_CSV)
+        ?? path.resolve(process.cwd(), 'apps/api/seed-data/product-reference/shopify-us-products.csv'),
+      shopifyCaProductsPath: optionalString(env.PULSE_PRODUCT_IMPORT_SHOPIFY_CA_CSV)
+        ?? path.resolve(process.cwd(), 'apps/api/seed-data/product-reference/shopify-ca-products.csv'),
+      seedEnabled: parseBoolean(env.PULSE_ALLOW_LEGACY_PRODUCT_SEED, false),
+      imageHostAllowlist: (optionalString(env.PULSE_PRODUCT_IMAGE_HOST_ALLOWLIST)
+        ?? 'cdn.shopify.com,www.dynamiconlineorders.com,dynamiconlineorders.ca,dynamiconlineorders.myshopify.com')
+        .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean),
     },
     ai: {
       voiceNotes: {

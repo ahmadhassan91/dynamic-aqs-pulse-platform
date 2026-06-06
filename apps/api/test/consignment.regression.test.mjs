@@ -726,6 +726,184 @@ test('consignment API routes create, read, filter, and gate workflow resources',
   });
 });
 
+test('PURPLE adjustment review preserves baseline until explicit approval', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('purple-adjustment');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'PURPLE adjustment regression site',
+  });
+
+  const requested = await service.createConsignmentAdjustment(actor, site.id, {
+    currentTotal: 10,
+    addQuantity: 3,
+    removeQuantity: 1,
+    reasonCode: 'baseline_correction',
+    notes: 'Shelf count corrected by ops.',
+  });
+  assert.equal(requested.manualBaselineQuantity, undefined);
+  assert.equal(requested.formCounts.purple, 1);
+  assert.equal(requested.adjustments.length, 1);
+  assert.equal(requested.adjustments[0].status, 'requested');
+  assert.equal(requested.adjustments[0].proposedTotal, 12);
+  assert.ok(requested.workItems.some((item) => item.type === 'adjustment_review' && item.status === 'open'));
+
+  const applied = await service.applyConsignmentAdjustment(actor, requested.adjustments[0].id, {
+    appliedAt: '2026-08-01T12:00:00.000Z',
+    notes: 'Approved by operations.',
+  });
+  assert.equal(applied.manualBaselineQuantity, 12);
+  assert.equal(applied.baselineEstablishedAt, '2026-08-01T12:00:00.000Z');
+  assert.equal(applied.adjustments[0].status, 'applied');
+  assert.ok(applied.workItems.some((item) => item.type === 'adjustment_review' && item.status === 'completed'));
+
+  await assert.rejects(
+    service.createConsignmentAdjustment(actor, site.id, {
+      currentTotal: 12,
+      addQuantity: 0,
+      removeQuantity: 0,
+    }),
+    /must change/i,
+  );
+});
+
+test('SAND exit records notice before closure and excludes exited sites unless requested', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('sand-exit');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'SAND exit regression site',
+  });
+
+  const notice = await service.startConsignmentExit(actor, site.id, {
+    noticeGivenAt: '2026-08-05T14:00:00.000Z',
+    plannedExitAt: '2026-08-12T14:00:00.000Z',
+    notes: 'Customer gave program exit notice.',
+  });
+  assert.equal(notice.status, 'exiting');
+  assert.equal(notice.exitedAt, undefined);
+  assert.equal(notice.formCounts.sand, 1);
+  assert.equal(notice.exits.length, 1);
+  assert.equal(notice.exits[0].status, 'notice_given');
+  assert.ok(notice.workItems.some((item) => item.type === 'exit_review' && item.status === 'open'));
+
+  await assert.rejects(
+    service.closeConsignmentExit(actor, notice.exits[0].id, {
+      finalReconciliationAt: '2026-08-12T18:00:00.000Z',
+      returnQuantity: 0,
+      retainedQuantity: 0,
+    }),
+    /return quantity|retained quantity|settlement/i,
+  );
+
+  const closed = await service.closeConsignmentExit(actor, notice.exits[0].id, {
+    finalReconciliationAt: '2026-08-12T18:00:00.000Z',
+    returnQuantity: 4,
+    retainedQuantity: 1,
+    settlementReference: 'SETTLE-42',
+    notes: 'Final manual reconciliation complete.',
+  });
+  assert.equal(closed.status, 'exited');
+  assert.equal(closed.exitedAt, '2026-08-12T18:00:00.000Z');
+  assert.equal(closed.exits[0].status, 'closed');
+  assert.ok(closed.workItems.some((item) => item.type === 'exit_review' && item.status === 'completed'));
+
+  const hidden = await service.listConsignmentSites(actor, {});
+  assert.equal(hidden.items.some((item) => item.id === site.id), false);
+  const included = await service.listConsignmentSites(actor, { includeExited: true });
+  assert.equal(included.items.some((item) => item.id === site.id), true);
+});
+
+test('PO received and write-off true-up close consignment discrepancy workflows', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('po-received');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'PO received regression site',
+  });
+  const scheduled = await service.createConsignmentAudit(actor, site.id, {
+    scheduledFor: '2026-08-20T10:00:00.000Z',
+  });
+  await service.updateConsignmentAudit(actor, scheduled.id, {
+    status: 'completed',
+    completedAt: '2026-08-20T18:00:00.000Z',
+    lines: [{ sku: 'PO-1', productName: 'PO regression item', expectedQuantity: 6, actualQuantity: 4 }],
+  });
+
+  const poTrueUp = await service.confirmConsignmentTrueUp(actor, scheduled.id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-08-21T12:00:00.000Z',
+    reasonCode: 'confirmed_consumed',
+    externalPoRef: 'PO-123',
+  });
+  const poCase = poTrueUp.site.discrepancyCases[0];
+  assert.equal(poCase.status, 'po_required');
+
+  const received = await service.markConsignmentPoReceived(actor, poCase.id, {
+    receivedAt: '2026-08-22T12:00:00.000Z',
+    externalPoRef: 'PO-123',
+  });
+  assert.equal(received.discrepancyCases[0].status, 'po_received');
+  assert.equal(received.discrepancyCases[0].poFollowUpStatus, 'received');
+  assert.ok(received.workItems.some((item) => item.type === 'po_follow_up' && item.status === 'completed'));
+
+  const writeOffSite = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Write off regression site',
+  });
+  const writeOffAudit = await service.createConsignmentAudit(actor, writeOffSite.id, {
+    scheduledFor: '2026-08-25T10:00:00.000Z',
+  });
+  await service.updateConsignmentAudit(actor, writeOffAudit.id, {
+    status: 'completed',
+    completedAt: '2026-08-25T18:00:00.000Z',
+    lines: [{ sku: 'WO-1', productName: 'Write off item', expectedQuantity: 2, actualQuantity: 0 }],
+  });
+  const writeOff = await service.confirmConsignmentTrueUp(actor, writeOffAudit.id, {
+    outcome: 'write_off',
+    confirmedAt: '2026-08-26T12:00:00.000Z',
+    reasonCode: 'missing_write_off',
+    notes: 'Waived after manager review.',
+  });
+  assert.equal(writeOff.audit.reconciliationStatus, 'resolved');
+  assert.equal(writeOff.site.openDiscrepancyCount, 0);
+  assert.equal(writeOff.site.discrepancyCases[0].status, 'written_off');
+  assert.equal(writeOff.site.discrepancyCases[0].poFollowUpStatus, 'waived');
+});
+
+test('HTTP includeExited query returns exited consignment sites', SERIAL, async () => {
+  const auth = await createAdminAuth();
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('include-exited');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Include exited regression site',
+  });
+  await service.updateConsignmentSite(actor, site.id, { status: 'exited' });
+
+  await withConsignmentRuntime(async (baseUrl) => {
+    const hiddenResponse = await fetch(`${baseUrl}/api/v1/consignment/sites?search=Include%20exited`, {
+      headers: { authorization: `Bearer ${auth.tokens.accessToken}` },
+    });
+    assert.equal(hiddenResponse.status, 200);
+    const hidden = await hiddenResponse.json();
+    assert.equal(hidden.total, 0);
+
+    const includedResponse = await fetch(`${baseUrl}/api/v1/consignment/sites?search=Include%20exited&includeExited=true`, {
+      headers: { authorization: `Bearer ${auth.tokens.accessToken}` },
+    });
+    assert.equal(includedResponse.status, 200);
+    const included = await includedResponse.json();
+    assert.equal(included.total, 1);
+    assert.deepEqual(included.items.map((item) => item.id), [site.id]);
+  });
+});
+
 test('Acumatica boundary remains parked and does not fabricate ERP references', SERIAL, async () => {
   const actor = await createAdminActor();
   const fixture = await createConsignmentAccountFixture('acumatica-boundary');

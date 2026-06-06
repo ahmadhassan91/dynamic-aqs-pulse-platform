@@ -57,7 +57,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="leads" options={{ title: 'Lead Inbox', href: null }} />
       <Tabs.Screen name="accounts" options={{ title: 'Accounts', href: null }} />
       <Tabs.Screen name="voice-notes" options={{ title: 'Voice Notes', href: null }} />
-      <Tabs.Screen name="consignment" options={{ title: 'Consignment', href: null }} />
+      <Tabs.Screen name="consignment" options={{ title: 'Consignment', tabBarLabel: 'Consign' }} />
       <Tabs.Screen name="training" options={{ title: 'Training', href: null }} />
     </Tabs>
   );

@@ -90,6 +90,7 @@ export interface ConsignmentSiteSummary {
   activeSince?: string;
   exitedAt?: string;
   notes?: string;
+  manualBaselineQuantity?: number;
   formCounts: Record<ConsignmentFormTypeKey, number>;
   openWorkItemCount: number;
   openDiscrepancyCount: number;
@@ -177,6 +178,100 @@ export interface ConsignmentWorkItemSummary {
   updatedAt: string;
 }
 
+export interface ConsignmentDiscrepancyCaseSummary {
+  id: string;
+  siteId: string;
+  auditId?: string;
+  status: string;
+  poFollowUpStatus: string;
+  reasonCode?: string;
+  sku?: string;
+  productName?: string;
+  quantity?: number;
+  trueUpConfirmedAt?: string;
+  poDueAt?: string;
+  externalPoRef?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarkConsignmentPoReceivedRequest {
+  receivedAt?: string;
+  externalPoRef?: string;
+  notes?: string;
+}
+
+export const CONSIGNMENT_ADJUSTMENT_STATUSES = ['requested', 'applied', 'rejected', 'cancelled'] as const;
+export type ConsignmentAdjustmentStatusKey = (typeof CONSIGNMENT_ADJUSTMENT_STATUSES)[number];
+
+export interface ConsignmentAdjustmentSummary {
+  id: string;
+  siteId: string;
+  documentId?: string;
+  status: ConsignmentAdjustmentStatusKey;
+  reasonCode?: string;
+  currentTotal: number;
+  addQuantity: number;
+  removeQuantity: number;
+  proposedTotal: number;
+  appliedAt?: string;
+  rejectedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateConsignmentAdjustmentRequest {
+  documentId?: string;
+  reasonCode?: string;
+  currentTotal: number;
+  addQuantity?: number;
+  removeQuantity?: number;
+  proposedTotal?: number;
+  notes?: string;
+}
+
+export interface ApplyConsignmentAdjustmentRequest {
+  appliedAt?: string;
+  notes?: string;
+}
+
+export const CONSIGNMENT_EXIT_STATUSES = ['notice_given', 'final_reconciliation', 'closed', 'cancelled'] as const;
+export type ConsignmentExitStatusKey = (typeof CONSIGNMENT_EXIT_STATUSES)[number];
+
+export interface ConsignmentExitSummary {
+  id: string;
+  siteId: string;
+  documentId?: string;
+  status: ConsignmentExitStatusKey;
+  noticeGivenAt: string;
+  plannedExitAt?: string;
+  finalReconciliationAt?: string;
+  returnQuantity?: number;
+  retainedQuantity?: number;
+  settlementReference?: string;
+  closedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StartConsignmentExitRequest {
+  documentId?: string;
+  noticeGivenAt?: string;
+  plannedExitAt?: string;
+  notes?: string;
+}
+
+export interface CloseConsignmentExitRequest {
+  finalReconciliationAt?: string;
+  returnQuantity?: number;
+  retainedQuantity?: number;
+  settlementReference?: string;
+  notes?: string;
+}
+
 export interface ConsignmentFieldActivityNoteSummary {
   id: string;
   title: string;
@@ -194,6 +289,9 @@ export interface ConsignmentSiteDetail extends ConsignmentSiteSummary {
   forms: ConsignmentFormSummary[];
   audits: ConsignmentAuditSummary[];
   workItems: ConsignmentWorkItemSummary[];
+  discrepancyCases: ConsignmentDiscrepancyCaseSummary[];
+  adjustments: ConsignmentAdjustmentSummary[];
+  exits: ConsignmentExitSummary[];
   fieldActivity: ConsignmentFieldActivityNoteSummary[];
 }
 

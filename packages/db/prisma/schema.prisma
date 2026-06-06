@@ -809,6 +809,7 @@ enum ConsignmentPoFollowUpStatus {
 enum ConsignmentWorkItemType {
   WAREHOUSE_SETUP
   BASELINE_REVIEW
+  ADJUSTMENT_REVIEW
   VARIANCE_REVIEW
   FIELD_NOTE_FOLLOW_UP
   PO_FOLLOW_UP
@@ -821,6 +822,20 @@ enum ConsignmentWorkItemStatus {
   IN_PROGRESS
   BLOCKED
   COMPLETED
+  CANCELLED
+}
+
+enum ConsignmentAdjustmentStatus {
+  REQUESTED
+  APPLIED
+  REJECTED
+  CANCELLED
+}
+
+enum ConsignmentExitStatus {
+  NOTICE_GIVEN
+  FINAL_RECONCILIATION
+  CLOSED
   CANCELLED
 }
 
@@ -884,6 +899,8 @@ model User {
   ownedConsignmentSitesTm            ConsignmentSite[]             @relation("ConsignmentSiteOwnerTm")
   ownedConsignmentSitesRd            ConsignmentSite[]             @relation("ConsignmentSiteOwnerRd")
   consignmentFormsCreated            ConsignmentForm[]             @relation("ConsignmentFormCreatedBy")
+  consignmentAdjustmentsCreated       ConsignmentAdjustment[]       @relation("ConsignmentAdjustmentCreatedBy")
+  consignmentExitsCreated             ConsignmentExit[]             @relation("ConsignmentExitCreatedBy")
   consignmentAuditsSubmitted         ConsignmentAudit[]            @relation("ConsignmentAuditSubmittedBy")
   consignmentAuditEvidenceUploaded   ConsignmentAuditEvidence[]    @relation("ConsignmentAuditEvidenceUploadedBy")
   consignmentWorkItemsAssigned       ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
@@ -3064,6 +3081,7 @@ model ConsignmentSite {
   activeSince           DateTime?
   exitedAt              DateTime?
   baselineEstablishedAt DateTime?
+  manualBaselineQuantity Int?
   lastAuditCompletedAt  DateTime?
   nextAuditDueAt        DateTime?
   ownerTmUserId         String?                    @db.Uuid
@@ -3092,6 +3110,8 @@ model ConsignmentSite {
   auditEvidence    ConsignmentAuditEvidence[]
   discrepancyCases ConsignmentDiscrepancyCase[]
   workItems        ConsignmentWorkItem[]
+  adjustments      ConsignmentAdjustment[]
+  exits            ConsignmentExit[]
   mobileVoiceNotes MobileVoiceNote[]
 
   @@index([accountId])
@@ -3104,6 +3124,7 @@ model ConsignmentSite {
   @@index([regionId])
   @@index([shippingCenterId])
   @@index([nextAuditDueAt])
+  @@index([manualBaselineQuantity])
   @@index([warehouseCode])
   @@index([acumaticaWarehouseId])
 }
@@ -3128,6 +3149,8 @@ model ConsignmentForm {
 
   site      ConsignmentSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdBy User?           @relation("ConsignmentFormCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  adjustments ConsignmentAdjustment[]
+  exits       ConsignmentExit[]
 
   @@index([siteId])
   @@index([formType, status])
@@ -3256,6 +3279,61 @@ model ConsignmentWorkItem {
   @@index([status])
   @@index([assignedToUserId])
   @@index([dueAt])
+}
+
+model ConsignmentAdjustment {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  siteId              String                      @db.Uuid
+  documentId          String?                     @db.Uuid
+  status              ConsignmentAdjustmentStatus @default(REQUESTED)
+  reasonCode          String?
+  currentTotal        Int
+  addQuantity         Int                         @default(0)
+  removeQuantity      Int                         @default(0)
+  proposedTotal       Int
+  appliedAt           DateTime?
+  rejectedAt          DateTime?
+  notes               String?
+  createdByUserId     String?                     @db.Uuid
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  site      ConsignmentSite  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  document  ConsignmentForm? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy User?            @relation("ConsignmentAdjustmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([documentId])
+  @@index([status])
+  @@index([appliedAt])
+}
+
+model ConsignmentExit {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  siteId                String                 @db.Uuid
+  documentId            String?                @db.Uuid
+  status                ConsignmentExitStatus  @default(NOTICE_GIVEN)
+  noticeGivenAt         DateTime
+  plannedExitAt         DateTime?
+  finalReconciliationAt DateTime?
+  returnQuantity        Int?
+  retainedQuantity      Int?
+  settlementReference   String?
+  closedAt              DateTime?
+  notes                 String?
+  createdByUserId       String?                @db.Uuid
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  site      ConsignmentSite  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  document  ConsignmentForm? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy User?            @relation("ConsignmentExitCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([documentId])
+  @@index([status])
+  @@index([noticeGivenAt])
+  @@index([closedAt])
 }
 
 model Contact {

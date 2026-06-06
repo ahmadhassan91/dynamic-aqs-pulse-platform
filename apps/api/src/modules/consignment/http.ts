@@ -1,11 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  ApplyConsignmentAdjustmentRequest,
+  CloseConsignmentExitRequest,
   ConfirmConsignmentTrueUpRequest,
   ConsignmentOperationalQueueRequest,
+  CreateConsignmentAdjustmentRequest,
   CreateConsignmentAuditRequest,
   CreateConsignmentSiteRequest,
   ListConsignmentSitesRequest,
+  MarkConsignmentPoReceivedRequest,
+  StartConsignmentExitRequest,
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
@@ -33,7 +38,10 @@ import {
 } from '../auth/request.js';
 import {
   ConsignmentPersistenceUnavailableError,
+  applyConsignmentAdjustment,
+  closeConsignmentExit,
   confirmConsignmentTrueUp,
+  createConsignmentAdjustment,
   createConsignmentAudit,
   createConsignmentSite,
   getAccountConsignmentReadModel,
@@ -43,6 +51,8 @@ import {
   listConsignmentOperationalQueue,
   listConsignmentReadinessItems,
   listConsignmentSites,
+  markConsignmentPoReceived,
+  startConsignmentExit,
   updateConsignmentAudit,
   updateConsignmentDocument,
   updateConsignmentSite,
@@ -209,6 +219,106 @@ export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerR
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
     }
 
+    const siteAdjustmentMatch = matchPath(pathname, '/api/v1/consignment/sites/:siteId/adjustments');
+    if (siteAdjustmentMatch) {
+      const siteId = siteAdjustmentMatch.siteId;
+      if (!siteId) {
+        return badRequestResponse(res, 'Consignment site id is required');
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.document_manage',
+      });
+      const body = (await readJsonBody(req)) as CreateConsignmentAdjustmentRequest;
+      const response = await createConsignmentAdjustment(actor, siteId, body);
+      return jsonResponse(res, 201, response);
+    }
+
+    const adjustmentApplyMatch = matchPath(pathname, '/api/v1/consignment/adjustments/:adjustmentId/apply');
+    if (adjustmentApplyMatch) {
+      const adjustmentId = adjustmentApplyMatch.adjustmentId;
+      if (!adjustmentId) {
+        return badRequestResponse(res, 'Consignment adjustment id is required');
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.manage',
+      });
+      const body = (await readJsonBody(req)) as ApplyConsignmentAdjustmentRequest;
+      const response = await applyConsignmentAdjustment(actor, adjustmentId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const siteExitMatch = matchPath(pathname, '/api/v1/consignment/sites/:siteId/exit');
+    if (siteExitMatch) {
+      const siteId = siteExitMatch.siteId;
+      if (!siteId) {
+        return badRequestResponse(res, 'Consignment site id is required');
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.manage',
+      });
+      const body = (await readJsonBody(req)) as StartConsignmentExitRequest;
+      const response = await startConsignmentExit(actor, siteId, body);
+      return jsonResponse(res, 201, response);
+    }
+
+    const exitCloseMatch = matchPath(pathname, '/api/v1/consignment/exits/:exitId/close');
+    if (exitCloseMatch) {
+      const exitId = exitCloseMatch.exitId;
+      if (!exitId) {
+        return badRequestResponse(res, 'Consignment exit id is required');
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.manage',
+      });
+      const body = (await readJsonBody(req)) as CloseConsignmentExitRequest;
+      const response = await closeConsignmentExit(actor, exitId, body);
+      return jsonResponse(res, 200, response);
+    }
+
+    const discrepancyMatch = matchPath(pathname, '/api/v1/consignment/discrepancies/:discrepancyId');
+    if (discrepancyMatch) {
+      const discrepancyId = discrepancyMatch.discrepancyId;
+      if (!discrepancyId) {
+        return badRequestResponse(res, 'Consignment discrepancy id is required');
+      }
+
+      if (method !== 'PATCH') {
+        return methodNotAllowedResponse(res, method, ['PATCH']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.manage',
+      });
+      const body = (await readJsonBody(req)) as MarkConsignmentPoReceivedRequest;
+      const response = await markConsignmentPoReceived(actor, discrepancyId, body);
+      return jsonResponse(res, 200, response);
+    }
+
     const documentMatch = matchPath(pathname, '/api/v1/consignment/documents/:documentId');
     if (documentMatch) {
       const documentId = documentMatch.documentId;
@@ -360,6 +470,11 @@ function isConsignmentRoute(pathname: string) {
     || /^\/api\/v1\/consignment\/sites\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/readiness$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/documents$/.test(pathname)
+    || /^\/api\/v1\/consignment\/sites\/[^/]+\/adjustments$/.test(pathname)
+    || /^\/api\/v1\/consignment\/adjustments\/[^/]+\/apply$/.test(pathname)
+    || /^\/api\/v1\/consignment\/sites\/[^/]+\/exit$/.test(pathname)
+    || /^\/api\/v1\/consignment\/exits\/[^/]+\/close$/.test(pathname)
+    || /^\/api\/v1\/consignment\/discrepancies\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/documents\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/audits$/.test(pathname)
     || /^\/api\/v1\/consignment\/audits\/[^/]+$/.test(pathname)
@@ -375,6 +490,7 @@ function readListSitesQuery(url: URL): ListConsignmentSitesRequest {
   const assignedTmUserId = readTrimmedQuery(url, 'assignedTmUserId');
   const assignedRdUserId = readTrimmedQuery(url, 'assignedRdUserId');
   const includeClosed = readBooleanQuery(url, 'includeClosed');
+  const includeExited = readBooleanQuery(url, 'includeExited');
   const dueWithinDays = readIntegerQuery(url, 'dueWithinDays');
   const limit = readIntegerQuery(url, 'limit');
 
@@ -384,6 +500,7 @@ function readListSitesQuery(url: URL): ListConsignmentSitesRequest {
   if (assignedTmUserId) query.assignedTmUserId = assignedTmUserId;
   if (assignedRdUserId) query.assignedRdUserId = assignedRdUserId;
   if (includeClosed !== undefined) query.includeClosed = includeClosed;
+  if (includeExited !== undefined) query.includeExited = includeExited;
   if (dueWithinDays !== undefined) query.dueWithinDays = dueWithinDays;
   if (limit !== undefined) query.limit = limit;
 

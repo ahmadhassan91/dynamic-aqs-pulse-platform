@@ -240,13 +240,18 @@ import type {
   ConsignmentSiteDetail,
   ConsignmentSiteStatusKey,
   ConsignmentSiteSummary,
+  ApplyConsignmentAdjustmentRequest,
+  CloseConsignmentExitRequest,
   ConfirmConsignmentTrueUpRequest,
   ConfirmConsignmentTrueUpResponse,
+  CreateConsignmentAdjustmentRequest,
   CreateConsignmentAuditRequest,
   CreateConsignmentFormRequest,
   CreateConsignmentSiteRequest,
   ListConsignmentSitesRequest,
   ListConsignmentSitesResponse,
+  MarkConsignmentPoReceivedRequest,
+  StartConsignmentExitRequest,
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
   UpdateConsignmentSiteRequest,
@@ -1974,6 +1979,71 @@ export async function confirmConsignmentTrueUpRecord(
 ) {
   return requestJson<ConfirmConsignmentTrueUpResponse>(apiBaseUrl, `/api/v1/consignment/audits/${auditId}/true-up`, {
     method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function createConsignmentAdjustmentRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  siteId: string,
+  input: CreateConsignmentAdjustmentRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}/adjustments`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function applyConsignmentAdjustmentRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  adjustmentId: string,
+  input: ApplyConsignmentAdjustmentRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/adjustments/${adjustmentId}/apply`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function startConsignmentExitRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  siteId: string,
+  input: StartConsignmentExitRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/sites/${siteId}/exit`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function closeConsignmentExitRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  exitId: string,
+  input: CloseConsignmentExitRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/exits/${exitId}/close`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function markConsignmentPoReceivedRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  discrepancyId: string,
+  input: MarkConsignmentPoReceivedRequest,
+) {
+  return requestJson<ConsignmentSiteDetail>(apiBaseUrl, `/api/v1/consignment/discrepancies/${discrepancyId}`, {
+    method: 'PATCH',
     accessToken,
     body: input,
   });

@@ -5,9 +5,11 @@ import {
 import {
   AuditAction,
   ConsignmentAcumaticaStatus,
+  ConsignmentAdjustmentStatus,
   ConsignmentAuditEvidencePurpose,
   ConsignmentAuditStatus,
   ConsignmentDiscrepancyStatus,
+  ConsignmentExitStatus,
   ConsignmentFormStatus,
   ConsignmentFormType,
   ConsignmentPoFollowUpStatus,
@@ -20,13 +22,18 @@ import {
   prisma,
 } from '@pulse/db';
 import type {
+  ApplyConsignmentAdjustmentRequest,
   ConfirmConsignmentTrueUpRequest,
   ConfirmConsignmentTrueUpResponse,
   CompleteConsignmentAuditRequest,
+  CloseConsignmentExitRequest,
   ConsignmentAccountReadModel,
+  ConsignmentAdjustmentSummary,
   ConsignmentAuditEvidenceSummary,
   ConsignmentAuditEvidencePurposeKey,
   ConsignmentAuditSummary,
+  ConsignmentDiscrepancyCaseSummary,
+  ConsignmentExitSummary,
   ConsignmentFieldActivityNoteSummary,
   ConsignmentFormStatusKey,
   ConsignmentFormSummary,
@@ -37,9 +44,12 @@ import type {
   ConsignmentSiteDetail,
   ConsignmentSiteStatusKey,
   ConsignmentSiteSummary,
+  CreateConsignmentAdjustmentRequest,
   CreateConsignmentAuditRequest,
   CreateConsignmentSiteRequest,
+  StartConsignmentExitRequest,
   ListConsignmentSitesRequest,
+  MarkConsignmentPoReceivedRequest,
   ListConsignmentSitesResponse,
   UpdateConsignmentAuditRequest,
   UpdateConsignmentDocumentRequest,
@@ -93,6 +103,9 @@ const SITE_INCLUDE = {
   forms: { orderBy: [{ createdAt: 'desc' }] },
   audits: { include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } }, orderBy: [{ scheduledFor: 'desc' }], take: 10 },
   workItems: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+  discrepancyCases: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+  adjustments: { orderBy: [{ createdAt: 'desc' }], take: 25 },
+  exits: { orderBy: [{ createdAt: 'desc' }], take: 10 },
   mobileVoiceNotes: {
     where: { reviewStatus: MobileVoiceNoteReviewStatus.APPROVED },
     include: {
@@ -328,6 +341,301 @@ export async function updateConsignmentDocument(actor: AuthenticatedActor, docum
     return row;
   });
   return mapForm(updated);
+}
+
+export async function createConsignmentAdjustment(actor: AuthenticatedActor, siteId: string, input: CreateConsignmentAdjustmentRequest): Promise<ConsignmentSiteDetail> {
+  assertConsignmentDocumentManage(actor);
+  const site = await getSiteForMutation(actor, siteId);
+  const currentTotal = normalizeNonNegativeInteger(input.currentTotal, 'currentTotal');
+  const addQuantity = normalizeNonNegativeInteger(input.addQuantity ?? 0, 'addQuantity');
+  const removeQuantity = normalizeNonNegativeInteger(input.removeQuantity ?? 0, 'removeQuantity');
+  if (addQuantity === 0 && removeQuantity === 0 && input.proposedTotal === undefined) {
+    throw new Error('PURPLE adjustment must change the manual baseline total');
+  }
+  if (removeQuantity > currentTotal) {
+    throw new Error('removeQuantity cannot exceed currentTotal');
+  }
+  const proposedTotal = input.proposedTotal !== undefined
+    ? normalizeNonNegativeInteger(input.proposedTotal, 'proposedTotal')
+    : currentTotal + addQuantity - removeQuantity;
+  if (proposedTotal === currentTotal) {
+    throw new Error('PURPLE adjustment proposedTotal must differ from currentTotal');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const documentId = input.documentId ?? (await tx.consignmentForm.create({
+      data: compact({
+        siteId,
+        formType: ConsignmentFormType.PURPLE,
+        status: ConsignmentFormStatus.CURRENT,
+        title: 'PURPLE - Inventory Adjustment',
+        receivedAt: new Date(),
+        notes: cleanOptional(input.notes),
+        createdByUserId: actor.userId,
+      }) as any,
+    })).id;
+    const adjustment = await tx.consignmentAdjustment.create({
+      data: compact({
+        siteId,
+        documentId,
+        status: ConsignmentAdjustmentStatus.REQUESTED,
+        reasonCode: cleanOptional(input.reasonCode),
+        currentTotal,
+        addQuantity,
+        removeQuantity,
+        proposedTotal,
+        notes: cleanOptional(input.notes),
+        createdByUserId: actor.userId,
+      }) as any,
+    });
+    await tx.consignmentWorkItem.create({
+      data: {
+        siteId,
+        type: ConsignmentWorkItemType.ADJUSTMENT_REVIEW,
+        status: ConsignmentWorkItemStatus.OPEN,
+        priority: 'normal',
+        title: 'Review PURPLE baseline adjustment',
+        notes: 'Manual baseline review only. Acumatica inventory adjustment posting remains parked.',
+      },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: 'CONSIGNMENT_ADJUSTMENT',
+        entityId: adjustment.id,
+        afterData: { siteId, currentTotal, addQuantity, removeQuantity, proposedTotal },
+        metadata: { acumaticaInventoryAdjustment: 'parked' },
+      }),
+    });
+  });
+
+  return (await getConsignmentSiteDetail(actor, site.id))!;
+}
+
+export async function applyConsignmentAdjustment(actor: AuthenticatedActor, adjustmentId: string, input: ApplyConsignmentAdjustmentRequest): Promise<ConsignmentSiteDetail> {
+  assertConsignmentManage(actor);
+  const adjustment = await prisma.consignmentAdjustment.findUnique({ where: { id: adjustmentId }, include: { site: { include: SITE_INCLUDE } } });
+  if (!adjustment) throw new Error('Consignment adjustment not found');
+  await getSiteForMutation(actor, adjustment.siteId);
+  if (adjustment.status !== ConsignmentAdjustmentStatus.REQUESTED) {
+    throw new Error('Only requested PURPLE adjustments can be applied');
+  }
+  if (adjustment.site.manualBaselineQuantity !== null && adjustment.site.manualBaselineQuantity !== adjustment.currentTotal) {
+    throw new Error('PURPLE adjustment currentTotal no longer matches the site manual baseline');
+  }
+  const appliedAt = input.appliedAt ? parseRequiredDate(input.appliedAt, 'appliedAt') : new Date();
+
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.consignmentAdjustment.update({
+      where: { id: adjustment.id },
+      data: {
+        status: ConsignmentAdjustmentStatus.APPLIED,
+        appliedAt,
+        notes: appendNotes(adjustment.notes, buildAdjustmentNotes(input.notes)),
+      },
+    });
+    await tx.consignmentSite.update({
+      where: { id: adjustment.siteId },
+      data: {
+        manualBaselineQuantity: adjustment.proposedTotal,
+        baselineEstablishedAt: appliedAt,
+      },
+    });
+    await tx.consignmentWorkItem.updateMany({
+      where: {
+        siteId: adjustment.siteId,
+        type: ConsignmentWorkItemType.ADJUSTMENT_REVIEW,
+        status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+      },
+      data: { status: ConsignmentWorkItemStatus.COMPLETED, completedAt: appliedAt },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CONSIGNMENT_ADJUSTMENT',
+        entityId: row.id,
+        beforeData: adjustment,
+        afterData: row,
+        metadata: { acumaticaInventoryAdjustment: 'parked', pulseManualBaselineUpdated: true },
+      }),
+    });
+  });
+
+  return (await getConsignmentSiteDetail(actor, adjustment.siteId))!;
+}
+
+export async function startConsignmentExit(actor: AuthenticatedActor, siteId: string, input: StartConsignmentExitRequest): Promise<ConsignmentSiteDetail> {
+  assertConsignmentManage(actor);
+  const site = await getSiteForMutation(actor, siteId);
+  if (site.status === ConsignmentSiteStatus.EXITED) throw new Error('Exited consignment sites cannot start another SAND exit');
+  const noticeGivenAt = input.noticeGivenAt ? parseRequiredDate(input.noticeGivenAt, 'noticeGivenAt') : new Date();
+  const plannedExitAt = input.plannedExitAt ? parseRequiredDate(input.plannedExitAt, 'plannedExitAt') : undefined;
+
+  await prisma.$transaction(async (tx) => {
+    const documentId = input.documentId ?? (await tx.consignmentForm.create({
+      data: compact({
+        siteId,
+        formType: ConsignmentFormType.SAND,
+        status: ConsignmentFormStatus.SENT,
+        title: 'SAND - Program Exit',
+        receivedAt: noticeGivenAt,
+        notes: cleanOptional(input.notes),
+        createdByUserId: actor.userId,
+      }) as any,
+    })).id;
+    const existingOpenExit = await tx.consignmentExit.findFirst({ where: { siteId, status: { in: [ConsignmentExitStatus.NOTICE_GIVEN, ConsignmentExitStatus.FINAL_RECONCILIATION] } } });
+    if (!existingOpenExit) {
+      await tx.consignmentExit.create({
+        data: compact({
+          siteId,
+          documentId,
+          status: ConsignmentExitStatus.NOTICE_GIVEN,
+          noticeGivenAt,
+          plannedExitAt,
+          notes: cleanOptional(input.notes),
+          createdByUserId: actor.userId,
+        }) as any,
+      });
+    }
+    await tx.consignmentSite.update({ where: { id: siteId }, data: { status: ConsignmentSiteStatus.EXITING } });
+    const existingExitReview = await tx.consignmentWorkItem.findFirst({
+      where: {
+        siteId,
+        type: ConsignmentWorkItemType.EXIT_REVIEW,
+        status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+      },
+    });
+    if (!existingExitReview) {
+      await tx.consignmentWorkItem.create({
+        data: compact({
+          siteId,
+          type: ConsignmentWorkItemType.EXIT_REVIEW,
+          status: ConsignmentWorkItemStatus.OPEN,
+          priority: 'high',
+          title: 'Complete SAND exit reconciliation',
+          dueAt: plannedExitAt,
+          notes: 'Record final reconciliation, return/retain quantities, and settlement reference. Finance/Acumatica posting remains parked.',
+        }) as any,
+      });
+    }
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.CREATE,
+        entityType: 'CONSIGNMENT_EXIT',
+        entityId: documentId,
+        afterData: { siteId, noticeGivenAt, plannedExitAt },
+        metadata: { acumaticaSettlementPosting: 'parked' },
+      }),
+    });
+  });
+
+  return (await getConsignmentSiteDetail(actor, site.id))!;
+}
+
+export async function closeConsignmentExit(actor: AuthenticatedActor, exitId: string, input: CloseConsignmentExitRequest): Promise<ConsignmentSiteDetail> {
+  assertConsignmentManage(actor);
+  const exit = await prisma.consignmentExit.findUnique({ where: { id: exitId }, include: { site: { include: SITE_INCLUDE } } });
+  if (!exit) throw new Error('Consignment exit not found');
+  await getSiteForMutation(actor, exit.siteId);
+  if (exit.status === ConsignmentExitStatus.CLOSED) {
+    return (await getConsignmentSiteDetail(actor, exit.siteId))!;
+  }
+  const finalReconciliationAt = input.finalReconciliationAt ? parseRequiredDate(input.finalReconciliationAt, 'finalReconciliationAt') : new Date();
+  const returnQuantity = normalizeNonNegativeInteger(input.returnQuantity ?? 0, 'returnQuantity');
+  const retainedQuantity = normalizeNonNegativeInteger(input.retainedQuantity ?? 0, 'retainedQuantity');
+  if (returnQuantity === 0 && retainedQuantity === 0 && !cleanOptional(input.settlementReference)) {
+    throw new Error('SAND closure needs return quantity, retained quantity, or settlement reference');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.consignmentExit.update({
+      where: { id: exit.id },
+      data: compact({
+        status: ConsignmentExitStatus.CLOSED,
+        finalReconciliationAt,
+        returnQuantity,
+        retainedQuantity,
+        settlementReference: cleanOptional(input.settlementReference),
+        closedAt: finalReconciliationAt,
+        notes: appendNotes(exit.notes, buildExitClosureNotes(input.notes)),
+      }) as any,
+    });
+    await tx.consignmentSite.update({
+      where: { id: exit.siteId },
+      data: {
+        status: ConsignmentSiteStatus.EXITED,
+        exitedAt: finalReconciliationAt,
+      },
+    });
+    await tx.consignmentWorkItem.updateMany({
+      where: {
+        siteId: exit.siteId,
+        type: { in: [ConsignmentWorkItemType.EXIT_REVIEW, ConsignmentWorkItemType.PO_FOLLOW_UP, ConsignmentWorkItemType.VARIANCE_REVIEW] },
+        status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+      },
+      data: { status: ConsignmentWorkItemStatus.COMPLETED, completedAt: finalReconciliationAt },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CONSIGNMENT_EXIT',
+        entityId: row.id,
+        beforeData: exit,
+        afterData: row,
+        metadata: { acumaticaSettlementPosting: 'parked', siteExited: true },
+      }),
+    });
+  });
+
+  return (await getConsignmentSiteDetail(actor, exit.siteId))!;
+}
+
+export async function markConsignmentPoReceived(actor: AuthenticatedActor, discrepancyId: string, input: MarkConsignmentPoReceivedRequest): Promise<ConsignmentSiteDetail> {
+  assertConsignmentManage(actor);
+  const discrepancy = await prisma.consignmentDiscrepancyCase.findUnique({ where: { id: discrepancyId } });
+  if (!discrepancy) throw new Error('Consignment discrepancy not found');
+  await getSiteForMutation(actor, discrepancy.siteId);
+  if (discrepancy.poFollowUpStatus !== ConsignmentPoFollowUpStatus.REQUIRED && discrepancy.status !== ConsignmentDiscrepancyStatus.PO_REQUIRED) {
+    throw new Error('Only PO-required discrepancies can be marked received');
+  }
+  const receivedAt = input.receivedAt ? parseRequiredDate(input.receivedAt, 'receivedAt') : new Date();
+
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.consignmentDiscrepancyCase.update({
+      where: { id: discrepancy.id },
+      data: {
+        status: ConsignmentDiscrepancyStatus.PO_RECEIVED,
+        poFollowUpStatus: ConsignmentPoFollowUpStatus.RECEIVED,
+        externalPoRef: cleanOptional(input.externalPoRef) ?? discrepancy.externalPoRef,
+        notes: appendNotes(discrepancy.notes, buildPoReceivedNotes(input.notes, receivedAt)),
+      },
+    });
+    await tx.consignmentWorkItem.updateMany({
+      where: {
+        siteId: discrepancy.siteId,
+        type: ConsignmentWorkItemType.PO_FOLLOW_UP,
+        status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+      },
+      data: { status: ConsignmentWorkItemStatus.COMPLETED, completedAt: receivedAt },
+    });
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CONSIGNMENT_DISCREPANCY',
+        entityId: row.id,
+        beforeData: discrepancy,
+        afterData: row,
+        metadata: { acumaticaPoPosting: 'manual_reference_only' },
+      }),
+    });
+  });
+
+  return (await getConsignmentSiteDetail(actor, discrepancy.siteId))!;
 }
 
 export async function listConsignmentAudits(actor: AuthenticatedActor, siteId: string): Promise<ConsignmentAuditSummary[] | null> {
@@ -722,7 +1030,32 @@ function throwAuthorization(message: string): never {
 }
 
 function mapSiteDetail(site: SiteWithRelations): ConsignmentSiteDetail {
-  return { ...mapSiteSummary(site), forms: site.forms.map(mapForm), audits: site.audits.map(mapAudit), workItems: site.workItems.map((item) => ({ id: item.id, siteId: item.siteId, type: item.type.toLowerCase(), status: item.status.toLowerCase(), priority: item.priority, title: item.title, ...(item.assignedToUserId ? { assignedToUserId: item.assignedToUserId } : {}), ...(item.dueAt ? { dueAt: item.dueAt.toISOString() } : {}), ...(item.completedAt ? { completedAt: item.completedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() })), fieldActivity: site.mobileVoiceNotes.map(mapFieldActivityNote) };
+  return {
+    ...mapSiteSummary(site),
+    forms: site.forms.map(mapForm),
+    audits: site.audits.map(mapAudit),
+    workItems: site.workItems.map(mapWorkItem),
+    discrepancyCases: site.discrepancyCases.map(mapDiscrepancyCase),
+    adjustments: site.adjustments.map(mapAdjustment),
+    exits: site.exits.map(mapExit),
+    fieldActivity: site.mobileVoiceNotes.map(mapFieldActivityNote),
+  };
+}
+
+function mapWorkItem(item: SiteWithRelations['workItems'][number]): ConsignmentSiteDetail['workItems'][number] {
+  return { id: item.id, siteId: item.siteId, type: item.type.toLowerCase(), status: item.status.toLowerCase(), priority: item.priority, title: item.title, ...(item.assignedToUserId ? { assignedToUserId: item.assignedToUserId } : {}), ...(item.dueAt ? { dueAt: item.dueAt.toISOString() } : {}), ...(item.completedAt ? { completedAt: item.completedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() };
+}
+
+function mapDiscrepancyCase(item: SiteWithRelations['discrepancyCases'][number]): ConsignmentDiscrepancyCaseSummary {
+  return { id: item.id, siteId: item.siteId, ...(item.auditId ? { auditId: item.auditId } : {}), status: item.status.toLowerCase(), poFollowUpStatus: item.poFollowUpStatus.toLowerCase(), ...(item.reasonCode ? { reasonCode: item.reasonCode } : {}), ...(item.sku ? { sku: item.sku } : {}), ...(item.productName ? { productName: item.productName } : {}), ...(item.quantity !== null ? { quantity: item.quantity } : {}), ...(item.trueUpConfirmedAt ? { trueUpConfirmedAt: item.trueUpConfirmedAt.toISOString() } : {}), ...(item.poDueAt ? { poDueAt: item.poDueAt.toISOString() } : {}), ...(item.externalPoRef ? { externalPoRef: item.externalPoRef } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() };
+}
+
+function mapAdjustment(item: SiteWithRelations['adjustments'][number]): ConsignmentAdjustmentSummary {
+  return { id: item.id, siteId: item.siteId, ...(item.documentId ? { documentId: item.documentId } : {}), status: item.status.toLowerCase() as ConsignmentAdjustmentSummary['status'], ...(item.reasonCode ? { reasonCode: item.reasonCode } : {}), currentTotal: item.currentTotal, addQuantity: item.addQuantity, removeQuantity: item.removeQuantity, proposedTotal: item.proposedTotal, ...(item.appliedAt ? { appliedAt: item.appliedAt.toISOString() } : {}), ...(item.rejectedAt ? { rejectedAt: item.rejectedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() };
+}
+
+function mapExit(item: SiteWithRelations['exits'][number]): ConsignmentExitSummary {
+  return { id: item.id, siteId: item.siteId, ...(item.documentId ? { documentId: item.documentId } : {}), status: item.status.toLowerCase() as ConsignmentExitSummary['status'], noticeGivenAt: item.noticeGivenAt.toISOString(), ...(item.plannedExitAt ? { plannedExitAt: item.plannedExitAt.toISOString() } : {}), ...(item.finalReconciliationAt ? { finalReconciliationAt: item.finalReconciliationAt.toISOString() } : {}), ...(item.returnQuantity !== null ? { returnQuantity: item.returnQuantity } : {}), ...(item.retainedQuantity !== null ? { retainedQuantity: item.retainedQuantity } : {}), ...(item.settlementReference ? { settlementReference: item.settlementReference } : {}), ...(item.closedAt ? { closedAt: item.closedAt.toISOString() } : {}), ...(item.notes ? { notes: item.notes } : {}), createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() };
 }
 
 function mapFieldActivityNote(note: SiteWithRelations['mobileVoiceNotes'][number]): ConsignmentFieldActivityNoteSummary {
@@ -743,7 +1076,7 @@ function mapFieldActivityNote(note: SiteWithRelations['mobileVoiceNotes'][number
 function mapSiteSummary(site: SiteWithRelations): ConsignmentSiteSummary {
   const formCounts = Object.fromEntries(['agreement', 'blue', 'rose', 'purple', 'sand', 'return', 'damage', 'master_reference'].map((type) => [type, 0])) as ConsignmentSiteSummary['formCounts'];
   for (const form of site.forms) formCounts[mapFormType(form.formType)] += 1;
-  return { id: site.id, accountId: site.accountId, accountName: site.account.displayName, ...(site.locationId ? { locationId: site.locationId } : {}), ...(site.location?.name ? { locationName: site.location.name } : {}), ...(site.location?.city ? { locationCity: site.location.city } : {}), ...(site.location?.state ? { locationState: site.location.state } : {}), name: site.name, status: mapSiteStatus(site.status), acumaticaStatus: site.acumaticaStatus.toLowerCase() as ConsignmentSiteSummary['acumaticaStatus'], ...(site.warehouseCode ? { warehouseCode: site.warehouseCode } : {}), ...(site.acumaticaWarehouseId ? { acumaticaWarehouseId: site.acumaticaWarehouseId } : {}), ...(site.acumaticaLastSyncedAt ? { acumaticaLastSyncedAt: site.acumaticaLastSyncedAt.toISOString() } : {}), ...(site.acumaticaLastError ? { acumaticaLastError: site.acumaticaLastError } : {}), ...(site.ownerTmUserId ? { ownerTmUserId: site.ownerTmUserId } : {}), ...(site.ownerTmUser?.displayName ? { ownerTmName: site.ownerTmUser.displayName } : {}), ...(site.ownerRdUserId ? { ownerRdUserId: site.ownerRdUserId } : {}), ...(site.ownerRdUser?.displayName ? { ownerRdName: site.ownerRdUser.displayName } : {}), ...(site.territoryId ? { territoryId: site.territoryId } : {}), ...(site.territory?.name ? { territoryName: site.territory.name } : {}), ...(site.regionId ? { regionId: site.regionId } : {}), ...(site.region?.name ? { regionName: site.region.name } : {}), ...(site.shippingCenterId ? { shippingCenterId: site.shippingCenterId } : {}), ...(site.shippingCenter?.name ? { shippingCenterName: site.shippingCenter.name } : {}), ...(site.primaryContactName ? { primaryContactName: site.primaryContactName } : {}), ...(site.primaryContactEmail ? { primaryContactEmail: site.primaryContactEmail } : {}), ...(site.primaryContactPhone ? { primaryContactPhone: site.primaryContactPhone } : {}), ...(site.baselineEstablishedAt ? { baselineEstablishedAt: site.baselineEstablishedAt.toISOString() } : {}), ...(site.lastAuditCompletedAt ? { lastAuditCompletedAt: site.lastAuditCompletedAt.toISOString() } : {}), ...(site.nextAuditDueAt ? { nextAuditDueAt: site.nextAuditDueAt.toISOString() } : {}), ...(site.activeSince ? { activeSince: site.activeSince.toISOString() } : {}), ...(site.exitedAt ? { exitedAt: site.exitedAt.toISOString() } : {}), ...(site.notes ? { notes: site.notes } : {}), formCounts, openWorkItemCount: site._count.workItems, openDiscrepancyCount: site._count.discrepancyCases, createdAt: site.createdAt.toISOString(), updatedAt: site.updatedAt.toISOString() };
+  return { id: site.id, accountId: site.accountId, accountName: site.account.displayName, ...(site.locationId ? { locationId: site.locationId } : {}), ...(site.location?.name ? { locationName: site.location.name } : {}), ...(site.location?.city ? { locationCity: site.location.city } : {}), ...(site.location?.state ? { locationState: site.location.state } : {}), name: site.name, status: mapSiteStatus(site.status), acumaticaStatus: site.acumaticaStatus.toLowerCase() as ConsignmentSiteSummary['acumaticaStatus'], ...(site.warehouseCode ? { warehouseCode: site.warehouseCode } : {}), ...(site.acumaticaWarehouseId ? { acumaticaWarehouseId: site.acumaticaWarehouseId } : {}), ...(site.acumaticaLastSyncedAt ? { acumaticaLastSyncedAt: site.acumaticaLastSyncedAt.toISOString() } : {}), ...(site.acumaticaLastError ? { acumaticaLastError: site.acumaticaLastError } : {}), ...(site.ownerTmUserId ? { ownerTmUserId: site.ownerTmUserId } : {}), ...(site.ownerTmUser?.displayName ? { ownerTmName: site.ownerTmUser.displayName } : {}), ...(site.ownerRdUserId ? { ownerRdUserId: site.ownerRdUserId } : {}), ...(site.ownerRdUser?.displayName ? { ownerRdName: site.ownerRdUser.displayName } : {}), ...(site.territoryId ? { territoryId: site.territoryId } : {}), ...(site.territory?.name ? { territoryName: site.territory.name } : {}), ...(site.regionId ? { regionId: site.regionId } : {}), ...(site.region?.name ? { regionName: site.region.name } : {}), ...(site.shippingCenterId ? { shippingCenterId: site.shippingCenterId } : {}), ...(site.shippingCenter?.name ? { shippingCenterName: site.shippingCenter.name } : {}), ...(site.primaryContactName ? { primaryContactName: site.primaryContactName } : {}), ...(site.primaryContactEmail ? { primaryContactEmail: site.primaryContactEmail } : {}), ...(site.primaryContactPhone ? { primaryContactPhone: site.primaryContactPhone } : {}), ...(site.baselineEstablishedAt ? { baselineEstablishedAt: site.baselineEstablishedAt.toISOString() } : {}), ...(site.manualBaselineQuantity !== null ? { manualBaselineQuantity: site.manualBaselineQuantity } : {}), ...(site.lastAuditCompletedAt ? { lastAuditCompletedAt: site.lastAuditCompletedAt.toISOString() } : {}), ...(site.nextAuditDueAt ? { nextAuditDueAt: site.nextAuditDueAt.toISOString() } : {}), ...(site.activeSince ? { activeSince: site.activeSince.toISOString() } : {}), ...(site.exitedAt ? { exitedAt: site.exitedAt.toISOString() } : {}), ...(site.notes ? { notes: site.notes } : {}), formCounts, openWorkItemCount: site._count.workItems, openDiscrepancyCount: site._count.discrepancyCases, createdAt: site.createdAt.toISOString(), updatedAt: site.updatedAt.toISOString() };
 }
 
 function mapForm(form: { id: string; siteId: string; formType: ConsignmentFormType; status: ConsignmentFormStatus; title: string | null; documentUrl: string | null; externalRef: string | null; version: number; isCurrent: boolean; receivedAt: Date | null; signedAt: Date | null; approvedAt: Date | null; notes: string | null; createdAt: Date; updatedAt: Date }): ConsignmentFormSummary {
@@ -776,7 +1109,7 @@ function mapEvidence(evidence: { id: string; auditId: string; siteId: string; pu
 }
 
 function snapshotSite(site: SiteWithRelations) {
-  return { id: site.id, accountId: site.accountId, status: site.status, acumaticaStatus: site.acumaticaStatus, warehouseCode: site.warehouseCode, baselineEstablishedAt: site.baselineEstablishedAt, nextAuditDueAt: site.nextAuditDueAt };
+  return { id: site.id, accountId: site.accountId, status: site.status, acumaticaStatus: site.acumaticaStatus, warehouseCode: site.warehouseCode, baselineEstablishedAt: site.baselineEstablishedAt, manualBaselineQuantity: site.manualBaselineQuantity, nextAuditDueAt: site.nextAuditDueAt };
 }
 
 function mapSiteStatus(status: ConsignmentSiteStatus): ConsignmentSiteStatusKey { return status.toLowerCase() as ConsignmentSiteStatusKey; }
@@ -801,12 +1134,33 @@ function toEvidencePurpose(purpose: ConsignmentAuditEvidencePurposeKey): Consign
 function clampLimit(limit?: number) { return !limit || Number.isNaN(limit) ? DEFAULT_LIMIT : Math.max(1, Math.min(MAX_LIMIT, Math.trunc(limit))); }
 function cleanOptional(value: string | undefined) { const trimmed = value?.trim(); return trimmed ? trimmed : undefined; }
 function cleanNullable(value: string | null | undefined) { if (value === null) return null; const trimmed = value?.trim(); return trimmed ? trimmed : null; }
+function normalizeNonNegativeInteger(value: number, fieldName: string) {
+  if (!Number.isFinite(value)) throw new Error(`${fieldName} must be a finite number`);
+  const normalized = Math.trunc(value);
+  if (normalized < 0) throw new Error(`${fieldName} must be a non-negative integer`);
+  return normalized;
+}
 function buildTrueUpNotes(notes: string | undefined, outcome: ConfirmConsignmentTrueUpRequest['outcome']) {
   const prefix = outcome === 'po_required'
     ? 'True-up confirmed customer PO follow-up is required.'
     : outcome === 'write_off'
       ? 'True-up closed variance as write-off/waived PO follow-up.'
       : 'True-up resolved variance without customer PO follow-up.';
+  const detail = cleanOptional(notes);
+  return detail ? `${prefix} ${detail}` : prefix;
+}
+function buildAdjustmentNotes(notes: string | undefined) {
+  const prefix = 'PURPLE adjustment applied to Pulse manual baseline. Acumatica inventory adjustment posting remains parked.';
+  const detail = cleanOptional(notes);
+  return detail ? `${prefix} ${detail}` : prefix;
+}
+function buildExitClosureNotes(notes: string | undefined) {
+  const prefix = 'SAND exit closed in Pulse with manual reconciliation evidence. Acumatica settlement posting remains parked.';
+  const detail = cleanOptional(notes);
+  return detail ? `${prefix} ${detail}` : prefix;
+}
+function buildPoReceivedNotes(notes: string | undefined, receivedAt: Date) {
+  const prefix = `PO follow-up marked received on ${receivedAt.toISOString()}. Acumatica receipt/order posting remains manual-reference only.`;
   const detail = cleanOptional(notes);
   return detail ? `${prefix} ${detail}` : prefix;
 }

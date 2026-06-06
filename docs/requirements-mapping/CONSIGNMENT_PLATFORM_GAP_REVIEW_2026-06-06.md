@@ -66,19 +66,19 @@ The real gap is narrower and more important: the current foundation supports sit
 | ROSE scheduling | 90-day helper and next audit reset exist. | Partial |
 | ROSE field execution | Mobile supports manual counts, notes, attestation, evidence photos, and offline draft metadata. | Partial |
 | Audit vs reconciliation split | Status model supports separate audit and reconciliation states. | Model exists |
-| True-up before PO clock | Service currently creates PO follow-up immediately on variance. | Gap |
+| True-up before PO clock | ROSE variance opens true-up review first; PO clock starts only after `po_required`. | Closed to manual boundary |
 | Shared mailbox/history | Work items exist, but no real correspondence history, owner/last contact/escalation state depth. | Gap |
-| PURPLE adjustment | Form type exists, but no end-to-end adjustment workflow. | Gap |
-| SAND exit | Form type/site status exists, but no exit workflow controls. | Gap |
+| PURPLE adjustment | Request, approval work item, document link, and Pulse manual baseline update are implemented. | Closed to manual boundary |
+| SAND exit | Notice, final reconciliation, return/retain, settlement reference, work item, and exited transition are implemented. | Closed to manual boundary |
 | Warehouse Visit Tracking replacement | Reports exist as summary cards, but not workbook-grade operational reporting/export. | Gap |
 | Acumatica transfer/receipt/inventory truth | Parked until sandbox, samples, endpoints, and mappings are available. | Correctly parked |
 | Dealer/customer visibility | Internal-only phase is documented. | Correct for now |
 
 Overall current coverage:
 
-- Full PRD coverage including Acumatica-dependent work: about 55-60%.
-- Buildable-now coverage excluding Acumatica posting/sync dependencies: about 70%.
-- Target before Acumatica access: 75% is reachable with the next two to three slices.
+- Full PRD coverage including Acumatica-dependent work: about 62-65%.
+- Buildable-now coverage excluding Acumatica posting/sync dependencies: about 78-80%.
+- Target before Acumatica access: about 85% is reachable by finishing workbook-grade reporting and manual mailbox history.
 
 ## Highest-Risk Functional Gap
 
@@ -214,9 +214,11 @@ Why this matters:
 
 ### Gap 4: PURPLE adjustment workflow
 
+Status as of 2026-06-07: closed to the Pulse-owned manual boundary.
+
 Needed:
 
-- Add guided action: "Adjust baseline".
+- Add guided action: "Adjust baseline". `Implemented`
 - Capture:
   - add/reduce
   - SKU/product
@@ -226,8 +228,8 @@ Needed:
   - reason
   - customer acknowledgement/evidence
   - approval status
-- Update Pulse baseline only after manual approval.
-- Park Acumatica posted adjustment until inventory adjustment endpoint certification.
+- Update Pulse baseline only after manual approval. `Implemented`
+- Park Acumatica posted adjustment until inventory adjustment endpoint certification. `Still parked by design`
 
 Why this matters:
 
@@ -235,9 +237,11 @@ Why this matters:
 
 ### Gap 5: SAND exit workflow
 
+Status as of 2026-06-07: closed to the Pulse-owned manual boundary.
+
 Needed:
 
-- Add guided action: "Exit consignment".
+- Add guided action: "Exit consignment". `Implemented`
 - Capture:
   - written notice
   - final joint reconciliation
@@ -246,8 +250,8 @@ Needed:
   - settlement evidence placeholder
   - return/disposition notes
   - closure approval
-- Transition site to `exiting`, then `exited`.
-- Park invoice/credit memo/financial settlement posting until Acumatica access.
+- Transition site to `exiting`, then `exited`. `Implemented`
+- Park invoice/credit memo/financial settlement posting until Acumatica access. `Still parked by design`
 
 Why this matters:
 
@@ -465,10 +469,10 @@ Not safe to say yet:
 
 - Full consignment process is complete.
 - Samantha's workbook is fully replaced.
-- PO clock behavior is fully correct.
-- PURPLE/SAND lifecycle is complete.
+- Mailbox history and escalation reporting are fully replaced.
+- PURPLE/SAND lifecycle is complete beyond the manual boundary.
 - Acumatica-linked inventory/transfer/receipt/PO truth is available.
 
 Target state before Acumatica access:
 
-- Reach 75% buildable-now coverage by completing true-up gating, workbook-style reporting, PURPLE/SAND manual workflows, and manual mailbox history.
+- Reach about 85% buildable-now coverage by completing workbook-style reporting and manual mailbox history.

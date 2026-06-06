@@ -73,7 +73,7 @@ type NextSiteWorkRow = {
   statusLabel: string;
   summary: string;
   tone: string;
-  workType: 'overdue_audit' | 'due_soon_audit' | 'follow_up' | 'site_issue';
+  workType: 'overdue_audit' | 'due_soon_audit' | 'follow_up' | 'true_up_review';
 };
 
 export function ConsignmentWorkspace() {
@@ -265,7 +265,7 @@ export function ConsignmentWorkspace() {
         eyebrow="Consignment operations"
         title="Consignment Workspace"
         description="Work due audits, follow-ups, setup confirmations, and site issues first. Reports and all-site search stay in More."
-        policyText="Pulse owns site readiness, document evidence, ROSE audits, and follow-up ownership."
+        policyText="Pulse owns site readiness, document evidence, ROSE audits, true-up review, and follow-up ownership."
         secondaryActions={(
           <WorkbenchMoreMenu
             items={[{
@@ -559,19 +559,8 @@ function NextSiteWorkList({
   const [renderedAt] = useState(() => Date.now());
   const rows = useMemo(() => buildNextSiteWorkRows({ dashboard, renderedAt, sites }), [dashboard, renderedAt, sites]);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
-  const selectedWork = rows.find((row) => row.id === selectedWorkId) ?? rows[0] ?? null;
-
-  useEffect(() => {
-    if (!rows.length) {
-      setSelectedWorkId(null);
-      return;
-    }
-
-    const firstRow = rows[0];
-    if (firstRow && (!selectedWorkId || !rows.some((row) => row.id === selectedWorkId))) {
-      setSelectedWorkId(firstRow.id);
-    }
-  }, [rows, selectedWorkId]);
+  const normalizedSelectedWorkId = rows.some((row) => row.id === selectedWorkId) ? selectedWorkId : null;
+  const selectedWork = normalizedSelectedWorkId ? rows.find((row) => row.id === selectedWorkId) ?? rows[0] ?? null : rows[0] ?? null;
 
   if (isLoading) {
     return (
@@ -588,9 +577,9 @@ function NextSiteWorkList({
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" gap="md">
           <Stack gap={2}>
-            <Title order={3}>Next site work</Title>
+            <Text fw={800} size="lg">Next site work</Text>
             <Text size="sm" c="dimmed">
-              Ranked due audits, follow-ups, setup confirmations, and site issues. Reports and all sites stay in More.
+              Ranked ROSE audits, true-up reviews, setup confirmations, and follow-ups. Reports and all sites stay in More.
             </Text>
           </Stack>
           <Badge color={rows.length > 0 ? 'orange' : 'green'} variant="light">
@@ -643,14 +632,6 @@ function NextSiteWorkList({
                 render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
               },
             ]}
-            rowActions={(item) => [{
-              id: 'open-site',
-              label: 'Open site',
-              icon: <IconArrowRight size={16} />,
-              onClick: () => {
-                window.location.href = `/consignment/${item.siteId}`;
-              },
-            }]}
             emptyState={(
               <EmptyStateMessage
                 kind="all-clear"
@@ -773,17 +754,17 @@ function buildNextSiteWorkRows({
     if ((site.openDiscrepancyCount ?? 0) > 0 || site.status === 'suspended' || site.status === 'exiting') {
       upsert({
         accountName: site.accountName,
-        detail: (site.openDiscrepancyCount ?? 0) > 0 ? `${site.openDiscrepancyCount} site issue${site.openDiscrepancyCount === 1 ? '' : 's'} need review` : formatStatus(site.status),
+        detail: (site.openDiscrepancyCount ?? 0) > 0 ? `${site.openDiscrepancyCount} variance review${site.openDiscrepancyCount === 1 ? '' : 's'} need true-up` : formatStatus(site.status),
         id: `issue-${site.id}`,
         ownerName: site.ownerTmName ?? site.ownerRdName ?? undefined,
         rank: 3,
         secondaryCount: 0,
         siteId: site.id,
         siteName: site.locationName ?? undefined,
-        statusLabel: 'Site issue',
-        summary: 'Review site issue',
+        statusLabel: 'Needs true-up',
+        summary: 'Review true-up',
         tone: 'orange',
-        workType: 'site_issue',
+        workType: 'true_up_review',
       });
     }
   }
@@ -858,10 +839,16 @@ function formatConsignmentWorkSubject(value: string) {
 
   if (
     normalized.includes('manual variance')
-    || normalized.includes('po follow-up')
-    || normalized.includes('purchase order')
+    || normalized.includes('variance')
+    || normalized.includes('site issue')
+    || normalized.includes('true-up')
+    || normalized.includes('true up')
   ) {
-    return 'Site issue needs review';
+    return 'Review true-up';
+  }
+
+  if (normalized.includes('po follow-up') || normalized.includes('purchase order')) {
+    return 'PO follow-up';
   }
 
   if (

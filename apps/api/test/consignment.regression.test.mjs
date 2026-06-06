@@ -412,7 +412,7 @@ test('account consignment read model counts statuses without page-limit truncati
   assert.equal(readModel.participatesInConsignment, true);
 });
 
-test('ROSE audit scheduler resets the 90-day due date and creates manual PO follow-up on variance', SERIAL, async () => {
+test('ROSE audit scheduler resets due date and gates PO follow-up behind true-up review', SERIAL, async () => {
   const actor = await createAdminActor();
   const fixture = await createConsignmentAccountFixture('audit-scheduler');
   const site = await service.createConsignmentSite(actor, {
@@ -446,7 +446,8 @@ test('ROSE audit scheduler resets the 90-day due date and creates manual PO foll
   const detail = await service.getConsignmentSiteDetail(actor, site.id);
   assert.equal(detail.nextAuditDueAt, '2026-09-30T16:30:00.000Z');
   assert.equal(detail.openDiscrepancyCount, 1);
-  assert.ok(detail.workItems.some((item) => item.type === 'po_follow_up'));
+  assert.ok(detail.workItems.some((item) => item.type === 'variance_review'));
+  assert.equal(detail.workItems.some((item) => item.type === 'po_follow_up'), false);
 
   await service.updateConsignmentAudit(actor, scheduled.id, {
     status: 'completed',
@@ -462,7 +463,31 @@ test('ROSE audit scheduler resets the 90-day due date and creates manual PO foll
   });
   const retriedDetail = await service.getConsignmentSiteDetail(actor, site.id);
   assert.equal(retriedDetail.openDiscrepancyCount, 1);
-  assert.equal(retriedDetail.workItems.filter((item) => item.type === 'po_follow_up').length, 1);
+  assert.equal(retriedDetail.workItems.filter((item) => item.type === 'variance_review').length, 1);
+  assert.equal(retriedDetail.workItems.filter((item) => item.type === 'po_follow_up').length, 0);
+
+  const trueUp = await service.confirmConsignmentTrueUp(actor, scheduled.id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-07-03T14:00:00.000Z',
+    reasonCode: 'confirmed_consumed',
+    notes: 'Open POs and in-transit transfers reviewed.',
+  });
+  assert.equal(trueUp.audit.reconciliationStatus, 'true_up_confirmed');
+
+  const trueUpDetail = await service.getConsignmentSiteDetail(actor, site.id);
+  assert.equal(trueUpDetail.openDiscrepancyCount, 1);
+  assert.equal(trueUpDetail.workItems.filter((item) => item.type === 'variance_review' && item.status === 'completed').length, 1);
+  const poItems = trueUpDetail.workItems.filter((item) => item.type === 'po_follow_up');
+  assert.equal(poItems.length, 1);
+  assert.equal(poItems[0].dueAt, '2026-07-10T14:00:00.000Z');
+
+  await service.confirmConsignmentTrueUp(actor, scheduled.id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-07-03T14:00:00.000Z',
+    reasonCode: 'confirmed_consumed',
+  });
+  const retriedTrueUpDetail = await service.getConsignmentSiteDetail(actor, site.id);
+  assert.equal(retriedTrueUpDetail.workItems.filter((item) => item.type === 'po_follow_up').length, 1);
 });
 
 test('ROSE audit evidence upload stores CRM-owned photo evidence outside Acumatica', SERIAL, async () => {
@@ -614,6 +639,45 @@ test('consignment API routes create, read, filter, and gate workflow resources',
     });
     assert.equal(auditResponse.status, 201);
     const audit = await auditResponse.json();
+
+    const completedAuditResponse = await fetch(`${baseUrl}/api/v1/consignment/audits/${audit.id}`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        status: 'completed',
+        completedAt: '2026-05-20T18:00:00.000Z',
+        lines: [{
+          sku: 'DAQS-ROUTE-1',
+          productName: 'Route regression item',
+          expectedQuantity: 4,
+          actualQuantity: 3,
+        }],
+      }),
+    });
+    assert.equal(completedAuditResponse.status, 200);
+    const completedAudit = await completedAuditResponse.json();
+    assert.equal(completedAudit.reconciliationStatus, 'open');
+
+    const trueUpResponse = await fetch(`${baseUrl}/api/v1/consignment/audits/${audit.id}/true-up`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        outcome: 'resolved_no_po',
+        confirmedAt: '2026-05-21T12:00:00.000Z',
+        reasonCode: 'in_transit_explained',
+        notes: 'Open transfer explained the count difference.',
+      }),
+    });
+    assert.equal(trueUpResponse.status, 200);
+    const trueUpPayload = await trueUpResponse.json();
+    assert.equal(trueUpPayload.audit.reconciliationStatus, 'resolved');
+    assert.equal(trueUpPayload.site.openDiscrepancyCount, 0);
 
     const evidenceResponse = await fetch(`${baseUrl}/api/v1/consignment/audits/${audit.id}/evidence`, {
       method: 'POST',

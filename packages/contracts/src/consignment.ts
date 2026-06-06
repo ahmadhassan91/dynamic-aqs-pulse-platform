@@ -294,6 +294,22 @@ export interface UpdateConsignmentAuditRequest {
 
 export type CompleteConsignmentAuditRequest = UpdateConsignmentAuditRequest;
 
+export const CONSIGNMENT_TRUE_UP_OUTCOMES = ['po_required', 'resolved_no_po', 'write_off'] as const;
+export type ConsignmentTrueUpOutcomeKey = (typeof CONSIGNMENT_TRUE_UP_OUTCOMES)[number];
+
+export interface ConfirmConsignmentTrueUpRequest {
+  outcome: ConsignmentTrueUpOutcomeKey;
+  confirmedAt?: string;
+  reasonCode?: string;
+  notes?: string;
+  externalPoRef?: string;
+}
+
+export interface ConfirmConsignmentTrueUpResponse {
+  audit: ConsignmentAuditSummary;
+  site: ConsignmentSiteDetail;
+}
+
 export interface UploadConsignmentAuditEvidenceRequest {
   purpose?: ConsignmentAuditEvidencePurposeKey;
   fileName: string;

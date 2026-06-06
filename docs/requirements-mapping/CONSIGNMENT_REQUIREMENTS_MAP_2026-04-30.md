@@ -38,9 +38,9 @@ Pulse must not fake Acumatica-owned truth. Warehouse creation, transfer/receipt 
 | ROSE 90-day audit scheduler | `Implemented / Partial` | 90-day cadence helpers, audit completion reset, route/service regressions, and durable `ConsignmentAudit` calendar source are implemented; provider sync/status depth remains later | Outlook/provider sync already handled separately by calendar boundary | Deepen calendar provider status/audit visibility after shared-calendar pilot hardening |
 | On-site ROSE audit capture | `Implemented / Partial` | Audit shell, expected/manual lines, actual count, variance, completion, and reconciliation status are implemented | Authoritative SKU/barcode inventory list from Acumatica parked | SKU/barcode/product mapping signoff |
 | Audit vs reconciliation split | `Implemented` | Separate audit status and reconciliation status are implemented; audit can complete while reconciliation remains open | None | Reconciliation workflow depth slice |
-| True-up and discrepancy cases | `Implemented / Partial` | Manual expected-vs-actual variance creates discrepancy cases and work items; reason taxonomy/owner workflow remains partial | In-transit/open PO matching from Acumatica parked | Acumatica order/transfer/sales fixtures |
-| 5-business-day PO clock | `Implemented / Partial` | Business-day helper and variance-created PO follow-up work item are implemented; escalation policy remains partial | PO auto-create/link in Acumatica parked | PO/sales-order endpoint certification |
-| Shared mailbox work queue | `Partial` | Pulse work items now represent manual follow-up and parked warehouse/PO boundaries | Mailbox API ingestion/provider automation parked | Mailbox provider decision/access |
+| True-up and discrepancy cases | `Implemented / Partial` | ROSE variance now creates a true-up review case/work item first; back-office users record outcome, reason, optional PO reference, and notes before any PO follow-up starts; owner/escalation reporting remains partial | In-transit/open PO/receipt matching from Acumatica parked | Acumatica order/transfer/sales fixtures |
+| 5-business-day PO clock | `Implemented / Partial` | Business-day helper and PO follow-up work item now start only after true-up confirms `po_required`; escalation policy remains partial | PO auto-create/link in Acumatica parked | PO/sales-order endpoint certification |
+| Shared mailbox work queue | `Partial` | Pulse work items now split true-up review from manual PO follow-up and parked warehouse/PO boundaries | Mailbox API ingestion/provider automation parked | Mailbox provider decision/access |
 | PURPLE adjustment workflow | `Build Now To Manual Boundary` | Structured adjustment request, current/add/remove/new total, document link, baseline change proposal | Posted inventory adjustment in Acumatica parked | Inventory adjustment endpoint certification |
 | SAND exit workflow | `Build Now To Manual Boundary` | Notice, final reconciliation state, return/retained quantities, settlement evidence placeholders, closure status | Invoices, credit memos, posted settlement parked | Finance/Acumatica settlement endpoint access |
 | Reporting and Samantha workbook replacement | `Build Now To Available Data` | Site, audit, reconciliation, PO clock, work-item, and manually/imported baseline reports with export | Live sales/inventory/revenue truth parked | Acumatica sales/inventory read models |
@@ -72,6 +72,18 @@ This slice tightens the Consignment operator experience after the first queue/de
 | Permission-aware operator UI | `Create Site` requires `consignment.manage`; agreement/BLUE actions require `consignment.document_manage`; ROSE actions require `consignment.audit` | `ConsignmentWorkspace.tsx`, `ConsignmentSiteDetail.tsx` | Backend remains the enforcement authority; UI avoids encouraging role-level 403s |
 | Parked Acumatica wording | Default and detail clutter checks now fail if Acumatica, ERP, inventory, PO, purchase order, manual variance, warehouse confirmation, warehouse setup waiting, or approved handoff leak into first paint | `apps/crm-web/e2e/ux-clutter.spec.mjs` | Parked dependency is documented and hidden from daily work, not removed from the system boundary |
 
+## UX-07 Slice P Trace - 2026-06-06
+
+This slice closes the biggest product-grade gap in the current consignment build: a ROSE variance should not automatically become a PO chase. Pulse now reflects Samantha's operating sequence: finish the ROSE audit, review the variance against real-world timing and known open work, then start the 5-business-day PO follow-up clock only if the back-office true-up confirms it is needed.
+
+| Requirement area | Slice P response | Evidence | Boundary kept honest |
+| --- | --- | --- | --- |
+| Audit vs reconciliation split | Completing ROSE with a variance now leaves the audit completed but opens reconciliation as a true-up review, not a PO follow-up | `apps/api/src/modules/consignment/service.ts`, `apps/api/test/consignment.regression.test.mjs` | Audit completion is not treated as financial/order truth |
+| True-up and discrepancy cases | Added true-up outcome capture: `po_required`, `resolved_no_po`, or `write_off`, with reason, optional customer PO reference, and notes | `packages/contracts/src/consignment.ts`, `apps/api/src/modules/consignment/http.ts`, `apps/crm-web/src/components/consignment/ConsignmentSiteDetail.tsx` | In-transit/open PO/receipt matching remains manual until Acumatica reads are certified |
+| 5-business-day PO clock | The PO clock starts only after true-up confirms `po_required`; retries do not create duplicate PO follow-up work items | `apps/api/test/consignment.regression.test.mjs` | Acumatica PO/order posting remains parked; Pulse tracks the manual follow-up clock and optional external reference |
+| Samantha/Ops work queue | Queue labels now show `True-up review needed` / `Review true-up` before PO follow-up, so operators see the next real job | `apps/crm-web/src/lib/pulse-api.ts`, `apps/crm-web/src/components/consignment/ConsignmentWorkspace.tsx` | Mailbox/provider automation remains parked; Pulse-owned work items stay visible |
+| Process vocabulary | Site detail restores BLUE, ROSE, PURPLE, and SAND labels so the screen matches the documented consignment forms instead of generic form names | `apps/crm-web/src/components/consignment/ConsignmentSiteDetail.tsx` | PURPLE/SAND execution depth is still a later manual-boundary slice |
+
 ## Build-Now Slice Order
 
 | Slice | Name | Status | Acceptance Criteria |
@@ -81,7 +93,7 @@ This slice tightens the Consignment operator experience after the first queue/de
 | CSG-3 | Ops work queue and parked warehouse boundary | `Implemented / Partial` | Warehouse setup remains visible as parked/blocked; automation provider delivery remains parked |
 | CSG-4 | ROSE scheduler and calendar source | `Implemented / Partial` | Completing an audit schedules the next ROSE due date; calendar now prefers durable `ConsignmentAudit` records with lead-backed hints only as fallback |
 | CSG-5 | Audit/reconciliation foundation | `Implemented` | Audit can be complete while reconciliation is open |
-| CSG-6 | PO follow-up clock | `Implemented / Partial` | Unresolved variance creates a manual PO follow-up clock/work item; escalation/mailbox automation remains parked |
+| CSG-6 | PO follow-up clock | `Implemented / Partial` | True-up confirmation starts the manual PO follow-up clock/work item; variance alone opens a review, and escalation/mailbox automation remains parked |
 | CSG-7 | PURPLE and SAND shells | Adjustment and exit workflows with document/status/evidence placeholders | Baseline-changing and exit events are tracked without ERP posting |
 | CSG-8 | Reporting scaffold | Samantha workbook replacement over Pulse-owned data, drilldowns, export-ready views | TM/Ops/RD/Exec can see site, audit, due, discrepancy, and PO status |
 
@@ -121,9 +133,9 @@ The consignment regression suite now uses `apps/api/test/consignment.regression.
 - `apps/api/src/modules/consignment/http.ts`
 - `apps/api/src/modules/calendar/events.ts` for the consignment ROSE calendar event source
 
-The suite covers site master creation, account read-model participation and counts, current document behavior, activation gating, onboarding state transitions, route/API create-read-filter-gate behavior, RBAC denial, TM/RD scoped reads and mutation denial, ROSE 90-day audit scheduling reset, operational queue audit-status filtering, PO follow-up creation, and the parked Acumatica warehouse boundary.
+The suite covers site master creation, account read-model participation and counts, current document behavior, activation gating, onboarding state transitions, route/API create-read-filter-gate behavior, RBAC denial, TM/RD scoped reads and mutation denial, ROSE 90-day audit scheduling reset, operational queue audit-status filtering, true-up-gated PO follow-up creation, and the parked Acumatica warehouse boundary.
 
 Current verification state:
 
-- `pnpm --filter @pulse/api test:consignment` passes after building contracts/config/db/API, running the deterministic service helper suite, and running the 12 DB-backed consignment regressions.
+- `pnpm --filter @pulse/api test:consignment` passes after building contracts/config/db/API, running the deterministic service helper suite, and running the 13 DB-backed consignment regressions.
 - Durable consignment calendar event coverage now reads durable `ConsignmentAudit` records first and keeps lead-backed hints only as fallback for pre-site conversion visibility.

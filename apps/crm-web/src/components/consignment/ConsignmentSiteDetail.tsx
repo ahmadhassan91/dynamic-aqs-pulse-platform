@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   Alert,
   Badge,
@@ -11,10 +12,13 @@ import {
   Loader,
   Modal,
   Paper,
+  Select,
   SimpleGrid,
   Stack,
   Table,
   Text,
+  Textarea,
+  TextInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -25,6 +29,7 @@ import {
   WorkbenchMoreMenu,
 } from '@/components/ui/Workbench';
 import {
+  confirmConsignmentTrueUpRecord,
   fetchConsignmentReadinessItems,
   fetchConsignmentSiteDetail,
   scheduleConsignmentAuditRecord,
@@ -38,6 +43,29 @@ import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { consignmentStatusColor, formatConsignmentDate, formatConsignmentStatus } from './ConsignmentWorkspace';
 
+const formTypeLabel: Record<string, string> = {
+  agreement: 'Agreement form',
+  blue: 'BLUE - Initial Verification',
+  rose: 'ROSE - 90-day Reconciliation',
+  purple: 'PURPLE - Inventory Adjustment',
+  sand: 'SAND - Program Exit',
+};
+
+const trueUpOutcomeOptions = [
+  { value: 'po_required', label: 'Start PO follow-up clock' },
+  { value: 'resolved_no_po', label: 'Resolve without PO follow-up' },
+  { value: 'write_off', label: 'Close as write-off / waived PO' },
+];
+
+const trueUpReasonOptions = [
+  { value: 'confirmed_consumed', label: 'Confirmed consumed by customer' },
+  { value: 'open_po_reviewed', label: 'Open PO reviewed' },
+  { value: 'in_transit_explained', label: 'In-transit / receipt timing explained it' },
+  { value: 'found_on_site', label: 'Inventory found on site' },
+  { value: 'baseline_correction', label: 'Baseline correction' },
+  { value: 'missing_write_off', label: 'Missing / write-off review' },
+];
+
 export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [site, setSite] = useState<ConsignmentSiteDetailRecord | null>(null);
@@ -45,6 +73,13 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [savingAction, setSavingAction] = useState<string | null>(null);
   const [isFinishAuditModalOpen, setIsFinishAuditModalOpen] = useState(false);
+  const [isTrueUpModalOpen, setIsTrueUpModalOpen] = useState(false);
+  const [trueUpForm, setTrueUpForm] = useState({
+    outcome: 'po_required',
+    reasonCode: 'confirmed_consumed',
+    externalPoRef: '',
+    notes: '',
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,18 +162,18 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
     'Agreement evidence was saved.',
   );
 
-  const addBlueBaseline = () => runWorkflowAction(
+  const addBaselineForm = () => runWorkflowAction(
     'blue',
     async () => {
       if (!auth) return;
       await upsertConsignmentFormRecord(apiBaseUrl, auth.tokens.accessToken, siteId, {
         formType: 'blue',
         status: 'signed',
-        title: 'BLUE Baseline',
+        title: 'BLUE - Initial Verification',
         signedAt: new Date().toISOString(),
       });
     },
-    'BLUE baseline was saved and the ROSE cadence was recalculated.',
+    'BLUE initial verification was saved and ROSE cadence was recalculated.',
   );
 
   const activateSite = () => runWorkflowAction(
@@ -177,7 +212,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
         status: 'completed',
         completedAt: new Date().toISOString(),
         notes: mode === 'site_issue'
-          ? 'Completed from Pulse consignment workspace with site issue follow-up.'
+          ? 'Completed from Pulse consignment workspace with variance for true-up review.'
           : 'Completed from Pulse consignment workspace with no site issue logged.',
         ...(mode === 'site_issue' ? {
           lines: [
@@ -193,14 +228,19 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
       setIsFinishAuditModalOpen(false);
     },
     mode === 'site_issue'
-      ? 'ROSE audit was completed and site issue follow-up was opened.'
+      ? 'ROSE audit was completed and true-up review was opened.'
       : 'ROSE audit was completed with no site issue.',
   );
 
   const hasSignedAgreement = Boolean(site?.forms.some((form) => form.formType === 'agreement' && form.status === 'signed'));
-  const hasBlueBaseline = Boolean(site?.forms.some((form) => form.formType === 'blue' && form.status === 'signed'));
+  const hasBaselineForm = Boolean(site?.forms.some((form) => form.formType === 'blue' && form.status === 'signed'));
   const isSiteActive = Boolean(site && (site.status === 'active' || site.activeSince));
   const hasOpenRoseAudit = Boolean(site?.audits.some((audit) => audit.status === 'scheduled' || audit.status === 'in_progress'));
+  const trueUpAudit = site?.audits.find((audit) => (
+    audit.status === 'completed'
+    && audit.reconciliationStatus === 'open'
+    && audit.lines.some((line) => (line.varianceQuantity ?? 0) !== 0)
+  ));
   const hasEvidenceHistory = Boolean(site && (site.forms.length || site.audits.length || site.fieldActivity.length));
   const incompleteReadinessCount = readinessItems.filter((item) => item.status !== 'complete').length;
   const readinessSummary = readinessItems.length
@@ -211,6 +251,24 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   const canManageConsignment = canPerformAction(auth?.identity.role, 'consignment.manage');
   const canManageConsignmentDocuments = canPerformAction(auth?.identity.role, 'consignment.document_manage');
 
+  const confirmTrueUp = () => runWorkflowAction(
+    'true-up',
+    async () => {
+      if (!auth || !trueUpAudit) return;
+      await confirmConsignmentTrueUpRecord(apiBaseUrl, auth.tokens.accessToken, trueUpAudit.id, {
+        outcome: trueUpForm.outcome as 'po_required' | 'resolved_no_po' | 'write_off',
+        confirmedAt: new Date().toISOString(),
+        reasonCode: trueUpForm.reasonCode,
+        ...(trueUpForm.externalPoRef.trim() ? { externalPoRef: trueUpForm.externalPoRef.trim() } : {}),
+        ...(trueUpForm.notes.trim() ? { notes: trueUpForm.notes.trim() } : {}),
+      });
+      setIsTrueUpModalOpen(false);
+    },
+    trueUpForm.outcome === 'po_required'
+      ? 'True-up confirmed. PO follow-up clock is now running.'
+      : 'True-up review was closed without starting a PO clock.',
+  );
+
   const workflowActions = site ? [
     ...(!hasSignedAgreement && canManageConsignmentDocuments ? [{
       id: 'agreement',
@@ -219,31 +277,38 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
       onClick: addSignedAgreement,
       isLoading: savingAction === 'agreement',
     }] : []),
-    ...(hasSignedAgreement && !hasBlueBaseline && canManageConsignmentDocuments ? [{
+    ...(hasSignedAgreement && !hasBaselineForm && canManageConsignmentDocuments ? [{
       id: 'blue',
       label: 'Confirm baseline',
-      description: 'Save initial verification evidence and recalculate ROSE cadence.',
-      onClick: addBlueBaseline,
+      description: 'Save baseline evidence and recalculate cadence checks.',
+      onClick: addBaselineForm,
       isLoading: savingAction === 'blue',
     }] : []),
-    ...(hasSignedAgreement && hasBlueBaseline && !isSiteActive && canManageConsignment ? [{
+    ...(hasSignedAgreement && hasBaselineForm && !isSiteActive && canManageConsignment ? [{
       id: 'activate',
       label: 'Mark Active',
       description: 'Activate the Pulse consignment site once setup confirmation is available.',
       onClick: activateSite,
       isLoading: savingAction === 'activate',
     }] : []),
+    ...(trueUpAudit && canManageConsignment ? [{
+      id: 'true-up',
+      label: 'Review true-up',
+      description: 'Review variance against open POs, in-transit items, and receipt timing before starting any PO clock.',
+      onClick: () => setIsTrueUpModalOpen(true),
+      isLoading: savingAction === 'true-up',
+    }] : []),
     ...(isSiteActive && !hasOpenRoseAudit && canAuditConsignment ? [{
       id: 'schedule-rose',
       label: 'Schedule ROSE',
-      description: 'Create the next ROSE audit workflow record.',
+      description: 'Create the next 90-day ROSE audit workflow record.',
       onClick: scheduleRose,
       isLoading: savingAction === 'schedule-rose',
     }] : []),
     ...(hasOpenRoseAudit && canAuditConsignment ? [{
       id: 'complete-rose',
-      label: 'Finish audit',
-      description: 'Close the scheduled audit and open site issue follow-up when needed.',
+      label: 'Finish ROSE audit',
+      description: 'Close the scheduled audit and open true-up review when variance needs back-office review.',
       onClick: () => setIsFinishAuditModalOpen(true),
       isLoading: savingAction === 'complete-rose',
     }] : []),
@@ -280,14 +345,9 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
         ) : null}
         secondaryActions={(
           <Group gap="xs">
-            <Button component={Link} href="/consignment" variant="default">
-              Back To Sites
-            </Button>
-            {site?.accountId ? (
-              <Button component={Link} href={`/customers/${site.accountId}`} variant="light">
-                View Account
-              </Button>
-            ) : null}
+            <Text component={Link} href="/consignment" size="sm" c="blue" fw={600}>
+              Back to sites
+            </Text>
             {secondaryWorkflowActions.length ? (
               <WorkbenchMoreMenu
                 items={secondaryWorkflowActions
@@ -309,10 +369,10 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
         )}
       />
 
-      <Modal opened={isFinishAuditModalOpen} onClose={() => setIsFinishAuditModalOpen(false)} title="Finish audit" size="sm">
+      <Modal opened={isFinishAuditModalOpen} onClose={() => setIsFinishAuditModalOpen(false)} title="Finish ROSE audit" size="sm">
         <Stack gap="md">
           <Text size="sm" c="dimmed">
-            Choose whether this ROSE audit finished cleanly or needs a site issue follow-up.
+            Choose whether this ROSE audit finished cleanly or needs back-office true-up review.
           </Text>
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setIsFinishAuditModalOpen(false)} disabled={Boolean(savingAction)}>
@@ -330,7 +390,55 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
               onClick={() => completeRose('site_issue')}
               loading={savingAction === 'complete-rose'}
             >
-              Log site issue
+              Needs true-up
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={isTrueUpModalOpen} onClose={() => setIsTrueUpModalOpen(false)} title="True-up review" size="lg">
+        <Stack gap="md">
+          <Alert color="blue" variant="light">
+            Check open POs, in-transit product, transfer/receipt timing, and known replenishment before starting the 5-business-day PO clock.
+          </Alert>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <Select
+              label="True-up outcome"
+              data={trueUpOutcomeOptions}
+              value={trueUpForm.outcome}
+              onChange={(value) => setTrueUpForm((current) => ({ ...current, outcome: value ?? current.outcome }))}
+              required
+            />
+            <Select
+              label="Reason"
+              data={trueUpReasonOptions}
+              value={trueUpForm.reasonCode}
+              onChange={(value) => setTrueUpForm((current) => ({ ...current, reasonCode: value ?? current.reasonCode }))}
+              required
+            />
+          </SimpleGrid>
+          {trueUpForm.outcome === 'po_required' ? (
+            <TextInput
+              label="Customer PO reference"
+              description="Optional for now. Acumatica PO/order posting remains parked until endpoint certification."
+              value={trueUpForm.externalPoRef}
+              onChange={(event) => setTrueUpForm((current) => ({ ...current, externalPoRef: event.currentTarget.value }))}
+              placeholder="Optional external PO/reference"
+            />
+          ) : null}
+          <Textarea
+            label="Review notes"
+            minRows={3}
+            value={trueUpForm.notes}
+            onChange={(event) => setTrueUpForm((current) => ({ ...current, notes: event.currentTarget.value }))}
+            placeholder="Example: reviewed open PO and receipt timing; remaining shortage confirmed consumed."
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setIsTrueUpModalOpen(false)} disabled={Boolean(savingAction)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmTrueUp} loading={savingAction === 'true-up'}>
+              Save true-up
             </Button>
           </Group>
         </Stack>
@@ -351,7 +459,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
           <Card withBorder radius="md" p="lg" data-testid="consignment-current-site-work">
             <Group justify="space-between" align="flex-start" mb="md">
               <Stack gap={4}>
-                <Title order={4}>Current site work</Title>
+                <Text fw={800} size="lg">Current site work</Text>
                 <Text size="sm" c="dimmed">
                   {primaryWorkflowAction
                     ? primaryWorkflowAction.description
@@ -369,11 +477,16 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
               <MetadataRow label="Open work" value={String(site.openWorkItemCount ?? 0)} />
               <MetadataRow label="Open discrepancies" value={String(site.openDiscrepancyCount ?? 0)} />
             </SimpleGrid>
-          </Card>
 
-          <Card withBorder radius="md" p="lg" data-testid="consignment-site-snapshot">
-            <Title order={4} mb="md">Site Snapshot</Title>
-            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} mt="lg">
+              <MetadataRow
+                label="Account"
+                value={site.accountId ? (
+                  <Text component={Link} href={`/customers/${site.accountId}`} size="sm" ta="right" c="blue" fw={600}>
+                    View account
+                  </Text>
+                ) : 'No linked account'}
+              />
               <MetadataRow label="Site" value={site.name} />
               <MetadataRow label="Location" value={site.locationName ?? 'No location recorded'} />
               <MetadataRow label="Primary Contact" value={site.primaryContactName ?? 'No contact recorded'} />
@@ -385,13 +498,13 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
 
           <WorkbenchAdvancedSection
             title="Site details and evidence"
-            description="Open for cadence, readiness checks, form counts, documents, audit history, and reviewed field notes."
+            description="Open for ROSE cadence, readiness checks, form counts, documents, audit history, and reviewed field notes."
           >
             <SimpleGrid cols={{ base: 1, lg: 3 }} mb="md">
               <Card withBorder radius="md" p="md">
-                <Title order={5} mb="sm">Cadence</Title>
+                <Title order={5} mb="sm">ROSE cadence</Title>
                 <Stack gap="xs">
-                  <MetadataRow label="Next ROSE Audit" value={formatConsignmentDate(site.nextAuditDueAt)} />
+                  <MetadataRow label="Next ROSE audit" value={formatConsignmentDate(site.nextAuditDueAt)} />
                   <MetadataRow label="Last Audit" value={formatConsignmentDate(site.lastAuditCompletedAt)} />
                   <MetadataRow label="Open Work Items" value={String(site.openWorkItemCount ?? 0)} />
                   <MetadataRow label="Open Discrepancies" value={String(site.openDiscrepancyCount ?? 0)} />
@@ -413,11 +526,11 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
               <Card withBorder radius="md" p="md">
                 <Title order={5} mb="sm">Program evidence</Title>
                 <Stack gap="xs">
-                  <MetadataRow label="Agreement Forms" value={String(site.formCounts.agreement ?? 0)} />
-                  <MetadataRow label="BLUE Forms" value={String(site.formCounts.blue ?? 0)} />
-                  <MetadataRow label="ROSE Forms" value={String(site.formCounts.rose ?? 0)} />
-                  <MetadataRow label="PURPLE Forms" value={String(site.formCounts.purple ?? 0)} />
-                  <MetadataRow label="SAND Forms" value={String(site.formCounts.sand ?? 0)} />
+                  <MetadataRow label="Agreement forms" value={String(site.formCounts.agreement ?? 0)} />
+                  <MetadataRow label="BLUE forms" value={String(site.formCounts.blue ?? 0)} />
+                  <MetadataRow label="ROSE forms" value={String(site.formCounts.rose ?? 0)} />
+                  <MetadataRow label="PURPLE forms" value={String(site.formCounts.purple ?? 0)} />
+                  <MetadataRow label="SAND forms" value={String(site.formCounts.sand ?? 0)} />
                   <MetadataRow label="Setup note" value={site.acumaticaWarehouseId ? site.acumaticaWarehouseId : 'Site setup needs confirmation'} />
                 </Stack>
               </Card>
@@ -440,7 +553,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                         {site.forms.map((document) => (
                           <Table.Tr key={document.id}>
                             <Table.Td>{document.title ?? document.formType}</Table.Td>
-                            <Table.Td>{formatConsignmentStatus(document.formType)}</Table.Td>
+                            <Table.Td>{formatConsignmentFormType(document.formType)}</Table.Td>
                             <Table.Td><Badge variant="light">{formatConsignmentStatus(document.status)}</Badge></Table.Td>
                           </Table.Tr>
                         ))}
@@ -515,11 +628,11 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   );
 }
 
-function MetadataRow({ label, value }: { label: string; value: string }) {
+function MetadataRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <Group justify="space-between" align="flex-start" gap="md">
       <Text size="sm" c="dimmed">{label}</Text>
-      <Text size="sm" ta="right">{value}</Text>
+      {typeof value === 'string' ? <Text size="sm" ta="right">{value}</Text> : value}
     </Group>
   );
 }
@@ -553,6 +666,14 @@ function formatSiteIssueStatus(value: string | undefined) {
     default:
       return formatConsignmentStatus(value);
   }
+}
+
+function formatConsignmentFormType(value: string) {
+  if (value in formTypeLabel) {
+    return formTypeLabel[value];
+  }
+
+  return value.replace(/_/g, ' ');
 }
 
 function addDays(value: Date, days: number) {

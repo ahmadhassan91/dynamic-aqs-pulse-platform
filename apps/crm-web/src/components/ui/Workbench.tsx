@@ -14,6 +14,7 @@ import {
   ScrollArea,
   SimpleGrid,
   Stack,
+  Pagination,
   Table,
   Text,
   ThemeIcon,
@@ -21,6 +22,7 @@ import {
   Tooltip,
 } from '@mantine/core';
 import type { MantineColor } from '@mantine/core';
+import { useMemo, useState } from 'react';
 import {
   IconAlertTriangle,
   IconCheck,
@@ -146,6 +148,7 @@ export type WorkbenchTableProps<Row> = {
   striped?: boolean;
   highlightOnHover?: boolean;
   withContainer?: boolean;
+  pageSize?: number;
 };
 
 /**
@@ -405,65 +408,94 @@ export function WorkbenchTable<Row>({
   striped = true,
   highlightOnHover = true,
   withContainer = true,
+  pageSize = 20,
 }: WorkbenchTableProps<Row>) {
+  const resolvedPageSize = Math.max(0, pageSize);
+  const [activePage, setActivePage] = useState(1);
+  const pageCount = resolvedPageSize > 0 ? Math.max(1, Math.ceil(rows.length / resolvedPageSize)) : 1;
+  const activePageSafe = resolvedPageSize > 0 ? Math.min(Math.max(1, activePage), pageCount) : 1;
   const hasRowActions = Boolean(rowActions);
   const columnCount = columns.length + (hasRowActions ? 1 : 0);
+  const totalPages = pageCount;
+  const showPagination = resolvedPageSize > 0 && rows.length > resolvedPageSize;
+
+  const visibleRows = useMemo(() => {
+    if (!resolvedPageSize || !rows.length) {
+      return rows;
+    }
+
+    const start = (activePageSafe - 1) * resolvedPageSize;
+    return rows.slice(start, start + resolvedPageSize);
+  }, [activePageSafe, resolvedPageSize, rows]);
+
+  const firstRecordIndex = resolvedPageSize > 0 ? (activePageSafe - 1) * resolvedPageSize + 1 : 1;
+  const lastRecordIndex = resolvedPageSize > 0 ? Math.min(activePageSafe * resolvedPageSize, rows.length) : rows.length;
 
   const table = (
-    <ScrollArea>
-      <Table
-        aria-label={ariaLabel}
-        miw={minWidth}
-        striped={striped}
-        highlightOnHover={highlightOnHover}
-        verticalSpacing="sm"
-      >
-        <Table.Thead>
-          <Table.Tr>
-            {columns.map((column) => (
-              <Table.Th key={column.key} w={column.width} ta={column.align}>
-                {column.header}
-              </Table.Th>
-            ))}
-            {hasRowActions ? <Table.Th w={48} /> : null}
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {rows.length ? (
-            rows.map((row) => {
-              const actions = rowActions?.(row) ?? [];
-
-              return (
-                <Table.Tr
-                  key={getRowKey(row)}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  style={onRowClick ? { cursor: 'pointer' } : undefined}
-                >
-                  {columns.map((column) => (
-                    <Table.Td key={column.key} ta={column.align}>
-                      {column.render(row)}
-                    </Table.Td>
-                  ))}
-                  {hasRowActions ? (
-                    <Table.Td onClick={(event) => event.stopPropagation()}>
-                      <RowActionMenu items={actions} />
-                    </Table.Td>
-                  ) : null}
-                </Table.Tr>
-              );
-            })
-          ) : (
+    <Stack gap="sm">
+      <ScrollArea>
+        <Table
+          aria-label={ariaLabel}
+          miw={minWidth}
+          striped={striped}
+          highlightOnHover={highlightOnHover}
+          verticalSpacing="sm"
+        >
+          <Table.Thead>
             <Table.Tr>
-              <Table.Td colSpan={columnCount}>
-                {emptyState ?? (
-                  <EmptyStateMessage title="No records found" description="There is nothing to show here yet." />
-                )}
-              </Table.Td>
+              {columns.map((column) => (
+                <Table.Th key={column.key} w={column.width} ta={column.align}>
+                  {column.header}
+                </Table.Th>
+              ))}
+              {hasRowActions ? <Table.Th w={48} /> : null}
             </Table.Tr>
-          )}
-        </Table.Tbody>
-      </Table>
-    </ScrollArea>
+          </Table.Thead>
+          <Table.Tbody>
+            {visibleRows.length ? (
+              visibleRows.map((row) => {
+                const actions = rowActions?.(row) ?? [];
+
+                return (
+                  <Table.Tr
+                    key={getRowKey(row)}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    style={onRowClick ? { cursor: 'pointer' } : undefined}
+                  >
+                    {columns.map((column) => (
+                      <Table.Td key={column.key} ta={column.align}>
+                        {column.render(row)}
+                      </Table.Td>
+                    ))}
+                    {hasRowActions ? (
+                      <Table.Td onClick={(event) => event.stopPropagation()}>
+                        <RowActionMenu items={actions} />
+                      </Table.Td>
+                    ) : null}
+                  </Table.Tr>
+                );
+              })
+            ) : (
+              <Table.Tr>
+                <Table.Td colSpan={columnCount}>
+                  {emptyState ?? (
+                    <EmptyStateMessage title="No records found" description="There is nothing to show here yet." />
+                  )}
+                </Table.Td>
+              </Table.Tr>
+            )}
+          </Table.Tbody>
+        </Table>
+      </ScrollArea>
+      {showPagination ? (
+        <Group justify="space-between" align="center" px="sm" pb="xs">
+          <Text size="xs" c="dimmed">
+            Showing {firstRecordIndex} - {lastRecordIndex} of {rows.length}
+          </Text>
+          <Pagination total={totalPages} value={activePageSafe} onChange={setActivePage} />
+        </Group>
+      ) : null}
+    </Stack>
   );
 
   return withContainer ? (

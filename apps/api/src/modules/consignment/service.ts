@@ -20,6 +20,8 @@ import {
   prisma,
 } from '@pulse/db';
 import type {
+  ConfirmConsignmentTrueUpRequest,
+  ConfirmConsignmentTrueUpResponse,
   CompleteConsignmentAuditRequest,
   ConsignmentAccountReadModel,
   ConsignmentAuditEvidenceSummary,
@@ -466,6 +468,134 @@ export function calculatePoFollowUpDueDate(from: Date) {
   return addBusinessDays(from, PO_CLOCK_BUSINESS_DAYS);
 }
 
+export async function confirmConsignmentTrueUp(actor: AuthenticatedActor, auditId: string, input: ConfirmConsignmentTrueUpRequest): Promise<ConfirmConsignmentTrueUpResponse> {
+  assertConsignmentManage(actor);
+  const audit = await prisma.consignmentAudit.findFirst({
+    where: { AND: [{ id: auditId }, { site: siteScopeWhere(actor) }] },
+    include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } },
+  });
+  if (!audit) throw new Error('Consignment audit not found');
+  if (audit.status !== ConsignmentAuditStatus.COMPLETED) {
+    throw new Error('ROSE audit must be completed before true-up can be confirmed');
+  }
+  const hasVariance = audit.lines.some((line) => computeVariance(line.expectedQuantity ?? undefined, line.actualQuantity ?? undefined) !== 0);
+  if (!hasVariance) {
+    throw new Error('True-up confirmation requires a completed audit variance');
+  }
+  const confirmedAt = parseOptionalDate(input.confirmedAt) ?? new Date();
+  const outcome = toTrueUpOutcome(input.outcome);
+  const reasonCode = cleanOptional(input.reasonCode);
+  const notes = buildTrueUpNotes(input.notes, outcome);
+  const externalPoRef = cleanOptional(input.externalPoRef);
+
+  const updatedAudit = await prisma.$transaction(async (tx) => {
+    let discrepancy = await tx.consignmentDiscrepancyCase.findFirst({ where: { auditId } });
+    if (!discrepancy) {
+      discrepancy = await tx.consignmentDiscrepancyCase.create({
+        data: {
+          siteId: audit.siteId,
+          auditId,
+          status: ConsignmentDiscrepancyStatus.IN_REVIEW,
+          poFollowUpStatus: ConsignmentPoFollowUpStatus.NOT_REQUIRED,
+          notes: 'Created from ROSE audit variance. True-up review required before PO clock starts.',
+        },
+      });
+    }
+
+    const poDueAt = outcome === 'po_required' ? addBusinessDays(confirmedAt, PO_CLOCK_BUSINESS_DAYS) : null;
+    await tx.consignmentDiscrepancyCase.update({
+      where: { id: discrepancy.id },
+      data: compact({
+        status: outcome === 'po_required'
+          ? ConsignmentDiscrepancyStatus.PO_REQUIRED
+          : outcome === 'write_off'
+            ? ConsignmentDiscrepancyStatus.WRITTEN_OFF
+            : ConsignmentDiscrepancyStatus.RESOLVED,
+        poFollowUpStatus: outcome === 'po_required'
+          ? ConsignmentPoFollowUpStatus.REQUIRED
+          : outcome === 'write_off'
+            ? ConsignmentPoFollowUpStatus.WAIVED
+            : ConsignmentPoFollowUpStatus.NOT_REQUIRED,
+        reasonCode,
+        trueUpConfirmedAt: confirmedAt,
+        poDueAt,
+        externalPoRef,
+        notes: appendNotes(discrepancy.notes, notes),
+      }) as any,
+    });
+
+    await tx.consignmentWorkItem.updateMany({
+      where: {
+        siteId: audit.siteId,
+        type: ConsignmentWorkItemType.VARIANCE_REVIEW,
+        status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+      },
+      data: { status: ConsignmentWorkItemStatus.COMPLETED, completedAt: confirmedAt },
+    });
+
+    if (outcome === 'po_required') {
+      const existingPoFollowUp = await tx.consignmentWorkItem.findFirst({
+        where: {
+          siteId: audit.siteId,
+          type: ConsignmentWorkItemType.PO_FOLLOW_UP,
+          status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
+        },
+      });
+      if (!existingPoFollowUp) {
+        await tx.consignmentWorkItem.create({
+          data: {
+            siteId: audit.siteId,
+            type: ConsignmentWorkItemType.PO_FOLLOW_UP,
+            status: ConsignmentWorkItemStatus.OPEN,
+            priority: 'high',
+            title: 'Follow up on confirmed consignment PO within 5 business days',
+            dueAt: poDueAt,
+            notes: 'True-up confirmed a real customer PO follow-up. Track manually in Pulse; Acumatica PO/order posting remains parked.',
+          },
+        });
+      }
+    }
+
+    const nextAudit = await tx.consignmentAudit.update({
+      where: { id: auditId },
+      data: {
+        reconciliationStatus: outcome === 'po_required'
+          ? ConsignmentReconciliationStatus.TRUE_UP_CONFIRMED
+          : ConsignmentReconciliationStatus.RESOLVED,
+      },
+      include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'CONSIGNMENT_TRUE_UP',
+        entityId: auditId,
+        beforeData: { reconciliationStatus: audit.reconciliationStatus },
+        afterData: {
+          reconciliationStatus: nextAudit.reconciliationStatus,
+          outcome,
+          reasonCode,
+          poDueAt,
+          externalPoRef,
+        },
+        metadata: {
+          acumaticaPoCreation: 'parked',
+          poClockStarted: outcome === 'po_required',
+          trueUpConfirmedAt: confirmedAt.toISOString(),
+        },
+      }),
+    });
+
+    return nextAudit;
+  });
+
+  const site = await getConsignmentSiteDetail(actor, audit.siteId);
+  if (!site) throw new Error('Consignment site not found after true-up confirmation');
+  return { audit: mapAudit(updatedAudit), site };
+}
+
 async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId: string, input: CompleteConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
   await getSiteForMutation(actor, siteId);
   const completedAt = parseOptionalDate(input.completedAt) ?? new Date();
@@ -492,24 +622,23 @@ async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId:
     const row = await tx.consignmentAudit.findUniqueOrThrow({ where: { id: auditId }, include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } } });
     await tx.consignmentSite.update({ where: { id: siteId }, data: { lastAuditCompletedAt: completedAt, nextAuditDueAt: addDays(completedAt, ROSE_CADENCE_DAYS) } });
     if (hasVariance) {
-      const poDueAt = addBusinessDays(completedAt, PO_CLOCK_BUSINESS_DAYS);
       const existingDiscrepancy = await tx.consignmentDiscrepancyCase.findFirst({ where: { auditId } });
       if (!existingDiscrepancy) {
-        await tx.consignmentDiscrepancyCase.create({ data: { siteId, auditId, status: ConsignmentDiscrepancyStatus.OPEN, poFollowUpStatus: ConsignmentPoFollowUpStatus.REQUIRED, trueUpConfirmedAt: completedAt, poDueAt, notes: 'Created from ROSE audit variance. Acumatica PO/order posting remains parked.' } });
+        await tx.consignmentDiscrepancyCase.create({ data: { siteId, auditId, status: ConsignmentDiscrepancyStatus.IN_REVIEW, poFollowUpStatus: ConsignmentPoFollowUpStatus.NOT_REQUIRED, notes: 'Created from ROSE audit variance. True-up review required before PO clock starts.' } });
       }
-      const existingPoFollowUp = await tx.consignmentWorkItem.findFirst({
+      const existingVarianceReview = await tx.consignmentWorkItem.findFirst({
         where: {
           siteId,
-          type: ConsignmentWorkItemType.PO_FOLLOW_UP,
+          type: ConsignmentWorkItemType.VARIANCE_REVIEW,
           status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] },
-          title: 'Follow up on consignment variance PO within 5 business days',
+          title: 'Review ROSE variance before PO follow-up',
         },
       });
-      if (!existingPoFollowUp) {
-        await tx.consignmentWorkItem.create({ data: { siteId, type: ConsignmentWorkItemType.PO_FOLLOW_UP, status: ConsignmentWorkItemStatus.OPEN, title: 'Follow up on consignment variance PO within 5 business days', dueAt: poDueAt, notes: 'Track manual PO follow-up in Pulse; do not auto-create Acumatica PO.' } });
+      if (!existingVarianceReview && !existingDiscrepancy?.trueUpConfirmedAt) {
+        await tx.consignmentWorkItem.create({ data: { siteId, type: ConsignmentWorkItemType.VARIANCE_REVIEW, status: ConsignmentWorkItemStatus.OPEN, priority: 'high', title: 'Review ROSE variance before PO follow-up', dueAt: completedAt, notes: 'Check open POs, in-transit items, transfer/receipt status, and known replenishment before starting the PO clock.' } });
       }
     }
-    await tx.auditEntry.create({ data: buildAuditEntryData({ actorUserId: actor.userId, action: AuditAction.UPDATE, entityType: 'CONSIGNMENT_AUDIT', entityId: row.id, afterData: row, metadata: { generatedDiscrepancy: hasVariance, acumaticaPoCreation: 'parked' } }) });
+    await tx.auditEntry.create({ data: buildAuditEntryData({ actorUserId: actor.userId, action: AuditAction.UPDATE, entityType: 'CONSIGNMENT_AUDIT', entityId: row.id, afterData: row, metadata: { generatedDiscrepancy: hasVariance, trueUpRequired: hasVariance, acumaticaPoCreation: 'parked' } }) });
     return row;
   });
   return mapAudit(updated);
@@ -657,6 +786,12 @@ function toFormType(type: ConsignmentFormTypeKey): ConsignmentFormType { return 
 function mapFormStatus(status: ConsignmentFormStatus): ConsignmentFormStatusKey { return status.toLowerCase() as ConsignmentFormStatusKey; }
 function toFormStatus(status: ConsignmentFormStatusKey): ConsignmentFormStatus { return status.toUpperCase() as ConsignmentFormStatus; }
 function toReconciliationStatus(status: string): ConsignmentReconciliationStatus { return status.toUpperCase() as ConsignmentReconciliationStatus; }
+function toTrueUpOutcome(outcome: ConfirmConsignmentTrueUpRequest['outcome']) {
+  if (outcome !== 'po_required' && outcome !== 'resolved_no_po' && outcome !== 'write_off') {
+    throw new Error('outcome must be po_required, resolved_no_po, or write_off');
+  }
+  return outcome;
+}
 function toEvidencePurpose(purpose: ConsignmentAuditEvidencePurposeKey): ConsignmentAuditEvidencePurpose {
   if (purpose !== 'general' && purpose !== 'discrepancy') {
     throw new Error('purpose must be general or discrepancy');
@@ -666,6 +801,18 @@ function toEvidencePurpose(purpose: ConsignmentAuditEvidencePurposeKey): Consign
 function clampLimit(limit?: number) { return !limit || Number.isNaN(limit) ? DEFAULT_LIMIT : Math.max(1, Math.min(MAX_LIMIT, Math.trunc(limit))); }
 function cleanOptional(value: string | undefined) { const trimmed = value?.trim(); return trimmed ? trimmed : undefined; }
 function cleanNullable(value: string | null | undefined) { if (value === null) return null; const trimmed = value?.trim(); return trimmed ? trimmed : null; }
+function buildTrueUpNotes(notes: string | undefined, outcome: ConfirmConsignmentTrueUpRequest['outcome']) {
+  const prefix = outcome === 'po_required'
+    ? 'True-up confirmed customer PO follow-up is required.'
+    : outcome === 'write_off'
+      ? 'True-up closed variance as write-off/waived PO follow-up.'
+      : 'True-up resolved variance without customer PO follow-up.';
+  const detail = cleanOptional(notes);
+  return detail ? `${prefix} ${detail}` : prefix;
+}
+function appendNotes(existing: string | null | undefined, next: string) {
+  return existing ? `${existing}\n${next}` : next;
+}
 function compact<T extends Record<string, unknown>>(value: T): T { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T; }
 function parseRequiredDate(value: string, fieldName: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) throw new Error(`${fieldName} must be a valid ISO date`); return date; }
 function parseOptionalDate(value: string | null | undefined) { return value ? parseRequiredDate(value, 'date') : undefined; }

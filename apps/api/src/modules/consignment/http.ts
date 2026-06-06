@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
+  ConfirmConsignmentTrueUpRequest,
   ConsignmentOperationalQueueRequest,
   CreateConsignmentAuditRequest,
   CreateConsignmentSiteRequest,
@@ -32,6 +33,7 @@ import {
 } from '../auth/request.js';
 import {
   ConsignmentPersistenceUnavailableError,
+  confirmConsignmentTrueUp,
   createConsignmentAudit,
   createConsignmentSite,
   getAccountConsignmentReadModel,
@@ -280,6 +282,26 @@ export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerR
       return jsonResponse(res, 200, response);
     }
 
+    const trueUpMatch = matchPath(pathname, '/api/v1/consignment/audits/:auditId/true-up');
+    if (trueUpMatch) {
+      const auditId = trueUpMatch.auditId;
+      if (!auditId) {
+        return badRequestResponse(res, 'Consignment audit id is required');
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.manage',
+      });
+      const body = (await readJsonBody(req)) as ConfirmConsignmentTrueUpRequest;
+      const response = await confirmConsignmentTrueUp(actor, auditId, body);
+      return jsonResponse(res, 200, response);
+    }
+
     const auditEvidenceMatch = matchPath(pathname, '/api/v1/consignment/audits/:auditId/evidence');
     if (auditEvidenceMatch) {
       const auditId = auditEvidenceMatch.auditId;
@@ -341,6 +363,7 @@ function isConsignmentRoute(pathname: string) {
     || /^\/api\/v1\/consignment\/documents\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/audits$/.test(pathname)
     || /^\/api\/v1\/consignment\/audits\/[^/]+$/.test(pathname)
+    || /^\/api\/v1\/consignment\/audits\/[^/]+\/true-up$/.test(pathname)
     || /^\/api\/v1\/consignment\/audits\/[^/]+\/evidence$/.test(pathname);
 }
 

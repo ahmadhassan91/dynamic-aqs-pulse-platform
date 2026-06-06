@@ -239,6 +239,8 @@ import type {
   ConsignmentSiteDetail,
   ConsignmentSiteStatusKey,
   ConsignmentSiteSummary,
+  ConfirmConsignmentTrueUpRequest,
+  ConfirmConsignmentTrueUpResponse,
   CreateConsignmentAuditRequest,
   CreateConsignmentFormRequest,
   CreateConsignmentSiteRequest,
@@ -1860,7 +1862,7 @@ export async function fetchConsignmentDashboard(apiBaseUrl: string, accessToken:
           siteName: site.name,
           accountDisplayName: site.accountName,
           subject: (site.openDiscrepancyCount ?? 0) > 0
-            ? 'Site issue needs review'
+            ? 'True-up review needed'
             : site.status === 'ready_for_warehouse'
               ? 'Warehouse setup waiting'
               : 'Consignment workflow follow-up',
@@ -1950,6 +1952,19 @@ export async function updateConsignmentAuditRecord(
 ) {
   return requestJson<ConsignmentAuditSummary>(apiBaseUrl, `/api/v1/consignment/audits/${auditId}`, {
     method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function confirmConsignmentTrueUpRecord(
+  apiBaseUrl: string,
+  accessToken: string,
+  auditId: string,
+  input: ConfirmConsignmentTrueUpRequest,
+) {
+  return requestJson<ConfirmConsignmentTrueUpResponse>(apiBaseUrl, `/api/v1/consignment/audits/${auditId}/true-up`, {
+    method: 'POST',
     accessToken,
     body: input,
   });

@@ -27,6 +27,7 @@ import {
   IconChevronDown,
   IconDashboard,
   IconDotsVertical,
+  IconDownload,
   IconEdit,
   IconFileImport,
   IconKey,
@@ -150,6 +151,7 @@ export function AdminWorkspace({
   const [userImportOpen, setUserImportOpen] = useState(false);
   const [userFormLoading, setUserFormLoading] = useState(false);
   const [userImportLoading, setUserImportLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [selectedIntegrationProvider, setSelectedIntegrationProvider] = useState<AdminIntegrationProvider>(initialIntegrationProvider);
   const [userMutationError, setUserMutationError] = useState<string | null>(null);
@@ -809,6 +811,51 @@ export function AdminWorkspace({
     }
   }
 
+  async function handleExportUsersCsv() {
+    if (!auth) {
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const response = await fetchAdminUsers(apiBaseUrl, auth.tokens.accessToken, {
+        ...(filters.search ? { search: filters.search } : {}),
+        ...(filters.role ? { role: filters.role as AdminUserSummary['role'] } : {}),
+        ...(filters.status ? { status: filters.status as AdminUserSummary['status'] } : {}),
+        limit: 1000,
+      });
+
+      const header = ['Name', 'Email', 'Role', 'Actor Type', 'Provider', 'Status', 'Active Sessions', 'Last Login', 'Created At'].join(',');
+      const rows = response.users.map((user) => [
+        JSON.stringify(user.displayName),
+        JSON.stringify(user.email),
+        JSON.stringify(user.role),
+        JSON.stringify(user.actorType),
+        JSON.stringify(user.provider),
+        JSON.stringify(user.status),
+        String(user.activeSessionCount),
+        user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : '',
+        new Date(user.createdAt).toISOString(),
+      ].join(','));
+
+      const csv = [header, ...rows].join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pulse-users-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Export failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   const currentTabLoading = (
     !isHydrated
     || (activeTab === 'overview' && tabAccess.overview && (overviewLoading || !overview))
@@ -1035,8 +1082,19 @@ export function AdminWorkspace({
 
               <Paper shadow="sm">
                 <Group justify="space-between" p="md" style={{ borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
-                  <Title order={3}>Users ({usersResponse?.total ?? 0})</Title>
-                  {usersLoading ? <Loader size="sm" /> : null}
+                  <Group gap="sm">
+                    <Title order={3}>Users ({usersResponse?.total ?? 0})</Title>
+                    {usersLoading ? <Loader size="sm" /> : null}
+                  </Group>
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconDownload size={14} />}
+                    loading={isExporting}
+                    onClick={() => void handleExportUsersCsv()}
+                  >
+                    Export CSV
+                  </Button>
                 </Group>
 
                 <WorkbenchTable<AdminUserSummary>

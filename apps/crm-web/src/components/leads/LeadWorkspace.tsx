@@ -58,6 +58,7 @@ import {
   type LeadSummary,
   type OwnershipGroupReferenceSummary,
   type ReferenceValueSummary,
+  type TerritorySummary,
 } from '@pulse/contracts';
 import {
   APP_LEAD_MARKETING_SOURCES,
@@ -71,6 +72,7 @@ import {
   fetchLeadSources,
   fetchLeads,
   fetchOwnershipGroups,
+  fetchTerritories,
   previewLeadDuplicateCandidates,
   previewLeadOcrCapture,
   transitionLeadStage,
@@ -169,11 +171,13 @@ export function LeadWorkspace({
   const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
   const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
   const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
+  const [territories, setTerritories] = useState<TerritorySummary[]>([]);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<LeadStageKey | ''>('');
   const [routingTeamFilter, setRoutingTeamFilter] = useState<LeadRoutingTeamKey | ''>('');
   const [leadSourceFilter, setLeadSourceFilter] = useState('');
+  const [territoryIdFilter, setTerritoryIdFilter] = useState('');
   const [leads, setLeads] = useState<LeadSummary[]>([]);
   const [totalLeads, setTotalLeads] = useState(0);
   const [listError, setListError] = useState<string | null>(null);
@@ -209,6 +213,7 @@ export function LeadWorkspace({
       setLeadSources([]);
       setAffinityGroups([]);
       setOwnershipGroups([]);
+      setTerritories([]);
       return;
     }
 
@@ -219,10 +224,11 @@ export function LeadWorkspace({
       setReferenceError(null);
 
       try {
-        const [leadSourceResponse, affinityGroupResponse, ownershipGroupResponse] = await Promise.all([
+        const [leadSourceResponse, affinityGroupResponse, ownershipGroupResponse, territoriesResponse] = await Promise.all([
           fetchLeadSources(apiBaseUrl, accessToken),
           fetchAffinityGroups(apiBaseUrl, accessToken),
           fetchOwnershipGroups(apiBaseUrl, accessToken),
+          fetchTerritories(apiBaseUrl, accessToken),
         ]);
 
         if (cancelled) {
@@ -232,6 +238,7 @@ export function LeadWorkspace({
         setLeadSources(leadSourceResponse.items);
         setAffinityGroups(affinityGroupResponse.items);
         setOwnershipGroups(ownershipGroupResponse.items);
+        setTerritories(territoriesResponse.items);
         setCreateLeadForm((current) => ({
           ...current,
           leadSourceCode: current.leadSourceCode || leadSourceResponse.items[0]?.code || 'manual_entry',
@@ -270,6 +277,7 @@ export function LeadWorkspace({
           ...(stageFilter ? { stage: stageFilter } : {}),
           ...(routingTeamFilter ? { routingTeam: routingTeamFilter } : {}),
           ...(leadSourceFilter ? { leadSourceCode: leadSourceFilter } : {}),
+          ...(territoryIdFilter ? { territoryId: territoryIdFilter } : {}),
           limit: 200,
         });
 
@@ -295,7 +303,7 @@ export function LeadWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, deferredSearch, leadSourceFilter, refreshNonce, routingTeamFilter, stageFilter]);
+  }, [apiBaseUrl, auth, deferredSearch, leadSourceFilter, refreshNonce, routingTeamFilter, stageFilter, territoryIdFilter]);
 
   const stageCounts = useMemo(
     () =>
@@ -988,6 +996,17 @@ export function LeadWorkspace({
                     clearable
                     searchable
                     w={220}
+                  />
+                  <Select
+                    placeholder="Territory"
+                    value={territoryIdFilter}
+                    onChange={(value) => setTerritoryIdFilter(value ?? '')}
+                    data={territories
+                      .filter((t) => t.isActive)
+                      .map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
+                    clearable
+                    searchable
+                    w={200}
                   />
                   <ActionIcon variant="light" size="lg" onClick={() => setRefreshNonce((value) => value + 1)}>
                     <IconRefresh size={16} />

@@ -500,6 +500,32 @@ export function DigitalAssetsWorkspace() {
     }
   };
 
+  const handleApproveAsset = async () => {
+    if (!auth || !selectedAsset) return;
+    setIsUpdatingAsset(true);
+    setDetailError(null);
+    try {
+      await updateDigitalAssetRecord(apiBaseUrl, auth.tokens.accessToken, selectedAsset.id, {
+        title: assetEditForm.title,
+        description: emptyToNull(assetEditForm.description),
+        status: assetEditForm.status,
+        visibility: assetEditForm.visibility,
+        reviewStatus: 'approved',
+        audience: assetEditForm.audience,
+        brandScope: emptyToNull(assetEditForm.brandScope),
+        regionScope: emptyToNull(assetEditForm.regionScope),
+        dealerGroupType: emptyToNull(assetEditForm.dealerGroupType),
+        dealerGroupId: emptyToNull(assetEditForm.dealerGroupId),
+      });
+      await loadAssetDetail(selectedAsset.id);
+      await reloadAssets();
+    } catch (approveError) {
+      setDetailError(approveError instanceof Error ? approveError.message : String(approveError));
+    } finally {
+      setIsUpdatingAsset(false);
+    }
+  };
+
   const handleCreateShareLink = async () => {
     if (!auth || !selectedAsset) return;
     setIsCreatingShareLink(true);
@@ -1024,6 +1050,7 @@ export function DigitalAssetsWorkspace() {
                       onFormChange={setVersionForm}
                       onShareFormChange={setShareForm}
                       onUpdateAsset={handleUpdateAsset}
+                      onApprove={handleApproveAsset}
                       onCreateShareLink={handleCreateShareLink}
                       onRevokeShareLink={handleRevokeShareLink}
                       onSubmit={handleAddVersion}
@@ -1598,6 +1625,7 @@ function AssetDetailPanel({
   onFormChange,
   onShareFormChange,
   onUpdateAsset,
+  onApprove,
   onCreateShareLink,
   onRevokeShareLink,
   onSubmit,
@@ -1619,6 +1647,7 @@ function AssetDetailPanel({
   onFormChange: (form: VersionFormState) => void;
   onShareFormChange: (form: ShareFormState) => void;
   onUpdateAsset: () => void;
+  onApprove: () => void;
   onCreateShareLink: () => void;
   onRevokeShareLink: (shareLinkId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -1638,6 +1667,16 @@ function AssetDetailPanel({
         </Stack>
         <Badge variant="light">{formatLabel(asset.status)} / {formatLabel(asset.reviewStatus)}</Badge>
       </Group>
+
+      {currentUrl && (asset.kind === 'image' || asset.currentVersion?.mimeType?.startsWith('image/')) ? (
+        <Paper withBorder p={0} style={{ overflow: 'hidden', borderRadius: 8 }}>
+          <img
+            src={currentUrl}
+            alt={asset.title}
+            style={{ width: '100%', maxHeight: 200, objectFit: 'contain', display: 'block' }}
+          />
+        </Paper>
+      ) : null}
 
       <Group gap="xs">
         {canShare ? (
@@ -1663,6 +1702,17 @@ function AssetDetailPanel({
             leftSection={<IconLink size={14} />}
           >
             Open file
+          </Button>
+        ) : null}
+        {canEdit && asset.reviewStatus !== 'approved' && asset.reviewStatus !== 'not_required' ? (
+          <Button
+            size="xs"
+            color="green"
+            variant="light"
+            onClick={onApprove}
+            loading={isUpdatingAsset}
+          >
+            Approve
           </Button>
         ) : null}
       </Group>
@@ -1846,6 +1896,16 @@ function AssetDetailPanel({
         title="Product usage"
         description={`${asset.productUsageCount ?? 0} linked product presentation${asset.productUsageCount === 1 ? '' : 's'}. Expand when reviewing catalog impact.`}
       >
+        {(() => {
+          const mismatchCount = (asset.productUsages ?? []).filter(
+            (u) => asset.brandScope && u.brandLabel && u.brandLabel !== asset.brandScope,
+          ).length;
+          return mismatchCount > 0 ? (
+            <Alert color="orange" icon={<IconAlertTriangle size={16} />} title="Brand mismatch on product usage" mb="sm">
+              This asset is scoped to the <strong>{asset.brandScope}</strong> brand but is linked to {mismatchCount} product presentation{mismatchCount === 1 ? '' : 's'} using a different brand label. Review or re-scope.
+            </Alert>
+          ) : null;
+        })()}
           <WorkbenchTable<DigitalAssetProductUsageRow>
             ariaLabel="Asset product usage"
             rows={asset.productUsages ?? []}

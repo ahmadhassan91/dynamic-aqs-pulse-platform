@@ -753,6 +753,32 @@ function buildNextSiteWorkRows({
       });
     }
 
+    if (
+      site.status === 'onboarding_in_progress'
+      || site.status === 'ready_for_warehouse'
+      || site.status === 'warehouse_pending'
+    ) {
+      const statusSummary: Record<string, string> = {
+        onboarding_in_progress: 'Enrollment in progress — confirm setup steps',
+        ready_for_warehouse: 'Site setup ready — confirm warehouse handoff',
+        warehouse_pending: 'Warehouse setup pending — follow up',
+      };
+      upsert({
+        accountName: site.accountName,
+        detail: `${site.ownerTmName ?? 'TM unassigned'} · ${site.status.replace(/_/g, ' ')}`,
+        id: `onboarding-${site.id}`,
+        ownerName: site.ownerTmName ?? site.ownerRdName ?? undefined,
+        rank: 4,
+        secondaryCount: 0,
+        siteId: site.id,
+        siteName: site.locationName ?? undefined,
+        statusLabel: 'Enrollment / Setup',
+        summary: statusSummary[site.status] ?? 'Review enrollment progress',
+        tone: 'yellow',
+        workType: 'follow_up',
+      });
+    }
+
     if ((site.openDiscrepancyCount ?? 0) > 0 || site.status === 'suspended' || site.status === 'exiting') {
       upsert({
         accountName: site.accountName,

@@ -394,6 +394,17 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const needsContent = !primaryPresentation || !primaryPresentation.shortDescription;
   const needsFiles = product.assetAssignments.length === 0;
   const needsVisibility = visibleDealerViewCount === 0;
+  const wrongBrandAssignments = (primaryPresentation?.brandLabel
+    ? product.assetAssignments.filter(
+        (a) => a.brandScope && a.brandScope !== primaryPresentation.brandLabel,
+      )
+    : []);
+  const selectedAttachableAsset = approvedAttachableAssets.find((a) => a.id === selectedAssetId);
+  const attachBrandMismatch = Boolean(
+    selectedAttachableAsset?.brandScope
+    && primaryPresentation?.brandLabel
+    && selectedAttachableAsset.brandScope !== primaryPresentation.brandLabel,
+  );
   const categoryOptions = categories.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }));
   const familyOptions = families.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }));
   const productAttentionItems = [
@@ -418,6 +429,13 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       count: 1,
       tone: 'orange' as const,
     }] : []),
+    ...wrongBrandAssignments.map((assignment) => ({
+      id: `brand-mismatch-${assignment.id}`,
+      title: 'Brand mismatch — attached file',
+      description: `"${assignment.title}" is scoped to the "${assignment.brandScope}" brand but this presentation is "${primaryPresentation?.brandLabel ?? 'unbranded'}". Review or unlink.`,
+      count: 1,
+      tone: 'red' as const,
+    })),
     ...(!visibleDealerViewCount ? [{
       id: 'dealer-visibility',
       title: 'Dealer group',
@@ -771,6 +789,11 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             {approvedAttachableAssets.length === 0 ? (
               <Alert color="yellow" variant="light">
                 Review all files in Digital Assets to approve a file before attaching it to this product.
+              </Alert>
+            ) : null}
+            {attachBrandMismatch ? (
+              <Alert color="orange" icon={<IconAlertTriangle size={16} />} title="Brand mismatch">
+                This file is scoped to the <strong>{selectedAttachableAsset?.brandScope}</strong> brand but this presentation is labeled <strong>{primaryPresentation?.brandLabel}</strong>. Proceed only if this is intentional.
               </Alert>
             ) : null}
             <Select

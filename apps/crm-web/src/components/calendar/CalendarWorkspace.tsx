@@ -436,6 +436,9 @@ export function CalendarWorkspace({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outlookMessage, setOutlookMessage] = useState<string | null>(null);
   const [schedulerAnchorDate, setSchedulerAnchorDate] = useState<Date | null>(null);
+  const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
+  const [territoryFilter, setTerritoryFilter] = useState<string | null>(null);
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const canScheduleDiscovery = role ? canPerformAction(role, 'lead.intake_manage') : false;
   const canScheduleTraining = role ? canPerformAction(role, 'training.schedule') : false;
   const canViewCalendarIntegrations = role ? canPerformAction(role, 'admin.integration_view') : false;
@@ -501,8 +504,13 @@ export function CalendarWorkspace({
   }, [searchParams]);
 
   const filteredItems = useMemo(
-    () => (workspace?.items ?? []).filter((item) => filterEventItem(item, filter)),
-    [filter, workspace?.items],
+    () => (workspace?.items ?? []).filter((item) => (
+      filterEventItem(item, filter)
+      && (!ownerFilter || item.assignedToName === ownerFilter)
+      && (!territoryFilter || item.territoryName === territoryFilter)
+      && (!accountFilter || item.accountName === accountFilter)
+    )),
+    [accountFilter, filter, ownerFilter, territoryFilter, workspace?.items],
   );
 
   const selectedEvent = useMemo(
@@ -531,6 +539,33 @@ export function CalendarWorkspace({
   const monthCells = useMemo(() => buildMonthCells(anchorDate), [anchorDate]);
   const calendarFilterOptions = useMemo(() => getCalendarPrototypeFilterOptions(), []);
   const calendarViewOptions = useMemo(() => getCalendarPrototypeViewOptions(), []);
+  const ownerFilterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: Array<{ value: string; label: string }> = [];
+    for (const item of workspace?.items ?? []) {
+      const name = item.assignedToName;
+      if (name && !seen.has(name)) { seen.add(name); options.push({ value: name, label: name }); }
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [workspace?.items]);
+  const territoryFilterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: Array<{ value: string; label: string }> = [];
+    for (const item of workspace?.items ?? []) {
+      const name = item.territoryName;
+      if (name && !seen.has(name)) { seen.add(name); options.push({ value: name, label: name }); }
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [workspace?.items]);
+  const accountFilterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: Array<{ value: string; label: string }> = [];
+    for (const item of workspace?.items ?? []) {
+      const name = item.accountName;
+      if (name && !seen.has(name)) { seen.add(name); options.push({ value: name, label: name }); }
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [workspace?.items]);
   const coreCalendarViewOptions = useMemo(
     () => calendarViewOptions.filter((option) => option.value === 'day' || option.value === 'week'),
     [calendarViewOptions],
@@ -734,6 +769,43 @@ export function CalendarWorkspace({
                 allowDeselect={false}
               />
             </Group>
+            {(ownerFilterOptions.length > 0 || territoryFilterOptions.length > 0 || accountFilterOptions.length > 0) ? (
+              <Group gap="xs" wrap="wrap">
+                {ownerFilterOptions.length > 0 ? (
+                  <Select
+                    aria-label="Filter by owner"
+                    placeholder="All owners"
+                    data={ownerFilterOptions}
+                    value={ownerFilter}
+                    onChange={setOwnerFilter}
+                    clearable
+                    w={{ base: '100%', sm: 160 }}
+                  />
+                ) : null}
+                {territoryFilterOptions.length > 0 ? (
+                  <Select
+                    aria-label="Filter by territory"
+                    placeholder="All territories"
+                    data={territoryFilterOptions}
+                    value={territoryFilter}
+                    onChange={setTerritoryFilter}
+                    clearable
+                    w={{ base: '100%', sm: 160 }}
+                  />
+                ) : null}
+                {accountFilterOptions.length > 0 ? (
+                  <Select
+                    aria-label="Filter by account"
+                    placeholder="All accounts"
+                    data={accountFilterOptions}
+                    value={accountFilter}
+                    onChange={setAccountFilter}
+                    clearable
+                    w={{ base: '100%', sm: 160 }}
+                  />
+                ) : null}
+              </Group>
+            ) : null}
           </Group>
 
           {errorMessage ? (

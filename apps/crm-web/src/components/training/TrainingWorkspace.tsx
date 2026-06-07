@@ -1141,6 +1141,14 @@ export function TrainingWorkspace() {
                             ),
                           },
                         ]}
+                        {...(canSchedule ? {
+                          rowActions: (item: TrainingOperationalCertificationQueueItem) => [{
+                            id: 'schedule-recert',
+                            label: 'Schedule recertification',
+                            icon: <IconCalendarPlus size={14} />,
+                            onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName }),
+                          }],
+                        } : {})}
                         emptyState={(
                           <TrainingQueueAllClear />
                         )}
@@ -1304,6 +1312,14 @@ export function TrainingWorkspace() {
                             render: (item) => item.ownerTmName ?? item.ownerRdName ?? 'Unassigned',
                           },
                         ]}
+                        {...(canSchedule ? {
+                          rowActions: (item: TrainingOverdueProgramRow) => [{
+                            id: 'schedule-training',
+                            label: 'Schedule training',
+                            icon: <IconCalendarPlus size={14} />,
+                            onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName }),
+                          }],
+                        } : {})}
                         emptyState={(
                           <TrainingQueueAllClear />
                         )}

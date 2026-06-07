@@ -22,6 +22,16 @@ import { EmptyStateMessage, RowActionMenu } from '@/components/ui/Workbench';
 import { createAccountContactRecord, updateAccountContactRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
 
+const CONTACT_ROLE_OPTIONS = [
+  { value: 'Primary', label: 'Primary' },
+  { value: 'Billing', label: 'Billing' },
+  { value: 'Ordering', label: 'Ordering' },
+  { value: 'Technical', label: 'Technical' },
+  { value: 'Owner / GM', label: 'Owner / GM' },
+  { value: 'Field Technician', label: 'Field Technician' },
+  { value: 'Office Manager', label: 'Office Manager' },
+];
+
 const EMPTY_FORM = {
   firstName: '',
   lastName: '',
@@ -242,11 +252,14 @@ export function CustomerContacts(
             value={form.title}
             onChange={(event) => setForm((current) => ({ ...current, title: event.currentTarget.value }))}
           />
-          <TextInput
+          <Select
             label="Role"
-            value={form.roleCode}
-            onChange={(event) => setForm((current) => ({ ...current, roleCode: event.currentTarget.value }))}
-            placeholder="Primary, Billing, Ordering, Technical, Owner/GM"
+            value={form.roleCode || null}
+            onChange={(value) => setForm((current) => ({ ...current, roleCode: value ?? '' }))}
+            data={CONTACT_ROLE_OPTIONS}
+            placeholder="Select a role"
+            searchable
+            clearable
           />
           <Select
             label="Linked Location"

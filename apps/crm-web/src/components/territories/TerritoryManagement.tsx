@@ -905,7 +905,7 @@ export function TerritoryManagement({
               <Text c="dimmed" size="xs" mt={4}>
                 <Text component="span" fw={600} c="dimmed">Workspace scope:</Text>{' '}
                 {canAdminTerritory
-                  ? 'Coverage, owner, and shipping-center changes write through the territory kernel.'
+                  ? 'Coverage, owner, and shipping-center changes apply immediately to the territory map, records, and routing.'
                   : 'You are seeing the territories, customers, leads, and history available to your role.'}
               </Text>
             ) : null}
@@ -996,7 +996,7 @@ export function TerritoryManagement({
                     <Title order={4}>Map View</Title>
                     <Text size="sm" c="dimmed">
                       The live territory map now mirrors the approved paper-map style using real territory coverage,
-                      manager ownership, shipping hubs, account pins, and lead pins from the production kernel.
+                      manager ownership, shipping hubs, account pins, and lead pins from live territory data.
                     </Text>
                   </div>
                 </Group>
@@ -1013,7 +1013,7 @@ export function TerritoryManagement({
                 </Group>
                 <Text size="sm" c="dimmed">
                   Current TM ownership, state coverage, shipping hubs, and lead/account clustering all update from the
-                  same live territory kernel.
+                  same live territory data.
                 </Text>
                 <Paper withBorder radius="xl" h={640} style={{ overflow: 'hidden' }}>
                   <TerritoryMapLibre

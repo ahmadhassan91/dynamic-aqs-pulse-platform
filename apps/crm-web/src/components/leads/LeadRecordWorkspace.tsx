@@ -393,7 +393,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         complete: Boolean(lead.onboardingCompletedAt),
         detail: lead.onboardingCompletedAt
           ? `Operational onboarding was marked complete on ${formatDateLabel(lead.onboardingCompletedAt)}.`
-          : 'Portal and setup readiness still need review before the first-order handoff.',
+          : 'Portal and setup readiness still need review before the first order.',
       },
     ];
   }, [discoverySchedulingSlaHours, hasInitialContact, initialContactSlaHours, lead]);
@@ -467,7 +467,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
       ...(lead.onboardingCompletedAt ? [{
         key: `onboarding-${lead.onboardingCompletedAt}`,
         title: 'Onboarding Ready',
-        description: 'Setup is complete. The next step is the first-order handoff.',
+        description: 'Setup is complete. The next step is the first order.',
         occurredAt: lead.onboardingCompletedAt,
         color: 'cyan',
       }] : []),
@@ -773,7 +773,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   }
 
   const nextActionLabel = currentLead.stage === 'onboarding_completed'
-    ? 'Awaiting first-order handoff'
+    ? 'Awaiting first order'
     : currentLead.workflowTask.nextAction;
   const nextActionNeedsManagePermission = currentLead.workflowTask.nextAction === 'Resume Lead'
     || currentLead.workflowTask.nextAction === 'Reopen Lead';
@@ -889,7 +889,7 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           <Title order={5}>Next Best Action</Title>
           <Text size="sm" c="dimmed">
             {currentLead.stage === 'onboarding_completed'
-              ? 'Onboarding setup is complete. The next milestone is the first-order handoff.'
+              ? 'Onboarding setup is complete. The next milestone is the first order.'
               : currentLead.workflowTask.reason}
           </Text>
         </Stack>
@@ -1457,9 +1457,9 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <Stack gap={2}>
-                    <Title order={4}>Discovery Command Center</Title>
+                    <Title order={4}>Discovery Qualification</Title>
                     <Text size="sm" c="dimmed">
-                      Discovery qualifies the opportunity before CIS. We capture the contractor&apos;s pain points, current IAQ setup, decision maker, buying intent, and any approved fast-track reason here.
+                      Discovery qualifies the opportunity before CIS. Capture the contractor&apos;s pain points, current IAQ setup, decision maker, buying intent, and any fast-track reason here.
                     </Text>
                   </Stack>
                   <Badge color={lead.discoveryCompletedAt ? 'teal' : lead.discoveryScheduledAt ? 'blue' : 'gray'} variant="light" size="lg">

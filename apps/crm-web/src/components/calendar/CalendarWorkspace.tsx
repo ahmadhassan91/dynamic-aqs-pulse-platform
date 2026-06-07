@@ -632,8 +632,8 @@ export function CalendarWorkspace({
       },
       ...(outlookConnection?.isConnected ? [{
         id: 'calendar-handoff',
-        title: 'Calendar handoff review',
-        description: 'Lead and training events waiting for calendar handoff review.',
+        title: 'Outlook sync review',
+        description: 'Lead and training events waiting to be reflected in your Outlook calendar.',
         count: unsyncedOutlookItems.length,
         tone: unsyncedOutlookItems.length > 0 ? 'orange' : 'gray',
       }] : []),
@@ -673,7 +673,7 @@ export function CalendarWorkspace({
       {!embedded ? (
         <>
           <WorkbenchHeader
-            eyebrow="Schedule Workbench"
+            eyebrow="Scheduling"
             title="CRM Calendar"
             description="Schedule discovery and training, then review visits and audits from their linked workflows."
             policyText={outlookConnection?.isConnected ? 'Shared scheduling is connected' : 'Pulse remains the scheduling source of truth'}
@@ -684,41 +684,17 @@ export function CalendarWorkspace({
             ) : null}
             secondaryActions={(
               <Group gap="xs" wrap="wrap" justify="flex-end">
-                <Menu position="bottom-end" withinPortal shadow="md" width={230}>
-                  <Menu.Target>
-                    <Button variant="default" rightSection={<IconChevronDown size={14} />}>
-                      More
-                    </Button>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Label>Power views</Menu.Label>
-                    <Menu.Item
-                      leftSection={<IconCalendarEvent size={14} />}
-                      onClick={() => setView('month')}
-                    >
-                      Month view
-                    </Menu.Item>
-                    <Menu.Item
-                      leftSection={<IconCalendarEvent size={14} />}
-                      onClick={() => setView('list')}
-                    >
-                      List view
-                    </Menu.Item>
-                    {canViewCalendarIntegrations ? (
-                      <>
-                        <Menu.Divider />
-                        <Menu.Label>Setup</Menu.Label>
-                        <Menu.Item
-                          component={Link}
-                          href="/admin/integrations?provider=calendar"
-                          leftSection={<IconSettings size={14} />}
-                        >
-                          Manage Outlook in Admin
-                        </Menu.Item>
-                      </>
-                    ) : null}
-                  </Menu.Dropdown>
-                </Menu>
+                {canViewCalendarIntegrations ? (
+                  <Button
+                    component={Link}
+                    href="/admin/integrations?provider=calendar"
+                    variant="default"
+                    leftSection={<IconSettings size={14} />}
+                    size="sm"
+                  >
+                    Outlook settings
+                  </Button>
+                ) : null}
               </Group>
             )}
           />
@@ -751,7 +727,7 @@ export function CalendarWorkspace({
               />
               <Select
                 aria-label="Calendar view"
-                data={visibleCalendarViewOptions}
+                data={calendarViewOptions}
                 value={view}
                 onChange={(value) => setView((value as CalendarViewMode | null) ?? 'day')}
                 w={{ base: '100%', sm: 150 }}
@@ -778,7 +754,7 @@ export function CalendarWorkspace({
         <Paper withBorder radius="xl" p="xl">
           <Group justify="center" gap="sm">
             <Loader color="blue" />
-            <Text c="dimmed">Loading centralized calendar...</Text>
+            <Text c="dimmed">Loading calendar...</Text>
           </Group>
         </Paper>
       ) : (

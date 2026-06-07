@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -78,6 +79,7 @@ type NextSiteWorkRow = {
 
 export function ConsignmentWorkspace() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
+  const router = useRouter();
   const [dashboard, setDashboard] = useState<ConsignmentDashboardResponse | null>(null);
   const [sites, setSites] = useState<ConsignmentSiteSummary[]>([]);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
@@ -448,6 +450,7 @@ function SiteList({
   onSearchChange: (value: string) => void;
   onStatusChange: (value: ConsignmentSiteStatus | '') => void;
 }) {
+  const router = useRouter();
   return (
     <Stack gap="md">
       <Paper withBorder radius="md" p="md">
@@ -530,9 +533,7 @@ function SiteList({
             id: 'open-site',
             label: 'Open site',
             icon: <IconArrowRight size={16} />,
-            onClick: () => {
-              window.location.href = `/consignment/${site.id}`;
-            },
+            onClick: () => router.push(`/consignment/${site.id}`),
           }]}
           emptyState={(
             <EmptyStateMessage
@@ -648,6 +649,7 @@ function NextSiteWorkList({
 }
 
 function NextSiteWorkDetailPanel({ item }: { item: NextSiteWorkRow | null }) {
+  const router = useRouter();
   return (
     <WorkbenchDetailRail
       title="Selected site work"
@@ -657,7 +659,7 @@ function NextSiteWorkDetailPanel({ item }: { item: NextSiteWorkRow | null }) {
           size="xs"
           rightSection={<IconArrowRight size={14} />}
           onClick={() => {
-            window.location.href = `/consignment/${item.siteId}`;
+            router.push(`/consignment/${item.siteId}`);
           }}
         >
           Open site

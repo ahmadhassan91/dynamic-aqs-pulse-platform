@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -116,6 +117,7 @@ export function AdminWorkspace({
   initialIntegrationProvider?: AdminIntegrationProvider;
 }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
   const [rolesCatalog, setRolesCatalog] = useState<AdminRoleAccessCatalogResponse | null>(null);
@@ -892,35 +894,20 @@ export function AdminWorkspace({
                 Access Profiles
               </Tabs.Tab>
             ) : null}
-            {tabAccess.overview || tabAccess.activity || tabAccess.integrations ? (
-              <Menu position="bottom-start" withinPortal shadow="md" width={220}>
-                <Menu.Target>
-                  <Button
-                    variant={activeTab === 'overview' || activeTab === 'activity' || activeTab === 'integrations' ? 'light' : 'subtle'}
-                    size="sm"
-                    rightSection={<IconChevronDown size={14} />}
-                  >
-                    More
-                  </Button>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  {tabAccess.overview ? (
-                    <Menu.Item leftSection={<IconDashboard size={16} />} onClick={() => setActiveTab('overview')}>
-                      System Setup
-                    </Menu.Item>
-                  ) : null}
-                  {tabAccess.activity ? (
-                    <Menu.Item leftSection={<IconActivity size={16} />} onClick={() => setActiveTab('activity')}>
-                      Audit Monitor
-                    </Menu.Item>
-                  ) : null}
-                  {tabAccess.integrations ? (
-                    <Menu.Item leftSection={<IconLink size={16} />} onClick={() => setActiveTab('integrations')}>
-                      Integrations
-                    </Menu.Item>
-                  ) : null}
-                </Menu.Dropdown>
-              </Menu>
+            {tabAccess.overview ? (
+              <Tabs.Tab value="overview" leftSection={<IconDashboard size={16} />}>
+                System Setup
+              </Tabs.Tab>
+            ) : null}
+            {tabAccess.activity ? (
+              <Tabs.Tab value="activity" leftSection={<IconActivity size={16} />}>
+                Audit Monitor
+              </Tabs.Tab>
+            ) : null}
+            {tabAccess.integrations ? (
+              <Tabs.Tab value="integrations" leftSection={<IconLink size={16} />}>
+                Integrations
+              </Tabs.Tab>
             ) : null}
           </Tabs.List>
 
@@ -974,7 +961,7 @@ export function AdminWorkspace({
                         description: 'Manage dealer catalog rules.',
                         icon: <IconShield size={16} />,
                         onClick: () => {
-                          window.location.href = '/admin/catalog-rules';
+                          router.push('/admin/catalog-rules');
                         },
                       }] : []),
                       ...(tabAccess.activity ? [{

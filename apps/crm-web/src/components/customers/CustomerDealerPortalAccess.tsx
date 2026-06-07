@@ -10,7 +10,9 @@ import {
   Grid,
   Group,
   Loader,
+  SegmentedControl,
   Select,
+  SimpleGrid,
   Stack,
   Table,
   Text,
@@ -62,6 +64,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewRole, setPreviewRole] = useState<DealerPortalAccessRoleKey>('viewer');
   const [dealerPreview, setDealerPreview] = useState<DealerPortalInternalPreviewResponse | null>(null);
+  const [previewTab, setPreviewTab] = useState<'dashboard' | 'catalog'>('dashboard');
   const [previewErrorMessage, setPreviewErrorMessage] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
@@ -218,6 +221,7 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
     try {
       const response = await fetchDealerPortalInternalPreview(apiBaseUrl, accessToken, account.id, previewRole);
       setDealerPreview(response);
+      setPreviewTab('dashboard');
     } catch (error) {
       setPreviewErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -329,7 +333,79 @@ export function CustomerDealerPortalAccess({ account, onProvisioned }: Props) {
                 account access.
               </Alert>
 
-              <DealerCatalog catalog={dealerPreview.catalog} />
+              <SegmentedControl
+                value={previewTab}
+                onChange={(value) => setPreviewTab(value as 'dashboard' | 'catalog')}
+                data={[
+                  { value: 'dashboard', label: 'Dashboard' },
+                  { value: 'catalog', label: `Catalog (${dealerPreview.visibleProductCount} products, ${dealerPreview.visibleFileCount} files)` },
+                ]}
+              />
+
+              {previewTab === 'dashboard' ? (
+                <Stack gap="md">
+                  <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
+                    <Card withBorder radius="md" p="md">
+                      <Stack gap="xs">
+                        <Title order={5}>Account</Title>
+                        <MetadataRow label="Name" value={dealerPreview.portalAccount.accountDisplayName} />
+                        <MetadataRow label="Account No." value={dealerPreview.portalAccount.accountNumber ?? 'Not assigned'} />
+                        <MetadataRow label="Territory" value={dealerPreview.portalAccount.territoryName ?? 'Not assigned'} />
+                        <MetadataRow label="TM" value={dealerPreview.portalAccount.assignedTmName ?? 'Not assigned'} />
+                        <MetadataRow label="RD" value={dealerPreview.portalAccount.assignedRdName ?? 'Not assigned'} />
+                        <MetadataRow label="Portal users" value={`${dealerPreview.portalAccount.activePortalUsers} active / ${dealerPreview.portalAccount.totalPortalUsers} total`} />
+                      </Stack>
+                    </Card>
+                    <Card withBorder radius="md" p="md">
+                      <Stack gap="xs">
+                        <Group justify="space-between">
+                          <Title order={5}>Contacts</Title>
+                          <Badge variant="light" color={dealerPreview.dashboard.contacts.length ? 'green' : 'yellow'}>
+                            {dealerPreview.dashboard.contacts.length}
+                          </Badge>
+                        </Group>
+                        {dealerPreview.dashboard.contacts.length === 0 ? (
+                          <Text size="sm" c="dimmed">No contacts on file — dealers see degraded portal experience.</Text>
+                        ) : dealerPreview.dashboard.contacts.map((contact) => (
+                          <Stack key={contact.id} gap={2}>
+                            <Text size="sm" fw={600}>{contact.displayName}{contact.isPrimary ? ' · Primary' : ''}</Text>
+                            {contact.title ? <Text size="xs" c="dimmed">{contact.title}</Text> : null}
+                            {contact.email ? <Text size="xs" c="dimmed">{contact.email}</Text> : null}
+                          </Stack>
+                        ))}
+                      </Stack>
+                    </Card>
+                    <Card withBorder radius="md" p="md">
+                      <Stack gap="xs">
+                        <Group justify="space-between">
+                          <Title order={5}>Locations</Title>
+                          <Badge variant="light" color={dealerPreview.dashboard.locations.length ? 'green' : 'yellow'}>
+                            {dealerPreview.dashboard.locations.length}
+                          </Badge>
+                        </Group>
+                        {dealerPreview.dashboard.locations.length === 0 ? (
+                          <Text size="sm" c="dimmed">No locations on file — dealers see degraded portal experience.</Text>
+                        ) : dealerPreview.dashboard.locations.map((location) => (
+                          <Stack key={location.id} gap={2}>
+                            <Text size="sm" fw={600}>{location.name}{location.isPrimary ? ' · Primary' : ''}</Text>
+                            {(location.city || location.state) ? (
+                              <Text size="xs" c="dimmed">{[location.city, location.state].filter(Boolean).join(', ')}</Text>
+                            ) : null}
+                          </Stack>
+                        ))}
+                      </Stack>
+                    </Card>
+                  </SimpleGrid>
+                  {(dealerPreview.dashboard.contacts.length === 0 || dealerPreview.dashboard.locations.length === 0) ? (
+                    <Alert color="yellow" title="Profile gaps visible to dealer">
+                      {dealerPreview.dashboard.contacts.length === 0 ? 'No contacts — the dealer support panel will show "Dynamic AQS support" as fallback. ' : ''}
+                      {dealerPreview.dashboard.locations.length === 0 ? 'No locations — the dealer profile health card will flag this as incomplete.' : ''}
+                    </Alert>
+                  ) : null}
+                </Stack>
+              ) : (
+                <DealerCatalog catalog={dealerPreview.catalog} />
+              )}
 
               <WorkbenchAdvancedSection
                 title="Support diagnostics"

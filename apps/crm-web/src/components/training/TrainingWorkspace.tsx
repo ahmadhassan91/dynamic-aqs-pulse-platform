@@ -467,6 +467,7 @@ export function TrainingWorkspace() {
     accountId: string;
     accountName: string;
     existingSession?: TrainingSessionSummary | null;
+    mode?: 'schedule' | 'offline';
   } | null>(null);
   const [executionSession, setExecutionSession] = useState<TrainingSessionSummary | null>(null);
   const [pendingDecisionException, setPendingDecisionException] = useState<TrainingOperationalExceptionQueueItem | null>(null);
@@ -902,6 +903,15 @@ export function TrainingWorkspace() {
                                     accountId: account.accountId,
                                     accountName: account.accountName,
                                   }),
+                                }, {
+                                  id: 'log-past-session',
+                                  label: 'Log past session',
+                                  icon: <IconClockEdit size={14} />,
+                                  onClick: () => setSchedulerContext({
+                                    accountId: account.accountId,
+                                    accountName: account.accountName,
+                                    mode: 'offline',
+                                  }),
                                 }] : []),
                               ]}
                             />
@@ -1147,6 +1157,11 @@ export function TrainingWorkspace() {
                             label: 'Schedule recertification',
                             icon: <IconCalendarPlus size={14} />,
                             onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName }),
+                          }, {
+                            id: 'log-past-recert',
+                            label: 'Log past session',
+                            icon: <IconClockEdit size={14} />,
+                            onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName, mode: 'offline' }),
                           }],
                         } : {})}
                         emptyState={(
@@ -1318,6 +1333,11 @@ export function TrainingWorkspace() {
                             label: 'Schedule training',
                             icon: <IconCalendarPlus size={14} />,
                             onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName }),
+                          }, {
+                            id: 'log-past-training',
+                            label: 'Log past session',
+                            icon: <IconClockEdit size={14} />,
+                            onClick: () => setSchedulerContext({ accountId: item.accountId, accountName: item.accountName, mode: 'offline' }),
                           }],
                         } : {})}
                         emptyState={(
@@ -1775,7 +1795,12 @@ export function TrainingWorkspace() {
           catalog={catalog}
           trainers={trainers}
           existingSession={schedulerContext.existingSession ?? null}
+          mode={schedulerContext.mode ?? 'schedule'}
           onSaved={loadWorkspace}
+          onCreated={(session) => {
+            setSchedulerContext(null);
+            setExecutionSession(session);
+          }}
         />
       ) : null}
 

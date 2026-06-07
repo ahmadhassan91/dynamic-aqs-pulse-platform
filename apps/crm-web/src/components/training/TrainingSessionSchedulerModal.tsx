@@ -50,7 +50,9 @@ export function TrainingSessionSchedulerModal({
   trainers,
   existingSession,
   programOptions = [],
+  mode = 'schedule',
   onSaved,
+  onCreated,
 }: {
   opened: boolean;
   onClose: () => void;
@@ -62,7 +64,9 @@ export function TrainingSessionSchedulerModal({
   trainers: TrainingTrainerSummary[];
   existingSession?: TrainingSessionSummary | null;
   programOptions?: AccountTrainingProgramSummary[];
+  mode?: 'schedule' | 'offline';
   onSaved: () => Promise<void> | void;
+  onCreated?: (session: TrainingSessionSummary) => void;
 }) {
   const [activityKind, setActivityKind] = useState<TrainingActivityKindKey>('training');
   const [trainingTypeId, setTrainingTypeId] = useState('');
@@ -89,7 +93,13 @@ export function TrainingSessionSchedulerModal({
     setProgramId(existingSession?.programId ?? '');
     setTrainerUserId(existingSession?.trainerUserId ?? '');
     setTitle(existingSession?.title ?? '');
-    setScheduledAt(toLocalDateTimeInput(existingSession?.scheduledAt));
+    if (mode === 'offline' && !existingSession) {
+      const now = new Date();
+      const offsetMs = now.getTimezoneOffset() * 60_000;
+      setScheduledAt(new Date(now.getTime() - offsetMs).toISOString().slice(0, 16));
+    } else {
+      setScheduledAt(toLocalDateTimeInput(existingSession?.scheduledAt));
+    }
     setDurationMinutes(existingSession?.durationMinutes ?? 60);
     setAttendeeCount(existingSession?.attendeeCount ?? 0);
     setNotes(existingSession?.notes ?? '');
@@ -164,7 +174,7 @@ export function TrainingSessionSchedulerModal({
           message: `${title.trim()} was updated for ${accountName}.`,
         });
       } else {
-        await createTrainingSessionRecord(apiBaseUrl, accessToken, accountId, {
+        const createdSession = await createTrainingSessionRecord(apiBaseUrl, accessToken, accountId, {
           ...(programId ? { programId } : {}),
           ...(trainingTypeId ? { trainingTypeId } : {}),
           trainerUserId,
@@ -177,9 +187,12 @@ export function TrainingSessionSchedulerModal({
         });
         notifications.show({
           color: 'green',
-          title: 'Session scheduled',
-          message: `${title.trim()} was scheduled for ${accountName}.`,
+          title: mode === 'offline' ? 'Session logged' : 'Session scheduled',
+          message: mode === 'offline'
+            ? `${title.trim()} was recorded for ${accountName}. Open the execution panel to mark it complete.`
+            : `${title.trim()} was scheduled for ${accountName}.`,
         });
+        onCreated?.(createdSession);
       }
 
       await onSaved();
@@ -201,11 +214,19 @@ export function TrainingSessionSchedulerModal({
       onClose={onClose}
       size="lg"
       centered
-      title={existingSession ? `Reschedule Session for ${accountName}` : `Schedule Training for ${accountName}`}
+      title={
+        existingSession
+          ? `Reschedule Session for ${accountName}`
+          : mode === 'offline'
+            ? `Log Past Training Session for ${accountName}`
+            : `Schedule Training for ${accountName}`
+      }
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Schedule or reschedule account training from the same place the team reviews training history.
+          {mode === 'offline'
+            ? 'Record a training session that already happened. Set the date/time to when it actually occurred, then complete the execution record immediately after.'
+            : 'Schedule or reschedule account training from the same place the team reviews training history.'}
         </Text>
 
         {!existingSession ? (
@@ -265,7 +286,7 @@ export function TrainingSessionSchedulerModal({
           </Grid.Col>
           <Grid.Col span={6}>
             <TextInput
-              label="Scheduled for"
+              label={existingSession ? 'Rescheduled for' : mode === 'offline' ? 'Session occurred at' : 'Scheduled for'}
               type="datetime-local"
               value={scheduledAt}
               onChange={(event) => setScheduledAt(event.currentTarget.value)}
@@ -308,7 +329,7 @@ export function TrainingSessionSchedulerModal({
         />
 
         <Button onClick={() => void handleSubmit()} loading={isSaving} disabled={!canSubmit}>
-          {existingSession ? 'Save Session Changes' : 'Schedule Session'}
+          {existingSession ? 'Save Session Changes' : mode === 'offline' ? 'Log Past Session' : 'Schedule Session'}
         </Button>
       </Stack>
     </Modal>

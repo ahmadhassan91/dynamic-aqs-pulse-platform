@@ -802,14 +802,6 @@ export function DigitalAssetsWorkspace() {
         onClick: openCreateShareSet,
       }]
       : []),
-    ...(activeTab !== 'delivery-health'
-      ? [{
-        id: 'delivery-health',
-        label: 'Needs Attention',
-        icon: <IconAlertTriangle size={16} />,
-        onClick: () => goToAssetTab('delivery-health'),
-      }]
-      : []),
     ...(canSyncAssets && activeTab === 'migration'
       ? [{
         id: 'load-import-runs',
@@ -818,12 +810,7 @@ export function DigitalAssetsWorkspace() {
         disabled: isLoadingRuns,
         onClick: handleLoadImportRuns,
       }]
-      : canSyncAssets ? [{
-        id: 'migration-review',
-        label: 'Migration Review',
-        icon: <IconHistory size={16} />,
-        onClick: () => goToAssetTab('migration'),
-      }] : []),
+      : []),
   ];
 
   return (
@@ -850,6 +837,8 @@ export function DigitalAssetsWorkspace() {
         <Tabs.List>
           <Tabs.Tab value="library" leftSection={<IconPhoto size={16} />}>Library</Tabs.Tab>
           <Tabs.Tab value="collections">Share Sets</Tabs.Tab>
+          <Tabs.Tab value="delivery-health">Delivery Health</Tabs.Tab>
+          {canSyncAssets ? <Tabs.Tab value="migration">Migration</Tabs.Tab> : null}
         </Tabs.List>
 
         <Tabs.Panel value="library" pt="md">

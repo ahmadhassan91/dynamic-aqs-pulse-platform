@@ -21,6 +21,7 @@ export function CustomerList() {
   const [lifecycleFilter, setLifecycleFilter] = useState<AccountLifecycleStatusKey | ''>('');
   const [viewMode, setViewMode] = useState<'follow_up' | 'all'>('follow_up');
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [totalAccounts, setTotalAccounts] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -40,10 +41,11 @@ export function CustomerList() {
           const response = await fetchAccounts(apiBaseUrl, auth.tokens.accessToken, {
             ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
             ...(lifecycleFilter ? { lifecycleStatus: lifecycleFilter } : {}),
-            limit: 50,
+            limit: 200,
           });
           if (!cancelled) {
             setAccounts(response.items);
+            setTotalAccounts(response.total ?? response.items.length);
           }
         } catch (error) {
           if (!cancelled) {
@@ -154,7 +156,7 @@ export function CustomerList() {
       ) : viewMode === 'follow_up' ? (
         <AccountFollowUpQueue accounts={attentionAccounts} totalAttention={attentionAccounts.length} />
       ) : (
-        <AccountDirectoryTable accounts={accounts} />
+        <AccountDirectoryTable accounts={accounts} total={totalAccounts} />
       )}
 
       {viewMode === 'all' ? (
@@ -268,7 +270,9 @@ function AccountFollowUpQueue({
   );
 }
 
-function AccountDirectoryTable({ accounts }: { accounts: AccountSummary[] }) {
+function AccountDirectoryTable({ accounts, total }: { accounts: AccountSummary[]; total: number }) {
+  const isCapped = total > accounts.length;
+
   return (
     <Stack gap="sm">
       <Group justify="space-between" align="center">
@@ -276,7 +280,7 @@ function AccountDirectoryTable({ accounts }: { accounts: AccountSummary[] }) {
           <Text fw={800}>All accounts</Text>
           <Text size="sm" c="dimmed">Open a profile for contacts, locations, source lead, training, portal, and financial context.</Text>
         </Stack>
-        <Badge variant="light" color="blue">{accounts.length}</Badge>
+        <Badge variant="light" color="blue">{isCapped ? `${accounts.length} of ${total}` : accounts.length}</Badge>
       </Group>
       <WorkbenchTable
         rows={accounts}
@@ -348,6 +352,11 @@ function AccountDirectoryTable({ accounts }: { accounts: AccountSummary[] }) {
           },
         ]}
       />
+      {isCapped ? (
+        <Text size="xs" c="dimmed" ta="right">
+          Showing {accounts.length} of {total} accounts — use search or lifecycle filter to narrow.
+        </Text>
+      ) : null}
     </Stack>
   );
 }

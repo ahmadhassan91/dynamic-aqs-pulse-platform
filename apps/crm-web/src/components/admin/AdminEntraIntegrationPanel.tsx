@@ -1,18 +1,24 @@
 'use client';
 
+import { useState } from 'react';
 import {
+  ActionIcon,
   Alert,
   Badge,
+  Button,
   Card,
   Group,
+  Select,
   SimpleGrid,
   Stack,
   Switch,
   Table,
   TagsInput,
   Text,
+  TextInput,
   Title,
 } from '@mantine/core';
+import { IconPlus, IconTrash } from '@tabler/icons-react';
 import type {
   AdminIntegrationStatusResponse,
   AdminMicrosoftEntraIntegrationSettingsResponse,
@@ -35,31 +41,6 @@ function formatRoleLabel(role: AuthRole) {
   return role.replace(/_/g, ' ');
 }
 
-function toMappingTags(settings: AdminMicrosoftEntraIntegrationSettingsResponse | null) {
-  return (settings?.policy.groupRoleMappings ?? []).map((entry) => `${entry.groupId}=${entry.role}`);
-}
-
-function fromMappingTags(values: string[]) {
-  const mappings = values.flatMap((value) => {
-    const [groupId, role] = value.split('=').map((entry) => entry?.trim());
-    if (!groupId || !role || !ROLE_OPTIONS.includes(role as AuthRole)) {
-      return [];
-    }
-
-    return [{
-      groupId,
-      role: role as AuthRole,
-    }];
-  });
-
-  const deduped = new Map<string, { groupId: string; role: AuthRole }>();
-  for (const entry of mappings) {
-    deduped.set(entry.groupId.toLowerCase(), entry);
-  }
-
-  return [...deduped.values()];
-}
-
 export function AdminEntraIntegrationPanel({
   settings,
   statuses,
@@ -80,6 +61,8 @@ export function AdminEntraIntegrationPanel({
 }) {
   const authStatuses = (statuses?.integrations ?? []).filter((entry) => entry.key === 'microsoft-entra-auth');
   const policy = settings?.policy;
+  const [newGroupId, setNewGroupId] = useState('');
+  const [newRole, setNewRole] = useState<AuthRole | ''>('');
 
   return (
     <Stack gap="md">
@@ -176,45 +159,129 @@ export function AdminEntraIntegrationPanel({
             />
           </SimpleGrid>
 
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <TagsInput
-              label="Allowed email domains"
-              description="Leave blank for no domain restriction. Example: dynamicaqs.com"
-              value={policy?.allowedDomains ?? []}
-              disabled={!canManage || !settings}
-              onChange={(value) => {
-                if (!policy) {
-                  return;
-                }
+          <TagsInput
+            label="Allowed email domains"
+            description="Leave blank for no domain restriction. Example: dynamicaqs.com"
+            value={policy?.allowedDomains ?? []}
+            disabled={!canManage || !settings}
+            onChange={(value) => {
+              if (!policy) {
+                return;
+              }
 
-                void onSave({
-                  allowEmailLinking: policy.allowEmailLinking,
-                  autoProvisionFromGroups: policy.autoProvisionFromGroups,
-                  allowedDomains: value,
-                  groupRoleMappings: policy.groupRoleMappings,
-                });
-              }}
-            />
+              void onSave({
+                allowEmailLinking: policy.allowEmailLinking,
+                autoProvisionFromGroups: policy.autoProvisionFromGroups,
+                allowedDomains: value,
+                groupRoleMappings: policy.groupRoleMappings,
+              });
+            }}
+          />
 
-            <TagsInput
-              label="Stored group-role mappings"
-              description="Use groupId=ROLE, for example: 11111111-2222-3333-4444-555555555555=SUPER_ADMIN"
-              value={toMappingTags(settings)}
-              disabled={!canManage || !settings}
-              onChange={(value) => {
-                if (!policy) {
-                  return;
-                }
+          <Stack gap="sm">
+            <div>
+              <Text size="sm" fw={500}>Group-role mappings</Text>
+              <Text size="xs" c="dimmed">
+                Map each Microsoft Entra group ID to a Pulse internal role. Each entry takes effect immediately on save.
+              </Text>
+            </div>
 
-                void onSave({
-                  allowEmailLinking: policy.allowEmailLinking,
-                  autoProvisionFromGroups: policy.autoProvisionFromGroups,
-                  allowedDomains: policy.allowedDomains,
-                  groupRoleMappings: fromMappingTags(value),
-                });
-              }}
-            />
-          </SimpleGrid>
+            {(policy?.groupRoleMappings.length ?? 0) > 0 ? (
+              <Table withColumnBorders withTableBorder>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Group ID</Table.Th>
+                    <Table.Th>Role</Table.Th>
+                    <Table.Th w={52}></Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {policy?.groupRoleMappings.map((entry) => (
+                    <Table.Tr key={`${entry.groupId}-${entry.role}`}>
+                      <Table.Td>
+                        <Text ff="monospace" size="sm">{entry.groupId}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{formatRoleLabel(entry.role)}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <ActionIcon
+                          size="sm"
+                          color="red"
+                          variant="subtle"
+                          disabled={!canManage || !policy}
+                          aria-label={`Remove mapping for ${entry.groupId}`}
+                          onClick={() => {
+                            if (!policy) {
+                              return;
+                            }
+
+                            void onSave({
+                              allowEmailLinking: policy.allowEmailLinking,
+                              autoProvisionFromGroups: policy.autoProvisionFromGroups,
+                              allowedDomains: policy.allowedDomains,
+                              groupRoleMappings: policy.groupRoleMappings.filter(
+                                (m) => !(m.groupId === entry.groupId && m.role === entry.role),
+                              ),
+                            });
+                          }}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            ) : (
+              <Text size="sm" c="dimmed">No admin-managed group mappings yet.</Text>
+            )}
+
+            {canManage && settings ? (
+              <Group align="flex-end" gap="xs">
+                <TextInput
+                  label="Group ID"
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  value={newGroupId}
+                  onChange={(event) => setNewGroupId(event.currentTarget.value)}
+                  style={{ flex: 2 }}
+                  styles={{ input: { fontFamily: 'monospace' } }}
+                />
+                <Select
+                  label="Role"
+                  placeholder="Select role"
+                  data={ROLE_OPTIONS.map((role) => ({ value: role, label: formatRoleLabel(role) }))}
+                  value={newRole || null}
+                  onChange={(value) => setNewRole((value as AuthRole | null) ?? '')}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  leftSection={<IconPlus size={14} />}
+                  disabled={!newGroupId.trim() || !newRole || !policy || isSaving}
+                  onClick={() => {
+                    if (!newGroupId.trim() || !newRole || !policy) {
+                      return;
+                    }
+
+                    const deduped = new Map(
+                      policy.groupRoleMappings.map((m) => [m.groupId.toLowerCase(), m]),
+                    );
+                    deduped.set(newGroupId.trim().toLowerCase(), { groupId: newGroupId.trim(), role: newRole });
+                    void onSave({
+                      allowEmailLinking: policy.allowEmailLinking,
+                      autoProvisionFromGroups: policy.autoProvisionFromGroups,
+                      allowedDomains: policy.allowedDomains,
+                      groupRoleMappings: [...deduped.values()],
+                    });
+                    setNewGroupId('');
+                    setNewRole('');
+                  }}
+                >
+                  Add mapping
+                </Button>
+              </Group>
+            ) : null}
+          </Stack>
 
           {!canManage ? (
             <Alert color="blue">

@@ -633,6 +633,73 @@ export async function markConsignmentPoReceived(actor: AuthenticatedActor, discr
         metadata: { acumaticaPoPosting: 'manual_reference_only' },
       }),
     });
+
+    // FR-CSG-031 / FR-CSG-033: when this PO closes the LAST PO-required
+    // discrepancy for the audit, the audit cycle is fully resolved.
+    // Recalculate the site baseline and schedule the next ROSE +90 days.
+    // Skip when:
+    //   - the discrepancy is not linked to an audit (manual/PURPLE flows);
+    //   - there are other still-open PO_REQUIRED discrepancies for the audit;
+    //   - or the site has already moved past active (e.g. exited).
+    if (discrepancy.auditId) {
+      const remainingPoRequired = await tx.consignmentDiscrepancyCase.count({
+        where: {
+          auditId: discrepancy.auditId,
+          id: { not: discrepancy.id },
+          OR: [
+            { status: ConsignmentDiscrepancyStatus.PO_REQUIRED },
+            { poFollowUpStatus: ConsignmentPoFollowUpStatus.REQUIRED },
+            { poFollowUpStatus: ConsignmentPoFollowUpStatus.ESCALATED },
+          ],
+        },
+      });
+
+      if (remainingPoRequired === 0) {
+        await tx.consignmentAudit.update({
+          where: { id: discrepancy.auditId },
+          data: { reconciliationStatus: ConsignmentReconciliationStatus.RESOLVED },
+        });
+        const site = await tx.consignmentSite.findUnique({
+          where: { id: discrepancy.siteId },
+          select: {
+            id: true,
+            status: true,
+            baselineEstablishedAt: true,
+            nextAuditDueAt: true,
+          },
+        });
+        if (site && site.status !== ConsignmentSiteStatus.EXITED) {
+          const updatedSite = await tx.consignmentSite.update({
+            where: { id: site.id },
+            data: {
+              baselineEstablishedAt: receivedAt,
+              nextAuditDueAt: calculateNextRoseAuditDueDate(receivedAt),
+            },
+          });
+          await tx.auditEntry.create({
+            data: buildAuditEntryData({
+              actorUserId: actor.userId,
+              action: AuditAction.UPDATE,
+              entityType: 'CONSIGNMENT_SITE',
+              entityId: site.id,
+              beforeData: {
+                baselineEstablishedAt: site.baselineEstablishedAt,
+                nextAuditDueAt: site.nextAuditDueAt,
+              },
+              afterData: {
+                baselineEstablishedAt: updatedSite.baselineEstablishedAt,
+                nextAuditDueAt: updatedSite.nextAuditDueAt,
+              },
+              metadata: {
+                trigger: 'po_received_baseline_recalc',
+                auditId: discrepancy.auditId,
+                discrepancyId: discrepancy.id,
+              },
+            }),
+          });
+        }
+      }
+    }
   });
 
   return (await getConsignmentSiteDetail(actor, discrepancy.siteId))!;

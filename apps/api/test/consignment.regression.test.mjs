@@ -875,6 +875,110 @@ test('PO received and write-off true-up close consignment discrepancy workflows'
   assert.equal(writeOff.site.discrepancyCases[0].poFollowUpStatus, 'waived');
 });
 
+// FR-CSG-031 / FR-CSG-033: when the LAST PO-required discrepancy of an audit is
+// marked received, the site baseline must move to that received date and the
+// next ROSE must be scheduled +90 days from it. The audit's reconciliation
+// status must move to RESOLVED. Multi-discrepancy audits must NOT recalc the
+// baseline until every PO-required item is closed.
+test('PO received recalculates baseline and schedules next ROSE when audit fully resolved', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('baseline-recalc');
+
+  // Single-discrepancy audit: marking PO received must move the baseline.
+  const singleSite = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Single discrepancy site',
+  });
+  const singleAudit = await service.createConsignmentAudit(actor, singleSite.id, {
+    scheduledFor: '2026-09-01T10:00:00.000Z',
+  });
+  await service.updateConsignmentAudit(actor, singleAudit.id, {
+    status: 'completed',
+    completedAt: '2026-09-01T18:00:00.000Z',
+    lines: [{ sku: 'BL-1', productName: 'Baseline item', expectedQuantity: 5, actualQuantity: 3 }],
+  });
+  const singleTrueUp = await service.confirmConsignmentTrueUp(actor, singleAudit.id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-09-02T12:00:00.000Z',
+    reasonCode: 'confirmed_consumed',
+    externalPoRef: 'PO-BL-1',
+  });
+  const singlePoCase = singleTrueUp.site.discrepancyCases[0];
+
+  const baselineBefore = singleTrueUp.site.baselineEstablishedAt;
+  const nextDueBefore = singleTrueUp.site.nextAuditDueAt;
+
+  const received = await service.markConsignmentPoReceived(actor, singlePoCase.id, {
+    receivedAt: '2026-09-05T12:00:00.000Z',
+    externalPoRef: 'PO-BL-1',
+  });
+
+  assert.equal(received.audits[0].reconciliationStatus, 'resolved');
+  assert.notEqual(received.baselineEstablishedAt, baselineBefore);
+  assert.equal(received.baselineEstablishedAt, '2026-09-05T12:00:00.000Z');
+  const expectedNextDue = new Date('2026-09-05T12:00:00.000Z');
+  expectedNextDue.setUTCDate(expectedNextDue.getUTCDate() + 90);
+  assert.equal(received.nextAuditDueAt, expectedNextDue.toISOString());
+  assert.notEqual(received.nextAuditDueAt, nextDueBefore);
+
+  // Multi-discrepancy audit: closing one of two PO-required items must NOT
+  // recalc the baseline yet. Only the second close should.
+  const multiSite = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Multi discrepancy site',
+  });
+  const multiAudit = await service.createConsignmentAudit(actor, multiSite.id, {
+    scheduledFor: '2026-09-10T10:00:00.000Z',
+  });
+  await service.updateConsignmentAudit(actor, multiAudit.id, {
+    status: 'completed',
+    completedAt: '2026-09-10T18:00:00.000Z',
+    lines: [
+      { sku: 'MD-1', productName: 'Multi item 1', expectedQuantity: 4, actualQuantity: 2 },
+      { sku: 'MD-2', productName: 'Multi item 2', expectedQuantity: 6, actualQuantity: 1 },
+    ],
+  });
+  // Use the multi-line discrepancy form to create two PO_REQUIRED cases.
+  const multiTrueUp = await service.confirmConsignmentTrueUp(actor, multiAudit.id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-09-11T12:00:00.000Z',
+    reasonCode: 'confirmed_consumed',
+    externalPoRef: 'PO-MD-ALL',
+  });
+  // The true-up produces a single aggregated discrepancy by current contract.
+  // For the multi-discrepancy assertion, manually add a second PO_REQUIRED case
+  // on the same audit and confirm the baseline does NOT move when only one is closed.
+  const { prisma: prismaModule } = await import('@pulse/db');
+  await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: multiSite.id,
+      auditId: multiAudit.id,
+      status: 'PO_REQUIRED',
+      poFollowUpStatus: 'REQUIRED',
+      sku: 'MD-2',
+      productName: 'Multi item 2',
+      quantity: 5,
+      notes: 'Second PO-required case for multi-discrepancy test.',
+    },
+  });
+
+  const baselineBeforeMulti = multiTrueUp.site.baselineEstablishedAt;
+  const nextDueBeforeMulti = multiTrueUp.site.nextAuditDueAt;
+  const firstCase = multiTrueUp.site.discrepancyCases[0];
+
+  const partial = await service.markConsignmentPoReceived(actor, firstCase.id, {
+    receivedAt: '2026-09-13T12:00:00.000Z',
+    externalPoRef: 'PO-MD-1',
+  });
+  // Closing only one of two leaves baseline and next-due unchanged.
+  assert.equal(partial.baselineEstablishedAt, baselineBeforeMulti);
+  assert.equal(partial.nextAuditDueAt, nextDueBeforeMulti);
+  // The audit should NOT be marked resolved while a PO_REQUIRED case remains.
+  assert.notEqual(partial.audits[0].reconciliationStatus, 'resolved');
+});
+
 test('HTTP includeExited query returns exited consignment sites', SERIAL, async () => {
   const auth = await createAdminAuth();
   const actor = await createAdminActor();

@@ -1659,6 +1659,7 @@ function AssetDetailPanel({
 
       {currentUrl && (asset.kind === 'image' || asset.currentVersion?.mimeType?.startsWith('image/')) ? (
         <Paper withBorder p={0} style={{ overflow: 'hidden', borderRadius: 8 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={currentUrl}
             alt={asset.title}

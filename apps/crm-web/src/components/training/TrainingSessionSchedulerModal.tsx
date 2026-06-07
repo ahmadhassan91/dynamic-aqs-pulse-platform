@@ -103,7 +103,7 @@ export function TrainingSessionSchedulerModal({
     setDurationMinutes(existingSession?.durationMinutes ?? 60);
     setAttendeeCount(existingSession?.attendeeCount ?? 0);
     setNotes(existingSession?.notes ?? '');
-  }, [existingSession, opened, programOptions]);
+  }, [existingSession, mode, opened, programOptions]);
 
   const trainingTypeOptions = useMemo(
     () => (catalog?.trainingTypes ?? []).map((entry) => ({

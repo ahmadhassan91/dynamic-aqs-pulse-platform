@@ -168,6 +168,218 @@ flowchart TD
 
 ---
 
+## 4A. End-to-End Workflow Reference Architecture (Pulse ↔ Acumatica)
+
+This section is the authoritative reference for how a consignment site moves through its full life across both systems. Section 4 covers the ROSE loop in detail; this section places that loop inside the five lifecycle phases and names every cross-system boundary.
+
+### 4A.1 System ownership in one line each
+
+- **Pulse is the workflow + evidence + people system.** Owns: enrollment funnel, agreements, signed forms, ROSE 90-day cadence, mobile field execution, discrepancy cases, the 5-business-day PO clock, shared-mailbox work queue, audit history, dashboards.
+- **Acumatica is the warehouse + financial truth system.** Owns: warehouse creation, transfer orders, transfer receipts, inventory on-hand balance, PO/sales-order posting, invoice/credit-memo posting, financial settlement.
+
+Pulse never invents a `warehouseCode`, never posts a PO, never adjusts inventory truth. Acumatica never schedules ROSE audits, never holds field photos/signatures, never owns the 5-day clock.
+
+### 4A.2 The five lifecycle phases
+
+| Phase | What happens | Pulse role | Acumatica role |
+| --- | --- | --- | --- |
+| **1. Enrollment** | Lead → interested → qualified → approved | Owns funnel + approval workflow + agreement | None |
+| **2. Setup (BLUE)** | Agreement signed → warehouse created → initial transfer → receipt → BLUE baseline verified | Owns onboarding checklist, BLUE form, readiness, evidence | Owns warehouse creation, TR transfer, receipt posting |
+| **3. Active ROSE cycle** | 90-day audits forever; each audit triggers a PO clock | Owns scheduling, mobile execution, photos, attestation, true-up review, PO clock, escalations, discrepancy cases | Receives PO when reconciliation resolves; provides inventory read model |
+| **4. PURPLE adjustments (event-driven)** | Approved baseline change (adds/removes) | Owns the PURPLE form + reviewer approval | Posts the inventory adjustment after Pulse approves |
+| **5. Exit (SAND)** | Notice → final reconciliation → final PO → returns → close | Owns exit form, joint final audit, closure evidence | Posts final PO, receives returned stock, posts credit-memo, closes warehouse |
+
+### 4A.3 End-to-end diagram
+
+```mermaid
+flowchart TB
+  classDef pulse fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px,color:#0b1733
+  classDef acumatica fill:#fee2e2,stroke:#b91c1c,stroke-width:1px,color:#3f0a0a
+  classDef gate fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#3b1d05
+  classDef end_ fill:#dcfce7,stroke:#15803d,stroke-width:1px,color:#052e16
+
+  subgraph P1["PHASE 1 — Enrollment (Pulse owns)"]
+    direction TB
+    L1["Lead/Account flagged<br/>consignmentInterestStatus = interested"]:::pulse
+    L2["TM qualifies → recommends<br/>(qualification_review)"]:::pulse
+    L3["Sales Leadership approves<br/>(approved)"]:::pulse
+    L4["Pulse generates agreement<br/>ConsignmentForm.AGREEMENT (draft)"]:::pulse
+    L5["Agreement sent → signed<br/>(awaiting_signature → completed)"]:::pulse
+  end
+  L1 --> L2 --> L3 --> L4 --> L5
+
+  G1{{"GATE 1<br/>Signed agreement required<br/>before warehouse creation"}}:::gate
+  L5 --> G1
+
+  subgraph P2["PHASE 2 — Setup &amp; BLUE baseline"]
+    direction TB
+    S1["Pulse creates ConsignmentSite<br/>status=onboarding_in_progress<br/>acumaticaStatus=PARKED"]:::pulse
+    S2["Pulse opens onboarding checklist<br/>(13 items)"]:::pulse
+    A1["Acumatica: create warehouse<br/>+ assign warehouse ID"]:::acumatica
+    A2["Acumatica: create initial<br/>TR transfer order"]:::acumatica
+    A3["Acumatica: post transfer<br/>receipt at customer site"]:::acumatica
+    S3["Pulse syncs warehouseCode +<br/>acumaticaWarehouseId<br/>acumaticaStatus=READY"]:::pulse
+    S4["Pulse sends BLUE form<br/>to customer (mobile/email)"]:::pulse
+    S5["Customer confirms receipt<br/>BLUE signed (TM + customer)"]:::pulse
+    S6["Pulse sets<br/>baselineEstablishedAt = NOW<br/>status = active<br/>nextAuditDueAt = NOW + 90d"]:::pulse
+  end
+  G1 --> S1 --> S2 --> A1
+  A1 --> A2 --> A3 --> S3 --> S4 --> S5 --> S6
+
+  subgraph P3["PHASE 3 — ROSE 90-day cycle (recurring)"]
+    direction TB
+    R0["Pulse scheduler:<br/>T-14d, T-7d, T-0 alerts<br/>to TM + RD"]:::pulse
+    R1["TM (mobile) Step 1: Review<br/>expected inventory from<br/>last baseline + receipts − POs"]:::pulse
+    R2["TM Step 2-3: Observe + Scan<br/>barcodes / manual count<br/>+ photos (offline-capable)"]:::pulse
+    R3["Pulse Step 4: Evaluate<br/>counted vs expected →<br/>PRESENT / CONSUMED / MISSING / OVERAGE"]:::pulse
+    R4["TM Step 5-6: Exceptions + Report<br/>discrepancy cases auto-created<br/>+ TM digital attestation"]:::pulse
+    R5["Back-office true-up review<br/>(shared-mailbox work queue)"]:::pulse
+    R6["Pulse starts 5-business-day PO clock<br/>poClockStart=true_up_confirmed<br/>poDueAt = +5 biz days"]:::pulse
+    R7["Pulse alerts: clock start,<br/>T-3, T-1, OVERDUE"]:::pulse
+  end
+
+  S6 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7
+
+  PO_GATE{{"PO received in 5 days?"}}:::gate
+  R7 --> PO_GATE
+
+  PO_YES["Ops/mailbox confirms<br/>PO received"]:::pulse
+  PO_NO["Day+5: TM+RD escalation<br/>Day+10: Sales Leadership"]:::pulse
+  PO_GATE -- "yes" --> PO_YES
+  PO_GATE -- "no" --> PO_NO
+
+  A4["Acumatica: PO posted<br/>(create or link)"]:::acumatica
+  A5["Acumatica: inventory baseline<br/>updated in ERP"]:::acumatica
+  PO_YES --> A4 --> A5
+
+  REC["Pulse: update<br/>baselineEstablishedAt<br/>+ schedule next ROSE +90d"]:::pulse
+  A5 --> REC
+  PO_NO --> R5
+
+  REC -->|"loop back"| R0
+
+  subgraph P4["PHASE 4 — PURPLE adjustment (event-driven)"]
+    direction TB
+    PU1["Approved baseline change<br/>requested (add/remove SKUs)"]:::pulse
+    PU2["Pulse PURPLE form<br/>+ reviewer approval"]:::pulse
+    PU3["Acumatica posts<br/>inventory adjustment"]:::acumatica
+    PU4["Pulse updates<br/>baselineEstablishedAt"]:::pulse
+  end
+  REC -.->|"out-of-cycle change"| PU1 --> PU2 --> PU3 --> PU4 -.-> R0
+
+  subgraph P5["PHASE 5 — Exit (SAND)"]
+    direction TB
+    X1["Written notice received<br/>status = exit_pending"]:::pulse
+    X2["Joint final reconciliation<br/>(TM + customer)"]:::pulse
+    X3["Final PO for consumed/missing"]:::pulse
+    X4["Returns of saleable stock"]:::acumatica
+    X5["Acumatica final settlement<br/>+ credit memo + close warehouse"]:::acumatica
+    X6["Pulse: status=closed<br/>exitedAt=NOW"]:::end_
+  end
+  REC -.->|"customer requests exit"| X1 --> X2 --> X3 --> X4 --> X5 --> X6
+```
+
+### 4A.4 Step-by-step walkthrough (numbered)
+
+**Phase 1 — Enrollment (Pulse only)**
+
+1. Lead/account flagged consignment-interested (`Account.consignmentInterestStatus = interested`).
+2. TM qualifies (location fit, volume, term) and writes a recommendation.
+3. Sales Leadership reviews and approves — gate before any agreement is sent.
+4. Pulse generates the agreement (`ConsignmentForm.formType = AGREEMENT`, status `draft`).
+5. Customer signs. Status moves `draft → sent → awaiting_signature → completed`. E-sign provider is parked; manual upload of countersigned PDF for now.
+
+> **Gate 1 (FR-CSG-005)** — `acumaticaStatus` cannot leave `PARKED` until the agreement form is `completed`.
+
+**Phase 2 — Setup / BLUE baseline**
+
+6. Pulse creates `ConsignmentSite` linked to `Account` + `AccountLocation`. Initial: `status = onboarding_in_progress`, `acumaticaStatus = PARKED`, `baselineEstablishedAt = null`.
+7. Pulse opens the 13-item onboarding checklist (location criteria, signed agreement on file, Acumatica warehouse created, warehouse details entered, customer consignment flag, Warehouse Visit Tracking record, Inventory Master generated, mailbox workflow assigned, initial stock shipped, BLUE returned, training/communication complete, go-live approved).
+8. **Acumatica creates the warehouse** and assigns a warehouse ID. `acumaticaStatus` moves `PARKED → PENDING → READY`. `acumaticaWarehouseId` populated in Pulse.
+9. **Acumatica creates the TR transfer order** for the initial stock.
+10. **Acumatica posts the transfer receipt** at the customer site.
+11. Pulse sends the BLUE form to the customer (mobile/email). TM walks the customer through receipt verification.
+12. BLUE completed — TM and customer both sign. `ConsignmentForm.formType = BLUE` status `completed`.
+13. Pulse stamps `baselineEstablishedAt = NOW`, sets `status = active`, schedules the first ROSE: `nextAuditDueAt = NOW + 90 days`.
+
+**Phase 3 — Active ROSE 90-day cycle**
+
+14. **Pulse scheduler fires** T-14d, T-7d, T-0 alerts to TM + RD (**FR-CSG-012 — not wired today; see 4A.5**).
+15. TM opens mobile app and runs the 7-step ROSE flow:
+    - Step 1 Review: expected = `lastBaseline + additionsAfterLastAudit - knownPOs`
+    - Step 2 Observe: photos of storage conditions
+    - Step 3 Scan: barcode or manual count, offline-capable
+    - Step 4 Evaluate: Pulse compares counted vs expected → `PRESENT / CONSUMED / MISSING / OVERAGE`
+    - Step 5 Exceptions: any non-`PRESENT` auto-opens a `ConsignmentDiscrepancyCase`; TM attaches photos + notes
+    - Step 6 Report: Pulse generates `ConsignmentAudit` + `ConsignmentAuditLine[]` + `ConsignmentAuditEvidence[]`
+    - Step 7 Attest: TM digital attestation; customer signature optional unless program variant requires it
+16. Back-office true-up review (Ops/mailbox queue). When confirmed, `trueUpConfirmedAt = NOW`.
+17. **Pulse starts the 5-business-day PO clock**: `poClockStartAt = trueUpConfirmedAt`, `poDueAt = addBusinessDays(trueUpConfirmedAt, 5)`. Alerts fire at clock start, T-3, T-1, OVERDUE (**FR-CSG-030 — not wired today; see 4A.5**).
+18. Branch on outcome:
+    - **PO received in time** → Ops/mailbox marks PO received → **Acumatica posts/links the PO** → Acumatica updates ERP inventory → Pulse stamps the new `baselineEstablishedAt` and schedules `nextAuditDueAt = +90d`. (Today: Pulse closes the work item but does NOT recalculate the baseline — **FR-CSG-031/033 gap**.)
+    - **PO overdue** → Day +5 escalates to TM+RD, Day +10 to Sales Leadership; case stays open until resolved (waived / written off / received late).
+
+**Phase 4 — PURPLE adjustments (event-driven, optional)**
+
+19. Reviewer (TM/Ops) opens a `PURPLE` form (current quantity / add / remove / new total), attaches customer acknowledgement if required.
+20. Approval gate (sales leadership for material changes).
+21. **Acumatica posts the inventory adjustment** in the warehouse.
+22. Pulse updates `baselineEstablishedAt`. ROSE cadence continues from the new baseline.
+
+**Phase 5 — Exit / SAND**
+
+23. Written notice received. `ConsignmentSite.status = exit_pending`. Pulse creates a `ConsignmentExit` record.
+24. Joint final reconciliation (TM + customer) — a final ROSE-style audit captures everything on site.
+25. Final PO issued by the customer for consumed/missing inventory.
+26. Returns — customer returns Dynamic-owned saleable stock; **Acumatica posts the transfer-back receipt**.
+27. **Acumatica posts final settlement** — PO/invoice/credit memo for netted reconciliation, then closes the warehouse.
+28. Pulse stamps `exitedAt = NOW`, `status = closed`. `ConsignmentExit` holds closure evidence.
+
+### 4A.5 Wired-today status (truth as of 2026-06-07)
+
+This is the honest delta between the architecture above and shipping code. Anything marked `WIRED` has both API service operations and a UI surface; `PARTIAL` has API but no UI or vice versa; `GAP` is in-scope-not-parked and is not yet implemented; `PARKED` waits on Acumatica/payment/Widen access.
+
+| Step | Requirement | Status | Evidence / location |
+| --- | --- | --- | --- |
+| 1–5 | Phase 1 enrollment + agreement | `WIRED` | `ConsignmentSiteDetail.tsx` Forms tab supports `agreement` formType (lines 206, 427); `upsertConsignmentDocument` / `updateConsignmentDocument` in `service.ts` |
+| Gate 1 | Signed agreement before warehouse | `WIRED` | `hasSignedAgreement` check in `ConsignmentSiteDetail.tsx:387` |
+| 6–7 | Site create + onboarding checklist | `WIRED` | `createConsignmentSite` in `service.ts:194`; `listConsignmentReadinessItems` at `service.ts:755`; Create Site primary action in `ConsignmentWorkspace.tsx` |
+| 8–10 | Acumatica warehouse create + TR + receipt | `PARKED` | `acumaticaStatus = PARKED` enum default in schema (line 3076); resume requires sandbox + endpoint certification |
+| 11–13 | BLUE form + baseline establishment | `WIRED` | BLUE formType in `ConsignmentSiteDetail.tsx:220, 434`; `baselineEstablishedAt` column in schema |
+| 14 | T-14 / T-7 / T-0 audit alerts | `GAP` (FR-CSG-012) | No `pg-boss` job or alert dispatcher in `apps/api/src/modules/consignment/`; grep for `T-14`/`fourteenDay`/`audit.*alert` returns empty |
+| 15 | Mobile 7-step ROSE execution | `WIRED` | `apps/mobile/src/hooks/use-consignment-rose-audit.ts`; `apps/mobile/app/(tabs)/consignment.tsx`; offline-capable via `mobile-draft-queue.ts` |
+| 16 | True-up review | `WIRED` | `confirmConsignmentTrueUp` in `service.ts:779` |
+| 17 | PO clock start + T-3 / T-1 / overdue alerts | `PARTIAL` (FR-CSG-030) | Clock start IS wired (`poDueAt = addBusinessDays(confirmedAt, 5)` at `service.ts:813`); **alerts not dispatched** |
+| 18 PO-yes | Mark PO received | `PARTIAL` (FR-CSG-031/033) | `markConsignmentPoReceived` at `service.ts:597` **closes work item but does NOT recalc `baselineEstablishedAt` or `nextAuditDueAt`** — verifier-confirmed gap |
+| 18 PO-no | +5 / +10 escalations | `GAP` (FR-CSG-032) | No escalation dispatcher wired |
+| 18 → ERP | Acumatica PO posting + inventory baseline | `PARKED` | Resume on PO/order endpoint certification |
+| 19–22 | PURPLE adjustment flow | `WIRED` (Pulse) / `PARKED` (Acumatica) | `createConsignmentAdjustment` + `applyConsignmentAdjustment` (`service.ts:346, 416`); UI tab in `ConsignmentSiteDetail.tsx:882`; the Acumatica posting half is parked |
+| 23–24 | SAND exit start + joint reconciliation | `WIRED` (Pulse) | `startConsignmentExit` (`service.ts:469`); UI tab at `ConsignmentSiteDetail.tsx:919` |
+| 25–27 | Final PO + returns + settlement | `PARKED` | Acumatica finance truth |
+| 28 | Close exit | `WIRED` (Pulse) | `closeConsignmentExit` (`service.ts:538`) |
+| Reports | Section 6 KPIs (10 formulas) | `PARTIAL` | 4 cards wired (`overdueAudits`, `openMailboxWorkItems`, `readyForWarehouseSites`, `activeSites`); 6 missing (audit compliance rate, on-time first BLUE, PO overdue count, mean PO cycle time, inventory value by site, exit reconciliation accuracy) |
+
+### 4A.6 Integration boundary rules — non-negotiable
+
+Three rules keep Pulse and Acumatica from creating double-truth:
+
+1. **Pulse never invents a `warehouseCode` or `acumaticaWarehouseId`.** Until Acumatica returns a real warehouse ID, `acumaticaStatus` stays `PARKED` and the site **cannot leave `onboarding_in_progress`**. Admin exception allowed but audit-logged.
+2. **Pulse never posts a PO.** It closes its own work item and stamps `poReceivedAt`, then *requests* Acumatica to post. Until Acumatica confirms, the PO is `pending_acumatica`. Inventory baseline does NOT recalculate until the Acumatica confirmation arrives.
+3. **Every Acumatica-sourced number in Pulse carries `sourceRef + lastSyncedAt + syncStatus`** plus a stale-data warning. Pulse reports on workflow state truthfully; it does **not** report financial truth — it links out to Acumatica for that.
+
+### 4A.7 Highest-leverage build slice to close the gap
+
+The single slice that closes the most of the 14-point completion delta the audit found is the **time-pressure engine**:
+
+- `pg-boss` scheduled jobs for ROSE T-14 / T-7 / T-0 and overdue +7 / +14
+- `pg-boss` scheduled jobs for PO clock start / T-3 / T-1 / overdue +5 / +10
+- Fix `markConsignmentPoReceived` to recalculate `baselineEstablishedAt` and emit `nextAuditDueAt = +90d` after Acumatica confirms (today it only closes the work item)
+- 6 missing KPI cards on the Reports view, sourced from `dashboard.metrics`
+
+This is Pulse-owned work — no Acumatica dependency, no parked-blocker.
+
+---
+
 ## 5. Reconciliation Algorithm
 
 ```

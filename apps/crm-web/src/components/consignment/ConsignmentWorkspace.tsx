@@ -31,6 +31,7 @@ import {
   WorkbenchAdvancedSection,
   WorkbenchDetailRail,
   WorkbenchHeader,
+  WorkbenchMetricStrip,
   WorkbenchMoreMenu,
   WorkbenchTable,
 } from '@/components/ui/Workbench';
@@ -266,36 +267,50 @@ export function ConsignmentWorkspace() {
       <WorkbenchHeader
         eyebrow="Consignment operations"
         title="Consignment Workspace"
-        description="Work due audits, follow-ups, setup confirmations, and site issues first. Reports and all-site search stay in More."
-        policyText="Pulse owns site readiness, document evidence, ROSE audits, true-up review, and follow-up ownership."
+        description={
+          activeView === 'next'
+            ? 'Ranked consignment work for today — overdue audits first, then due soon, then follow-ups.'
+            : activeView === 'allSites'
+              ? 'Search every consignment site by account, status, or ownership.'
+              : 'Program readiness and ROSE audit rollups.'
+        }
+        primaryAction={canManageConsignment ? (
+          <Button
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setIsCreateModalOpen(true)}
+            data-testid="consignment-create-site-button"
+          >
+            Create site
+          </Button>
+        ) : null}
         secondaryActions={(
-          <WorkbenchMoreMenu
-            items={[{
-              id: 'next-site-work',
-              label: 'Next Site Work',
-              description: 'Return to the ranked daily consignment queue.',
-              icon: <IconArrowRight size={16} />,
-              onClick: () => setActiveView('next'),
-            }, ...(canManageConsignment ? [{
-              id: 'create-consignment-site',
-              label: 'Create Site',
-              description: 'Add a new program site when the account is known.',
-              icon: <IconPlus size={16} />,
-              onClick: () => setIsCreateModalOpen(true),
-            }] : []), {
-              id: 'all-consignment-sites',
-              label: 'All Sites',
-              description: 'Search ROSE cadence, readiness, and site ownership.',
-              icon: <IconSearch size={16} />,
-              onClick: () => setActiveView('allSites'),
-            }, {
-              id: 'consignment-reports',
-              label: 'Reports',
-              description: 'Program readiness and ROSE audit rollups.',
-              icon: <IconClipboardList size={16} />,
-              onClick: () => setActiveView('reports'),
-            }]}
-          />
+          <Group gap="xs" wrap="nowrap">
+            <Button
+              variant={activeView === 'next' ? 'filled' : 'default'}
+              size="sm"
+              leftSection={<IconArrowRight size={14} />}
+              onClick={() => setActiveView('next')}
+            >
+              Next work
+            </Button>
+            <Button
+              variant={activeView === 'allSites' ? 'filled' : 'default'}
+              size="sm"
+              leftSection={<IconSearch size={14} />}
+              onClick={() => setActiveView('allSites')}
+            >
+              All sites
+            </Button>
+            <WorkbenchMoreMenu
+              items={[{
+                id: 'consignment-reports',
+                label: 'Reports',
+                description: 'Program readiness and ROSE audit rollups.',
+                icon: <IconClipboardList size={16} />,
+                onClick: () => setActiveView('reports'),
+              }]}
+            />
+          </Group>
         )}
       />
 
@@ -560,8 +575,15 @@ function NextSiteWorkList({
   const [renderedAt] = useState(() => Date.now());
   const rows = useMemo(() => buildNextSiteWorkRows({ dashboard, renderedAt, sites }), [dashboard, renderedAt, sites]);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const router = useRouter();
   const normalizedSelectedWorkId = rows.some((row) => row.id === selectedWorkId) ? selectedWorkId : null;
   const selectedWork = normalizedSelectedWorkId ? rows.find((row) => row.id === selectedWorkId) ?? rows[0] ?? null : rows[0] ?? null;
+
+  const breakdown = useMemo(() => ({
+    overdue: rows.filter((r) => r.workType === 'overdue_audit').length,
+    dueSoon: rows.filter((r) => r.workType === 'due_soon_audit').length,
+    followUps: rows.filter((r) => r.workType === 'follow_up' || r.workType === 'true_up_review').length,
+  }), [rows]);
 
   if (isLoading) {
     return (
@@ -573,78 +595,123 @@ function NextSiteWorkList({
     );
   }
 
+  // Show the rail only when there are 2+ rows — with a single row it just echoes
+  // the only line in the table and steals horizontal space (clipping Status).
+  const showRail = rows.length >= 2;
+
   return (
-    <Paper withBorder radius="md" p="lg">
-      <Stack gap="md">
-        <Group justify="space-between" align="flex-start" gap="md">
-          <Stack gap={2}>
-            <Text fw={800} size="lg">Next site work</Text>
-            <Text size="sm" c="dimmed">
-              Ranked ROSE audits, true-up reviews, setup confirmations, and follow-ups. Reports and all sites stay in More.
-            </Text>
-          </Stack>
-          <Badge color={rows.length > 0 ? 'orange' : 'green'} variant="light">
-            {rows.length > 0 ? `${rows.length} site${rows.length === 1 ? '' : 's'}` : 'All clear'}
-          </Badge>
-        </Group>
-        <SimpleGrid cols={{ base: 1, xl: rows.length ? 2 : 1 }} spacing="md" verticalSpacing="md">
-          <WorkbenchTable<NextSiteWorkRow>
-            ariaLabel="Next site work"
-            rows={rows}
-            getRowKey={(item) => item.id}
-            onRowClick={(item) => setSelectedWorkId(item.id)}
-            minWidth={640}
-            columns={[
-              {
-                key: 'work',
-                header: 'Next work',
-                render: (item) => (
-                  <Stack gap={2}>
-                    <Text fw={700}>{item.summary}</Text>
-                    <Text size="xs" c="dimmed">
-                      {item.detail}{item.secondaryCount > 0 ? ` · ${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'}` : ''}
-                    </Text>
-                  </Stack>
-                ),
-              },
-              {
-                key: 'site',
-                header: 'Account / Site',
-                render: (item) => (
-                  <Stack gap={2}>
-                    <Text size="sm" fw={600}>{item.accountName}</Text>
-                    <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
-                  </Stack>
-                ),
-              },
-              {
-                key: 'owner',
-                header: 'Owner',
-                render: (item) => item.ownerName ?? 'Unassigned',
-              },
-              {
-                key: 'due',
-                header: 'Due',
-                render: (item) => formatDate(item.dueAt),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
-              },
-            ]}
-            emptyState={(
-              <EmptyStateMessage
-                kind="all-clear"
-                title="All clear"
-                description="No due audits, follow-up work, or site issues need review for this view."
-              />
+    <Stack gap="md">
+      <WorkbenchMetricStrip
+        columns={{ base: 1, sm: 3 }}
+        metrics={[
+          {
+            label: 'Overdue audits',
+            value: breakdown.overdue,
+            tone: breakdown.overdue > 0 ? 'red' : 'green',
+            helper: breakdown.overdue > 0 ? 'Past due — review first' : 'Nothing past due',
+          },
+          {
+            label: 'Due soon',
+            value: breakdown.dueSoon,
+            tone: breakdown.dueSoon > 0 ? 'orange' : 'gray',
+            helper: 'ROSE audits within the next 14 days',
+          },
+          {
+            label: 'Follow-ups',
+            value: breakdown.followUps,
+            tone: breakdown.followUps > 0 ? 'blue' : 'gray',
+            helper: 'True-up reviews and shared-mailbox work items',
+          },
+        ]}
+      />
+
+      <Paper withBorder radius="md" p="lg">
+        <Stack gap="md">
+          <Group justify="space-between" align="center" gap="md">
+            <Text fw={700} size="md">Ranked queue ({rows.length})</Text>
+            {rows.length === 0 ? (
+              <Badge color="green" variant="light">All clear</Badge>
+            ) : (
+              <Text size="xs" c="dimmed">Click a row to open the site.</Text>
             )}
-          />
-          {rows.length ? <NextSiteWorkDetailPanel item={selectedWork} /> : null}
-        </SimpleGrid>
-      </Stack>
-    </Paper>
+          </Group>
+          <SimpleGrid cols={{ base: 1, xl: showRail ? 2 : 1 }} spacing="md" verticalSpacing="md">
+            <WorkbenchTable<NextSiteWorkRow>
+              ariaLabel="Next site work"
+              rows={rows}
+              getRowKey={(item) => item.id}
+              onRowClick={(item) => {
+                if (showRail) {
+                  setSelectedWorkId(item.id);
+                } else {
+                  router.push(`/consignment/${item.siteId}`);
+                }
+              }}
+              minWidth={640}
+              highlightOnHover
+              columns={[
+                {
+                  key: 'work',
+                  header: 'Next work',
+                  width: '34%',
+                  render: (item) => (
+                    <Stack gap={2}>
+                      <Text fw={700}>{item.summary}</Text>
+                      <Text size="xs" c="dimmed">
+                        {item.detail}{item.secondaryCount > 0 ? ` · ${item.secondaryCount} more item${item.secondaryCount === 1 ? '' : 's'}` : ''}
+                      </Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: 'site',
+                  header: 'Account / Site',
+                  width: '26%',
+                  render: (item) => (
+                    <Stack gap={2}>
+                      <Text size="sm" fw={600}>{item.accountName}</Text>
+                      <Text size="xs" c="dimmed">{item.siteName ?? 'Site detail pending'}</Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: 'owner',
+                  header: 'Owner',
+                  width: '16%',
+                  render: (item) => item.ownerName ?? 'Unassigned',
+                },
+                {
+                  key: 'due',
+                  header: 'Due',
+                  width: '12%',
+                  render: (item) => formatDate(item.dueAt),
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  width: 140,
+                  render: (item) => <Badge color={item.tone} variant="light">{item.statusLabel}</Badge>,
+                },
+              ]}
+              rowActions={(item) => [{
+                id: 'open-site',
+                label: 'Open site',
+                icon: <IconArrowRight size={16} />,
+                onClick: () => router.push(`/consignment/${item.siteId}`),
+              }]}
+              emptyState={(
+                <EmptyStateMessage
+                  kind="all-clear"
+                  title="All clear"
+                  description="No due audits, follow-up work, or site issues need review for this view."
+                />
+              )}
+            />
+            {showRail ? <NextSiteWorkDetailPanel item={selectedWork} /> : null}
+          </SimpleGrid>
+        </Stack>
+      </Paper>
+    </Stack>
   );
 }
 

@@ -382,24 +382,108 @@ export function ConsignmentWorkspace() {
 
       {activeView === 'reports' ? (
         <Stack gap="md">
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue audits</Text>
-              <Text fw={700} size="xl">{dashboard?.metrics.overdueAudits ?? localMetrics.overdueAudits}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Follow-ups</Text>
-              <Text fw={700} size="xl">{dashboard?.metrics.openMailboxWorkItems ?? localMetrics.openWorkItems}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Ready for setup</Text>
-              <Text fw={700} size="xl">{dashboard?.metrics.readyForWarehouseSites ?? localMetrics.warehouseReady}</Text>
-            </Card>
-            <Card withBorder radius="md" p="md">
-              <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active sites</Text>
-              <Text fw={700} size="xl">{dashboard?.metrics.activeSites ?? localMetrics.activeSites}</Text>
-            </Card>
-          </SimpleGrid>
+          <div>
+            <Text size="xs" tt="uppercase" fw={700} c="dimmed" mb="xs">Operational snapshot</Text>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue audits</Text>
+                <Text
+                  fw={700}
+                  size="xl"
+                  {...((dashboard?.metrics.overdueAudits ?? localMetrics.overdueAudits) > 0 ? { c: 'red.7' } : {})}
+                >
+                  {dashboard?.metrics.overdueAudits ?? localMetrics.overdueAudits}
+                </Text>
+                <Text size="xs" c="dimmed">Past nextAuditDueAt, not exited</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Follow-ups</Text>
+                <Text fw={700} size="xl">{dashboard?.metrics.openMailboxWorkItems ?? localMetrics.openWorkItems}</Text>
+                <Text size="xs" c="dimmed">Open shared-mailbox work items</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Ready for setup</Text>
+                <Text fw={700} size="xl">{dashboard?.metrics.readyForWarehouseSites ?? localMetrics.warehouseReady}</Text>
+                <Text size="xs" c="dimmed">Awaiting Acumatica warehouse</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active sites</Text>
+                <Text fw={700} size="xl">{dashboard?.metrics.activeSites ?? localMetrics.activeSites}</Text>
+                <Text size="xs" c="dimmed">Baseline established, ROSE running</Text>
+              </Card>
+            </SimpleGrid>
+          </div>
+
+          {/* PRD §4A.5: 5 server-computed KPIs + 1 Acumatica-parked KPI. */}
+          <div>
+            <Text size="xs" tt="uppercase" fw={700} c="dimmed" mb="xs">Cycle health (last 90 days)</Text>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Audit compliance</Text>
+                <Text
+                  fw={700}
+                  size="xl"
+                  {...(dashboard?.metrics.auditComplianceRatePct === undefined
+                    ? {}
+                    : {
+                        c:
+                          dashboard.metrics.auditComplianceRatePct >= 90
+                            ? 'green.7'
+                            : dashboard.metrics.auditComplianceRatePct >= 70
+                              ? 'orange.7'
+                              : 'red.7',
+                      })}
+                >
+                  {dashboard ? `${dashboard.metrics.auditComplianceRatePct}%` : '—'}
+                </Text>
+                <Text size="xs" c="dimmed">FR-CSG-019/021 — completed on time</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">On-time first BLUE</Text>
+                <Text fw={700} size="xl">
+                  {dashboard ? `${dashboard.metrics.onTimeFirstBaselinePct}%` : '—'}
+                </Text>
+                <Text size="xs" c="dimmed">FR-CSG-006/007 — baseline within 30d of site</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Overdue POs</Text>
+                <Text
+                  fw={700}
+                  size="xl"
+                  {...((dashboard?.metrics.overduePoCount ?? 0) > 0 ? { c: 'red.7' } : {})}
+                >
+                  {dashboard?.metrics.overduePoCount ?? '—'}
+                </Text>
+                <Text size="xs" c="dimmed">FR-CSG-030 — past the 5-business-day clock</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Mean PO cycle</Text>
+                <Text fw={700} size="xl">
+                  {dashboard?.metrics.meanPoCycleDays === null || dashboard?.metrics.meanPoCycleDays === undefined
+                    ? '—'
+                    : `${dashboard.metrics.meanPoCycleDays}d`}
+                </Text>
+                <Text size="xs" c="dimmed">FR-CSG-029 — true-up to received</Text>
+              </Card>
+              <Card withBorder radius="md" p="md">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Exit completion</Text>
+                <Text fw={700} size="xl">
+                  {dashboard?.metrics.exitCompletionRatePct === null || dashboard?.metrics.exitCompletionRatePct === undefined
+                    ? '—'
+                    : `${dashboard.metrics.exitCompletionRatePct}%`}
+                </Text>
+                <Text size="xs" c="dimmed">FR-CSG-008 — closed of started, 365d</Text>
+              </Card>
+              <Card withBorder radius="md" p="md" style={{ borderStyle: 'dashed' }}>
+                <Group gap="xs" align="center">
+                  <Text size="xs" tt="uppercase" fw={700} c="dimmed">Inventory value</Text>
+                  <Badge size="xs" color="gray" variant="light">Parked</Badge>
+                </Group>
+                <Text fw={700} size="xl" c="dimmed">—</Text>
+                <Text size="xs" c="dimmed">Acumatica inventory truth required</Text>
+              </Card>
+            </SimpleGrid>
+          </div>
           <SimpleGrid cols={{ base: 1, lg: 2 }}>
             <Card withBorder radius="md" p="lg">
               <Title order={4} mb="md">Onboarding Report</Title>

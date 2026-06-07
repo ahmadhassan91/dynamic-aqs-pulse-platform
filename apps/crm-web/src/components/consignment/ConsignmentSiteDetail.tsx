@@ -953,6 +953,7 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                           <Table.Th>Document</Table.Th>
                           <Table.Th>Type</Table.Th>
                           <Table.Th>Status</Table.Th>
+                          <Table.Th></Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
@@ -961,6 +962,22 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                             <Table.Td>{document.title ?? document.formType}</Table.Td>
                             <Table.Td>{formatConsignmentFormType(document.formType)}</Table.Td>
                             <Table.Td><Badge variant="light">{formatConsignmentStatus(document.status)}</Badge></Table.Td>
+                            <Table.Td>
+                              {document.documentUrl ? (
+                                <Button
+                                  component="a"
+                                  href={document.documentUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  size="xs"
+                                  variant="light"
+                                >
+                                  View
+                                </Button>
+                              ) : (
+                                <Text size="xs" c="dimmed">No file</Text>
+                              )}
+                            </Table.Td>
                           </Table.Tr>
                         ))}
                       </Table.Tbody>

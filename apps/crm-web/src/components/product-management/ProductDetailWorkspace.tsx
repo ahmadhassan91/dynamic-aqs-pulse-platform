@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
-import { IconAlertTriangle, IconArrowLeft, IconLink, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconLink, IconPackage, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
   type DigitalAssetSummary,
   type ProductAssetRoleKey,
@@ -19,11 +19,15 @@ import {
   createProductCatalogInclusion,
   fetchDealerCatalogViews,
   fetchDigitalAssetLibrary,
+  fetchProductManagementCategories,
+  fetchProductManagementFamilies,
   fetchProductManagementProductDetail,
   unlinkDigitalAssetFromProduct,
   updateProductCatalogInclusion,
   updateProductManagementPresentation,
   validateProductManagementPresentation,
+  type ProductCategorySummary,
+  type ProductFamilySummary,
 } from '@/lib/pulse-api';
 import { EmptyStateMessage, WorkbenchAdvancedSection, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip, WorkbenchMoreMenu, WorkbenchTable } from '@/components/ui/Workbench';
 import { canPerformAction } from '@/lib/access';
@@ -109,6 +113,11 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [isInclusionFormOpen, setIsInclusionFormOpen] = useState(false);
   const [isPresentationFormOpen, setIsPresentationFormOpen] = useState(false);
   const [isAssetAttachOpen, setIsAssetAttachOpen] = useState(false);
+  const [categories, setCategories] = useState<ProductCategorySummary[]>([]);
+  const [families, setFamilies] = useState<ProductFamilySummary[]>([]);
+  const [catalogAssignForm, setCatalogAssignForm] = useState<{ categoryId: string | null; familyId: string | null }>({ categoryId: null, familyId: null });
+  const [isCatalogAssignOpen, setIsCatalogAssignOpen] = useState(false);
+  const [isSavingCatalog, setIsSavingCatalog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAssigningAsset, setIsAssigningAsset] = useState(false);
   const [unlinkingAssignmentId, setUnlinkingAssignmentId] = useState<string | null>(null);
@@ -135,14 +144,18 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       setIsLoading(true);
       setError(null);
       try {
-        const [response, assetLibrary, catalogViewResponse] = await Promise.all([
+        const [response, assetLibrary, catalogViewResponse, categoryResponse, familyResponse] = await Promise.all([
           fetchProductManagementProductDetail(apiBaseUrl, auth.tokens.accessToken, productId),
           fetchDigitalAssetLibrary(apiBaseUrl, auth.tokens.accessToken, { limit: 100 }),
           fetchDealerCatalogViews(apiBaseUrl, auth.tokens.accessToken, { isActive: true }),
+          fetchProductManagementCategories(apiBaseUrl, auth.tokens.accessToken),
+          fetchProductManagementFamilies(apiBaseUrl, auth.tokens.accessToken),
         ]);
         if (!cancelled) setProduct(response);
         if (!cancelled) setAvailableAssets(assetLibrary.items);
         if (!cancelled) setCatalogViews(catalogViewResponse.items);
+        if (!cancelled) setCategories(categoryResponse.items);
+        if (!cancelled) setFamilies(familyResponse.items);
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
       } finally {
@@ -269,6 +282,32 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     }
   };
 
+  const openCatalogAssign = () => {
+    setCatalogAssignForm({
+      categoryId: product?.category?.id ?? null,
+      familyId: product?.family?.id ?? null,
+    });
+    setIsCatalogAssignOpen(true);
+  };
+
+  const handleSaveCatalogAssignment = async () => {
+    if (!auth || !primaryPresentation) return;
+    setIsSavingCatalog(true);
+    setAssetError(null);
+    try {
+      await updateProductManagementPresentation(apiBaseUrl, auth.tokens.accessToken, primaryPresentation.id, {
+        categoryId: catalogAssignForm.categoryId,
+        familyId: catalogAssignForm.familyId,
+      });
+      setIsCatalogAssignOpen(false);
+      await reloadProduct();
+    } catch (saveError) {
+      setAssetError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSavingCatalog(false);
+    }
+  };
+
   const handleEditInclusion = (inclusion: ProductDetail['inclusions'][number]) => {
     setEditingInclusionId(inclusion.id);
     setInclusionForm({
@@ -351,10 +390,20 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   }));
   const visibleDealerViewCount = product.inclusions.filter((inclusion) => inclusion.isVisible).length;
   const canRunReadiness = canPublishProducts && Boolean(primaryPresentation);
+  const needsCatalog = !product.category;
   const needsContent = !primaryPresentation || !primaryPresentation.shortDescription;
   const needsFiles = product.assetAssignments.length === 0;
   const needsVisibility = visibleDealerViewCount === 0;
+  const categoryOptions = categories.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }));
+  const familyOptions = families.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }));
   const productAttentionItems = [
+    ...(needsCatalog ? [{
+      id: 'catalog-section',
+      title: 'Catalog section missing',
+      description: 'Assign a catalog section before this product can be published.',
+      count: 1,
+      tone: 'red' as const,
+    }] : []),
     ...(needsContent ? [{
       id: 'catalog-content',
       title: 'Dealer-facing content',
@@ -396,7 +445,14 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     setIsInclusionFormOpen(true);
     setActiveBoardSection('visibility');
   };
-  const detailPrimaryAction = needsContent && canManageProducts ? (
+  const detailPrimaryAction = needsCatalog && canManageProducts ? (
+    <Button variant="filled" leftSection={<IconPackage size={16} />} onClick={() => {
+      setActiveBoardSection('content');
+      openCatalogAssign();
+    }}>
+      Assign catalog section
+    </Button>
+  ) : needsContent && canManageProducts ? (
     <Button variant="filled" onClick={() => {
       setActiveBoardSection('content');
       setIsPresentationFormOpen(true);
@@ -435,6 +491,11 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
             </Button>
             <WorkbenchMoreMenu
               items={[
+                ...(canManageProducts ? [{
+                  id: 'assign-catalog',
+                  label: 'Assign catalog section',
+                  onClick: openCatalogAssign,
+                }] : []),
                 ...(canManageProducts ? [{
                   id: 'edit-content',
                   label: 'Fix product info',
@@ -492,13 +553,79 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
       </Paper>
 
       {activeBoardSection === 'content' ? (
-      <Paper withBorder p="md">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Product info</Title>
-          <Badge color={primaryPresentation?.readyForDealerPortal ? 'green' : 'gray'}>{formatLabel(primaryPresentation?.publishStatus ?? 'draft')}</Badge>
-        </Group>
-        <Text>{primaryPresentation?.shortDescription ?? 'Dealer-facing description still needs approval.'}</Text>
-      </Paper>
+        <Stack gap="md">
+          <Paper withBorder p="md">
+            <Group justify="space-between" mb="sm">
+              <Stack gap={2}>
+                <Title order={4}>Catalog section & SKU family</Title>
+                <Text size="sm" c="dimmed">Every product must belong to a catalog section before it can be published.</Text>
+              </Stack>
+              {canManageProducts ? (
+                <Button size="xs" variant="light" leftSection={<IconPackage size={14} />} onClick={openCatalogAssign}>
+                  {needsCatalog ? 'Assign section' : 'Change section'}
+                </Button>
+              ) : null}
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <Stack gap={2}>
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Catalog section</Text>
+                <Text fw={500} c={product.category ? 'inherit' : 'red'}>{product.category?.name ?? 'Not assigned — publish blocked'}</Text>
+              </Stack>
+              <Stack gap={2}>
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">SKU family</Text>
+                <Text c={product.family ? 'inherit' : 'dimmed'}>{product.family?.name ?? 'Not assigned'}</Text>
+              </Stack>
+            </SimpleGrid>
+          </Paper>
+          <Paper withBorder p="md">
+            <Group justify="space-between" mb="sm">
+              <Title order={4}>Dealer-facing content</Title>
+              <Badge color={primaryPresentation?.readyForDealerPortal ? 'green' : 'gray'}>{formatLabel(primaryPresentation?.publishStatus ?? 'draft')}</Badge>
+            </Group>
+            <Text>{primaryPresentation?.shortDescription ?? 'Dealer-facing description still needs approval.'}</Text>
+          </Paper>
+        </Stack>
+      ) : null}
+
+      {canManageProducts ? (
+        <Modal
+          opened={isCatalogAssignOpen}
+          onClose={() => setIsCatalogAssignOpen(false)}
+          title="Assign catalog section"
+          size="md"
+          centered
+        >
+          <Stack gap="sm" mt="md">
+            <Text size="sm" c="dimmed">Assign this product to a catalog section so it can pass the publish check. SKU family is recommended but not required to publish.</Text>
+            <Select
+              label="Catalog section"
+              description="Required before this product can be published to the dealer portal."
+              placeholder="Choose a catalog section..."
+              data={categoryOptions}
+              value={catalogAssignForm.categoryId}
+              onChange={(value) => setCatalogAssignForm((current) => ({ ...current, categoryId: value }))}
+              searchable
+              clearable
+            />
+            <Select
+              label="SKU family"
+              description="Optional grouping for reporting and filter alignment."
+              placeholder="Choose a SKU family..."
+              data={familyOptions}
+              value={catalogAssignForm.familyId}
+              onChange={(value) => setCatalogAssignForm((current) => ({ ...current, familyId: value }))}
+              searchable
+              clearable
+            />
+            {assetError ? <Alert color="red" variant="light">{assetError}</Alert> : null}
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setIsCatalogAssignOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveCatalogAssignment} loading={isSavingCatalog} disabled={!catalogAssignForm.categoryId}>
+                Save assignment
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       ) : null}
 
       {primaryPresentation && canManageProducts ? (

@@ -57,8 +57,11 @@ const PAYMENT_METHOD_OPTIONS: readonly { value: CisPaymentMethodKey; label: stri
 ] as const;
 
 const STATE_OPTIONS = [
-  'AL', 'AZ', 'AR', 'CA', 'CO', 'CT', 'FL', 'GA', 'IA', 'ID', 'IL', 'IN', 'KY', 'LA', 'MA', 'MI', 'MN', 'MS',
-  'NC', 'NJ', 'NM', 'NV', 'NY', 'OH', 'OK', 'OR', 'PA', 'SC', 'TN', 'TX', 'UT', 'WA', 'WI', 'WV',
+  'AK', 'AL', 'AR', 'AZ', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL',
+  'GA', 'HI', 'IA', 'ID', 'IL', 'IN', 'KS', 'KY', 'LA', 'MA',
+  'MD', 'ME', 'MI', 'MN', 'MO', 'MS', 'MT', 'NC', 'ND', 'NE',
+  'NH', 'NJ', 'NM', 'NV', 'NY', 'OH', 'OK', 'OR', 'PA', 'RI',
+  'SC', 'SD', 'TN', 'TX', 'UT', 'VA', 'VT', 'WA', 'WI', 'WV', 'WY',
 ].map((value) => ({ value, label: value }));
 
 export function CisPublicForm({ token }: CisPublicFormProps) {

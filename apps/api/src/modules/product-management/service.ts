@@ -832,6 +832,16 @@ export async function updateProductPresentation(
       ...publishData,
     },
   });
+  // Write category / family through to the base product when supplied
+  if (input.categoryId !== undefined || input.familyId !== undefined) {
+    await prisma.baseProduct.update({
+      where: { id: (before as any).baseProductId },
+      data: {
+        ...(input.categoryId !== undefined ? { categoryId: input.categoryId ?? null } : {}),
+        ...(input.familyId !== undefined ? { familyId: input.familyId ?? null } : {}),
+      },
+    });
+  }
   await prisma.auditEntry.create({
     data: buildAuditEntryData({
       actorUserId: actor.userId,

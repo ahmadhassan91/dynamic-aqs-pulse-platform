@@ -390,11 +390,10 @@ function formatTrainingLabel(value?: string | null) {
 
 function formatCertificationOutcome(value?: string | null) {
   const labels: Record<string, string> = {
-    approved: 'Certified',
-    failed: 'Not certified',
     not_applicable: 'Not applicable',
-    pending: 'Needs decision',
-    revoked: 'Revoked',
+    pending_decision: 'Pending decision',
+    awarded: 'Certified',
+    not_awarded: 'Not certified',
   };
 
   return value ? labels[value] ?? formatTrainingLabel(value) : 'Not set';
@@ -723,7 +722,7 @@ export function TrainingWorkspace() {
         primaryAction={(
           <Button
             leftSection={<IconCalendarPlus size={16} />}
-            onClick={() => setActiveTab('accounts')}
+            onClick={() => setActiveTab('sessions')}
             disabled={!canSchedule}
           >
             Schedule Training

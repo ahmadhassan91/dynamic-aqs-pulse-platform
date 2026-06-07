@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Share, Text, TextInput, View } from 'react-native';
 import type { PreviewLeadOcrCaptureResponse } from '@pulse/contracts/leads';
 import { Card, ErrorState, HeroCard, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { mimeTypeFromFileName, uriToBase64 } from '@/lib/media';
@@ -150,6 +150,25 @@ export default function OcrCaptureScreen() {
   );
 }
 
+function buildShareText(result: PreviewLeadOcrCaptureResponse): string {
+  const f = result.fields;
+  const lines = [
+    '📋 OCR Lead Capture — Pulse CRM Review',
+    '',
+    `Company:  ${f.companyName?.value ?? '—'}`,
+    `Contact:  ${f.contactDisplayName?.value ?? '—'}`,
+    `Email:    ${f.email?.value ?? '—'}`,
+    `Phone:    ${f.phone?.value ?? '—'}`,
+    `State:    ${f.state?.value ?? '—'}`,
+    `Service techs: ${f.serviceTechCount?.value ?? '—'}`,
+    '',
+    result.reviewReasons.length ? `Review flags: ${result.reviewReasons.join(', ')}` : 'No review flags.',
+    '',
+    'Create the lead in Pulse CRM: https://app.dynamicaqs.com/leads/new',
+  ];
+  return lines.join('\n');
+}
+
 function OcrResult({ result }: { result: PreviewLeadOcrCaptureResponse }) {
   const fields = result.fields;
   return (
@@ -186,9 +205,13 @@ function OcrResult({ result }: { result: PreviewLeadOcrCaptureResponse }) {
           Next step
         </Text>
         <Text selectable style={{ ...typography.callout, color: colors.muted }}>
-          Review the fields with the dealer or prospect, then create the lead from the governed CRM intake flow. Direct mobile commit is parked until retention, duplicate-review, and offline media rules are signed off.
+          Review the extracted fields, then share this summary to create the lead in Pulse CRM. The full intake (duplicate review, routing, attribution) runs in the web app.
         </Text>
-        <PrimaryButton label="Create lead in CRM review queue" disabled icon={{ name: 'lock.fill', fallback: 'L' }} onPress={() => undefined} />
+        <PrimaryButton
+          label="Send to CRM review queue"
+          icon={{ name: 'square.and.arrow.up', fallback: 'Share' }}
+          onPress={() => void Share.share({ message: buildShareText(result) })}
+        />
       </Card>
     </>
   );

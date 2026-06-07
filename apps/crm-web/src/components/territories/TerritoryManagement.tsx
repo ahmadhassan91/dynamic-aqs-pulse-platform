@@ -175,6 +175,9 @@ export function TerritoryManagement({
   const [adminTerritoryNotes, setAdminTerritoryNotes] = useState('');
   const [adminTerritoryStates, setAdminTerritoryStates] = useState<string[]>([]);
   const [adminTerritoryIsActive, setAdminTerritoryIsActive] = useState(true);
+  const [showAllLeads, setShowAllLeads] = useState(false);
+  const [showAllAccounts, setShowAllAccounts] = useState(false);
+  const REGISTRY_PAGE_SIZE = 18;
   const [isSavingAdminTerritory, setIsSavingAdminTerritory] = useState(false);
   const [territoryCalendarItems, setTerritoryCalendarItems] = useState<CalendarEventSummary[]>([]);
   const [isLoadingTerritoryCalendar, setIsLoadingTerritoryCalendar] = useState(false);
@@ -1245,7 +1248,7 @@ export function TerritoryManagement({
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {territoryLeadRoster.slice(0, 18).map((lead) => (
+                      {(showAllLeads ? territoryLeadRoster : territoryLeadRoster.slice(0, REGISTRY_PAGE_SIZE)).map((lead) => (
                         <Table.Tr key={lead.id}>
                           <Table.Td>
                             <Stack gap={2}>
@@ -1286,6 +1289,17 @@ export function TerritoryManagement({
                       ))}
                       </Table.Tbody>
                     </Table>
+                    {!showAllLeads && territoryLeadRoster.length > REGISTRY_PAGE_SIZE ? (
+                      <Group justify="center" mt="sm">
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          onClick={() => setShowAllLeads(true)}
+                        >
+                          Show all {territoryLeadRoster.length} leads
+                        </Button>
+                      </Group>
+                    ) : null}
                   </Table.ScrollContainer>
                 ) : null}
 
@@ -1304,7 +1318,7 @@ export function TerritoryManagement({
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
-                        {territoryAccountRoster.slice(0, 18).map((account) => (
+                        {(showAllAccounts ? territoryAccountRoster : territoryAccountRoster.slice(0, REGISTRY_PAGE_SIZE)).map((account) => (
                           <Table.Tr key={account.id}>
                             <Table.Td>
                               <Stack gap={2}>
@@ -1345,6 +1359,17 @@ export function TerritoryManagement({
                         ))}
                       </Table.Tbody>
                     </Table>
+                    {!showAllAccounts && territoryAccountRoster.length > REGISTRY_PAGE_SIZE ? (
+                      <Group justify="center" mt="sm">
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          onClick={() => setShowAllAccounts(true)}
+                        >
+                          Show all {territoryAccountRoster.length} accounts
+                        </Button>
+                      </Group>
+                    ) : null}
                   </Table.ScrollContainer>
                 ) : null}
               </Stack>

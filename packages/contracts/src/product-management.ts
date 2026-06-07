@@ -421,6 +421,10 @@ export interface UpdateProductPresentationRequest {
   regionScope?: string | null;
   brandLabel?: string | null;
   publishStatus?: ProductPublishStatusKey;
+  /** Catalog section assignment — written through to the base product record. */
+  categoryId?: string | null;
+  /** SKU family assignment — written through to the base product record. */
+  familyId?: string | null;
 }
 
 export interface UpsertCatalogInclusionRequest {

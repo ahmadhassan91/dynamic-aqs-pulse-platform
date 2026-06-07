@@ -66,6 +66,7 @@ import type {
   TrainingSessionSummary,
   TrainingTrainerSummary,
 } from '@pulse/contracts';
+import { TrainingBulkScheduleModal } from './TrainingBulkScheduleModal';
 import { TrainingCertificationOpsModal } from './TrainingCertificationOpsModal';
 import { TrainingSessionExecutionModal } from './TrainingSessionExecutionModal';
 import { TrainingSessionSchedulerModal } from './TrainingSessionSchedulerModal';
@@ -470,6 +471,8 @@ export function TrainingWorkspace() {
     mode?: 'schedule' | 'offline';
   } | null>(null);
   const [executionSession, setExecutionSession] = useState<TrainingSessionSummary | null>(null);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
   const [pendingDecisionException, setPendingDecisionException] = useState<TrainingOperationalExceptionQueueItem | null>(null);
   const [revocationCertification, setRevocationCertification] = useState<TrainingOperationalCertificationQueueItem | null>(null);
 
@@ -839,25 +842,64 @@ export function TrainingWorkspace() {
                     label="Search accounts"
                     placeholder="Search company name"
                     value={search}
-                    onChange={(event) => setSearch(event.currentTarget.value)}
+                    onChange={(event) => {
+                      setSearch(event.currentTarget.value);
+                      setSelectedAccountIds(new Set());
+                    }}
                   />
-                  <Select
-                    label="Coverage filter"
-                    value={statusFilter}
-                    onChange={(value) => setStatusFilter((value as ListTrainingAccountStatusKey | null) ?? 'all')}
-                    data={[
-                      { value: 'all', label: 'All accounts' },
-                      { value: 'overdue', label: 'Overdue' },
-                      { value: 'active_programs', label: 'With active programs' },
-                      { value: 'no_programs', label: 'No programs yet' },
-                    ]}
-                  />
+                  <Group align="flex-end" gap="sm">
+                    <Select
+                      label="Coverage filter"
+                      value={statusFilter}
+                      onChange={(value) => {
+                        setStatusFilter((value as ListTrainingAccountStatusKey | null) ?? 'all');
+                        setSelectedAccountIds(new Set());
+                      }}
+                      data={[
+                        { value: 'all', label: 'All accounts' },
+                        { value: 'overdue', label: 'Overdue' },
+                        { value: 'active_programs', label: 'With active programs' },
+                        { value: 'no_programs', label: 'No programs yet' },
+                      ]}
+                    />
+                    {canSchedule && selectedAccountIds.size > 0 ? (
+                      <Button
+                        leftSection={<IconCalendarPlus size={16} />}
+                        onClick={() => setBulkScheduleOpen(true)}
+                        mb={1}
+                      >
+                        Schedule for selected ({selectedAccountIds.size})
+                      </Button>
+                    ) : null}
+                  </Group>
                 </Group>
 
                 <Paper withBorder radius="md" p="lg">
                   <Table striped highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>
+                        {canSchedule ? (
+                          <Table.Th w={40}>
+                            <Checkbox
+                              indeterminate={
+                                selectedAccountIds.size > 0
+                                && selectedAccountIds.size < (accounts?.items.length ?? 0)
+                              }
+                              checked={
+                                (accounts?.items.length ?? 0) > 0
+                                && selectedAccountIds.size === (accounts?.items.length ?? 0)
+                              }
+                              onChange={(event) => {
+                                if (event.currentTarget.checked) {
+                                  setSelectedAccountIds(new Set((accounts?.items ?? []).map((a) => a.accountId)));
+                                } else {
+                                  setSelectedAccountIds(new Set());
+                                }
+                              }}
+                              aria-label="Select all accounts"
+                            />
+                          </Table.Th>
+                        ) : null}
                         <Table.Th>Account</Table.Th>
                         <Table.Th>Territory</Table.Th>
                         <Table.Th>Last Training</Table.Th>
@@ -870,6 +912,25 @@ export function TrainingWorkspace() {
                     <Table.Tbody>
                       {(accounts?.items ?? []).length > 0 ? accounts?.items.map((account) => (
                         <Table.Tr key={account.accountId}>
+                          {canSchedule ? (
+                            <Table.Td>
+                              <Checkbox
+                                checked={selectedAccountIds.has(account.accountId)}
+                                onChange={(event) => {
+                                  setSelectedAccountIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (event.currentTarget.checked) {
+                                      next.add(account.accountId);
+                                    } else {
+                                      next.delete(account.accountId);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                aria-label={`Select ${account.accountName}`}
+                              />
+                            </Table.Td>
+                          ) : null}
                           <Table.Td>
                             <Stack gap={0}>
                               <Text fw={600}>{account.accountName}</Text>
@@ -919,7 +980,7 @@ export function TrainingWorkspace() {
                         </Table.Tr>
                       )) : (
                         <Table.Tr>
-                          <Table.Td colSpan={8}>
+                          <Table.Td colSpan={canSchedule ? 9 : 8}>
                             <Text c="dimmed">No account training records match the current filters yet.</Text>
                           </Table.Td>
                         </Table.Tr>
@@ -1782,6 +1843,24 @@ export function TrainingWorkspace() {
             </Tabs.Panel>
           </Tabs>
         </>
+      ) : null}
+
+      {canSchedule && bulkScheduleOpen ? (
+        <TrainingBulkScheduleModal
+          opened={bulkScheduleOpen}
+          onClose={() => {
+            setBulkScheduleOpen(false);
+            setSelectedAccountIds(new Set());
+          }}
+          apiBaseUrl={apiBaseUrl}
+          accessToken={accessToken}
+          accounts={(accounts?.items ?? [])
+            .filter((a) => selectedAccountIds.has(a.accountId))
+            .map((a) => ({ accountId: a.accountId, accountName: a.accountName }))}
+          catalog={catalog}
+          trainers={trainers}
+          onComplete={loadWorkspace}
+        />
       ) : null}
 
       {canSchedule && schedulerContext ? (

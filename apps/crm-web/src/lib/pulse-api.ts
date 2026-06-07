@@ -235,6 +235,7 @@ import type {
   WebsiteLeadSiteSummary,
   WebsiteLeadSubmissionSummary,
   ConsignmentAuditSummary,
+  ConsignmentDashboardResponse,
   ConsignmentFormSummary,
   ConsignmentReadinessItemSummary,
   ConsignmentSiteDetail,
@@ -403,6 +404,12 @@ export type ListWidenImportRunsResponse = {
 export type {
   AccountSummary,
   ConsignmentAuditSummary,
+  ConsignmentDashboardResponse,
+  ConsignmentDashboardMetrics,
+  ConsignmentDashboardAuditDueBucket,
+  ConsignmentDashboardAuditDueBucketKey,
+  ConsignmentDashboardOnboardingPipelineEntry,
+  ConsignmentDashboardWorkQueueEntry,
   ConsignmentFormSummary,
   ConsignmentReadinessItemSummary,
   DealerPortalInternalPreviewResponse,
@@ -416,33 +423,6 @@ export type {
   ProductCategorySummary,
   ProductFamilySummary,
   ListDigitalAssetsResponse,
-};
-
-export type ConsignmentDashboardResponse = {
-  metrics: {
-    totalSites: number;
-    activeSites: number;
-    onboardingSites: number;
-    readyForWarehouseSites: number;
-    auditsDueSoon: number;
-    overdueAudits: number;
-    openReconciliations: number;
-    openPoFollowUps: number;
-    openMailboxWorkItems: number;
-  };
-  onboardingPipeline: Array<{ stage: string; count: number }>;
-  auditDueBuckets: Array<{ bucket: string; count: number }>;
-  workQueue: Array<{
-    id: string;
-    siteId: string;
-    siteName?: string;
-    accountDisplayName: string;
-    subject: string;
-    status: string;
-    ownerName?: string;
-    dueAt?: string;
-    lastContactAt?: string;
-  }>;
 };
 
 export async function fetchProductManagementProducts(apiBaseUrl: string, accessToken: string, input: ListProductsRequest = {}) {
@@ -1818,80 +1798,10 @@ export async function updateAccountLocationRecord(
 export type ConsignmentSiteStatus = ConsignmentSiteStatusKey;
 
 export async function fetchConsignmentDashboard(apiBaseUrl: string, accessToken: string) {
-  const [sitesResponse, queueResponse] = await Promise.all([
-    fetchConsignmentSites(apiBaseUrl, accessToken, { includeExited: false, limit: 200 }),
-    requestJson<{ items: ConsignmentSiteSummary[]; total: number; generatedAt: string }>(apiBaseUrl, '/api/v1/consignment/ops?limit=50', {
-      method: 'GET',
-      accessToken,
-    }),
-  ]);
-
-  const now = Date.now();
-  const soonThreshold = now + 14 * 24 * 60 * 60 * 1000;
-  const pipelineCounts = new Map<string, number>();
-  const dueBuckets = new Map<string, number>([
-    ['overdue', 0],
-    ['due_soon', 0],
-    ['scheduled_later', 0],
-    ['unscheduled', 0],
-  ]);
-
-  for (const site of sitesResponse.items) {
-    pipelineCounts.set(site.status, (pipelineCounts.get(site.status) ?? 0) + 1);
-    if (!site.nextAuditDueAt) {
-      dueBuckets.set('unscheduled', (dueBuckets.get('unscheduled') ?? 0) + 1);
-      continue;
-    }
-
-    const dueAt = new Date(site.nextAuditDueAt).getTime();
-    if (dueAt < now) {
-      dueBuckets.set('overdue', (dueBuckets.get('overdue') ?? 0) + 1);
-    } else if (dueAt <= soonThreshold) {
-      dueBuckets.set('due_soon', (dueBuckets.get('due_soon') ?? 0) + 1);
-    } else {
-      dueBuckets.set('scheduled_later', (dueBuckets.get('scheduled_later') ?? 0) + 1);
-    }
-  }
-
-  return {
-    metrics: {
-      totalSites: sitesResponse.total,
-      activeSites: sitesResponse.items.filter((site) => site.status === 'active').length,
-      onboardingSites: sitesResponse.items.filter((site) => !['active', 'exited'].includes(site.status)).length,
-      readyForWarehouseSites: sitesResponse.items.filter((site) => site.status === 'ready_for_warehouse').length,
-      auditsDueSoon: dueBuckets.get('due_soon') ?? 0,
-      overdueAudits: dueBuckets.get('overdue') ?? 0,
-      openReconciliations: sitesResponse.items.reduce((total, site) => total + (site.openDiscrepancyCount ?? 0), 0),
-      openPoFollowUps: queueResponse.items.reduce((total, site) => total + (site.openWorkItemCount ?? 0), 0),
-      openMailboxWorkItems: queueResponse.items.reduce((total, site) => total + (site.openWorkItemCount ?? 0), 0),
-    },
-    onboardingPipeline: Array.from(pipelineCounts.entries()).map(([stage, count]) => ({ stage, count })),
-    auditDueBuckets: Array.from(dueBuckets.entries()).map(([bucket, count]) => ({ bucket, count })),
-    workQueue: queueResponse.items
-      .filter((site) => (site.openWorkItemCount ?? 0) > 0 || (site.openDiscrepancyCount ?? 0) > 0 || site.status === 'ready_for_warehouse')
-      .map((site) => {
-        const item: ConsignmentDashboardResponse['workQueue'][number] = {
-          id: site.id,
-          siteId: site.id,
-          siteName: site.name,
-          accountDisplayName: site.accountName,
-          subject: (site.openDiscrepancyCount ?? 0) > 0
-            ? 'True-up review needed'
-            : site.status === 'ready_for_warehouse'
-              ? 'Warehouse setup waiting'
-              : 'Consignment workflow follow-up',
-          status: site.status,
-        };
-        const ownerName = site.ownerTmName ?? site.ownerRdName;
-        if (ownerName) {
-          item.ownerName = ownerName;
-        }
-        if (site.nextAuditDueAt) {
-          item.dueAt = site.nextAuditDueAt;
-        }
-        return item;
-      }),
-  } satisfies ConsignmentDashboardResponse;
+  return requestJson<ConsignmentDashboardResponse>(apiBaseUrl, '/api/v1/consignment/dashboard', {
+    method: 'GET',
+    accessToken,
+  });
 }
 
 export async function createConsignmentSiteRecord(

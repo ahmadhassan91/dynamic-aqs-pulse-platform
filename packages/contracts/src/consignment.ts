@@ -450,3 +450,67 @@ export interface ConsignmentAccountReadModel {
   exitedSiteCount: number;
   sites: ConsignmentSiteSummary[];
 }
+
+// Server-owned dashboard contract.
+// The previous shape was assembled client-side from a 200-row sites sample;
+// that under-counts at scale and cannot compute time-window KPIs (compliance,
+// PO cycle, exit accuracy). This contract is the source of truth for the new
+// /api/v1/consignment/dashboard endpoint.
+export interface ConsignmentDashboardMetrics {
+  // Existing 9 metrics, kept for back-compat with the client-side shape.
+  totalSites: number;
+  activeSites: number;
+  onboardingSites: number;
+  readyForWarehouseSites: number;
+  auditsDueSoon: number;
+  overdueAudits: number;
+  openReconciliations: number;
+  openPoFollowUps: number;
+  openMailboxWorkItems: number;
+  // New server-computed KPIs (FR-CSG mapping below). All are non-Acumatica.
+  auditComplianceRatePct: number;          // FR-CSG-019/021 lookback 90d
+  onTimeFirstBaselinePct: number;          // FR-CSG-006/007 BLUE-within-30d
+  overduePoCount: number;                  // FR-CSG-030 (REQUIRED|ESCALATED & poDueAt<now)
+  meanPoCycleDays: number | null;          // FR-CSG-029 trueUpConfirmedAt → received, 90d
+  exitCompletionRatePct: number | null;    // FR-CSG-008 closed-vs-started over 365d
+  // Sixth KPI from PRD §4A.5 ("Inventory value by site") is correctly parked
+  // behind Acumatica inventory truth. The contract surfaces the parked flag so
+  // the UI can render a parked card instead of a fake number.
+  inventoryValueBySiteParked: true;
+}
+
+export interface ConsignmentDashboardOnboardingPipelineEntry {
+  stage: string;
+  count: number;
+}
+
+export type ConsignmentDashboardAuditDueBucketKey =
+  | 'overdue'
+  | 'due_soon'
+  | 'scheduled_later'
+  | 'unscheduled';
+
+export interface ConsignmentDashboardAuditDueBucket {
+  bucket: ConsignmentDashboardAuditDueBucketKey;
+  count: number;
+}
+
+export interface ConsignmentDashboardWorkQueueEntry {
+  id: string;
+  siteId: string;
+  siteName?: string;
+  accountDisplayName: string;
+  subject: string;
+  status: string;
+  ownerName?: string;
+  dueAt?: string;
+  lastContactAt?: string;
+}
+
+export interface ConsignmentDashboardResponse {
+  metrics: ConsignmentDashboardMetrics;
+  onboardingPipeline: ConsignmentDashboardOnboardingPipelineEntry[];
+  auditDueBuckets: ConsignmentDashboardAuditDueBucket[];
+  workQueue: ConsignmentDashboardWorkQueueEntry[];
+  generatedAt: string;
+}

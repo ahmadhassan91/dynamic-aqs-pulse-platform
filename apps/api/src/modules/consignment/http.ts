@@ -45,6 +45,7 @@ import {
   createConsignmentAudit,
   createConsignmentSite,
   getAccountConsignmentReadModel,
+  getConsignmentDashboard,
   getConsignmentSiteDetail,
   listConsignmentAudits,
   listConsignmentDocuments,
@@ -104,6 +105,19 @@ export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerR
         action: 'consignment.view',
       });
       const response = await listConsignmentOperationalQueue(actor, readOperationalQueueQuery(url));
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/consignment/dashboard') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'consignment',
+        action: 'consignment.view',
+      });
+      const response = await getConsignmentDashboard(actor);
       return jsonResponse(res, 200, response);
     }
 

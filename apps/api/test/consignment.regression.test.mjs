@@ -979,6 +979,117 @@ test('PO received recalculates baseline and schedules next ROSE when audit fully
   assert.notEqual(partial.audits[0].reconciliationStatus, 'resolved');
 });
 
+// PRD §4A.5: the dashboard was assembled client-side from a 200-row sample.
+// This regression locks in the server-owned shape and confirms the 5 new
+// non-Acumatica KPIs (compliance, on-time BLUE, overdue PO, mean PO cycle,
+// exit completion) compute correctly while the parked KPI stays parked.
+test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metrics', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('dashboard-kpis');
+
+  // Build a site with an on-time baseline (within 30 days of creation) and an
+  // overdue ROSE audit.
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Dashboard KPI site',
+  });
+  const { prisma: prismaModule } = await import('@pulse/db');
+  const createdAt = new Date('2026-01-01T00:00:00.000Z');
+  const baselineAt = new Date('2026-01-10T00:00:00.000Z'); // 9 days after creation → on-time
+  const overdueDueAt = new Date('2026-04-01T00:00:00.000Z'); // long past now (test runs in future)
+  await prismaModule.consignmentSite.update({
+    where: { id: site.id },
+    data: {
+      createdAt,
+      status: 'ACTIVE',
+      activeSince: baselineAt,
+      baselineEstablishedAt: baselineAt,
+      nextAuditDueAt: overdueDueAt,
+    },
+  });
+
+  // Create an overdue PO-required discrepancy linked to a completed audit so
+  // overduePoCount and meanPoCycleDays both populate.
+  const auditScheduledFor = new Date('2026-03-15T10:00:00.000Z');
+  const auditCompletedAt = new Date('2026-03-15T18:00:00.000Z'); // on-time (= scheduled)
+  const audit = await prismaModule.consignmentAudit.create({
+    data: {
+      siteId: site.id,
+      scheduledFor: auditScheduledFor,
+      completedAt: auditCompletedAt,
+      status: 'COMPLETED',
+      reconciliationStatus: 'OPEN',
+    },
+  });
+  const trueUpAt = new Date('2026-03-16T12:00:00.000Z');
+  const overduePoDueAt = new Date('2026-03-23T12:00:00.000Z');
+  await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: site.id,
+      auditId: audit.id,
+      status: 'PO_REQUIRED',
+      poFollowUpStatus: 'REQUIRED',
+      trueUpConfirmedAt: trueUpAt,
+      poDueAt: overduePoDueAt,
+      sku: 'KPI-1',
+      productName: 'KPI item',
+      quantity: 3,
+    },
+  });
+
+  // A separately-RECEIVED case populates meanPoCycleDays: 2 days from true-up to received.
+  const cycleReceivedAt = new Date('2026-03-18T12:00:00.000Z');
+  await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: site.id,
+      status: 'PO_RECEIVED',
+      poFollowUpStatus: 'RECEIVED',
+      trueUpConfirmedAt: new Date('2026-03-16T12:00:00.000Z'),
+      updatedAt: cycleReceivedAt,
+      sku: 'KPI-2',
+      productName: 'KPI cycle item',
+      quantity: 1,
+    },
+  });
+
+  // A started exit with no closedAt drives exitCompletionRatePct = 0 (not null).
+  await prismaModule.consignmentExit.create({
+    data: {
+      siteId: site.id,
+      status: 'NOTICE_GIVEN',
+      noticeGivenAt: new Date(),
+    },
+  });
+
+  const dashboard = await service.getConsignmentDashboard(actor);
+
+  // Shape assertions.
+  assert.ok(dashboard.metrics, 'metrics block returned');
+  assert.equal(typeof dashboard.generatedAt, 'string');
+  assert.ok(Array.isArray(dashboard.onboardingPipeline));
+  assert.ok(Array.isArray(dashboard.auditDueBuckets));
+  assert.ok(Array.isArray(dashboard.workQueue));
+
+  // Existing 9 KPIs still present.
+  assert.equal(typeof dashboard.metrics.totalSites, 'number');
+  assert.equal(typeof dashboard.metrics.activeSites, 'number');
+  assert.ok(dashboard.metrics.overdueAudits >= 1, 'overdue audits should include the seeded site');
+
+  // 5 new server-computed KPIs.
+  assert.equal(typeof dashboard.metrics.auditComplianceRatePct, 'number');
+  assert.equal(dashboard.metrics.auditComplianceRatePct, 100, 'one on-time audit → 100%');
+  assert.equal(typeof dashboard.metrics.onTimeFirstBaselinePct, 'number');
+  assert.equal(dashboard.metrics.onTimeFirstBaselinePct, 100, 'baseline within 30d of creation → 100%');
+  assert.equal(typeof dashboard.metrics.overduePoCount, 'number');
+  assert.ok(dashboard.metrics.overduePoCount >= 1, 'overdue PO seeded');
+  assert.ok(dashboard.metrics.meanPoCycleDays !== null, 'received case in window → cycle days populated');
+  assert.equal(dashboard.metrics.exitCompletionRatePct, 0, 'started-but-not-closed exit → 0%');
+
+  // Parked KPI signal.
+  assert.equal(dashboard.metrics.inventoryValueBySiteParked, true, 'parked KPI flag preserved');
+});
+
 test('HTTP includeExited query returns exited consignment sites', SERIAL, async () => {
   const auth = await createAdminAuth();
   const actor = await createAdminActor();

@@ -32,6 +32,11 @@ import type {
   ConsignmentAuditEvidenceSummary,
   ConsignmentAuditEvidencePurposeKey,
   ConsignmentAuditSummary,
+  ConsignmentDashboardAuditDueBucket,
+  ConsignmentDashboardAuditDueBucketKey,
+  ConsignmentDashboardOnboardingPipelineEntry,
+  ConsignmentDashboardResponse,
+  ConsignmentDashboardWorkQueueEntry,
   ConsignmentDiscrepancyCaseSummary,
   ConsignmentExitSummary,
   ConsignmentFieldActivityNoteSummary,
@@ -189,6 +194,277 @@ export async function listConsignmentOperationalQueue(actor: AuthenticatedActor,
     prisma.consignmentSite.count({ where }),
   ]);
   return { items: items.map(mapSiteSummary), total, generatedAt: new Date().toISOString() };
+}
+
+// Server-owned dashboard. Computes ALL metrics straight from the DB, scoped to
+// the actor (TM/RD/region) via siteScopeWhere(). Replaces the legacy client-side
+// assembly which truncated at 200 sites and couldn't compute time-window KPIs.
+const DASHBOARD_COMPLIANCE_LOOKBACK_DAYS = 90;
+const DASHBOARD_PO_CYCLE_LOOKBACK_DAYS = 90;
+const DASHBOARD_EXIT_LOOKBACK_DAYS = 365;
+const DASHBOARD_BLUE_ON_TIME_WINDOW_DAYS = 30;
+const DASHBOARD_DUE_SOON_DAYS = 14;
+const DASHBOARD_WORK_QUEUE_LIMIT = 50;
+
+export async function getConsignmentDashboard(actor: AuthenticatedActor): Promise<ConsignmentDashboardResponse> {
+  assertConsignmentAccess(actor);
+  const generatedAt = new Date();
+  const now = generatedAt.getTime();
+  const dueSoonCutoff = new Date(now + DASHBOARD_DUE_SOON_DAYS * 24 * 60 * 60 * 1000);
+  const complianceCutoff = new Date(now - DASHBOARD_COMPLIANCE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const poCycleCutoff = new Date(now - DASHBOARD_PO_CYCLE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const exitCutoff = new Date(now - DASHBOARD_EXIT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const sitesScope = siteScopeWhere(actor);
+  const auditSiteScope = { site: sitesScope } satisfies Prisma.ConsignmentAuditWhereInput;
+  const discrepancySiteScope = { site: sitesScope } satisfies Prisma.ConsignmentDiscrepancyCaseWhereInput;
+  const workItemSiteScope = { site: sitesScope } satisfies Prisma.ConsignmentWorkItemWhereInput;
+  const exitSiteScope = { site: sitesScope } satisfies Prisma.ConsignmentExitWhereInput;
+
+  const [
+    totalSites,
+    activeSites,
+    readyForWarehouseSites,
+    exitedSites,
+    overdueAudits,
+    auditsDueSoon,
+    openReconciliations,
+    openWorkItems,
+    overduePoCount,
+    onboardingPipelineRaw,
+    auditsForCompliance,
+    sitesWithBaseline,
+    baselineSitesOnTime,
+    cycleClosedCases,
+    exitTotals,
+    exitClosed,
+    workQueueSites,
+  ] = await Promise.all([
+    prisma.consignmentSite.count({ where: sitesScope }),
+    prisma.consignmentSite.count({ where: { AND: [sitesScope, { status: ConsignmentSiteStatus.ACTIVE }] } }),
+    prisma.consignmentSite.count({ where: { AND: [sitesScope, { status: ConsignmentSiteStatus.READY_FOR_WAREHOUSE }] } }),
+    prisma.consignmentSite.count({ where: { AND: [sitesScope, { status: ConsignmentSiteStatus.EXITED }] } }),
+    prisma.consignmentSite.count({
+      where: {
+        AND: [sitesScope, { nextAuditDueAt: { lt: generatedAt } }, { status: { not: ConsignmentSiteStatus.EXITED } }],
+      },
+    }),
+    prisma.consignmentSite.count({
+      where: {
+        AND: [
+          sitesScope,
+          { nextAuditDueAt: { gte: generatedAt, lte: dueSoonCutoff } },
+          { status: { not: ConsignmentSiteStatus.EXITED } },
+        ],
+      },
+    }),
+    prisma.consignmentDiscrepancyCase.count({
+      where: {
+        AND: [
+          discrepancySiteScope,
+          { status: { in: [ConsignmentDiscrepancyStatus.OPEN, ConsignmentDiscrepancyStatus.IN_REVIEW, ConsignmentDiscrepancyStatus.PO_REQUIRED] } },
+        ],
+      },
+    }),
+    prisma.consignmentWorkItem.count({
+      where: {
+        AND: [
+          workItemSiteScope,
+          { status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] } },
+        ],
+      },
+    }),
+    prisma.consignmentDiscrepancyCase.count({
+      where: {
+        AND: [
+          discrepancySiteScope,
+          { poFollowUpStatus: { in: [ConsignmentPoFollowUpStatus.REQUIRED, ConsignmentPoFollowUpStatus.ESCALATED] } },
+          { poDueAt: { lt: generatedAt } },
+        ],
+      },
+    }),
+    prisma.consignmentSite.groupBy({
+      by: ['status'],
+      where: sitesScope,
+      _count: { _all: true },
+    }),
+    prisma.consignmentAudit.findMany({
+      where: {
+        AND: [
+          auditSiteScope,
+          { scheduledFor: { gte: complianceCutoff, lte: generatedAt } },
+          { status: { not: ConsignmentAuditStatus.CANCELLED } },
+        ],
+      },
+      select: { id: true, scheduledFor: true, completedAt: true, status: true },
+    }),
+    prisma.consignmentSite.count({
+      where: { AND: [sitesScope, { baselineEstablishedAt: { not: null } }] },
+    }),
+    prisma.consignmentSite.findMany({
+      where: { AND: [sitesScope, { baselineEstablishedAt: { not: null } }] },
+      select: { createdAt: true, baselineEstablishedAt: true },
+    }),
+    prisma.consignmentDiscrepancyCase.findMany({
+      where: {
+        AND: [
+          discrepancySiteScope,
+          { poFollowUpStatus: ConsignmentPoFollowUpStatus.RECEIVED },
+          { trueUpConfirmedAt: { not: null } },
+          { updatedAt: { gte: poCycleCutoff } },
+        ],
+      },
+      select: { trueUpConfirmedAt: true, updatedAt: true },
+    }),
+    prisma.consignmentExit.count({
+      where: { AND: [exitSiteScope, { noticeGivenAt: { gte: exitCutoff } }] },
+    }),
+    prisma.consignmentExit.count({
+      where: { AND: [exitSiteScope, { noticeGivenAt: { gte: exitCutoff } }, { closedAt: { not: null } }] },
+    }),
+    prisma.consignmentSite.findMany({
+      where: {
+        AND: [
+          sitesScope,
+          {
+            OR: [
+              { discrepancyCases: { some: { status: { in: [ConsignmentDiscrepancyStatus.OPEN, ConsignmentDiscrepancyStatus.IN_REVIEW, ConsignmentDiscrepancyStatus.PO_REQUIRED] } } } },
+              { workItems: { some: { status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] } } } },
+              { status: ConsignmentSiteStatus.READY_FOR_WAREHOUSE },
+            ],
+          },
+        ],
+      },
+      include: {
+        account: { select: { displayName: true } },
+        ownerTmUser: { select: { displayName: true } },
+        ownerRdUser: { select: { displayName: true } },
+        discrepancyCases: { where: { status: { in: [ConsignmentDiscrepancyStatus.OPEN, ConsignmentDiscrepancyStatus.IN_REVIEW, ConsignmentDiscrepancyStatus.PO_REQUIRED] } }, select: { id: true } },
+        workItems: { where: { status: { in: [ConsignmentWorkItemStatus.OPEN, ConsignmentWorkItemStatus.IN_PROGRESS, ConsignmentWorkItemStatus.BLOCKED] } }, select: { id: true } },
+      },
+      orderBy: [{ nextAuditDueAt: 'asc' }, { updatedAt: 'desc' }],
+      take: DASHBOARD_WORK_QUEUE_LIMIT,
+    }),
+  ]);
+
+  // Audit compliance rate: completed-on-time / all due (excluding cancelled).
+  // "On time" = completed before the +1 day grace window. ROSE audits are
+  // typically scheduled by date but executed in-field; FR-CSG-013 only treats
+  // an audit as "overdue" at +7d, so a same-day completion shouldn't be
+  // counted as late. Using 24h grace keeps the metric meaningful without
+  // overcounting late audits.
+  const COMPLIANCE_GRACE_MS = 24 * 60 * 60 * 1000;
+  const auditsCompletedOnTime = auditsForCompliance.filter((audit) => {
+    return audit.status === ConsignmentAuditStatus.COMPLETED
+      && audit.completedAt !== null
+      && audit.completedAt.getTime() <= audit.scheduledFor.getTime() + COMPLIANCE_GRACE_MS;
+  }).length;
+  const auditComplianceRatePct = auditsForCompliance.length > 0
+    ? Math.round((auditsCompletedOnTime / auditsForCompliance.length) * 100)
+    : 100;
+
+  // On-time first BLUE %: of sites with baseline, what % hit it within 30d of creation.
+  const onTimeBaselineCount = baselineSitesOnTime.filter((row) => {
+    if (!row.baselineEstablishedAt) return false;
+    const elapsedMs = row.baselineEstablishedAt.getTime() - row.createdAt.getTime();
+    return elapsedMs <= DASHBOARD_BLUE_ON_TIME_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  }).length;
+  const onTimeFirstBaselinePct = sitesWithBaseline > 0
+    ? Math.round((onTimeBaselineCount / sitesWithBaseline) * 100)
+    : 100;
+
+  // Mean PO cycle days: average trueUpConfirmedAt → updatedAt for received cases in last 90d.
+  let meanPoCycleDays: number | null = null;
+  if (cycleClosedCases.length > 0) {
+    const totalMs = cycleClosedCases.reduce((acc, row) => {
+      if (!row.trueUpConfirmedAt) return acc;
+      return acc + (row.updatedAt.getTime() - row.trueUpConfirmedAt.getTime());
+    }, 0);
+    meanPoCycleDays = Math.round((totalMs / cycleClosedCases.length / (24 * 60 * 60 * 1000)) * 10) / 10;
+  }
+
+  // Exit completion rate %: of exits started in the last 365d, % that closed.
+  const exitCompletionRatePct = exitTotals > 0 ? Math.round((exitClosed / exitTotals) * 100) : null;
+
+  // Audit due buckets — computed from a single scan rather than per-bucket queries.
+  const sitesForBuckets = await prisma.consignmentSite.findMany({
+    where: { AND: [sitesScope, { status: { not: ConsignmentSiteStatus.EXITED } }] },
+    select: { nextAuditDueAt: true },
+  });
+  const dueBuckets = new Map<ConsignmentDashboardAuditDueBucketKey, number>([
+    ['overdue', 0],
+    ['due_soon', 0],
+    ['scheduled_later', 0],
+    ['unscheduled', 0],
+  ]);
+  for (const row of sitesForBuckets) {
+    if (!row.nextAuditDueAt) {
+      dueBuckets.set('unscheduled', (dueBuckets.get('unscheduled') ?? 0) + 1);
+      continue;
+    }
+    const dueAt = row.nextAuditDueAt.getTime();
+    if (dueAt < now) {
+      dueBuckets.set('overdue', (dueBuckets.get('overdue') ?? 0) + 1);
+    } else if (dueAt <= dueSoonCutoff.getTime()) {
+      dueBuckets.set('due_soon', (dueBuckets.get('due_soon') ?? 0) + 1);
+    } else {
+      dueBuckets.set('scheduled_later', (dueBuckets.get('scheduled_later') ?? 0) + 1);
+    }
+  }
+
+  const auditDueBuckets: ConsignmentDashboardAuditDueBucket[] = Array.from(dueBuckets.entries())
+    .map(([bucket, count]) => ({ bucket, count }));
+
+  const onboardingPipeline: ConsignmentDashboardOnboardingPipelineEntry[] = onboardingPipelineRaw.map((row) => ({
+    stage: String(row.status).toLowerCase(),
+    count: row._count._all,
+  }));
+
+  const workQueue: ConsignmentDashboardWorkQueueEntry[] = workQueueSites.map((site) => {
+    const subject = (site.discrepancyCases?.length ?? 0) > 0
+      ? 'True-up review needed'
+      : site.status === ConsignmentSiteStatus.READY_FOR_WAREHOUSE
+        ? 'Warehouse setup waiting'
+        : 'Consignment workflow follow-up';
+    const ownerName = site.ownerTmUser?.displayName ?? site.ownerRdUser?.displayName ?? undefined;
+    const entry: ConsignmentDashboardWorkQueueEntry = {
+      id: site.id,
+      siteId: site.id,
+      accountDisplayName: site.account.displayName,
+      subject,
+      status: String(site.status).toLowerCase(),
+    };
+    if (site.name) entry.siteName = site.name;
+    if (ownerName) entry.ownerName = ownerName;
+    if (site.nextAuditDueAt) entry.dueAt = site.nextAuditDueAt.toISOString();
+    return entry;
+  });
+
+  const onboardingSites = totalSites - activeSites - exitedSites;
+
+  return {
+    metrics: {
+      totalSites,
+      activeSites,
+      onboardingSites: Math.max(0, onboardingSites),
+      readyForWarehouseSites,
+      auditsDueSoon,
+      overdueAudits,
+      openReconciliations,
+      openPoFollowUps: openWorkItems,
+      openMailboxWorkItems: openWorkItems,
+      auditComplianceRatePct,
+      onTimeFirstBaselinePct,
+      overduePoCount,
+      meanPoCycleDays,
+      exitCompletionRatePct,
+      inventoryValueBySiteParked: true,
+    },
+    onboardingPipeline,
+    auditDueBuckets,
+    workQueue,
+    generatedAt: generatedAt.toISOString(),
+  };
 }
 
 export async function createConsignmentSite(actor: AuthenticatedActor, input: CreateConsignmentSiteRequest): Promise<ConsignmentSiteDetail> {

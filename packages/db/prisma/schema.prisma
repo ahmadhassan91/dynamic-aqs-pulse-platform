@@ -839,6 +839,29 @@ enum ConsignmentExitStatus {
   CANCELLED
 }
 
+// PRD section 4A.5 / FR-CSG-012/013/030/032: the consignment time-pressure
+// engine fires these alert types when audits and PO clocks reach known windows.
+enum ConsignmentOperationalAlertType {
+  AUDIT_DUE_FOURTEEN_DAYS
+  AUDIT_DUE_SEVEN_DAYS
+  AUDIT_DUE_TODAY
+  AUDIT_OVERDUE_SEVEN_DAYS
+  AUDIT_OVERDUE_FOURTEEN_DAYS
+  PO_CLOCK_START
+  PO_CLOCK_THREE_DAYS_REMAINING
+  PO_CLOCK_ONE_DAY_REMAINING
+  PO_OVERDUE_FIVE_DAYS
+  PO_OVERDUE_TEN_DAYS
+}
+
+enum ConsignmentOperationalAlertStatus {
+  PENDING
+  PREVIEWED
+  SENT
+  SKIPPED
+  FAILED
+}
+
 model User {
   id          String    @id @default(uuid()) @db.Uuid
   email       String    @unique
@@ -3105,14 +3128,15 @@ model ConsignmentSite {
   region           Region?                      @relation(fields: [regionId], references: [id], onDelete: SetNull)
   shippingCenter   ShippingCenter?              @relation(fields: [shippingCenterId], references: [id], onDelete: SetNull)
   createdBy        User?                        @relation("ConsignmentSiteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  forms            ConsignmentForm[]
-  audits           ConsignmentAudit[]
-  auditEvidence    ConsignmentAuditEvidence[]
-  discrepancyCases ConsignmentDiscrepancyCase[]
-  workItems        ConsignmentWorkItem[]
-  adjustments      ConsignmentAdjustment[]
-  exits            ConsignmentExit[]
-  mobileVoiceNotes MobileVoiceNote[]
+  forms             ConsignmentForm[]
+  audits            ConsignmentAudit[]
+  auditEvidence     ConsignmentAuditEvidence[]
+  discrepancyCases  ConsignmentDiscrepancyCase[]
+  workItems         ConsignmentWorkItem[]
+  adjustments       ConsignmentAdjustment[]
+  exits             ConsignmentExit[]
+  operationalAlerts ConsignmentOperationalAlert[]
+  mobileVoiceNotes  MobileVoiceNote[]
 
   @@index([accountId])
   @@index([locationId])
@@ -3172,11 +3196,12 @@ model ConsignmentAudit {
   createdAt            DateTime                        @default(now())
   updatedAt            DateTime                        @updatedAt
 
-  site             ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  submittedBy      User?                        @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
-  lines            ConsignmentAuditLine[]
-  evidence         ConsignmentAuditEvidence[]
-  discrepancyCases ConsignmentDiscrepancyCase[]
+  site              ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  submittedBy       User?                        @relation("ConsignmentAuditSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  lines             ConsignmentAuditLine[]
+  evidence          ConsignmentAuditEvidence[]
+  discrepancyCases  ConsignmentDiscrepancyCase[]
+  operationalAlerts ConsignmentOperationalAlert[]
 
   @@index([siteId])
   @@index([scheduledFor])
@@ -3247,8 +3272,9 @@ model ConsignmentDiscrepancyCase {
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
 
-  site  ConsignmentSite   @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  audit ConsignmentAudit? @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  site              ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  audit             ConsignmentAudit?            @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  operationalAlerts ConsignmentOperationalAlert[]
 
   @@index([siteId])
   @@index([auditId])
@@ -3334,6 +3360,33 @@ model ConsignmentExit {
   @@index([status])
   @@index([noticeGivenAt])
   @@index([closedAt])
+}
+
+// Persisted operational alerts for the consignment time-pressure engine.
+// One record per (entity, alertType, dedupe key) — the scanner uses dedupeKey
+// to guarantee an alert fires once and stays idempotent across rescans.
+model ConsignmentOperationalAlert {
+  id              String                            @id @default(uuid()) @db.Uuid
+  siteId          String                            @db.Uuid
+  auditId         String?                           @db.Uuid
+  discrepancyId   String?                           @db.Uuid
+  alertType       ConsignmentOperationalAlertType
+  status          ConsignmentOperationalAlertStatus @default(PENDING)
+  dedupeKey       String                            @unique
+  triggeredAt     DateTime
+  metadata        Json?
+  createdAt       DateTime                          @default(now())
+  deliveredAt     DateTime?
+
+  site        ConsignmentSite              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  audit       ConsignmentAudit?            @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  discrepancy ConsignmentDiscrepancyCase?  @relation(fields: [discrepancyId], references: [id], onDelete: SetNull)
+
+  @@index([siteId, alertType])
+  @@index([auditId])
+  @@index([discrepancyId])
+  @@index([status, createdAt])
+  @@index([alertType, createdAt])
 }
 
 model Contact {

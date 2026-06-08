@@ -1090,6 +1090,132 @@ test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metr
   assert.equal(dashboard.metrics.inventoryValueBySiteParked, true, 'parked KPI flag preserved');
 });
 
+// FR-CSG-012 / FR-CSG-013 / FR-CSG-030 / FR-CSG-032: the time-pressure engine
+// scans audits and PO clocks each tick and materializes ConsignmentOperationalAlert
+// records. Tests cover one alert per window and idempotency via dedupeKey.
+test('consignment operational alert scanner materializes audit and PO alerts idempotently', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('alert-scanner');
+  const { prisma: prismaModule } = await import('@pulse/db');
+  const { scanConsignmentOperationalAlerts } = await import('../dist/modules/consignment/alerts.js');
+
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Alert scanner site',
+  });
+  // Move site to ACTIVE so the scanner doesn't filter it as exited.
+  await prismaModule.consignmentSite.update({
+    where: { id: site.id },
+    data: { status: 'ACTIVE' },
+  });
+
+  const now = new Date();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  // 1. Audit T-14: scheduledFor = now + 13.5 days → falls in [T-14, T-7) window.
+  const auditT14 = await prismaModule.consignmentAudit.create({
+    data: {
+      siteId: site.id,
+      scheduledFor: new Date(now.getTime() + 13.5 * DAY),
+      status: 'SCHEDULED',
+    },
+  });
+
+  // 2. Audit overdue +7: scheduledFor = now - 8 days, not completed.
+  const auditOverdue7 = await prismaModule.consignmentAudit.create({
+    data: {
+      siteId: site.id,
+      scheduledFor: new Date(now.getTime() - 8 * DAY),
+      status: 'SCHEDULED',
+    },
+  });
+
+  // 3. PO T-1: trueUp 4 days ago, poDueAt in 0.5 days (within T-1 window).
+  const discT1 = await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: site.id,
+      status: 'PO_REQUIRED',
+      poFollowUpStatus: 'REQUIRED',
+      trueUpConfirmedAt: new Date(now.getTime() - 4 * DAY),
+      poDueAt: new Date(now.getTime() + 0.5 * DAY),
+      sku: 'ALR-T1',
+      productName: 'T-1 alert item',
+      quantity: 2,
+    },
+  });
+
+  // 4. PO overdue +5: poDueAt 6 days ago.
+  const discOverdue5 = await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: site.id,
+      status: 'PO_REQUIRED',
+      poFollowUpStatus: 'REQUIRED',
+      trueUpConfirmedAt: new Date(now.getTime() - 11 * DAY),
+      poDueAt: new Date(now.getTime() - 6 * DAY),
+      sku: 'ALR-OVR',
+      productName: 'Overdue PO alert item',
+      quantity: 4,
+    },
+  });
+
+  // First scan: should create one alert per window.
+  const result1 = await scanConsignmentOperationalAlerts({});
+  assert.equal(result1.ok, true);
+  assert.ok(result1.createdAlertCount >= 4, `expected ≥4 alerts created, got ${result1.createdAlertCount}`);
+
+  // Confirm each expected type made it to the table linked to the right entity.
+  const fourteenDayAlert = await prismaModule.consignmentOperationalAlert.findUnique({
+    where: { dedupeKey: `AUDIT_DUE_FOURTEEN_DAYS:${auditT14.id}` },
+  });
+  assert.ok(fourteenDayAlert, 'AUDIT_DUE_FOURTEEN_DAYS not persisted');
+  assert.equal(fourteenDayAlert.siteId, site.id);
+
+  const overdueSevenAlert = await prismaModule.consignmentOperationalAlert.findUnique({
+    where: { dedupeKey: `AUDIT_OVERDUE_SEVEN_DAYS:${auditOverdue7.id}` },
+  });
+  assert.ok(overdueSevenAlert, 'AUDIT_OVERDUE_SEVEN_DAYS not persisted');
+
+  const t1Alert = await prismaModule.consignmentOperationalAlert.findUnique({
+    where: { dedupeKey: `PO_CLOCK_ONE_DAY_REMAINING:${discT1.id}` },
+  });
+  assert.ok(t1Alert, 'PO_CLOCK_ONE_DAY_REMAINING not persisted');
+
+  const overdueFiveAlert = await prismaModule.consignmentOperationalAlert.findUnique({
+    where: { dedupeKey: `PO_OVERDUE_FIVE_DAYS:${discOverdue5.id}` },
+  });
+  assert.ok(overdueFiveAlert, 'PO_OVERDUE_FIVE_DAYS not persisted');
+
+  // Idempotency: re-scan must NOT duplicate.
+  const totalAfterFirst = await prismaModule.consignmentOperationalAlert.count();
+  const result2 = await scanConsignmentOperationalAlerts({});
+  assert.equal(result2.ok, true);
+  assert.equal(result2.createdAlertCount, 0, 'rescan should create zero new alerts');
+  const totalAfterSecond = await prismaModule.consignmentOperationalAlert.count();
+  assert.equal(totalAfterSecond, totalAfterFirst, 'rescan must not insert duplicates');
+
+  // Exited sites must NOT generate alerts.
+  const exitedSite = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Exited alert site',
+  });
+  await prismaModule.consignmentSite.update({ where: { id: exitedSite.id }, data: { status: 'EXITED' } });
+  await prismaModule.consignmentAudit.create({
+    data: {
+      siteId: exitedSite.id,
+      scheduledFor: new Date(now.getTime() + 13.5 * DAY),
+      status: 'SCHEDULED',
+    },
+  });
+  const result3 = await scanConsignmentOperationalAlerts({});
+  const exitedSiteAlerts = await prismaModule.consignmentOperationalAlert.count({
+    where: { siteId: exitedSite.id },
+  });
+  assert.equal(exitedSiteAlerts, 0, 'exited sites must not generate alerts');
+  assert.equal(result3.createdAlertCount, 0, 'exited-site-only rescan should produce nothing');
+});
+
 test('HTTP includeExited query returns exited consignment sites', SERIAL, async () => {
   const auth = await createAdminAuth();
   const actor = await createAdminActor();

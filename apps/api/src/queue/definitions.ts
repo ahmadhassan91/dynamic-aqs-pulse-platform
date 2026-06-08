@@ -102,3 +102,19 @@ export const LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE: QueueDefinition = {
     retryLimit: 3,
   },
 };
+
+// Consignment time-pressure engine — PRD section 4A.5 / FR-CSG-012/013/030/032.
+// The scanner walks audits (T-14/T-7/T-0/+7/+14) and PO clocks
+// (start/T-3/T-1/+5/+10) and persists alert records to
+// ConsignmentOperationalAlert with dedupeKey so re-scans are idempotent.
+// Delivery is intentionally not wired in this slice — Microsoft Graph sendMail
+// is the same parked dependency as the lead-alert dispatcher.
+export const CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE: QueueDefinition = {
+  name: 'consignment.operational-alert-scan',
+  tier: 'STANDARD',
+  description: 'Scans consignment audits and PO clocks to materialize operational alert records',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 3,
+  },
+};

@@ -12,6 +12,7 @@ import { handleConsignmentRoutes } from './modules/consignment/http.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleDigitalAssetRoutes } from './modules/digital-assets/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
+import { processConsignmentOperationalAlertScanJob } from './modules/consignment/alerts.js';
 import {
   ensureLeadOperationalAlertRecipientsSeeded,
   ensureLeadRoutingPolicySeeded,
@@ -29,6 +30,7 @@ import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
 import { handleTrainingRoutes } from './modules/training/http.js';
 import { ensureTrainingSeeded } from './modules/training/service.js';
 import {
+  CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE,
   LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE,
   LEAD_OPERATIONAL_ALERT_SCAN_QUEUE,
   SYSTEM_HEALTH_CHECK_QUEUE,
@@ -97,6 +99,9 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   workers.register(LEAD_OPERATIONAL_ALERT_SCAN_QUEUE, async (job) => (
     processLeadOperationalAlertScanJob(job, { queue, logger })
   ));
+  workers.register(CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE, async (job) => (
+    processConsignmentOperationalAlertScanJob(job, { logger })
+  ));
 
   await prisma.$connect();
   await ensureReferenceDataSeeded();
@@ -150,6 +155,31 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
     : undefined;
   leadOperationalAlertTimer?.unref();
 
+  // Consignment time-pressure engine — PRD section 4A.5.
+  // Reuse the lead operational-alert scan cadence so a single ops/admin policy
+  // governs both scanners; consignment-specific cadence can split out later.
+  const consignmentOperationalAlertTimer = config.leads.operationalAlertScanIntervalMinutes > 0
+    ? setInterval(() => {
+        void queue.enqueue(CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE, {
+          jobType: CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE.name,
+          triggeredBy: 'system',
+          triggerSource: 'scheduler',
+          correlationId: `consignment-operational-alert-scan-${Date.now()}`,
+          metadata: {
+            singletonKey: 'consignment-operational-alert-scan',
+            expireInSeconds: 60 * 10,
+          },
+          data: {},
+        }).catch((error) => {
+          logger.warn('queue.enqueue_failed', {
+            type: CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE.name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, config.leads.operationalAlertScanIntervalMinutes * 60 * 1000)
+    : undefined;
+  consignmentOperationalAlertTimer?.unref();
+
   return {
     logger,
     server,
@@ -161,6 +191,9 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       closed = true;
       if (leadOperationalAlertTimer) {
         clearInterval(leadOperationalAlertTimer);
+      }
+      if (consignmentOperationalAlertTimer) {
+        clearInterval(consignmentOperationalAlertTimer);
       }
       await Promise.allSettled([workers.stop(), closeHttpServer(server)]);
       await prisma.$disconnect();

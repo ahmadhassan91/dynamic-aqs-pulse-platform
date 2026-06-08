@@ -1,268 +1,260 @@
-# Pulse Platform — Territory Module PRD
+# Territory Module PRD
 
-## 1. Document Control
+## Document Control
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
-| Date | 2026-04-20 |
-| Status | Scope confirmation draft for Dynamic AQS review |
-| Module owner | Pulse delivery team |
-| Primary reviewers | Dynamic AQS territory leadership, Regional Director representative, Territory Manager representative, operations lead |
-| Related documents | `00_README_AND_MEETING_AGENDA.md`, Leads PRD, Training PRD, Calendar PRD |
+| Module | Territory Management |
+| Document Type | Master PRD |
+| Version | 3.0 |
+| Status | Enriched — traceability closure pass complete |
+| Owner | Product / Field Operations |
+| Sprint Sequence | Seq 01–03 (kernel), Seq 04–05 (map parity + reporting), ongoing |
+| Priority | P0 |
+| Date | 2026-06-09 |
+| Meeting Traceability | Session 1 (Feb 16 2026), Session 6 (Feb 27 2026), Territory Rediscovery note (Apr 14 2026), April 20 scope review |
+| Primary Companion Docs | `TERRITORY_REDISCOVERY_AND_DEPENDENCY_BOUNDARY_2026-04-14.md`, `00_README_AND_MEETING_AGENDA.md`, Leads PRD, Training PRD, Calendar PRD |
 
 ---
 
-## 2. Executive Summary
+## 1. Source Inventory
 
-The Territory module will be the ownership, visibility, and field-operations kernel for Pulse. It will define regions, territories, shipping-center alignment, TM and RD ownership, assignment overrides, and the map-based command center used to understand who owns what and what needs attention next. Territory will not be just a map page. It will determine who sees leads, accounts, and training records; it will drive account and lead assignment; and it will provide the operational view needed for reassignment, route planning, coverage review, and exception handling.
-
----
-
-## 3. Module Objective
-
-Pulse will provide a territory system that will:
-
-- define the official TM / RD ownership structure
-- align state-based residential territory truth to the approved map and shipping-center model
-- support territory creation, change, reassignment, and history
-- drive role-scoped visibility across leads, accounts, training, and calendar
-- provide a territory command center for leadership and field teams
-- expose a map-centered view of coverage, ownership, and workload
-- support the business need for overrides where geography is not the whole story
+| ID | Absolute Path | What It Sourced |
+|----|--------------|-----------------|
+| SRC-TR-001 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Discovery Session 1 - 16th Feb 2026.md` | Strategic business objectives; pain points including lack of territorial visibility, disconnected CRM from Acumatica, no reporting by state/region (Dan: "I want to know all sales in Florida, South Carolina, and Georgia — CRM can't do that"), map-my-customer replacement need, TM adoption barriers, mobile field execution requirements |
+| SRC-TR-002 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Fri 27th  Feb Session 6.md` | Consignment walkthrough confirming territory scoping of field operations; CRM scope boundaries (no financial logic in CRM); module scope discussion (territory kernel, training, consignment, dealer portal); map-my-customer replacement as explicit goal; TM and RD field roles; leadership and development team use of map for assignment decisions |
+| SRC-TR-003 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TERRITORY_REDISCOVERY_AND_DEPENDENCY_BOUNDARY_2026-04-14.md` | Territory kernel honest current state; what remains below prototype parity; four build slices (T1-T4); first real external dependency boundary; decisions locked (territory is still in progress; map parity is the next active slice; commercial-safe structure required) |
+| SRC-TR-004 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/territories/service.ts` | Implemented service operations: `listRegions`, `createRegion`, `updateRegion`, `listShippingCenters`, `createShippingCenter`, `updateShippingCenter`, `listTerritories`, `createTerritory`, `updateTerritory`, `replaceTerritoryCoverage`, `getTerritoryPolicy`, `updateTerritoryPolicy`, `getTerritoryDashboard`, `getTerritoryMapWorkspace`, `reassignLeadTerritory`, `reassignAccountTerritory`, `bulkReassignLeadTerritories`, `bulkReassignAccountTerritories`, `listTerritoryAssignmentHistory`, `listTerritoryAssignableUsers`; route plan stop types; territory policy seeding |
+| SRC-TR-005 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/territories/visibility.ts` | Visibility scoping: TM pre-handoff visibility flag; territory-manager lead scope; regional-director scope; global visibility for admin/leadership; `preHandoffTmVisibility` policy toggle wired |
+| SRC-TR-006 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/territories/http.ts` | Exposed HTTP routes: `/api/v1/territories/policy`, `/api/v1/territories/regions`, `/api/v1/territories/shipping-centers`, `/api/v1/territories`, `/api/v1/territories/dashboard`, `/api/v1/territories/map`, `/api/v1/territories/assignment-history`, `/api/v1/territories/assignable-users`, `/api/v1/territories/reassign`, `/api/v1/territories/bulk-reassign` |
+| SRC-TR-007 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryCommandDashboard.tsx` | Dashboard UI: stats, coverage, lifecycle, pipeline, training penetration, alert, workload, queue, region rollup, owner metrics, next-work items; tabs for workload/regions/owners; `canManageTerritorySetup` permission guard |
+| SRC-TR-008 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryManagement.tsx` | Territory list and management UI; bulk reassign; override action with reason; assignment history timeline; territory/region/shipping-center CRUD forms; policy settings; calendar feed integration |
+| SRC-TR-009 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryCoverageMapPage.tsx` | Map workspace UI; coverage/accounts/pipeline/all modes; MapLibre integration; shipping-center markers; route plan stops; training session check-in/check-out; pin click handler wired to TerritoryMapLibre |
+| SRC-TR-010 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryMapLibre.tsx` | MapLibre GL implementation; state boundary GeoJSON overlays; territory color coding via `resolvePaperMapTerritoryStyle`; pin rendering; shipping-center markers; hover popups with territory/TM/RD/shipping-center detail; `showBoundaries` + `showPins` toggles |
+| SRC-TR-011 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryOperationsPanel.tsx` | Operations panel: account/lead reassign actions; route plan stepper; bulk selection; override controls |
 
 ---
 
-## 4. Scope Statement
+## 2. Overview
 
-### 4.1 Pulse Will Support
+The Territory module is the **ownership, visibility, and field-operations kernel** for Pulse. It defines regions, territories, shipping-center alignment, TM and RD ownership, assignment overrides, and the map-based command center that tells the business who owns what and what needs attention next.
 
-- region, territory, and shipping-center administration
-- TM and RD ownership assignment
-- state-based territory coverage for the residential operating model
-- lead and account assignment using approved territory rules
-- named-owner or override handling where approved
-- assignment history and override reasons
-- territory visibility rules for TM, RD, Strategic Growth, leadership, and admin roles
-- command-center views for coverage, workload, lifecycle posture, and pipeline posture
-- interactive territory map with approved coverage colors and shipping-center context
-- account and lead drill-through from territory surfaces
-- territory administration actions including reassignment and bulk transfer
-- territory-linked visibility for downstream modules including training and calendar
+Territory is not a map page. It determines who sees leads, accounts, and training records; drives account and lead assignment; and provides the operational view needed for reassignment, route planning, coverage review, and exception handling.
 
-### 4.2 This PRD Will Also Cover
-
-- how geography, territory ownership, and override rules interact
-- how Dynamic AQS’ current paper map will translate into live territory truth
-- how map expectations differ between leadership, office users, and field users
-- which decisions still need to be confirmed before the territory model is locked
-
-### 4.3 Later-Phase / Separate Decision Items
-
-These items remain part of the broader Pulse vision, but require separate approval, provider choice, or later sequencing:
-
-- county-level commercial territory depth
-- polygon editing and more advanced restructure tools
-- route optimization provider selection and deep navigation behavior
-- richer white-space / heat-map analysis
-- deeper ERP-backed revenue trending
+Across discovery sessions Curry Galbraith confirmed: reporting must be filterable by state and region (Session 1); map functionality must serve both TMs in the field and development/leadership in the office (Session 1); the CRM's territory model must replace map-my-customer as the field navigation anchor (Session 6). Dan Harshbarger confirmed the present Dynamics CRM cannot produce a state-scoped sales report, which is the root reporting pain point the territory model is designed to eliminate.
 
 ---
 
-## 5. Primary Future-State User Journeys
+## 3. In-Scope
 
-### 5.1 Journey A — Admin Defines The Territory Footprint
+- Region, territory, and shipping-center administration and governance
+- TM and RD ownership assignment (state-based residential model, Phase 1)
+- Lead and account assignment using approved territory rules
+- Named-owner and Strategic Growth override handling
+- Assignment history, override reasons, and audit trail
+- Territory visibility rules for TM, RD, Strategic Growth, leadership, and admin roles
+- Command-center views: coverage posture, lifecycle posture, pipeline posture, owner workload
+- Interactive territory map with state boundaries, shipping-center context, and color coding
+- Lead/account drill-through from the territory map
+- Territory administration: reassignment, bulk transfer between territories
+- Territory-linked visibility for training and calendar modules
+- Route plan foundation for field execution (without provider-backed optimization)
+- Pre-handoff TM visibility policy (configurable)
+- Commercial-safe model structure (no county-geometry forced in Phase 1)
 
-1. An authorized admin creates or updates regions, territories, shipping centers, and covered states.
-2. Pulse assigns the correct RD and TM ownership to the territory.
-3. The territory becomes available for lead routing, account assignment, reporting, and map display.
+## 4. Out-of-Scope (Phase 1)
 
-### 5.2 Journey B — Territory Manager Uses The Command Center
+- County-level commercial territory geometry
+- Polygon drawing and territory restructure tooling
+- Route optimization provider selection and deep navigation integration
+- White-space analytics and advanced heat-map reporting
+- ERP-backed revenue trending beyond CRM-owned operational posture
+- GPS geofencing and strict check-in tolerance (provider-bound)
+- Live Acumatica-backed sales overlays inside the map
 
-1. The TM opens the Territory workspace.
-2. Pulse shows only the territory, accounts, leads, and training obligations the TM is allowed to see.
-3. The TM reviews coverage, pipeline, overdue follow-up, and upcoming operational activity.
-4. The TM drills into the map or directly into the relevant account or lead record.
+## 5. Parked Dependencies
 
-### 5.3 Journey C — Regional Director Uses Regional Rollup
-
-1. The RD opens the Territory workspace.
-2. Pulse shows every territory and owner inside the RD’s region.
-3. The RD reviews rollups for coverage, lifecycle posture, pipeline posture, and ownership gaps.
-4. The RD drills into any territory, owner, or account that requires intervention.
-
-### 5.4 Journey D — Lead Or Account Is Reassigned
-
-1. An authorized user opens the relevant lead or account.
-2. The user changes the territory or named owner and provides a reason.
-3. Pulse applies the new ownership and records the prior and new values in assignment history.
-4. Visibility updates according to the new ownership truth.
-
-### 5.5 Journey E — Bulk Territory Transfer
-
-1. An authorized admin selects a source territory and a target territory.
-2. The admin selects all or some accounts to move and records the reason.
-3. Pulse transfers the accounts and writes per-record history and audit events.
-4. The source and target territory views refresh with the new ownership truth.
-
-### 5.6 Journey F — Office User Uses The Map For Assignment Decisions
-
-1. An operations or leadership user opens the map workspace.
-2. Pulse shows territory coverage, shipping-center alignment, and relevant lead/account points.
-3. The user filters the map and opens drill-through details to assess assignment or next action.
-4. The user uses the territory view as an operational planning surface, not just a static map.
+| Item | Dependency |
+|------|-----------|
+| Provider-backed route optimization | Map tile / routing provider decision |
+| GPS check-in geofence enforcement | Geocoding provider + tolerance policy decision |
+| Native device navigation handoff | Provider-specific navigation behavior decision |
+| Acumatica purchase/order overlay on map | Acumatica read-model integration certification |
 
 ---
 
-## 6. Functional Capabilities
+## 6. Functional Requirements
 
-### 6.1 Territory Structure And Governance
+### 6.1 Territory Structure and Governance
 
-Pulse will:
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-001 | The system shall support regions as explicit governed records with an assigned Regional Director user | Region can be created, updated, and listed; `directorUser` is an optional FK; list scoped by role | P0 | SRC-TR-003, SRC-TR-004 | Built |
+| FR-TR-002 | The system shall support territories as explicit governed records linked to a region, with an assigned TM user and a shipping-center alignment | Territory created/updated with FK to region, `managerUser`, and `shippingCenter`; state coverage attached separately | P0 | SRC-TR-003, SRC-TR-004 | Built |
+| FR-TR-003 | The system shall support shipping centers as explicit governed records with country, state, and city metadata | Shipping center CRUD; default seeding of NV, FL, NJ centers on first boot | P0 | SRC-TR-004 | Built |
+| FR-TR-004 | The system shall support replacing the set of state-coverage records for a territory in a single atomic operation | `replaceTerritoryCoverage` removes existing coverage and inserts new list; audit entry written | P0 | SRC-TR-004 | Built |
+| FR-TR-005 | The system shall enforce that each active covered state belongs to at most one territory unless a Dynamic AQS-approved overlay rule explicitly permits sharing | Business rule BR-TR-02; validation enforced at coverage replace time | P0 | SRC-TR-001, SRC-TR-003 | Partial — validation exists at service layer; UI-side conflict warning not confirmed |
+| FR-TR-006 | The system shall maintain a territory policy record controlling configurable assignment behaviors | `TerritoryPolicy` seeded on boot; flags: `preHandoffTmVisibility`, `assignNationalTmLeadsByDefault`, `strategicGrowthRetainsOwnership` | P0 | SRC-TR-004, SRC-TR-005 | Built |
 
-- support regions, territories, and shipping centers as explicit governed records
-- support TM and RD ownership assignment
-- align active territories to the approved state-based coverage footprint
-- support territory-level policy settings where Dynamic AQS requires them
+### 6.2 Assignment and Propagation
 
-### 6.2 Assignment And Propagation
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-007 | The system shall resolve lead and account territory ownership from approved territory rules and persist TM + RD + territory + shipping-center assignments | Lead and account records carry `assignedTmUserId`, `assignedRdUserId`, `territoryId`, `shippingCenterId`, `territoryAssignmentMethod` | P0 | SRC-TR-004 | Built |
+| FR-TR-008 | The system shall support reassigning a lead to a different territory or named owner, with a mandatory reason | `reassignLeadTerritory` requires `reason`; audit entry written with before/after state | P0 | SRC-TR-004, SRC-TR-008 | Built |
+| FR-TR-009 | The system shall support reassigning an account to a different territory or named owner, with a mandatory reason | `reassignAccountTerritory` requires `reason`; audit entry written | P0 | SRC-TR-004 | Built |
+| FR-TR-010 | The system shall support bulk reassignment of leads between territories in a single operation | `bulkReassignLeadTerritories` with reason; all affected leads updated atomically | P0 | SRC-TR-004, SRC-TR-008 | Built |
+| FR-TR-011 | The system shall support bulk reassignment of accounts between territories in a single operation | `bulkReassignAccountTerritories` with reason; atomic | P0 | SRC-TR-004, SRC-TR-008 | Built — UX-TR-008 marked Done |
+| FR-TR-012 | The system shall record full assignment history for every territory, lead, and account reassignment event, including prior owner, new owner, method, and reason | `listTerritoryAssignmentHistory` returns paginated history entries; entity type covers LEAD, ACCOUNT, TERRITORY | P0 | SRC-TR-004 | Built — UX-TR-002 verification pending (may be placeholder rendering only) |
+| FR-TR-013 | The system shall support a named-owner override that supersedes default geographic TM ownership where Dynamic AQS approves | `TerritoryAssignmentMethod.MANUAL_OVERRIDE` persisted; visible in assignment history; `strategicGrowthRetainsOwnership` policy flag | P0 | SRC-TR-004, SRC-TR-005 | Built — UX-TR-010 marked Done |
+| FR-TR-014 | The system shall propagate territory truth into account and lead downstream views consistently | Account and lead list scoping uses the same `territoryId` / `assignedTmUserId` truth wherever displayed | P0 | SRC-TR-003, SRC-TR-004 | Partial — propagation into account location lifecycle not finished per SRC-TR-003 |
 
-Pulse will:
+### 6.3 Visibility and Role Scoping
 
-- resolve lead and account ownership from approved territory rules
-- propagate territory truth into downstream account and training views
-- support explicit override or named-owner scenarios where Dynamic AQS approves them
-- preserve assignment history and the reason for change
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-015 | The system shall scope TM visibility to their assigned territory; TMs shall not see leads or accounts in other territories unless a pre-handoff policy flag is enabled | `buildTerritoryManagerLeadScope` enforces `assignedTmUserId` + stage/override gate; `preHandoffTmVisibility` flag overrides gate | P0 | SRC-TR-005 | Built |
+| FR-TR-016 | The system shall scope RD visibility to all territories within their region | `buildRegionalDirectorScope` returns territory/lead/account scope for the RD's region | P0 | SRC-TR-005 | Built |
+| FR-TR-017 | The system shall grant leadership, admin, and Strategic Growth roles global record visibility | `hasGlobalRecordVisibility` returns true for these roles; no territory scope filter applied | P0 | SRC-TR-005 | Built |
+| FR-TR-018 | The system shall enforce the pre-handoff TM visibility policy from the territory policy record; changing the policy shall immediately affect all TM lead queries | `preHandoffTmVisibility` read from DB at query time; `PATCH /api/v1/territories/policy` updates it | P1 | SRC-TR-005 | Built |
+| FR-TR-019 | The system shall apply territory truth consistently across list views, map views, dashboards, and downstream modules (training, calendar) | Training penetration in dashboard uses `trainingPrograms` scoped by territory; calendar feed respects territory scope | P0 | SRC-TR-003, SRC-TR-007 | Partial — calendar filter from CalendarWorkspace not yet territory-filterable (UX-TR-007 Open) |
 
-### 6.3 Visibility And Ownership
+### 6.4 Command Center and Reporting
 
-Pulse will:
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-020 | The system shall provide a territory command-center dashboard showing stats, coverage posture, lifecycle posture, pipeline posture, training penetration, alert queue, workload, region rollups, and owner metrics | `getTerritoryDashboard` returns `TerritoryDashboardResponse` with all required fields; accessible at `/api/v1/territories/dashboard` | P0 | SRC-TR-004, SRC-TR-007 | Built |
+| FR-TR-021 | The system shall provide a next-work item queue on the command dashboard that surfaces the highest-priority operational items for the active user | `TerritoryNextWorkItem[]` passed to dashboard component; items carry tone, owner, gap label, and location label | P1 | SRC-TR-007 | Partial — items rendered but drill-through click handler missing (UX-TR-001 Open) |
+| FR-TR-022 | The system shall provide region-level rollup rows on the command dashboard, expandable to show the territory list within each region | `regionRollups: TerritoryDashboardRegionRollupSummary[]` passed to dashboard | P1 | SRC-TR-007 | Partial — region rows rendered but not expandable to territory list (UX-TR-005 Open) |
+| FR-TR-023 | The system shall expose owner workload metrics including per-TM account and lead counts, training overdue counts, and consignment exception counts | `TerritoryDashboardOwnerMetricSummary[]` in dashboard response | P1 | SRC-TR-004 | Built |
+| FR-TR-024 | The system shall provide unassigned, conflict, and exception queues scoped to the viewing user's territory/region | `TerritoryDashboardQueueSummary` includes `territoriesMissingManager`, `territoriesMissingShippingCenter`, `regionsMissingDirector` | P0 | SRC-TR-007 | Built |
+| FR-TR-025 | The system shall produce a territory-scoped training penetration summary showing training status distribution across accounts in the territory | `TerritoryDashboardTrainingPenetrationSummary` field in dashboard | P1 | SRC-TR-004 | Built |
 
-- scope TM visibility to their territory truth
-- scope RD visibility to their region truth
-- support broader scopes for Strategic Growth, leadership, and admin roles according to approved rules
-- use territory truth consistently across list views, map views, dashboards, and downstream modules
+### 6.5 Map and Operational View
 
-### 6.4 Command Center And Reporting
-
-Pulse will:
-
-- provide territory and regional rollups
-- show coverage posture, lifecycle posture, pipeline posture, and owner workload
-- support operational visibility into what needs follow-up next
-- feed territory-linked reporting from account, lead, and training activity
-
-### 6.5 Map And Operational View
-
-Pulse will:
-
-- display the territory footprint in a map-based workspace
-- align the visual map to the approved Dynamic AQS territory structure
-- show shipping-center context and operational coverage
-- provide lead/account drill-through from the map
-- support office-side and field-side use of territory context
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-026 | The system shall provide an interactive territory map that renders state boundaries with Dynamic AQS territory color coding | MapLibre GL renders GeoJSON state boundaries; `resolvePaperMapTerritoryStyle` applies approved territory colors | P0 | SRC-TR-003, SRC-TR-009, SRC-TR-010 | Built |
+| FR-TR-027 | The system shall display shipping-center markers on the territory map | `shippingCenters` layer rendered in TerritoryMapLibre with `IconBuildingWarehouse`; clickable markers | P0 | SRC-TR-003, SRC-TR-010 | Built — no dedicated shipping-center filter layer (UX-TR-006 Open) |
+| FR-TR-028 | The system shall display lead and account pins on the territory map with status color coding | `TerritoryMapPinSummary[]` rendered as markers; `onPinClick` handler wired | P0 | SRC-TR-003, SRC-TR-009, SRC-TR-010 | Built — UX-TR-009 marked Done |
+| FR-TR-029 | The system shall support map modes for coverage-only, account pins, pipeline pins, and all combined | `MapMode` type: `coverage | accounts | pipeline | all`; mode selector in TerritoryCoverageMapPage | P1 | SRC-TR-009 | Built |
+| FR-TR-030 | The system shall provide state hover tooltips on the map showing territory name, assigned TM, assigned RD, and shipping center | `HoveredStateSummary` popup rendered on MapLibre hover | P1 | SRC-TR-010 | Built |
+| FR-TR-031 | The system shall provide a "state-level coverage only" context banner on the map to communicate Phase 1 scope to users | Banner indicating state-level precision | P1 | SRC-TR-003 | Not-built (UX-TR-004 Open) |
+| FR-TR-032 | The system shall support office-side use of the map for assignment and coverage review decisions, not only field TM use | Map surface accessible to operations and leadership roles; filters and drill-through available to non-TM users | P0 | SRC-TR-001, SRC-TR-002, SRC-TR-003 | Built |
+| FR-TR-033 | The system shall provide a route plan stop model on the map workspace without requiring provider-backed optimization | `TerritoryRoutePlanSummary` and `TerritoryRoutePlanStopSummary` types in contracts; stop model rendered in TerritoryCoverageMapPage | P2 | SRC-TR-003, SRC-TR-009 | Partial — data model exists; provider-backed optimization parked |
 
 ### 6.6 Administrative Actions
 
-Pulse will:
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-034 | The system shall allow authorized admins to create and edit region records | `createRegion`, `updateRegion` operations; guarded by `territory.admin` action access | P0 | SRC-TR-004, SRC-TR-006 | Built |
+| FR-TR-035 | The system shall allow authorized admins to create and edit territory records, including updating state coverage | `createTerritory`, `updateTerritory`, `replaceTerritoryCoverage`; guarded by `territory.admin` | P0 | SRC-TR-004 | Built |
+| FR-TR-036 | The system shall allow authorized admins to update territory policy settings | `updateTerritoryPolicy`; guarded by admin action access | P0 | SRC-TR-004 | Built |
+| FR-TR-037 | The system shall expose a list of users assignable to territory TM/RD roles | `listTerritoryAssignableUsers` filtered to `TERRITORY_MANAGER` and `REGIONAL_DIRECTOR` role codes | P0 | SRC-TR-004 | Built |
+| FR-TR-038 | The system shall provide an empty-state placeholder when a filtered territory list returns no results | UX improvement for zero-result filter state | P1 | (inferred) | Not-built (UX-TR-003 Open) |
 
-- create and edit territory records
-- update state coverage
-- update TM / RD ownership
-- reassign individual records
-- support bulk account transfer between territories
+### 6.7 Field Execution Foundation
 
----
-
-## 7. Business Rules Pulse Will Enforce
-
-| # | Rule |
-|---|---|
-| BR-TR-01 | Territory will function as an ownership and visibility kernel, not only as a visual map. |
-| BR-TR-02 | Each active covered state in the approved residential model will belong to one active territory at a time unless Dynamic AQS explicitly approves a different overlay rule. |
-| BR-TR-03 | Territory assignment and override changes will be auditable. |
-| BR-TR-04 | Reassignment will preserve the original author and timestamp of prior notes, activities, and history. |
-| BR-TR-05 | Lead, account, training, and relevant calendar visibility will follow the same territory truth wherever possible. |
-| BR-TR-06 | A named-owner override will supersede default geography only where Dynamic AQS approves that operating rule. |
-| BR-TR-07 | Territory reporting will use CRM-owned coverage and ownership truth first; ERP-backed revenue depth will follow as a separate dependency-backed layer. |
-| BR-TR-08 | The map will reflect the approved operating footprint; it will not be treated as a free-form drawing tool unless Dynamic AQS approves that level of territory-editing depth later. |
+| ID | Requirement | Acceptance Criteria | Priority | Source | Build Status |
+|----|-------------|---------------------|----------|--------|-------------|
+| FR-TR-039 | The system shall support training session check-in and check-out from within the territory map workspace | `checkInTrainingSessionRecord`, `completeTrainingSessionRecord` callable from TerritoryCoverageMapPage | P1 | SRC-TR-009 | Built |
+| FR-TR-040 | The system shall provide a territory-scoped calendar feed on the territory management surface | `TerritoryCalendarFeed.tsx` component; `fetchCalendarWorkspace` called from TerritoryManagement | P1 | SRC-TR-008 | Built — calendar not filterable by territory from CalendarWorkspace (UX-TR-007 Open, different surface) |
+| FR-TR-041 | The system shall provide a field agenda read model anchored to territory and schedule, without requiring GPS optimization | Route stop model in TerritoryCoverageMapPage; `TerritoryRoutePlanStopSummary` in contracts | P2 | SRC-TR-003 | Partial — data model only; full field agenda UI is a future slice |
 
 ---
 
-## 8. Data And Integration Highlights
+## 7. Non-Functional Requirements
 
-At business level, this module will depend on and feed the following:
-
-| Area | Proposed Pulse Role |
-|---|---|
-| Leads | Territory will drive or influence routing, ownership, and visibility |
-| Accounts / Customers | Territory will determine account ownership, reporting, and reassignment history |
-| Training | Territory will scope TM / RD visibility and training-penetration reporting |
-| Calendar | Territory will contribute visibility and context for territory-linked events |
-| Reporting | Territory will provide per-territory, per-region, and per-owner operational rollups |
-| Maps | Pulse will render the operational footprint against the approved territory structure |
-
----
-
-## 9. Assumptions To Confirm
-
-| # | Assumption | Why It Matters |
-|---|---|---|
-| A-TR-01 | The Phase 1 residential territory truth will be state-based and aligned to the approved Dynamic AQS paper map. | This determines how the initial territory kernel is structured. |
-| A-TR-02 | Shipping-center alignment remains part of territory truth, not just a reporting attribute. | This affects territory administration and operational planning. |
-| A-TR-03 | TM and RD ownership will remain the core operational hierarchy for territory visibility. | This affects command-center design and access patterns. |
-| A-TR-04 | Office users will need the territory map for assignment and review decisions, not only TMs in the field. | This affects map detail, filtering, and drill-through expectations. |
-| A-TR-05 | Named-owner or Strategic Growth overrides will exist, but they will be explicit and auditable rather than informal exceptions. | This affects territory truth and role visibility. |
-| A-TR-06 | The Phase 1 model should remain future-ready for commercial/county logic even if the first release remains residential/state-first. | This affects how rigidly the model is tied to today’s residential structure. |
+| ID | Requirement | Category | Source |
+|----|-------------|----------|--------|
+| NFR-TR-001 | Territory visibility scoping queries shall execute against indexed FK columns (`assignedTmUserId`, `territoryId`, `regionId`) so that filtered list results return within acceptable latency for a user's data volume | Performance | SRC-TR-005 (inferred standard) |
+| NFR-TR-002 | Territory assignment changes shall be persisted with full before/after audit entries; no assignment mutation shall succeed without an audit record | Auditability | SRC-TR-003, SRC-TR-004 |
+| NFR-TR-003 | Territory policy reads shall be non-cached at the query layer to ensure that a policy change (e.g. `preHandoffTmVisibility`) takes effect on the next request without requiring a service restart | Consistency | SRC-TR-005 |
+| NFR-TR-004 | All territory administrative actions (create, update, replace coverage, update policy) shall be guarded by `territory.admin` action access; read operations shall be guarded by `territories` module access | Security / AuthZ | SRC-TR-005, SRC-TR-006 |
+| NFR-TR-005 | The territory map shall remain responsive during state boundary rendering; GeoJSON tile loading shall not block interactive pan/zoom | Performance | SRC-TR-010 (inferred standard) |
+| NFR-TR-006 | The system shall be structured to support commercial/county geometry in a later phase without requiring a schema migration that breaks the residential state-first model | Scalability | SRC-TR-003 |
+| NFR-TR-007 | Territory-scoped data must degrade safely when a territory record has no assigned TM or RD (nulls permitted; dashboard queue surfaces these as hygiene issues) | Availability | SRC-TR-007 |
+| NFR-TR-008 | Map pin click actions that navigate to lead or account records shall complete without full-page reload and shall preserve the user's current map position | Usability | SRC-TR-003 (inferred standard) |
+| NFR-TR-009 | Bulk reassignment operations shall be executed in a database transaction; partial failures shall roll back the entire batch | Data Integrity | SRC-TR-004 (inferred standard) |
+| NFR-TR-010 | Assignment history shall be immutable; no history record shall be updated or deleted after creation | Auditability | SRC-TR-004 (inferred standard) |
 
 ---
 
-## 10. Open Questions For Dynamic AQS Decision
+## 8. Assumptions
 
-| # | Question | Options To Confirm | Why Decision Is Needed |
-|---|---|---|---|
-| Q-TR-01 | What is the exact precedence rule between Strategic Growth ownership and default geographic TM ownership? | geography first / SGT override first / conditional by lead type / conditional by stage | This determines assignment truth and visibility. |
-| Q-TR-02 | When does territory ownership become operationally binding? | at lead intake / after discovery / after CIS / after activation | This affects routing and pre-handoff visibility. |
-| Q-TR-03 | What is the approved truth model for accounts with multiple locations? | account-level owner only / location-aware ownership / hybrid with primary owner | This affects propagation and visibility rules. |
-| Q-TR-04 | Is a district layer required in the hierarchy? | no district / optional district / required district | This changes hierarchy complexity and reporting shape. |
-| Q-TR-05 | How much map precision is required in this phase? | state-based only / ZIP-aware / county-aware / custom shapes later | This changes territory-editing expectations and data-model depth. |
-| Q-TR-06 | What should the pre-handoff TM visibility rule be? | no visibility / visibility after certain stage / configurable by territory | This affects lead and account access before handoff. |
-| Q-TR-07 | What later-phase route-planning depth should be assumed? | operational map only / route planning included / provider-backed optimization later | This affects whether territory is treated primarily as an ownership kernel or also as a field-operations engine from day one. |
-
----
-
-## 11. Later-Phase / Separate Decision Items
-
-These items may still belong in the broader Pulse roadmap, but will not be assumed as finalized by this PRD:
-
-- county-level commercial territory logic
-- polygon drawing and territory restructure tooling
-- deep route optimization provider behavior
-- white-space analytics and advanced heat-map reporting
-- richer ERP-backed territory revenue analytics beyond CRM-owned operational posture
+| ID | Assumption | Why It Matters |
+|----|-----------|----------------|
+| ASM-TR-001 | The Phase 1 residential territory truth is state-based and aligned to the approved Dynamic AQS paper map | Determines how the initial territory kernel is structured and how `replaceTerritoryCoverage` defines coverage |
+| ASM-TR-002 | Shipping-center alignment is part of territory truth, not only a reporting attribute | Affects territory administration and the map operational layer |
+| ASM-TR-003 | TM and RD ownership remain the core operational hierarchy for territory visibility | Determines command-center design and access patterns |
+| ASM-TR-004 | Office users (development team, operations, leadership) use the territory map for assignment and coverage review decisions — not only TMs in the field | Confirmed in Session 1 by Michelle Hogan and Curry Galbraith |
+| ASM-TR-005 | Named-owner and Strategic Growth overrides are explicit and auditable, not informal exceptions | `MANUAL_OVERRIDE` assignment method and `strategicGrowthRetainsOwnership` policy flag |
+| ASM-TR-006 | The Phase 1 model must remain future-safe for commercial/county logic even though the first release is residential/state-first | Confirmed by Dan Harshbarger's direction in SRC-TR-003 |
+| ASM-TR-007 | One account has one operational owner at a time; visibility and ownership are kept separate | Confirmed in SRC-TR-003: "one account should still have one operational owner at a time" |
+| ASM-TR-008 | The assignment truth for Strategic Growth is an overlay on default geographic TM ownership, not a separate universe | Confirmed in SRC-TR-003 |
 
 ---
 
-## 12. Approval Checklist
+## 9. Open Questions
 
-Dynamic AQS approval of this PRD will confirm:
+| ID | Question | Options to Confirm | Decision Owner |
+|----|----------|-------------------|---------------|
+| OQ-TR-001 | What is the exact precedence rule between Strategic Growth ownership and default geographic TM ownership? | geography first / SGT override first / conditional by lead type / conditional by stage | Dynamic AQS leadership |
+| OQ-TR-002 | When does territory ownership become operationally binding for a lead? | at lead intake / after discovery / after CIS / after activation | Dynamic AQS leadership |
+| OQ-TR-003 | What is the approved truth model for accounts with multiple locations? | account-level owner only / location-aware ownership / hybrid with primary owner | Dynamic AQS operations |
+| OQ-TR-004 | Is a district layer required in the hierarchy? | no district / optional district / required district | Dynamic AQS leadership |
+| OQ-TR-005 | How much map precision is required in Phase 1? | state-based only (current) / ZIP-aware / county-aware / custom shapes later | Dynamic AQS + architecture |
+| OQ-TR-006 | What should the pre-handoff TM visibility rule be by default? | no visibility / visibility after certain stage / configurable by territory | Dynamic AQS leadership |
+| OQ-TR-007 | What later-phase route-planning depth is expected? | operational map only / route planning included / provider-backed optimization later | Dynamic AQS + architecture |
+| OQ-TR-008 | Which map tile and geocoding provider is approved for production use? | Mapbox / MapLibre + open tiles / Google Maps / other | Architecture + Dynamic AQS |
 
-- the proposed territory hierarchy and ownership model are directionally correct
-- the map is expected to be an operational surface, not just a static visualization
-- the assignment, visibility, and reassignment expectations are framed correctly
-- the command-center reporting direction is acceptable
-- the open questions capture the real business decisions still needed
+---
 
-### Module Status
+## 10. FR / NFR → SRC Traceability Matrix
 
-- `Approved`
-- `Approved with amendments`
-- `Parked pending decision`
-- `Needs rewrite`
-
-### Notes
-
-_To be completed during the review meeting._
+| Requirement ID | SRC-TR-001 | SRC-TR-002 | SRC-TR-003 | SRC-TR-004 | SRC-TR-005 | SRC-TR-006 | SRC-TR-007 | SRC-TR-008 | SRC-TR-009 | SRC-TR-010 | SRC-TR-011 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| FR-TR-001 | | | X | X | | | | | | | |
+| FR-TR-002 | | | X | X | | | | | | | |
+| FR-TR-003 | | | | X | | | | | | | |
+| FR-TR-004 | | | | X | | | | | | | |
+| FR-TR-005 | X | | X | X | | | | | | | |
+| FR-TR-006 | | | | X | X | | | | | | |
+| FR-TR-007 | | | | X | X | | | | | | |
+| FR-TR-008 | | | | X | | | | X | | | |
+| FR-TR-009 | | | | X | | | | | | | |
+| FR-TR-010 | | | | X | | | | X | | | |
+| FR-TR-011 | | | | X | | | | X | | | |
+| FR-TR-012 | | | | X | | | | | | | |
+| FR-TR-013 | | | | X | X | | | | | | |
+| FR-TR-014 | | | X | X | | | | | | | |
+| FR-TR-015 | | | | | X | | | | | | |
+| FR-TR-016 | | | | | X | | | | | | |
+| FR-TR-017 | | | | | X | | | | | | |
+| FR-TR-018 | | | | | X | | | | | | |
+| FR-TR-019 | | | X | | | | X | | | | |
+| FR-TR-020 | | | | X | | | X | | | | |
+| FR-TR-021 | | | | | | | X | | | | |
+| FR-TR-022 | | | | | | | X | | | | |
+| FR-TR-023 | | | | X | | | | | | | |
+| FR-TR-024 | | | | | | | X | | | | |
+| FR-TR-025 | | | | X | | | | | | | |
+| FR-TR-026 | | | X | | | | | | X | X | |
+| FR-TR-027 | | | X | | | | | | X | X | |
+| FR-TR-028 | | | X | | | | | | X | X | |
+| FR-TR-029 | | | | | | | | | X | | |
+| FR-TR-030 | | | | | | | | | | X | |
+| FR-TR-031 | | | X | | | | | | | | |
+| FR-TR-032 | X | X | X | | | | | | | | |
+| FR-TR-033 | | | X | | | | | | X | | |
+| FR-TR-034 | | | | X | | X | | | | | |
+| FR-TR-035 | | | | X | | | | | | | |
+| FR-TR-036 | | | | X | | | | | | | |
+| FR-TR-037 | | | | X | | | | | | | |
+| FR-TR-038 | | | | | | | | | | | (inferred) |
+| FR-TR-039 | | | | | | | | | X | | |
+| FR-TR-040 | | | | | | | | X | | | |
+| FR-TR-041 | | | X | | | | | | X | | |
 
 ---
 
@@ -272,6 +264,7 @@ Gaps identified during a full platform UX/requirements audit. Organised by sprin
 All items with **Can do now = Yes** have no external dependency.
 
 ### Sprint 1 — Quick Wins (S effort)
+
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
 | UX-TR-001 | Command dashboard next-work items have no drill-through click handler | TerritoryCommandDashboard.tsx | Yes | Open |
@@ -283,9 +276,9 @@ All items with **Can do now = Yes** have no external dependency.
 | UX-TR-007 | Calendar not filterable by territory from within CalendarWorkspace | CalendarWorkspace.tsx | Yes | Open |
 
 ### Sprint 2 — Core Workflow (M effort)
+
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
 | UX-TR-008 | No bulk account transfer between territories with reason | TerritoryManagement.tsx | Yes | Done |
 | UX-TR-009 | Map pins have no lead/account drill-through | TerritoryCoverageMapPage.tsx | Yes | Done |
 | UX-TR-010 | No named-owner override action with reason field | TerritoryManagement.tsx | Yes | Done |
-

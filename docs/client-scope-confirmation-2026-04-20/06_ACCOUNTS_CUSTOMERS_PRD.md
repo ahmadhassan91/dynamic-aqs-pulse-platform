@@ -1,15 +1,44 @@
 # Pulse Platform — Accounts / Customers / Contacts / Multi-Location Module PRD
 
-## 1. Document Control
+## Document Control
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-06-07 |
-| Status | Scope confirmation draft for Dynamic AQS review |
+| Version | 2.0 |
+| Date | 2026-06-09 |
+| Status | Enriched — traceability + FR/NFR/Assumptions pass complete |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS sales leadership, Strategic Growth team, operations lead, finance lead, customer setup stakeholder |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `03_TERRITORY_PRD.md`, `05_CONSIGNMENT_PRD.md`, Training PRD, CIS / Finance / Onboarding PRD, Dealer / Portal PRD |
+| Enrichment note | Version 2.0 folds in full meeting traceability, a source inventory table, FR/NFR/ASM/OQ tables with SRC citations and build status. All BR-/Q-/UX-GAP IDs from v1.0 are preserved verbatim. |
+
+---
+
+## Meeting Traceability
+
+| Session | Date | File | Key speakers | Topics relevant to this module |
+|---|---|---|---|---|
+| Session 2 — As-Is CRM walkthrough | 2026-02-18 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/18 feb 2026 Discovery session 2.md` | Adrienne Cardinale, Michelle Hogan, C G (Curry), Dan Harshbarger, Ahmad Hassan | Manual account creation in Dynamics CRM, affinity/ownership groups, lead-to-customer graduation ("first order"), required fields, payment terms, credit card on CIS, CRM vs ERP gap, pricing attribution |
+| Session 4 — TM/Field walkthrough | 2026-02-24 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/24 Feb 2026 Discovery session 4.md` | C G, Don Hearn, Dan Harshbarger, Michelle Hogan, Rick Cardinale (Adrienne), Ahmad Hassan | Account ownership transfer, note authorship on reassignment, contact hierarchy (management vs technicians), sales history on account, single account owner policy, split commissions in Acumatica, CRM as customer contact source of truth |
+| As-Is customer setup SOP | undated | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/asiscustomerdocuments/Adding a customer.docx.md` | Ops/Customer-service team | Step-by-step customer entry in Dynamics CRM and Acumatica; contact roles (ordering/Purchaser, primary, Shopify); billing vs shipping address; payment terms and credit approval workflow; onboarding checklist stages; affinity group and brand label attributes in Acumatica |
+
+---
+
+## Source Inventory
+
+| ID | Absolute path | What it sourced |
+|---|---|---|
+| SRC-ACC-001 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/18 feb 2026 Discovery session 2.md` | Lead-to-account graduation trigger (first order), affinity group as required field, ownership group field, manual account creation pain, CRM vs Acumatica duplication, phone/email mandatory on lead/account, credit card handling, pricing driven by affinity/ownership |
+| SRC-ACC-002 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/24 Feb 2026 Discovery session 4.md` | Account ownership reassignment preserving note authorship, single account owner policy, contact list hierarchy (management before technicians), TM account overview, sales history / buying-trend visibility on account, SGT vs TM ownership routing |
+| SRC-ACC-003 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/asiscustomerdocuments/Adding a customer.docx.md` | Credit approval pre-step before adding customer; CRM fields (business unit, account name, private equity, affinity group, phone, website, shipping/billing address, initial contact date/by, marketing source, credit limit); second-bar fields (number of trucks, account status = onboarding, contacts, primary contact, CIS attachment); contact fields (first/last name, job title, owner, Shopify invite date, email, mobile); Acumatica fields (customer class, payment terms, statement cycle, restrict visibility, credit verification, price class, tax zone, warehouse, ship via, shipping terms, payment method, salesperson, attributes incl. affinity group and brand label) |
+
+> Note: All three sources were readable as .md equivalents. No source was unreadable.
+
+---
+
+## 1. Document Control
+
+*(Preserved from v1.0 above.)*
 
 ---
 
@@ -38,7 +67,7 @@ Pulse will provide a single account management system that will:
 
 ## 4. Scope Statement
 
-### 4.1 Pulse Will Support
+### 4.1 In Scope — Pulse Will Support
 
 - account creation at the first-order activation boundary, carried forward from the converting lead with full `sourceLeadId` lineage
 - restricted manual account creation limited to a SUPER_ADMIN bootstrap / migration path (not a routine sales action)
@@ -55,29 +84,21 @@ Pulse will provide a single account management system that will:
 - an account readiness view and day-one handoff checklist that separates Pulse-owned actions from parked external dependencies
 - role-based visibility and edit governance across Super Admin, Executive, Sales Leadership, Sales/BD, TM, RD, Admin/Ops, and Finance
 
-### 4.2 This PRD Will Also Cover
+### 4.2 Out of Scope / Parked Dependencies
 
-- how an account comes into existence only through lead conversion, and what manual creation is and is not allowed to do
-- how source-lead lineage, territory, contacts, and locations carry forward at activation
-- how contact roles and the protected primary contact behave, and where role data needs to move from free text to a governed catalogue
-- how billing-versus-shipping location semantics should be expressed beyond a single primary flag
-- how the lifecycle is governed today (manual, reason-backed transitions) and where order-driven automation is still pending
-- what Dynamic AQS needs to confirm before the account scope is locked
+These items remain part of the broader Pulse vision but require a later approval or a separate dependency decision:
 
-### 4.3 Later-Phase / Separate Decision Items
-
-These items remain part of the broader Pulse vision, but require later approval or a separate dependency decision and must not be treated as in-scope gaps:
-
-- Acumatica-owned financial truth surfaced in Pulse: orders, invoices, shipments, payments received, statement / AR balances, credit limits, revenue, pricing, and live inventory — these stay in Acumatica until the certified integration boundary is live, after which Pulse will display them read-only
-- the live Acumatica customer ID and bidirectional customer/contact sync (creation payload, sync status badges, manual re-sync) — parked until the Acumatica boundary, endpoints, and field mappings are available
-- raw payment-card and bank data — permanently out of Pulse; capture stays in the Moneris / eBizCharge hosted vaults, with Pulse holding tokenized references only
-- HubSpot historical lead/customer data migration mechanics and cutover timing
-- mailbox / correspondence ingestion (email threads auto-attached to the account timeline)
-- order-driven lifecycle automation (automatic At Risk / Inactive / Churned aging) — depends on a live order signal
-- month-over-month sales-trend charting on the account — depends on Acumatica order history being live
-- parent / child account hierarchy and multi-entity rollup reporting
-- dealer-group and price-class resolution display (Affinity + Ownership + Region → Dealer Group → Price Class) — depends on finance pricing rules and the pricing boundary
-- twenty-year QuickBooks / Azure historical sales import onto the account
+- **Acumatica financial truth** — orders, invoices, shipments, payments received, AR balances, credit limits, revenue, pricing, and live inventory stay in Acumatica; Pulse will display read-only once the certified integration boundary is live
+- **Acumatica customer ID and bidirectional sync** — creation payload, sync status badges, manual re-sync — parked until the Acumatica boundary, endpoints, and field mappings are available
+- **Raw payment-card / bank data** — permanently out of Pulse; capture stays in Moneris / eBizCharge hosted vaults; Pulse holds tokenized references only
+- **HubSpot historical lead/customer data migration** mechanics and cutover timing
+- **Mailbox / correspondence ingestion** (email threads auto-attached to the account timeline)
+- **Order-driven lifecycle automation** (automatic At Risk / Inactive / Churned aging) — depends on a live order signal
+- **Month-over-month sales-trend charting** — depends on Acumatica order history being live
+- **Parent / child account hierarchy** and multi-entity rollup reporting
+- **Dealer-group and price-class resolution display** (Affinity + Ownership + Region → Dealer Group → Price Class) — depends on finance pricing rules and the pricing boundary
+- **Twenty-year QuickBooks / Azure historical sales import** onto the account
+- **Rebate and discount engine in Pulse** — acknowledged as complex; parked in Acumatica until a separate decision is made (SRC-ACC-001: Dan — "I wouldn't focus on it — it's gonna derail us")
 
 ---
 
@@ -185,6 +206,7 @@ Pulse will:
 - preserve activity and training references when a contact is deactivated rather than deleted
 - support provisioning a contact as a dealer-portal user from the account context
 - move contact role from free text toward a governed role catalogue (see business rules and open questions)
+- display management contacts ahead of technician contacts in the contact list
 
 ### 6.5 Multi-Location Management
 
@@ -227,7 +249,243 @@ Pulse will:
 
 ---
 
-## 7. Business Rules Pulse Will Enforce
+## 7. Functional Requirements
+
+> Build status key: **Built** = API + UI both shipped; **Partial** = API or UI only, or known gap; **Not-built** = in-scope, not yet implemented; **Parked** = blocked on Acumatica / payment vault / external dependency.
+
+### FR-ACC-001 — Account Origination (Lead Conversion Only)
+
+| Field | Value |
+|---|---|
+| Statement | When a lead reaches the first-order activation boundary, Pulse shall create an account record carrying `sourceLeadId`, territory, contacts, and locations forward from the lead without requiring re-entry. |
+| Acceptance criteria | (1) Account record is created with `sourceLeadId` populated. (2) Territory, region, shipping centre, TM/RD assignment carry forward. (3) Known contacts and locations from lead data are present on the new account. (4) The originating lead record is preserved and not deleted. |
+| Priority | P0 |
+| Build status | **Built** — `createAccount` in `service.ts` stamps `sourceLeadId`; `CustomerOverview.tsx` links back to lead; lead preservation confirmed. |
+| Sources | SRC-ACC-001 (Adrienne: "graduate them to customer"; Michelle: "once they place an order… graduate"; Ahmad confirms first-order trigger), SRC-ACC-002 (CG: "trigger where it becomes the territory manager's responsibility is [the first order]") |
+
+### FR-ACC-002 — Restricted Manual Account Creation (Bootstrap Path)
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall restrict manual account creation to a SUPER_ADMIN role only, isolated from normal sales intake, and shall not expose a general "Create account" action to Sales, TM, or BD roles. |
+| Acceptance criteria | (1) Only SUPER_ADMIN can call the manual create path. (2) Account created manually is flagged as bootstrap-origin. (3) Sales/TM/BD roles cannot reach the create path. |
+| Priority | P0 |
+| Build status | **Built** — `createAccount` checks role; route guarded in `http.ts`. |
+| Sources | SRC-ACC-001 (CG/Michelle: accounts are people who buy from them, not ad-hoc entries), SRC-ACC-003 (SOP describes customer service team entering accounts; not a self-service sales action) |
+
+### FR-ACC-003 — Account Directory — Follow-Up Queue and All-Accounts View
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall present an account directory with a "Needs follow-up" queue (accounts requiring attention) and an "All accounts" directory view with search and lifecycle filtering. |
+| Acceptance criteria | (1) "Needs follow-up" queue surfaces accounts with At Risk status, missing territory, zero contacts, or zero locations, each with a plain next-action label. (2) "All accounts" view supports search by display name, legal name, account number. (3) Lifecycle filter (Active / At Risk / Inactive / Churned) is available. (4) Directory shows owner, territory, contact count, location count, lifecycle, last-updated. (5) Summary counts (At Risk, territory-assigned, lead-sourced, active) visible. |
+| Priority | P0 |
+| Build status | **Built** — `CustomerList.tsx` ships both `follow_up` and `all` view modes; `accountNeedsAttention` and `accountNextAction` helpers; `listAccounts` supports `lifecycleStatus` filter and pagination. |
+| Sources | SRC-ACC-002 (Ahmad: "where is that pipeline where you guys can see the stage of the lead"), SRC-ACC-001 (Adrienne: "there's no quick button to make a change just right here in this page") |
+
+### FR-ACC-004 — Account Search
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall support searching accounts by display name, legal name, and account number, returning paginated results. |
+| Acceptance criteria | (1) Search matches partial strings on display name, legal name, and account number. (2) Results paginate with configurable page size (≥ 50 rows). |
+| Priority | P0 |
+| Build status | **Built** — `listAccounts` accepts `search` param; `CustomerList.tsx` debounced search input; page size 50. |
+| Sources | SRC-ACC-001 (filter-by account name in legacy Dynamics CRM; CG needs quick snapshot) |
+
+### FR-ACC-005 — Account Workspace — Tabs and Drawer
+
+| Field | Value |
+|---|---|
+| Statement | The account workspace shall present primary Profile, Contacts, and Locations tabs and a "More" drawer containing account readiness, consignment, activity and documents, payment methods, training, and dealer portal panels, with deep-link URL support for each tab. |
+| Acceptance criteria | (1) Three primary tabs (Profile, Contacts, Locations) accessible by default. (2) "More" drawer exposes six secondary panels. (3) Active tab is preserved in URL query parameter `?tab=`. (4) Role-based visibility governs which panels are accessible per role. |
+| Priority | P0 |
+| Build status | **Built** — `CustomerDetail.tsx` resolves tabs from URL; `resolveCustomerSecondaryPanel` handles all six; UX-A-014 done. |
+| Sources | SRC-ACC-002 (Rick Cardinale: "the home page of an account — Profile tab; training tab; sales tab"), SRC-ACC-001 (Adrienne: "onboarding tab, contacts tab" in Dynamics) |
+
+### FR-ACC-006 — Account Profile Fields
+
+| Field | Value |
+|---|---|
+| Statement | The account profile shall capture and allow editing of: display name, legal name, business unit (Residential), account type, affinity group, ownership group (PE), private label / brand, website, number of trucks, marketing source, initial contact date/by, credit limit, record-active state, and lifecycle status. |
+| Acceptance criteria | (1) All listed fields are editable by authorized roles. (2) Affinity group and ownership group are governed dropdown catalogues (not free text). (3) Marketing source is captured and displayed. (4) Record-active state is separate from lifecycle status. |
+| Priority | P0 |
+| Build status | **Built** (core fields); **Partial** — affinity group and ownership group are captured but the full governed catalogue reconciliation with Acumatica's attribute list is not yet verified as complete. |
+| Sources | SRC-ACC-003 (SOP: business unit, account name, private equity, affinity group, company phone, website, shipping address, billing address, initial contact date/by, marketing source, credit limit, number of trucks, account status, brand label), SRC-ACC-001 (Adrienne: "affinity group, private equity, private label… drives what they have access to") |
+
+### FR-ACC-007 — Source Lead Lineage Display
+
+| Field | Value |
+|---|---|
+| Statement | The account profile shall display the `sourceLeadId` link so any user can navigate directly to the originating lead record. |
+| Acceptance criteria | (1) Source lead link is visible on the account overview. (2) Link navigates to `/leads/{sourceLeadId}`. (3) If no source lead, a contextual placeholder is shown. |
+| Priority | P1 |
+| Build status | **Partial** — `CustomerOverview.tsx` renders source lead link when `account.sourceLeadId` is present; UX-A-008 confirmed as open (no placeholder shown when absent). |
+| Sources | SRC-ACC-001 (Ahmad: "account is an account but it will graduate to a customer when they place their first order"), SRC-ACC-002 (Ahmad on permanent lineage traceability) |
+
+### FR-ACC-008 — Contact Management — CRUD and Primary Protection
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall support multiple contacts per account with create, edit, soft-deactivate, and reactivate. Exactly one contact shall be designated as primary, and the sole primary shall not be removable without designating a replacement. |
+| Acceptance criteria | (1) Create/edit/soft-deactivate/reactivate contacts works for authorized roles. (2) Attempting to deactivate the sole primary contact is rejected unless a replacement primary is designated. (3) Contact list displays management contacts (primary, owner/GM, ordering) ahead of technicians. (4) Deactivated contacts remain visible with historical references intact. |
+| Priority | P0 |
+| Build status | **Built** — `createAccountContact`, `updateAccountContact`, `listAccountContacts` in `service.ts`; `CustomerContacts.tsx` present; primary protection logic in `ensurePrimaryActiveContact`. UX-A-005 (sole-primary removal guard) confirmed as Open — protection exists at API level; UI guard still open. |
+| Sources | SRC-ACC-003 (SOP: add contacts, primary contact in first bar, add Shopify invite), SRC-ACC-002 (Don Hearn: "contacts in the account — you'll have 14 technicians before you get to the person you want — prioritize management to top") |
+
+### FR-ACC-009 — Contact Roles — Governed Catalogue
+
+| Field | Value |
+|---|---|
+| Statement | Contact roles shall use a governed catalogue (Primary, Owner/GM, Ordering/Purchaser, Billing, Accounting/AP, Technical) rather than free text, so downstream processes can rely on role values. |
+| Acceptance criteria | (1) Role field presents governed dropdown options. (2) Legacy free-text roles are migrated or mapped on import. (3) Shopify portal contact eligibility is derivable from role = Ordering or Primary. |
+| Priority | P1 |
+| Build status | **Not-built** — UX-A-004 confirmed open; role is still free-text in `CustomerContacts.tsx`. |
+| Sources | SRC-ACC-003 (SOP: "Who will be ordering contact's job title is Purchaser"; "Shopify invite sent date if they will be receiving an invite" — invites go to primary and ordering contacts), SRC-ACC-002 (Michelle on contact uploads weekly; cell phone tracking critical) |
+
+### FR-ACC-010 — Multi-Location Management
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall support multiple operating locations per account with create, edit, soft-deactivate, and reactivate. Each location shall capture name, address (US/Canada), primary flag, active flag, and optional location-type intent (billing vs shipping). |
+| Acceptance criteria | (1) Create/edit/soft-deactivate/reactivate locations works for authorized roles. (2) Primary location is enforced (at most one primary among active locations). (3) Billing vs shipping intent is expressible per location. (4) Deactivated locations preserve historical activity and consignment linkage. |
+| Priority | P0 |
+| Build status | **Built** — `createAccountLocation`, `updateAccountLocation` in `service.ts`; `CustomerLocations.tsx` present; `ensurePrimaryActiveLocation` enforced. UX-A-012 done (name-prefix convention pending Q-A-02 schema decision). |
+| Sources | SRC-ACC-003 (SOP: "shipping address, billing address if different from shipping"; Acumatica "override bill to address if different from shipping"; locations tab in Acumatica), SRC-ACC-001 (Adrienne: "shipping address, billing address if different" — captured in account form) |
+
+### FR-ACC-011 — Account Lifecycle State Machine
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall maintain a governed lifecycle state machine (Active / At Risk / Inactive / Churned) with operator-driven transitions, mandatory reason notes on consequential transitions, and a full lifecycle audit trail. |
+| Acceptance criteria | (1) Valid transitions are enforced; invalid transitions are rejected. (2) Reason note is required on transitions to Inactive and Churned. (3) Audit trail records status, changed-at, changed-by, last order date, last engagement date, and reason note. (4) Lifecycle status is separate from the record-active flag. |
+| Priority | P0 |
+| Build status | **Partial** — `updateAccountLifecycle` and `validateAccountLifecycleTransition` are wired; UX-A-003 confirms reason is not yet required on At Risk / Inactive transitions (UI guard still open); UX-A-011 done (lifecycle audit surfaces from `activityReview.recentEvents`). |
+| Sources | SRC-ACC-001 (Adrienne on changing "active" to "customer" for placed-order leads; Michelle: "graduated"), SRC-ACC-002 (CG: "we need to eliminate that [manual tracking] so that everybody's using the exact same program") |
+
+### FR-ACC-012 — Note Authorship Preservation on Reassignment
+
+| Field | Value |
+|---|---|
+| Statement | When an account's territory manager or owner is reassigned, all existing activity notes and timeline entries shall retain the original author identity and shall not be re-attributed to the new assignee. |
+| Acceptance criteria | (1) Activity entries carry immutable `authorId` and `authorName` stamped at creation. (2) Reassigning account owner does not alter `authorId` on any prior entry. (3) New assignee sees prior entries with original author attribution. |
+| Priority | P0 |
+| Build status | **Built** — activity audit trail uses immutable author attribution; `buildAccountActivityReview` in `service.ts` preserves authorship from audit log. |
+| Sources | SRC-ACC-002 (Don Hearn: "when I get fired, every note gets transferred to the new TM's name — all his previous notes are saying I put them in there. I have no idea [who actually did it] unless I look at the dates") |
+
+### FR-ACC-013 — Territory and Owner Ownership Display
+
+| Field | Value |
+|---|---|
+| Statement | The account profile shall display territory, region, shipping centre, TM, and RD assignment along with the assignment method, and shall support governed reassignment without rewriting prior activity authorship. |
+| Acceptance criteria | (1) Territory, region, shipping centre, TM name, and RD name visible on account profile. (2) Assignment method label (e.g. "auto-assigned", "manual") shown. (3) Reassignment is logged as an audit event. (4) Prior note authorship is unchanged after reassignment (see FR-ACC-012). |
+| Priority | P0 |
+| Build status | **Built** — `CustomerOverview.tsx` displays territory info; `updateAccount` service handles territory. |
+| Sources | SRC-ACC-002 (CG: "business development team assigns accounts; there'll always be one person who owns the account") |
+
+### FR-ACC-014 — Tokenized Payment References
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall store only tokenized payment references and masked descriptors per account. Pulse shall reject raw card numbers, bank account numbers, or unmasked credentials at every entry point. |
+| Acceptance criteria | (1) Payment method form accepts provider, vault token, vault customer ref, external PM ref, masked last-4, brand, billing ZIP, default flag, active flag. (2) Input validation rejects entries containing 13–19 consecutive digits (raw card pattern). (3) A single default method is enforced per account. (4) Multiple payment methods per account are supported with active/inactive state. |
+| Priority | P0 |
+| Build status | **Built** — `createAccountPaymentMethod`, `updateAccountPaymentMethod`, `listAccountPaymentMethods` in `service.ts`; `CustomerPaymentMethods.tsx` present; `clearDefaultAccountPaymentMethods` / `ensureDefaultActiveAccountPaymentMethod` enforce single-default rule. UX-A-006 (masked last-4 / card brand visual display) still open; UX-A-013 (register vault reference create form) done. |
+| Sources | SRC-ACC-001 (Michelle: "we cut off the credit card information… we get the information but we take a picture"; Dan: "we never charge credit card out of Shopify"), SRC-ACC-003 (SOP: payment methods — ACH, CCD, CHX; credit card users added to Acumatica discounts section) |
+
+### FR-ACC-015 — Field Activity Review Queue
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall provide a back-office Field Activity Review queue for mobile voice notes. Reviewers shall edit structured summary, sentiment, follow-up, and tags, then approve or reject. Only approved notes shall become account activity. |
+| Acceptance criteria | (1) Queue lists pending voice notes with target entity (account / lead / training / consignment). (2) Reviewer can edit summary, sentiment, and tags before approving. (3) Approval writes a structured activity entry to the target account. (4) Rejection discards the note without writing to the account. (5) Optional governed follow-up (training, consignment work item) can be created on approval. |
+| Priority | P1 |
+| Build status | **Built** — `FieldActivityReview.tsx` ships; `fetchFieldActivityReviewQueue`, `reviewFieldActivityVoiceNote` wired; `mobile-voice-notes` API module present. UX-A-007 (FieldActivityReview not linked from account detail workspace) still open. |
+| Sources | SRC-ACC-002 (Ahmad: "16-hour loss annually per user just because of this manual fatigue"; CG: "the frustration from the field operations team — lack of engagement with the platform, no data entered in a regular way") |
+
+### FR-ACC-016 — Account Readiness View
+
+| Field | Value |
+|---|---|
+| Statement | The account workspace shall display an account readiness score and checklist distinguishing Pulse-owned actions (completable now) from parked external dependencies (Acumatica integration, payment vault, etc.). |
+| Acceptance criteria | (1) Readiness checks are shown with status: ready / needs attention / parked. (2) Day-one handoff checklist separates Pulse-owned items from parked items. (3) Readiness drives "Needs follow-up" queue membership. |
+| Priority | P1 |
+| Build status | **Built** — `buildAccountReadinessSummary` in `service.ts`; readiness panel in `CustomerDetail.tsx`. |
+| Sources | SRC-ACC-002 (Michelle: "if nobody's contacted this account within a quarter or six months we should have an exception report") |
+
+### FR-ACC-017 — Affinity Group and Ownership Group Capture
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall capture affinity group (buying / best-practice group membership) and ownership group (PE or common-ownership entity) as separate governed fields on every account, since they drive pricing, rebates, and routing independently. |
+| Acceptance criteria | (1) Affinity group field has governed catalogue matching Acumatica attribute list. (2) Ownership group field has separate governed catalogue. (3) Both fields allow "None / Independent" selection. (4) Both fields are displayed on account profile and surface on directory summary. |
+| Priority | P0 |
+| Build status | **Built** — fields present in account profile; SRC-ACC-001 confirms catalogue exists in legacy CRM and Acumatica. Completeness of catalogue vs Acumatica list is **Partial** (needs reconciliation). |
+| Sources | SRC-ACC-001 (CG: "we would want another field that says [ownership group]… affinity group as required at entry with possibly an entry of unknown"; Dan: "affinity group and ownership group — we need to track both because rebate structure depends on both"), SRC-ACC-003 (SOP: Acumatica Attributes tab → Add Affinity Group, Add Brand label) |
+
+### FR-ACC-018 — CSV / Affinity Member List Import
+
+| Field | Value |
+|---|---|
+| Statement | Pulse shall support column-mapped CSV/Excel import of affinity group member lists as lead records, so that quarterly member updates from buying groups can be ingested without manual entry. |
+| Acceptance criteria | (1) Import UI allows column-to-field mapping (company name, email, phone, address, member ID). (2) Import deduplicates against existing accounts and leads on email or account name. (3) Import results show created / updated / skipped counts. |
+| Priority | P2 |
+| Build status | **Not-built** |
+| Sources | SRC-ACC-002 (CG: "ability to import from CSV so we can import this data and map it into a lead contact sheet"; Dan: "I take the Excel spreadsheet, I convert every line to an INSERT statement — if I could just drag and drop someplace and say what's this column… would save me a couple hours every quarter") |
+
+### FR-ACC-019 — Acumatica Customer Sync (Parked)
+
+| Field | Value |
+|---|---|
+| Statement | When the Acumatica integration boundary is certified, Pulse shall support bidirectional customer record sync including creation payload, live customer ID display, sync status badge, and manual re-sync action. |
+| Acceptance criteria | TBD at integration scoping phase. |
+| Priority | P0 |
+| Build status | **Parked** — `acumaticaStatus` field exists in schema; sync display placeholder visible in UI via UX-A-009 parked cards. Resumes when Acumatica endpoints and field mappings are certified. |
+| Sources | SRC-ACC-001 (Dan: "customer information is manually entered into Acumatica — there's no sync"; Michelle: "we can't simultaneously put the same data in — that's why there is a matching problem"), SRC-ACC-003 (SOP: Acumatica Adding a Customer from Scratch — General Tab, Financial Tab, Billing Tab, Shipping Tab, Price Class, Tax Zone, Warehouse) |
+
+### FR-ACC-020 — Account Activity Timeline
+
+| Field | Value |
+|---|---|
+| Statement | The account workspace shall present a structured activity timeline covering profile changes, contact changes, location changes, payment method changes, lifecycle transitions, dealer-portal events, and source-lead events. |
+| Acceptance criteria | (1) Timeline entries show entity type, action, actor, and timestamp. (2) Lifecycle transitions appear with reason note if present. (3) Timeline is append-only and immutable. |
+| Priority | P1 |
+| Build status | **Built** — `buildAccountActivityReview` in `service.ts`; `formatAccountActivityLabel`, `formatAccountActivityDetail` helpers; `activityReview.recentEvents` surfaced in `CustomerOverview.tsx`. |
+| Sources | SRC-ACC-002 (CG: "no notes for that person for that account — territory managers: I don't use the CRM, I use Map My Customer") |
+
+### FR-ACC-021 — Sales History Visibility on Account (Parked)
+
+| Field | Value |
+|---|---|
+| Statement | When the Acumatica integration is live, the account workspace shall display a month-over-month sales trend view (filterable by 6 months, 12 months, 2 years, 3 years, lifetime), pulled from Acumatica order history and the 20-year Azure/QuickBooks historical dataset. |
+| Acceptance criteria | TBD at integration scoping phase. |
+| Priority | P2 |
+| Build status | **Parked** — depends on Acumatica order history signal. |
+| Sources | SRC-ACC-002 (Don Hearn: "I want to be able to look back two to three years and say — do I see a habit or pattern in their buying? … peaks and valleys"; CG: "sales tab — visual representation by month, filterable 6/12/24/36 months, lifetime") |
+
+---
+
+## 8. Non-Functional Requirements
+
+| ID | Category | Requirement | Source |
+|---|---|---|---|
+| NFR-ACC-001 | Performance | Account directory page shall load within 2 seconds for the first 50-row fetch under normal network conditions. | (inferred standard) |
+| NFR-ACC-002 | Performance | Account detail workspace (Profile tab) shall render within 2 seconds including readiness and activity review. | (inferred standard) |
+| NFR-ACC-003 | Security / AuthZ | Raw card numbers, bank account numbers, and unmasked payment credentials shall never be accepted, stored, or logged at any system boundary — API, UI, or audit trail. | SRC-ACC-001 (Dan: "we never charge credit card out of Shopify… charge out of Acumatica only"); SRC-ACC-003 (SOP: credit card info cut off before uploading CIS) |
+| NFR-ACC-004 | Security / AuthZ | Role-based access shall govern all account read, edit, lifecycle-change, payment-method, and reassignment actions. Finance-only actions (payment methods) shall be inaccessible to Sales/TM roles. | SRC-ACC-001 (CG: "admin access — me or Dan — anything that needs to be done") |
+| NFR-ACC-005 | Security / AuthZ | The restricted SUPER_ADMIN account-creation path shall be protected by role enforcement; no other role may invoke it. | (inferred from BR-A-02) |
+| NFR-ACC-006 | Scalability | The account directory and search shall support at least 10,000 account records without degradation beyond the 2-second SLA. | SRC-ACC-001 (716 active leads noted as already unwieldy; growth trajectory implies larger sets) |
+| NFR-ACC-007 | Availability | The Accounts module API shall target 99.9% monthly uptime, aligned with the broader Pulse platform SLA. | (inferred standard) |
+| NFR-ACC-008 | Auditability | All account create, update, lifecycle-change, contact, location, and payment-method mutations shall be recorded in the audit log with actor, timestamp, before-state, and after-state. | SRC-ACC-002 (Don Hearn: note authorship must be immutable; CG: "kept track of who posted the note") |
+| NFR-ACC-009 | Auditability | Territory and owner reassignment events shall be stored as audit-log entries and surfaced in the account activity timeline. | (inferred from BR-A-13) |
+| NFR-ACC-010 | Accessibility | Account workspace UI components shall meet WCAG 2.1 AA contrast and keyboard-navigation requirements. | (inferred standard) |
+| NFR-ACC-011 | Observability | API response times, error rates, and search query latency for the accounts module shall be emitted as named metrics and available in the platform monitoring dashboard. | (inferred standard) |
+| NFR-ACC-012 | Data Retention | Soft-deactivated contacts, locations, and payment references shall be retained indefinitely and shall not be physically deleted, preserving historical activity references. | SRC-ACC-001 (Adrienne: "soft-deactivate so activity history remains intact") |
+| NFR-ACC-013 | Data Retention | The lifecycle audit trail shall be retained for the life of the account record and exposed to authorized roles. | (inferred from BR-A-08, BR-A-09) |
+
+---
+
+## 9. Business Rules Pulse Will Enforce
 
 | # | Rule |
 |---|---|
@@ -247,9 +505,41 @@ Pulse will:
 
 ---
 
-## 8. Data And Integration Highlights
+## 10. Assumptions
 
-At business level, this module will depend on and feed the following:
+| ID | Assumption | Why It Matters | Source |
+|---|---|---|---|
+| ASM-ACC-001 | Accounts are born only on first-order conversion from a lead; there is no routine "create customer" action for sales. | Defines where customer truth originates; prevents duplicate, ungoverned account creation. | SRC-ACC-001 (Michelle: "once they place an order, graduate them to customer"; Ahmad: "account graduates to a customer when they place their first order — correct") |
+| ASM-ACC-002 | The restricted SUPER_ADMIN manual-create path exists only for bootstrap/migration and will be removed or further isolated once migration tooling is final. | Affects data integrity and who can ever create an account outside conversion. | (inferred from BR-A-02) |
+| ASM-ACC-003 | The CRM is the system of record for relationship data (account profile, contacts, locations, lifecycle); Acumatica is the system of record for financial data (orders, invoices, pricing, inventory). | Determines which fields Pulse owns/edits vs displays read-only. | SRC-ACC-001 (CG: "contact information, customer information — the CRM will be the source of truth; anything numbers or cost — Acumatica should be"; Dan: "I wouldn't focus on pricing in CRM — bang for buck is the CRM itself") |
+| ASM-ACC-004 | Contact roles will move from free text to a governed role catalogue: Primary, Owner/GM, Ordering/Purchaser, Billing, Accounting/AP, Technical. | Determines reporting consistency and whether downstream processes (Shopify invite, portal access) can rely on role values. | SRC-ACC-003 (SOP: "Purchaser" as job title for ordering contact; Shopify invites go to primary and ordering contacts) |
+| ASM-ACC-005 | Locations need explicit billing-versus-shipping intent, not just a single primary flag. | Affects where invoices, shipments, and finance notifications are directed. | SRC-ACC-003 (SOP: "billing address if different from shipping"; Acumatica Billing Tab "override bill to address if different from shipping") |
+| ASM-ACC-006 | Lifecycle transitions are manual and reason-backed today; automatic order-driven aging is a later phase once a live order signal from Acumatica exists. | Sets expectations on what "At Risk / Inactive / Churned" means at go-live. | (inferred from BR-A-08; order signal depends on Acumatica boundary) |
+| ASM-ACC-007 | Only tokenized payment references belong in Pulse; raw card capture stays in the hosted vault (Moneris / eBizCharge). | Security and compliance boundary; must be confirmed explicitly. | SRC-ACC-001 (Michelle: "cut off the credit card information"; Dan: "we never charge credit card out of Shopify — only out of Acumatica") |
+| ASM-ACC-008 | Mobile field notes must pass back-office review before becoming account activity. | Affects data quality and accountability for what lands on an account. | (inferred from BR-A-11) |
+| ASM-ACC-009 | Affinity group and ownership group are two separate dimensions and must both be stored; an account can carry one of each, both, or neither. | Drives pricing, rebate eligibility, and territory routing independently. | SRC-ACC-001 (Dan: "affinity group and ownership group — we need to track both; rebate depends on both"; CG: "they could be in different affinity groups AND an ownership group") |
+| ASM-ACC-010 | Quarterly affinity member-list reconciliation (CSV import, column mapping, deduplication) is a P2 capability; the manual process is acceptable until that is built. | Determines whether Dan's quarterly 2-4 hour manual affinity reconciliation is blocked on Pulse or can proceed in parallel. | SRC-ACC-002 (Dan: "save me four hours a quarter, 16 a year" from automated column mapping) |
+
+---
+
+## 11. Open Questions
+
+| ID | Question | Options To Confirm | Why Decision Is Needed |
+|---|---|---|---|
+| OQ-ACC-001 (was Q-A-01) | What is the governed contact-role catalogue, and is exactly one primary contact required per account? | Fixed catalogue / extensible catalogue / free text retained; one primary required / optional | Pulse should lock role values before downstream processes (Shopify, portal) depend on them. |
+| OQ-ACC-002 (was Q-A-02) | How should billing-versus-shipping be modelled on locations? | Role flag per location / separate billing entity / "same as billing" toggle / other | Changes where finance, invoices, and shipments are directed. |
+| OQ-ACC-003 (was Q-A-03) | What is the approved account-level duplicate / merge policy? | Admin merge with field-by-field resolution / block at conversion / review queue / no merge | Conversion-born accounts can still collide on name; protects customer history integrity. |
+| OQ-ACC-004 (was Q-A-04) | Who may reassign territory or owner directly from the account, and with what audit? | Sales Leadership only / Admin/Ops / TM-initiated request / system-driven | Changes ownership control and accountability. |
+| OQ-ACC-005 (was Q-A-05) | What are the lifecycle thresholds and who confirms churn? | At Risk 60 days / Inactive 120 days / Churned 180 days; manual confirm vs auto | Sets when automation (later) fires and what manual confirmation is required now. |
+| OQ-ACC-006 (was Q-A-06) | Should the directory move beyond the current limits (hard 50-row fetch, top-8 follow-up slice)? | Add pagination / configurable columns / bulk actions / keep simple | Changes how operations works large account books at scale. |
+| OQ-ACC-007 (was Q-A-07) | What account activity belongs in a first-class CRM-owned timeline, and what document types belong on the account? | CRM events only / include email/correspondence / include documents tab / mixed | Defines how much of the 360 timeline Pulse owns versus parks. |
+| OQ-ACC-008 (was Q-A-08) | When the Acumatica boundary is live, which financial tabs and the live customer ID should appear, and to which roles? | Orders / invoices / shipments / payments / statements; by role | Pre-frames the parked Acumatica display so it can be enabled cleanly later. |
+| OQ-ACC-009 | Should the CSV affinity member-list import be built in Phase 1 or deferred? | Phase 1 (P2 item) / defer to separate tooling | Dan identified 16 hours/year of manual reconciliation savings as motivation; decision determines build priority. |
+| OQ-ACC-010 | How should management contacts be ranked above technician contacts in the contact list display? | Role-based sort order (primary first, then owner/GM, ordering, billing, technical) / manual reorder / headcount threshold | Don Hearn identified 14 technicians obscuring the management contact as a concrete pain point. |
+
+---
+
+## 12. Data And Integration Highlights
 
 | Area | Proposed Pulse Role |
 |---|---|
@@ -266,37 +556,7 @@ At business level, this module will depend on and feed the following:
 
 ---
 
-## 9. Assumptions To Confirm
-
-| # | Assumption | Why It Matters |
-|---|---|---|
-| A-A-01 | Accounts are born only on first-order conversion from a lead; there is no routine "create customer" action for sales. | This defines where customer truth originates and prevents duplicate, ungoverned account creation. |
-| A-A-02 | The restricted SUPER_ADMIN manual-create path exists only for bootstrap/migration and will be removed or further isolated once migration tooling is final. | This affects data integrity and who can ever create an account outside conversion. |
-| A-A-03 | The CRM is the system of record for relationship data (account profile, contacts, locations, lifecycle); Acumatica is the system of record for financial data. | This determines which fields Pulse owns and edits versus displays read-only. |
-| A-A-04 | Contact roles will move from free text to a governed role catalogue (Primary, Owner/GM, Ordering, Billing, Accounting/AP, Technical). | This determines reporting consistency and whether downstream processes can rely on role values. |
-| A-A-05 | Locations need explicit billing-versus-shipping intent, not just a single primary flag. | This affects where invoices, shipments, and finance notifications are directed. |
-| A-A-06 | Lifecycle transitions are manual and reason-backed today; automatic order-driven aging is a later phase once an order signal exists. | This sets expectations on what "At Risk / Inactive / Churned" means at go-live. |
-| A-A-07 | Only tokenized payment references belong in Pulse; raw card capture stays in the hosted vault. | This is a security and compliance boundary that must be confirmed explicitly. |
-| A-A-08 | Mobile field notes must pass back-office review before becoming account activity. | This affects data quality and who is accountable for what lands on an account. |
-
----
-
-## 10. Open Questions For Dynamic AQS Decision
-
-| # | Question | Options To Confirm | Why Decision Is Needed |
-|---|---|---|---|
-| Q-A-01 | What is the governed contact-role catalogue, and is exactly one primary contact required per account? | fixed catalogue / extensible catalogue / free text retained; one primary required / optional | Pulse should lock role values before downstream processes depend on them. |
-| Q-A-02 | How should billing-versus-shipping be modelled on locations? | role flag per location / separate billing entity / "same as billing" toggle / other | This changes where finance, invoices, and shipments are directed. |
-| Q-A-03 | What is the approved account-level duplicate / merge policy? | admin merge with field-by-field resolution / block at conversion / review queue / no merge | Conversion-born accounts can still collide; this protects customer history integrity. |
-| Q-A-04 | Who may reassign territory or owner directly from the account, and with what audit? | Sales Leadership only / Admin/Ops / TM-initiated request / system-driven | This changes ownership control and accountability. |
-| Q-A-05 | What are the lifecycle thresholds and who confirms churn? | At Risk 60 days / Inactive 120 days / Churned 180 days; manual confirm vs auto | This sets when automation (later) fires and what manual confirmation is required now. |
-| Q-A-06 | Should the directory move beyond the current limits (hard 50-row fetch, top-8 follow-up slice)? | add pagination / configurable columns / bulk actions / keep simple | This changes how operations works large account books at scale. |
-| Q-A-07 | What account activity belongs in a first-class CRM-owned timeline, and what document types belong on the account? | CRM events only / include email/correspondence / include documents tab / mixed | This defines how much of the 360 timeline Pulse owns versus parks. |
-| Q-A-08 | When the Acumatica boundary is live, which financial tabs and the live customer ID should appear, and to which roles? | orders / invoices / shipments / payments / statements; by role | This pre-frames the parked Acumatica display so it can be enabled cleanly later. |
-
----
-
-## 11. Later-Phase / Separate Decision Items
+## 13. Later-Phase / Separate Decision Items
 
 These items may still belong in the broader Pulse roadmap, but will not be assumed as finalized by this PRD:
 
@@ -309,10 +569,51 @@ These items may still belong in the broader Pulse roadmap, but will not be assum
 - HubSpot historical migration rules beyond the one-time cutover decision
 - mailbox / correspondence ingestion onto the account timeline
 - twenty-year QuickBooks / Azure historical sales import onto the account
+- rebate / discount engine in Pulse (parked per SRC-ACC-001: Dan Harshbarger — "I wouldn't focus on it — it's gonna derail us and the big bang for the buck is the CRM")
 
 ---
 
-## 12. Approval Checklist
+## 14. Requirement → Source Traceability Matrix
+
+| FR / NFR ID | SRC ID | Session / Document |
+|---|---|---|
+| FR-ACC-001 | SRC-ACC-001, SRC-ACC-002 | Session 2 (2026-02-18), Session 4 (2026-02-24) |
+| FR-ACC-002 | SRC-ACC-001, SRC-ACC-003 | Session 2 (2026-02-18), Adding-customer SOP |
+| FR-ACC-003 | SRC-ACC-001, SRC-ACC-002 | Session 2 (2026-02-18), Session 4 (2026-02-24) |
+| FR-ACC-004 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| FR-ACC-005 | SRC-ACC-002, SRC-ACC-001 | Session 4 (2026-02-24), Session 2 (2026-02-18) |
+| FR-ACC-006 | SRC-ACC-003, SRC-ACC-001 | Adding-customer SOP, Session 2 (2026-02-18) |
+| FR-ACC-007 | SRC-ACC-001, SRC-ACC-002 | Session 2 (2026-02-18), Session 4 (2026-02-24) |
+| FR-ACC-008 | SRC-ACC-003, SRC-ACC-002 | Adding-customer SOP, Session 4 (2026-02-24) |
+| FR-ACC-009 | SRC-ACC-003, SRC-ACC-002 | Adding-customer SOP, Session 4 (2026-02-24) |
+| FR-ACC-010 | SRC-ACC-003, SRC-ACC-001 | Adding-customer SOP, Session 2 (2026-02-18) |
+| FR-ACC-011 | SRC-ACC-001, SRC-ACC-002 | Session 2 (2026-02-18), Session 4 (2026-02-24) |
+| FR-ACC-012 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-013 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-014 | SRC-ACC-001, SRC-ACC-003 | Session 2 (2026-02-18), Adding-customer SOP |
+| FR-ACC-015 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-016 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-017 | SRC-ACC-001, SRC-ACC-003 | Session 2 (2026-02-18), Adding-customer SOP |
+| FR-ACC-018 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-019 | SRC-ACC-001, SRC-ACC-003 | Session 2 (2026-02-18), Adding-customer SOP |
+| FR-ACC-020 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| FR-ACC-021 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| NFR-ACC-003 | SRC-ACC-001, SRC-ACC-003 | Session 2 (2026-02-18), Adding-customer SOP |
+| NFR-ACC-004 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| NFR-ACC-008 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| NFR-ACC-009 | SRC-ACC-002 | Session 4 (2026-02-24) |
+| NFR-ACC-012 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| ASM-ACC-001 | SRC-ACC-001, SRC-ACC-002 | Session 2 (2026-02-18), Session 4 (2026-02-24) |
+| ASM-ACC-003 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| ASM-ACC-004 | SRC-ACC-003 | Adding-customer SOP |
+| ASM-ACC-005 | SRC-ACC-003 | Adding-customer SOP |
+| ASM-ACC-007 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| ASM-ACC-009 | SRC-ACC-001 | Session 2 (2026-02-18) |
+| ASM-ACC-010 | SRC-ACC-002 | Session 4 (2026-02-24) |
+
+---
+
+## 15. Approval Checklist
 
 Dynamic AQS approval of this PRD will confirm:
 

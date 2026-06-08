@@ -15,6 +15,7 @@ import {
   Menu,
   Modal,
   NumberInput,
+  Pagination,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -33,6 +34,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
+  IconAlertCircle,
   IconArrowRight,
   IconChartBar,
   IconChevronDown,
@@ -79,6 +81,7 @@ import {
   reassignLeadTerritory,
   transitionLeadStage,
 } from '@/lib/pulse-api';
+import { fetchLeadsPage } from '@/lib/pulse-api-ext-leads-cis';
 import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 import { EmptyStateMessage, RowActionMenu, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
@@ -91,6 +94,8 @@ type ManualGroupAxisSelection = GroupAxisSelectionKey | '';
 type LeadCreateFormState = {
   companyName: string;
   contactDisplayName: string;
+  /** UX-L-017: referral context — maps to sourceDetail when source is referral */
+  sourceDetail: string;
   email: string;
   phone: string;
   state: string;
@@ -128,6 +133,7 @@ const STAGE_META: readonly StageMeta[] = [
 const EMPTY_LEAD_FORM: LeadCreateFormState = {
   companyName: '',
   contactDisplayName: '',
+  sourceDetail: '',
   email: '',
   phone: '',
   state: '',
@@ -212,6 +218,16 @@ export function LeadWorkspace({
   const [reassignReasonCode, setReassignReasonCode] = useState('territory_realignment');
   const [reassignReasonNote, setReassignReasonNote] = useState('');
   const [isReassigning, setIsReassigning] = useState(false);
+  // UX-L-013: pagination
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  // UX-L-014: affinity / ownership group queue filters
+  const [affinityGroupFilter, setAffinityGroupFilter] = useState('');
+  const [ownershipGroupFilter, setOwnershipGroupFilter] = useState('');
+  // UX-L-011: backward stage gate
+  const [backwardStageTarget, setBackwardStageTarget] = useState<{ leadId: string; toStage: LeadStageKey } | null>(null);
+  const [backwardStageReason, setBackwardStageReason] = useState('');
+  const [isConfirmingBackwardStage, setIsConfirmingBackwardStage] = useState(false);
 
   const deferredSearch = useDeferredValue(searchQuery.trim());
 
@@ -283,13 +299,17 @@ export function LeadWorkspace({
       setListError(null);
 
       try {
-        const response = await fetchLeads(apiBaseUrl, accessToken, {
+        // UX-L-013: paginated fetch; UX-L-014: group filters
+        const response = await fetchLeadsPage(apiBaseUrl, accessToken, {
           ...(deferredSearch ? { search: deferredSearch } : {}),
           ...(stageFilter ? { stage: stageFilter } : {}),
           ...(routingTeamFilter ? { routingTeam: routingTeamFilter } : {}),
           ...(leadSourceFilter ? { leadSourceCode: leadSourceFilter } : {}),
           ...(territoryIdFilter ? { territoryId: territoryIdFilter } : {}),
-          limit: 200,
+          ...(affinityGroupFilter ? { affinityGroupCode: affinityGroupFilter } : {}),
+          ...(ownershipGroupFilter ? { ownershipGroupCode: ownershipGroupFilter } : {}),
+          limit: PAGE_SIZE,
+          page: currentPage - 1,
         });
 
         if (cancelled) {
@@ -314,7 +334,12 @@ export function LeadWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, deferredSearch, leadSourceFilter, refreshNonce, routingTeamFilter, stageFilter, territoryIdFilter]);
+  }, [apiBaseUrl, auth, affinityGroupFilter, currentPage, deferredSearch, leadSourceFilter, ownershipGroupFilter, refreshNonce, routingTeamFilter, stageFilter, territoryIdFilter]);
+
+  // UX-L-013: reset to page 1 when any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [deferredSearch, stageFilter, routingTeamFilter, leadSourceFilter, territoryIdFilter, affinityGroupFilter, ownershipGroupFilter, refreshNonce]);
 
   // UX-L-009: in-app SLA breach notification when overdue leads exist in the queue
   useEffect(() => {
@@ -473,6 +498,44 @@ export function LeadWorkspace({
     return [...summary.entries()].sort((a, b) => b[1] - a[1]);
   }, [leads]);
 
+  // UX-L-012: time-in-stage, pipeline value, territory breakdown
+  const analyticsByTerritory = useMemo(() => {
+    const summary = new Map<string, number>();
+    for (const lead of leads) {
+      const label = lead.territoryCode ?? lead.territoryId ?? 'Unassigned';
+      summary.set(label, (summary.get(label) ?? 0) + 1);
+    }
+    return [...summary.entries()].sort((a, b) => b[1] - a[1]);
+  }, [leads]);
+
+  const totalPipelineValueCents = useMemo(
+    () => leads.reduce((sum, lead) => sum + (lead.potentialValueCents ?? 0), 0),
+    [leads],
+  );
+
+  const timeInStageAnalytics = useMemo(() => {
+    const now = Date.now();
+    const stageMap = new Map<LeadStageKey, number[]>();
+    for (const lead of leads) {
+      const updatedMs = new Date(lead.updatedAt).getTime();
+      const daysInStage = Math.floor((now - updatedMs) / (1000 * 60 * 60 * 24));
+      const existing = stageMap.get(lead.stage) ?? [];
+      stageMap.set(lead.stage, [...existing, daysInStage]);
+    }
+    return STAGE_META.map((stage) => {
+      const values = stageMap.get(stage.key) ?? [];
+      const avg = values.length > 0 ? Math.round(values.reduce((s, v) => s + v, 0) / values.length) : 0;
+      return { stage: stage.shortTitle, avg, count: values.length };
+    });
+  }, [leads]);
+
+  const slaTrendBreaches = useMemo(() => {
+    const now = Date.now();
+    return leads.filter(
+      (lead) => lead.initialContactDueAt && new Date(lead.initialContactDueAt).getTime() < now,
+    ).length;
+  }, [leads]);
+
   function buildManualLeadCreatePayload(): CreateLeadRequest | null {
     if (
       !auth
@@ -529,6 +592,8 @@ export function LeadWorkspace({
       ...(createLeadForm.notes.trim() ? { notes: createLeadForm.notes.trim() } : {}),
       ...(createLeadForm.sourceBrandTag.trim() ? { sourceBrandTag: createLeadForm.sourceBrandTag.trim() } : {}),
       ...(createLeadForm.privateLabelName.trim() ? { privateLabelName: createLeadForm.privateLabelName.trim() } : {}),
+      // UX-L-017: referral context stored in sourceDetail
+      ...(createLeadForm.sourceDetail.trim() ? { sourceDetail: createLeadForm.sourceDetail.trim() } : {}),
     };
   }
 
@@ -838,6 +903,25 @@ export function LeadWorkspace({
       return;
     }
 
+    // UX-L-011: BR-L-07 — backward stage requires a reason gate
+    const fromIndex = STAGE_META.findIndex((s) => s.key === lead.stage);
+    const toIndex = STAGE_META.findIndex((s) => s.key === nextStage);
+    if (toIndex < fromIndex) {
+      setDraggedLeadId(null);
+      setDropStageKey(null);
+      setBackwardStageTarget({ leadId, toStage: nextStage });
+      setBackwardStageReason('');
+      return;
+    }
+
+    await executeStageTransition(leadId, nextStage, undefined);
+  }
+
+  async function executeStageTransition(leadId: string, nextStage: LeadStageKey, backwardReason: string | undefined) {
+    if (!auth) {
+      return;
+    }
+
     const previousLeads = leads;
     const optimisticTimestamp = new Date().toISOString();
 
@@ -852,6 +936,7 @@ export function LeadWorkspace({
     try {
       const updatedLead = await transitionLeadStage(apiBaseUrl, auth.tokens.accessToken, leadId, {
         toStage: nextStage,
+        ...(backwardReason ? { backwardReason } : {}),
       });
 
       setLeads((current) => current.map((entry) => (entry.id === leadId ? updatedLead : entry)));
@@ -860,6 +945,21 @@ export function LeadWorkspace({
       setListError(error instanceof Error ? error.message : String(error));
     } finally {
       setTransitioningLeadId(null);
+    }
+  }
+
+  async function handleConfirmBackwardStage() {
+    if (!backwardStageTarget || !backwardStageReason.trim()) {
+      return;
+    }
+    setIsConfirmingBackwardStage(true);
+    const { leadId, toStage } = backwardStageTarget;
+    try {
+      await executeStageTransition(leadId, toStage, backwardStageReason.trim());
+    } finally {
+      setIsConfirmingBackwardStage(false);
+      setBackwardStageTarget(null);
+      setBackwardStageReason('');
     }
   }
 
@@ -1062,6 +1162,25 @@ export function LeadWorkspace({
                     data={territories
                       .filter((t) => t.isActive)
                       .map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
+                    clearable
+                    searchable
+                    w={200}
+                  />
+                  {/* UX-L-014: affinity / ownership group filters */}
+                  <Select
+                    placeholder="Affinity group"
+                    value={affinityGroupFilter}
+                    onChange={(value) => setAffinityGroupFilter(value ?? '')}
+                    data={affinityGroups.map((g) => ({ value: g.code, label: g.name }))}
+                    clearable
+                    searchable
+                    w={200}
+                  />
+                  <Select
+                    placeholder="Ownership group"
+                    value={ownershipGroupFilter}
+                    onChange={(value) => setOwnershipGroupFilter(value ?? '')}
+                    data={ownershipGroups.map((g) => ({ value: g.code, label: g.name }))}
                     clearable
                     searchable
                     w={200}
@@ -1374,10 +1493,25 @@ export function LeadWorkspace({
               {/* UX-L-001: empty state when territory or other filters return zero leads (list view only; kanban uses per-column ghost cards) */}
               {!isLoadingLeads && leads.length === 0 && viewMode === 'list' ? (
                 <EmptyStateMessage
-                  kind={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'filtered-out' : 'no-data'}
-                  title={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'No leads match your current filters' : 'No leads in your territory yet'}
-                  description={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'Try clearing one or more filters to see all accessible leads.' : 'New leads will appear here once created or assigned to your territory.'}
+                  kind={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter || affinityGroupFilter || ownershipGroupFilter ? 'filtered-out' : 'no-data'}
+                  title={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter || affinityGroupFilter || ownershipGroupFilter ? 'No leads match your current filters' : 'No leads in your territory yet'}
+                  description={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter || affinityGroupFilter || ownershipGroupFilter ? 'Try clearing one or more filters to see all accessible leads.' : 'New leads will appear here once created or assigned to your territory.'}
                 />
+              ) : null}
+
+              {/* UX-L-013: pagination controls */}
+              {viewMode === 'list' && totalLeads > PAGE_SIZE ? (
+                <Group justify="space-between" align="center">
+                  <Text size="sm" c="dimmed">
+                    Page {currentPage} of {Math.ceil(totalLeads / PAGE_SIZE)} ({totalLeads} leads total)
+                  </Text>
+                  <Pagination
+                    value={currentPage}
+                    onChange={setCurrentPage}
+                    total={Math.ceil(totalLeads / PAGE_SIZE)}
+                    siblings={1}
+                  />
+                </Group>
               ) : null}
 
               {isLoadingLeads ? <Text size="sm" c="dimmed">Refreshing lead workspace...</Text> : null}
@@ -1396,6 +1530,34 @@ export function LeadWorkspace({
                 {STAGE_META.map((stage) => (
                   <MetricCard key={stage.key} label={stage.shortTitle} value={String(stageCounts[stage.key] ?? 0)} icon={IconTimeline} color={stage.color} />
                 ))}
+              </SimpleGrid>
+
+              {/* UX-L-012: pipeline value + SLA breach trend */}
+              <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
+                <MetricCard
+                  label="Pipeline value"
+                  value={totalPipelineValueCents > 0 ? `$${(totalPipelineValueCents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+                  icon={IconChartBar}
+                  color="green"
+                />
+                <MetricCard
+                  label="SLA breaches"
+                  value={String(slaTrendBreaches)}
+                  icon={IconAlertCircle}
+                  color={slaTrendBreaches > 0 ? 'red' : 'gray'}
+                />
+                <MetricCard
+                  label="Active leads"
+                  value={String(leads.filter((l) => l.lifecycleStatus === 'active').length)}
+                  icon={IconTimeline}
+                  color="blue"
+                />
+                <MetricCard
+                  label="Territories"
+                  value={String(new Set(leads.map((l) => l.territoryCode).filter(Boolean)).size)}
+                  icon={IconWorld}
+                  color="teal"
+                />
               </SimpleGrid>
 
               <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md">
@@ -1430,11 +1592,88 @@ export function LeadWorkspace({
                     )}
                   </Stack>
                 </Paper>
+
+                {/* UX-L-012: time-in-stage analytics */}
+                <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
+                  <Stack gap="md">
+                    <Title order={4}>Avg. days in stage</Title>
+                    {timeInStageAnalytics.filter((s) => s.count > 0).length === 0 ? (
+                      <Text c="dimmed" size="sm">Stage duration analytics will appear once leads are active.</Text>
+                    ) : (
+                      timeInStageAnalytics.filter((s) => s.count > 0).map((s) => (
+                        <Group key={s.stage} justify="space-between">
+                          <Text>{s.stage}</Text>
+                          <Badge variant="light" color="orange">{s.avg}d avg ({s.count})</Badge>
+                        </Group>
+                      ))
+                    )}
+                  </Stack>
+                </Paper>
+
+                {/* UX-L-012: territory breakdown */}
+                <Paper withBorder radius="xl" p="lg" className="premium-subhero-panel">
+                  <Stack gap="md">
+                    <Title order={4}>Territory breakdown</Title>
+                    {analyticsByTerritory.length === 0 ? (
+                      <Text c="dimmed" size="sm">Territory distribution will appear once leads are assigned.</Text>
+                    ) : (
+                      analyticsByTerritory.map(([label, count]) => (
+                        <Group key={label} justify="space-between">
+                          <Text>{label}</Text>
+                          <Badge variant="light" color="teal">{count}</Badge>
+                        </Group>
+                      ))
+                    )}
+                  </Stack>
+                </Paper>
               </SimpleGrid>
             </Stack>
           </Tabs.Panel>
         </Tabs>
       </Stack>
+
+      {/* UX-L-011: BR-L-07 backward stage reason gate modal */}
+      <Modal
+        opened={backwardStageTarget !== null}
+        onClose={() => { setBackwardStageTarget(null); setBackwardStageReason(''); }}
+        title="Reason required for moving stage backward"
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          {backwardStageTarget ? (
+            <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+              Moving from <strong>{backwardStageTarget ? STAGE_META.find((s) => s.key === leads.find((l) => l.id === backwardStageTarget.leadId)?.stage)?.shortTitle ?? '' : ''}</strong> back to <strong>{STAGE_META.find((s) => s.key === backwardStageTarget.toStage)?.shortTitle ?? ''}</strong> requires a reason (BR-L-07).
+            </Alert>
+          ) : null}
+          <Textarea
+            label="Reason for backward stage move"
+            placeholder="Explain why this lead is being moved to an earlier stage..."
+            value={backwardStageReason}
+            onChange={(event) => setBackwardStageReason(event.currentTarget.value)}
+            minRows={3}
+            required
+            disabled={isConfirmingBackwardStage}
+          />
+          <Group justify="flex-end" gap="xs">
+            <Button
+              variant="default"
+              onClick={() => { setBackwardStageTarget(null); setBackwardStageReason(''); }}
+              disabled={isConfirmingBackwardStage}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="orange"
+              onClick={() => { void handleConfirmBackwardStage(); }}
+              loading={isConfirmingBackwardStage}
+              disabled={!backwardStageReason.trim()}
+            >
+              Confirm move
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={reassignLeadTarget !== null}
@@ -1771,6 +2010,16 @@ export function LeadWorkspace({
                       onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, sourceCampaign: value ?? '' }))}
                       data={leadMarketingSourceOptions}
                     />
+                    {/* UX-L-017: referral context — show when source is referral */}
+                    {(createLeadForm.leadSourceCode === 'referral' || createLeadForm.sourceCampaign === 'referral') ? (
+                      <TextInput
+                        label="Referred by (name)"
+                        description="Name of the person or company who referred this lead. Stored as source detail."
+                        placeholder="e.g. Jane Smith or Acme Corp"
+                        value={createLeadForm.sourceDetail}
+                        onChange={(event) => updateCreateLeadDraft((c) => ({ ...c, sourceDetail: event.currentTarget.value }))}
+                      />
+                    ) : null}
                     {/* UX-L-008: brand fields on intake form */}
                     <TextInput
                       label="Source Brand Tag"

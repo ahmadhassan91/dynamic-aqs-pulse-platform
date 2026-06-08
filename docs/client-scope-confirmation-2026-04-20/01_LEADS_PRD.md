@@ -328,13 +328,13 @@ All items with **Can do now = Yes** have no external dependency (no Acumatica, M
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-L-010 | No freeform activity/note logging on lead record — timeline is read-only | LeadRecordWorkspace.tsx | Yes | Open |
-| UX-L-011 | Backward Kanban stage drag has no reason gate (BR-L-07 governed transitions) | LeadWorkspace.tsx | Yes | Open |
-| UX-L-012 | Insights tab missing time-in-stage, SLA breach trend, pipeline value, territory breakdown | LeadWorkspace.tsx | Yes | Open |
-| UX-L-013 | No pagination on lead list — hard-coded limit: 200 | LeadWorkspace.tsx | Yes | Open |
-| UX-L-014 | No filter by affinity group or ownership group in lead queue | LeadWorkspace.tsx | Yes | Open |
-| UX-L-015 | Website form setup page has no form preview or test-submission button | LeadWebsiteFormsWorkspace.tsx | Yes | Open |
-| UX-L-016 | "Schedule discovery call" action does not wire to CalendarWorkspace | LeadRecordWorkspace.tsx | Yes | Open |
-| UX-L-017 | Referral source has no referral-context fields (referred-by name, relationship) | LeadWorkspace.tsx | Yes | Open |
+| UX-L-010 | No freeform activity/note logging on lead record — timeline is read-only | LeadRecordWorkspace.tsx | Yes | Done |
+| UX-L-011 | Backward Kanban stage drag has no reason gate (BR-L-07 governed transitions) | LeadWorkspace.tsx | Yes | Done |
+| UX-L-012 | Insights tab missing time-in-stage, SLA breach trend, pipeline value, territory breakdown | LeadWorkspace.tsx | Yes | Done |
+| UX-L-013 | No pagination on lead list — hard-coded limit: 200 | LeadWorkspace.tsx | Yes | Done |
+| UX-L-014 | No filter by affinity group or ownership group in lead queue | LeadWorkspace.tsx | Yes | Done |
+| UX-L-015 | Website form setup page has no form preview or test-submission button | LeadWebsiteFormsWorkspace.tsx | Yes | Done (preview modal + test-submission ext function; file-owned preview already implemented) |
+| UX-L-016 | "Schedule discovery call" action does not wire to CalendarWorkspace | LeadRecordWorkspace.tsx | Yes | Done |
+| UX-L-017 | Referral source has no referral-context fields (referred-by name, relationship) | LeadWorkspace.tsx | Yes | Done (sourceDetail field shown when source=referral; relationship field parked — no DB column) |
 
 _To be completed during the review meeting._

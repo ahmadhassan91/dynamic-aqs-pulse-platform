@@ -630,12 +630,35 @@ export interface ListLeadsRequest {
   lifecycleStatus?: LeadLifecycleStatusKey;
   routingTeam?: LeadRoutingTeamKey;
   leadSourceCode?: string;
+  /** UX-L-014: filter by affinity group code */
+  affinityGroupCode?: string;
+  /** UX-L-014: filter by ownership group code */
+  ownershipGroupCode?: string;
+  /** UX-L-014: filter by territory id */
+  territoryId?: string;
   limit?: number;
+  /** UX-L-013: zero-based page offset for pagination */
+  page?: number;
 }
 
 export interface ListLeadsResponse {
   items: LeadSummary[];
   total: number;
+}
+
+/** UX-L-010: freeform activity note logged on a lead record */
+export interface LogLeadActivityNoteRequest {
+  note: string;
+  title?: string;
+}
+
+export interface LogLeadActivityNoteResponse {
+  id: string;
+  leadId: string;
+  note: string;
+  title: string;
+  createdByName?: string;
+  createdAt: string;
 }
 
 export interface ListWebsiteFormLeadsRequest {
@@ -1191,6 +1214,8 @@ export interface ImportLeadsResponse {
 export interface TransitionLeadStageRequest {
   toStage: LeadStageKey;
   note?: string;
+  /** UX-L-011: BR-L-07 backward stage reason (required when toStage index < fromStage index) */
+  backwardReason?: string;
 }
 
 export interface LogLeadInitialContactRequest {

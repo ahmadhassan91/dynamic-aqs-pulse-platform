@@ -16,6 +16,7 @@ import type {
   ReviewLeadImportRequest,
   ListLeadWorkflowQueueRequest,
   LogLeadInitialContactRequest,
+  LogLeadActivityNoteRequest,
   LeadRoutingTeamKey,
   LeadStageKey,
   LeadLifecycleStatusKey,
@@ -73,6 +74,7 @@ import {
   getLeadRoutingPolicy,
   importLeads,
   logLeadInitialContact,
+  logLeadActivityNote,
   listLeadWorkflowQueue,
   listLeadHistoryFeed,
   listActivePublicWebsiteLeadOrigins,
@@ -156,6 +158,7 @@ export async function handleLeadRoutes(
     || matchesPath(pathname, '/api/v1/leads/:leadId/stage-transition')
     || matchesPath(pathname, '/api/v1/leads/:leadId/lifecycle')
     || matchesPath(pathname, '/api/v1/leads/:leadId/log-initial-contact')
+    || matchesPath(pathname, '/api/v1/leads/:leadId/notes')
     || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/schedule')
     || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/complete')
     || matchesPath(pathname, '/api/v1/leads/:leadId/discovery/skip')
@@ -269,14 +272,22 @@ export async function handleLeadRoutes(
         const lifecycleStatus = readTrimmedQuery(url, 'lifecycleStatus');
         const routingTeam = readTrimmedQuery(url, 'routingTeam');
         const leadSourceCode = readTrimmedQuery(url, 'leadSourceCode');
+        const affinityGroupCode = readTrimmedQuery(url, 'affinityGroupCode');
+        const ownershipGroupCode = readTrimmedQuery(url, 'ownershipGroupCode');
+        const territoryId = readTrimmedQuery(url, 'territoryId');
         const limit = readIntegerQuery(url, 'limit');
+        const page = readIntegerQuery(url, 'page');
         const query: ListLeadsRequest = {
           ...(search ? { search } : {}),
           ...(stage ? { stage: stage as LeadStageKey } : {}),
           ...(lifecycleStatus ? { lifecycleStatus: lifecycleStatus as LeadLifecycleStatusKey } : {}),
           ...(routingTeam ? { routingTeam: routingTeam as LeadRoutingTeamKey } : {}),
           ...(leadSourceCode ? { leadSourceCode } : {}),
+          ...(affinityGroupCode ? { affinityGroupCode } : {}),
+          ...(ownershipGroupCode ? { ownershipGroupCode } : {}),
+          ...(territoryId ? { territoryId } : {}),
           ...(limit !== undefined ? { limit } : {}),
+          ...(page !== undefined ? { page } : {}),
         };
 
         const response = await listLeads(actor, query);
@@ -705,6 +716,27 @@ export async function handleLeadRoutes(
       const body = (await readJsonBody(req)) as LogLeadInitialContactRequest;
       const response = await logLeadInitialContact(actor, leadId, body);
       return jsonResponse(res, 200, response);
+    }
+
+    // UX-L-010: freeform activity note on lead record
+    const leadNotesMatch = matchPath(pathname, '/api/v1/leads/:leadId/notes');
+    if (leadNotesMatch) {
+      const leadId = leadNotesMatch.leadId;
+      if (!leadId) {
+        return false;
+      }
+
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'leads',
+        action: 'lead.intake_manage',
+      });
+      const body = (await readJsonBody(req)) as LogLeadActivityNoteRequest;
+      const response = await logLeadActivityNote(actor, leadId, body);
+      return jsonResponse(res, 201, response);
     }
 
     const scheduleDiscoveryMatch = matchPath(pathname, '/api/v1/leads/:leadId/discovery/schedule');

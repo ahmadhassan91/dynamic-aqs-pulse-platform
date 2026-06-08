@@ -1,0 +1,65 @@
+name: Test (PR)
+
+# Gates every pull request on the API regression suite so untested changes
+# cannot merge. Previously NO workflow ran any test (deploy-only CI).
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API regression suite
+    runs-on: ubuntu-latest
+
+    # The api test harness (apps/api/test/support/runtime.mjs) connects as
+    # postgres@localhost:5432 with no password and creates `pulse_platform_test`,
+    # then runs `prisma migrate deploy`. `trust` auth supports the passwordless URL.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client (psql, createdb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.7.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm test` builds @pulse/{contracts,config,db,api} then runs every
+      # test/*.test.mjs with --experimental-test-coverage (report-only).
+      - name: Run API regression suite (with coverage)
+        working-directory: apps/api
+        run: pnpm test

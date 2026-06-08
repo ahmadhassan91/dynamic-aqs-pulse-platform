@@ -23,6 +23,7 @@ let getAccountDetail;
 let listTrainingSessions;
 let getConsignmentSiteDetail;
 let updateConsignmentAudit;
+let confirmConsignmentTrueUp;
 let listMobileVoiceNoteReviewQueue;
 let reviewMobileVoiceNote;
 
@@ -34,7 +35,7 @@ test.before(async () => {
   ({ getLeadDetail } = await import('../dist/modules/leads/service.js'));
   ({ getAccountDetail } = await import('../dist/modules/accounts/service.js'));
   ({ listTrainingSessions } = await import('../dist/modules/training/service.js'));
-  ({ getConsignmentSiteDetail, updateConsignmentAudit } = await import('../dist/modules/consignment/service.js'));
+  ({ getConsignmentSiteDetail, updateConsignmentAudit, confirmConsignmentTrueUp } = await import('../dist/modules/consignment/service.js'));
   ({ listMobileVoiceNoteReviewQueue, reviewMobileVoiceNote } = await import('../dist/modules/mobile-voice-notes/service.js'));
 
   config = loadAppConfig(process.env);
@@ -225,8 +226,35 @@ test('dependency-free UAT seed creates usable personas and dealer-visible catalo
   });
   assert.equal(completedRoseAudit.status, 'completed');
   assert.equal(completedRoseAudit.reconciliationStatus, 'open');
+
+  // True-up gate (UX_07_SLICE_P): a completed ROSE-audit variance first opens a
+  // variance-review work item. The PO follow-up is only created once true-up is
+  // confirmed — it is no longer produced directly by audit completion.
   consignmentDetail = await getConsignmentSiteDetail(reviewer, consignmentSite.id);
-  assert.ok(consignmentDetail?.workItems.some((item) => item.type === 'po_follow_up' && /manual PO follow-up/i.test(item.notes ?? '')));
+  assert.ok(
+    consignmentDetail?.workItems.some((item) => item.type === 'variance_review' && item.status === 'open'),
+    'expected an open ROSE variance-review work item before true-up confirmation',
+  );
+
+  // Confirm the true-up with a real customer PO outcome. Acumatica PO posting stays parked,
+  // so Pulse opens a manual PO follow-up work item to track it instead.
+  const trueUp = await confirmConsignmentTrueUp(reviewer, consignmentSite.audits[0].id, {
+    outcome: 'po_required',
+    confirmedAt: '2026-06-04T17:00:00.000Z',
+    notes: 'Confirmed a real customer PO is needed for the seeded IAQ shortage.',
+  });
+  assert.equal(trueUp.audit.reconciliationStatus, 'true_up_confirmed');
+
+  consignmentDetail = await getConsignmentSiteDetail(reviewer, consignmentSite.id);
+  assert.ok(
+    consignmentDetail?.workItems.some(
+      (item) => item.type === 'po_follow_up'
+        && item.status === 'open'
+        && /track manually in pulse/i.test(item.notes ?? '')
+        && /parked/i.test(item.notes ?? ''),
+    ),
+    'expected an open manual PO follow-up work item after true-up confirmation (Acumatica parked)',
+  );
 });
 
 async function loginAndLoadCatalog(email, password) {

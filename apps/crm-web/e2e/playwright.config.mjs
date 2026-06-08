@@ -43,7 +43,7 @@ const sharedEnv = {
 
 export default defineConfig({
   testDir: e2eDir,
-  testMatch: ['flows.spec.mjs'],
+  testMatch: ['flows.spec.mjs', 'lead-activity-note.spec.mjs'],
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,

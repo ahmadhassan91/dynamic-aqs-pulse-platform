@@ -57,7 +57,7 @@ test('lead activity note can be typed, submitted, and appears in the activity ti
 
   // 4. Fill in the optional title and the required note body.
   const noteTitle = `Sprint-2 regression ${timestamp}`;
-  const noteBody = `E2E activity note body ${timestamp} — verifying that the note text appears in the lead timeline after submission.`;
+  const noteBody = `E2E activity note body ${timestamp} - verifying that the note text appears in the lead timeline after submission.`;
 
   await page.getByLabel('Title (optional)').fill(noteTitle);
   await page.getByLabel('Note').fill(noteBody);
@@ -68,14 +68,10 @@ test('lead activity note can be typed, submitted, and appears in the activity ti
   // 6. Assert success banner.
   await expect(page.getByText('Note saved and added to the activity timeline.')).toBeVisible();
 
-  // 7. Assert the note body text appears somewhere in the Activity Timeline feed.
+  // 7. Assert the exact note body appears in the Activity Timeline feed.
   //    The component reloads the lead after save and renders fieldActivity entries
   //    as Timeline.Item nodes with the note's summary as description text.
-  //    We search broadly for the unique timestamp fragment to be resilient to
-  //    exact rendering of the description vs. title field.
-  await expect(
-    page.getByText(new RegExp(String(timestamp)))
-  ).toBeVisible();
+  await expect(page.getByText(noteBody)).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

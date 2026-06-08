@@ -480,6 +480,7 @@ export async function handleConsignmentRoutes(req: IncomingMessage, res: ServerR
 function isConsignmentRoute(pathname: string) {
   return pathname === '/api/v1/consignment/sites'
     || pathname === '/api/v1/consignment/ops'
+    || pathname === '/api/v1/consignment/dashboard'
     || /^\/api\/v1\/consignment\/accounts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/consignment\/sites\/[^/]+\/readiness$/.test(pathname)

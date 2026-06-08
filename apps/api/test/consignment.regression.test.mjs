@@ -560,6 +560,8 @@ test('consignment API routes create, read, filter, and gate workflow resources',
   await withConsignmentRuntime(async (baseUrl) => {
     const unauthorized = await fetch(`${baseUrl}/api/v1/consignment/sites`);
     assert.equal(unauthorized.status, 401);
+    const unauthorizedDashboard = await fetch(`${baseUrl}/api/v1/consignment/dashboard`);
+    assert.equal(unauthorizedDashboard.status, 401);
 
     const createResponse = await fetch(`${baseUrl}/api/v1/consignment/sites`, {
       method: 'POST',
@@ -596,6 +598,16 @@ test('consignment API routes create, read, filter, and gate workflow resources',
     assert.equal(readinessResponse.status, 200);
     const readiness = await readinessResponse.json();
     assert.ok(readiness.items.some((item) => item.code === 'warehouse_boundary' && item.status === 'blocked'));
+
+    const dashboardResponse = await fetch(`${baseUrl}/api/v1/consignment/dashboard`, {
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+      },
+    });
+    assert.equal(dashboardResponse.status, 200);
+    const dashboard = await dashboardResponse.json();
+    assert.equal(typeof dashboard.metrics.totalSites, 'number');
+    assert.equal(dashboard.metrics.inventoryValueBySiteParked, true);
 
     const documentResponse = await fetch(`${baseUrl}/api/v1/consignment/sites/${created.id}/documents`, {
       method: 'POST',

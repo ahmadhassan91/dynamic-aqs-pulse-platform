@@ -366,6 +366,18 @@ export function CalendarSchedulerModal({
           />
         ) : null}
 
+        {/* UX-C-002: source workflow record creation info banner */}
+        {mode === 'discovery' && discoveryAvailable ? (
+          <Alert color="blue" variant="light">
+            Scheduling a discovery call will create a discovery record on the selected lead and keep the lead workflow history up to date.
+          </Alert>
+        ) : null}
+        {mode === 'training' && trainingAvailable ? (
+          <Alert color="teal" variant="light">
+            Scheduling a training session will create a session record linked to the selected account in the Training module.
+          </Alert>
+        ) : null}
+
         {!discoveryAvailable && !trainingAvailable ? (
           <Alert color="yellow">
             Your current Pulse role does not have calendar scheduling permissions for discovery or training workflows.

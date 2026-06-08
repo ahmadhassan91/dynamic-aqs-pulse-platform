@@ -79,7 +79,7 @@ import {
 } from '@/lib/pulse-api';
 import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
-import { WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
+import { EmptyStateMessage, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
 
 export type LeadWorkspaceTab = 'queue' | 'insights';
 type ViewMode = 'kanban' | 'list';
@@ -1088,8 +1088,16 @@ export function LeadWorkspace({
                           </Group>
                           <Divider />
                           <Stack gap="sm">
+                            {/* UX-L-002: ghost card when stage column is empty */}
                             {stage.leads.length === 0 ? (
-                              null
+                              <Paper
+                                withBorder
+                                radius="lg"
+                                p="md"
+                                style={{ opacity: 0.45, borderStyle: 'dashed' }}
+                              >
+                                <Text size="sm" c="dimmed" ta="center">No leads in this stage</Text>
+                              </Paper>
                             ) : (
                               stage.leads.map((lead) => (
                                 <div
@@ -1152,6 +1160,15 @@ export function LeadWorkspace({
                                           Contacted
                                         </Badge>
                                       )}
+                                      {/* UX-L-004: lifecycle badge on kanban card */}
+                                      {lead.lifecycleStatus !== 'active' ? (
+                                        <Badge
+                                          variant="light"
+                                          color={lead.lifecycleStatus === 'parked' ? 'orange' : 'gray'}
+                                        >
+                                          {lead.lifecycleStatus === 'parked' ? 'Parked' : 'Closed'}
+                                        </Badge>
+                                      ) : null}
                                     </Group>
                                     {lead.leadRating || lead.potentialValueCents ? (
                                       <Text size="xs" c="dimmed">
@@ -1229,6 +1246,15 @@ export function LeadWorkspace({
                                   <Badge color={leadActionColor(lead)} variant="light">
                                     {formatStageLabel(lead.stage)}
                                   </Badge>
+                                  {/* UX-L-004: lifecycle badge on list row */}
+                                  {lead.lifecycleStatus !== 'active' ? (
+                                    <Badge
+                                      variant="light"
+                                      color={lead.lifecycleStatus === 'parked' ? 'orange' : 'gray'}
+                                    >
+                                      {lead.lifecycleStatus === 'parked' ? 'Parked' : 'Closed'}
+                                    </Badge>
+                                  ) : null}
                                 </Group>
                                 {lead.workflowTask?.reason ? (
                                   <Text size="xs" c="dimmed" lineClamp={2}>
@@ -1281,6 +1307,15 @@ export function LeadWorkspace({
                   </Table.ScrollContainer>
                 </Paper>
               )}
+
+              {/* UX-L-001: empty state when territory or other filters return zero leads (list view only; kanban uses per-column ghost cards) */}
+              {!isLoadingLeads && leads.length === 0 && viewMode === 'list' ? (
+                <EmptyStateMessage
+                  kind={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'filtered-out' : 'no-data'}
+                  title={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'No leads match your current filters' : 'No leads in your territory yet'}
+                  description={deferredSearch || stageFilter || routingTeamFilter || leadSourceFilter || territoryIdFilter ? 'Try clearing one or more filters to see all accessible leads.' : 'New leads will appear here once created or assigned to your territory.'}
+                />
+              ) : null}
 
               {isLoadingLeads ? <Text size="sm" c="dimmed">Refreshing lead workspace...</Text> : null}
             </Stack>

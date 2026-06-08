@@ -74,7 +74,7 @@ import { TerritoryCalendarFeed } from './TerritoryCalendarFeed';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
 import { TerritoryCommandDashboard, type TerritoryNextWorkItem } from './TerritoryCommandDashboard';
 import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
-import { RowActionMenu, WorkbenchMoreMenu } from '@/components/ui/Workbench';
+import { EmptyStateMessage, RowActionMenu, WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list' | 'admin' | 'calendar';
 type TerritoryRegistryView = 'territories' | 'regions' | 'gaps' | 'leads' | 'accounts';
@@ -135,6 +135,8 @@ export function TerritoryManagement({
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [activeTab, setActiveTab] = useState<TerritoryTab>(initialTab === 'operations' ? 'admin' : initialTab);
   const [territoryRegistryView, setTerritoryRegistryView] = useState<TerritoryRegistryView>('territories');
+  // UX-TR-003: search filter for territory list
+  const [territorySearch, setTerritorySearch] = useState('');
   const [policy, setPolicy] = useState<TerritoryPolicySummary | null>(null);
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
@@ -497,6 +499,20 @@ export function TerritoryManagement({
     () => prototypeTabs.filter((tab) => tab.value !== 'dashboard'),
     [prototypeTabs],
   );
+
+  // UX-TR-003: filtered territory list for search
+  const filteredTerritories = useMemo(() => {
+    const q = territorySearch.trim().toLowerCase();
+    if (!q) return territories;
+    return territories.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.code.toLowerCase().includes(q) ||
+        (t.regionName ?? '').toLowerCase().includes(q) ||
+        (t.managerUserName ?? '').toLowerCase().includes(q) ||
+        t.coverageStates.some((state) => state.toLowerCase().includes(q)),
+    );
+  }, [territories, territorySearch]);
 
   const territoryRegistryOptions = useMemo(
     () => [
@@ -1058,7 +1074,14 @@ export function TerritoryManagement({
                 />
 
                 {territoryRegistryView === 'territories' ? (
-                  <Table.ScrollContainer minWidth={880}>
+                  <>
+                    {/* UX-TR-003: territory search filter */}
+                    <TextInput
+                      placeholder="Search by name, code, region, or manager…"
+                      value={territorySearch}
+                      onChange={(event) => setTerritorySearch(event.currentTarget.value)}
+                    />
+                    <Table.ScrollContainer minWidth={880}>
                     <Table striped highlightOnHover>
                       <Table.Thead>
                         <Table.Tr>
@@ -1071,7 +1094,7 @@ export function TerritoryManagement({
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
-                        {territories.map((territory) => (
+                        {filteredTerritories.map((territory) => (
                           <Table.Tr key={territory.id}>
                             <Table.Td>
                               <Stack gap={2}>
@@ -1134,6 +1157,15 @@ export function TerritoryManagement({
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
+                    {/* UX-TR-003: empty state when territory search returns no results */}
+                    {filteredTerritories.length === 0 ? (
+                      <EmptyStateMessage
+                        kind={territorySearch.trim() ? 'filtered-out' : 'no-data'}
+                        title={territorySearch.trim() ? 'No territories match your search' : 'No territories configured'}
+                        description={territorySearch.trim() ? 'Try a different name, code, region, or manager.' : 'Territories will appear here once they are created.'}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
 
                 {territoryRegistryView === 'regions' ? (

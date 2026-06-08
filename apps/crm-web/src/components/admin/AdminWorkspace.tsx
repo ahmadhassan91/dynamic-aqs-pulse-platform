@@ -11,6 +11,7 @@ import {
   Group,
   Loader,
   Menu,
+  Modal,
   Pagination,
   Paper,
   Select,
@@ -155,6 +156,8 @@ export function AdminWorkspace({
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [selectedIntegrationProvider, setSelectedIntegrationProvider] = useState<AdminIntegrationProvider>(initialIntegrationProvider);
   const [userMutationError, setUserMutationError] = useState<string | null>(null);
+  // UX-AD-001: confirmation state before deactivation
+  const [pendingDeactivateUser, setPendingDeactivateUser] = useState<AdminUserSummary | null>(null);
   const role = auth?.identity.role;
   const tabAccess = useMemo(
     () => ({
@@ -1168,7 +1171,12 @@ export function AdminWorkspace({
                       label: user.isActive ? 'Deactivate user' : 'Activate user',
                       color: user.isActive ? 'yellow' : 'green',
                       onClick: () => {
-                        void handleToggleActive(user);
+                        if (user.isActive) {
+                          // UX-AD-001: show confirmation before deactivating
+                          setPendingDeactivateUser(user);
+                        } else {
+                          void handleToggleActive(user);
+                        }
                       },
                     },
                   ]}
@@ -1460,6 +1468,38 @@ export function AdminWorkspace({
         loading={userImportLoading}
         error={userMutationError}
       />
+
+      {/* UX-AD-001: confirmation gate before user deactivation */}
+      <Modal
+        opened={pendingDeactivateUser !== null}
+        onClose={() => setPendingDeactivateUser(null)}
+        title="Deactivate user"
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure you want to deactivate <strong>{pendingDeactivateUser?.email}</strong>? They will no longer be able to sign in to Pulse.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setPendingDeactivateUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              color="yellow"
+              onClick={() => {
+                const userToDeactivate = pendingDeactivateUser;
+                setPendingDeactivateUser(null);
+                if (userToDeactivate) {
+                  void handleToggleActive(userToDeactivate);
+                }
+              }}
+            >
+              Deactivate
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
   );
 }

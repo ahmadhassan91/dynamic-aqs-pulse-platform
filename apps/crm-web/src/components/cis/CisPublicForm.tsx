@@ -62,6 +62,8 @@ const STATE_OPTIONS = [
   'MD', 'ME', 'MI', 'MN', 'MO', 'MS', 'MT', 'NC', 'ND', 'NE',
   'NH', 'NJ', 'NM', 'NV', 'NY', 'OH', 'OK', 'OR', 'PA', 'RI',
   'SC', 'SD', 'TN', 'TX', 'UT', 'VA', 'VT', 'WA', 'WI', 'WV', 'WY',
+  // UX-CIS-001: US territories
+  'AS', 'GU', 'MP', 'PR', 'VI',
 ].map((value) => ({ value, label: value }));
 
 export function CisPublicForm({ token }: CisPublicFormProps) {
@@ -611,6 +613,14 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                 data={PAYMENT_METHOD_OPTIONS}
                 disabled={!isEditable}
               />
+
+              {/* UX-CIS-002: contextual card-on-file guidance when Credit Card is selected */}
+              {formState.paymentMethod === 'CREDIT_CARD' ? (
+                <Alert color="violet" icon={<IconCreditCard size={16} />} mt="md" variant="light">
+                  <Text fw={600} size="sm">Card on File Required</Text>
+                  <Text size="sm">Credit Card accounts require a card-on-file authorization. Please complete the Card On File Authorization section below to proceed.</Text>
+                </Alert>
+              ) : null}
 
               {formState.hasSignature ? (
                 <Alert color="teal" variant="light" mt="md" icon={<IconCheck size={16} />}>

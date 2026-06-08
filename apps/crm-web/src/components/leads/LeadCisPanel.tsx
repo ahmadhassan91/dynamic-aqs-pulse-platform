@@ -417,6 +417,19 @@ export function LeadCisPanel({
       return;
     }
 
+    // UX-CIS-005: decision notes required for conditional / info-requested outcomes
+    if ((financeDecision === 'conditional' || financeDecision === 'info_requested') && !financeDecisionNotes.trim()) {
+      setActionError('Decision notes are required for conditional or information-requested outcomes.');
+      setActionMessage(null);
+      return;
+    }
+    // UX-CIS-006: credit line amount required when approving a net-terms payment method
+    if (requiresCreditTerms && !creditLineAmount.trim()) {
+      setActionError('Credit line amount is required when approving a net-terms payment method.');
+      setActionMessage(null);
+      return;
+    }
+
     setIsRecordingDecision(true);
     setActionError(null);
     setActionMessage(null);
@@ -723,6 +736,14 @@ export function LeadCisPanel({
                   <ReadOnlyField label="Prospect submitted" value={formatOptionalDate(cisPackage.submittedAt)} />
                   <ReadOnlyField label="Finance decided" value={formatOptionalDate(cisPackage.financeDecidedAt)} />
                 </SimpleGrid>
+
+                {/* UX-CIS-004: link expiry alert */}
+                {cisPackage.externalLinkExpiresAt && !cisPackage.submittedAt && new Date(cisPackage.externalLinkExpiresAt) < new Date() ? (
+                  <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                    <Text fw={600} size="sm">CIS link expired</Text>
+                    <Text size="sm">This link expired on {formatOptionalDate(cisPackage.externalLinkExpiresAt)}. Issue a fresh link from the Send &amp; Track section below so the prospect can complete the form.</Text>
+                  </Alert>
+                ) : null}
               </Stack>
             </Card>
 

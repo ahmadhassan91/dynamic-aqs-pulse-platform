@@ -699,6 +699,46 @@ test('cis signing transition stamps submission and signature timestamps', SERIAL
   assert.ok(signed.cisSignedAt);
 });
 
+test('backward stage transitions require a governed reason (BR-L-07) and persist it', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await createLead(actor, {
+    companyName: 'Backward Transition HVAC',
+    serviceTechCount: 4,
+    state: 'TX',
+  });
+
+  const sent = await transitionLeadStage(actor, lead.id, {
+    toStage: 'cis_sent',
+    note: 'CIS sent from regression suite.',
+  });
+  assert.equal(sent.stage, 'cis_sent');
+
+  // Hard gate: a backward transition without a reason is rejected.
+  await assert.rejects(
+    () => transitionLeadStage(actor, lead.id, { toStage: 'discovery_completed' }),
+    /reason is required to move a lead to an earlier stage/i,
+  );
+
+  // The lead must not have moved when the gate rejected the transition.
+  const afterReject = await getLeadDetail(actor, lead.id);
+  assert.equal(afterReject.stage, 'cis_sent');
+
+  // With a reason the backward transition succeeds and the reason is persisted.
+  const moved = await transitionLeadStage(actor, lead.id, {
+    toStage: 'discovery_completed',
+    backwardReason: 'Customer paused; re-qualifying discovery.',
+  });
+  assert.equal(moved.stage, 'discovery_completed');
+
+  const event = await prisma.leadStageEvent.findFirst({
+    where: { leadId: lead.id, toStage: 'DISCOVERY_COMPLETED' },
+    orderBy: { occurredAt: 'desc' },
+  });
+  assert.ok(event, 'expected a stage event for the backward transition');
+  assert.equal(event.metadata?.isBackwardTransition, true);
+  assert.equal(event.metadata?.backwardReason, 'Customer paused; re-qualifying discovery.');
+});
+
 test('closing a lead as not interested removes it from the active workflow queue and preserves history fields', SERIAL, async () => {
   const actor = await createAdminActor();
   const lead = await createLead(actor, {

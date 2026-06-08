@@ -3112,6 +3112,7 @@ export async function transitionLeadStage(
 
   const nextStage = toLeadStageEnum(input.toStage);
   const note = optionalTrimmed(input.note);
+  const backwardReason = optionalTrimmed(input.backwardReason);
 
   const lead = await prisma.$transaction(async (tx) => {
     const current = await tx.lead.findUnique({
@@ -3123,6 +3124,12 @@ export async function transitionLeadStage(
     }
     if (current.stage === nextStage) {
       throw new Error('Lead is already at the requested stage');
+    }
+
+    // BR-L-07 (UX-L-011): backward stage transitions are governed — a reason is required.
+    const isBackwardTransition = LEAD_STAGE_ORDER[nextStage] < LEAD_STAGE_ORDER[current.stage];
+    if (isBackwardTransition && !backwardReason) {
+      throw new Error('A reason is required to move a lead to an earlier stage (BR-L-07).');
     }
 
     const now = new Date();
@@ -3147,6 +3154,8 @@ export async function transitionLeadStage(
           actorRole: actor.role,
           actorType: actor.actorType,
           sessionId: actor.sessionId,
+          ...(isBackwardTransition ? { isBackwardTransition: true } : {}),
+          ...(backwardReason !== undefined ? { backwardReason } : {}),
         },
         occurredAt: now,
       },
@@ -3169,6 +3178,8 @@ export async function transitionLeadStage(
           actorType: actor.actorType,
           sessionId: actor.sessionId,
           note: optionalTrimmed(input.note),
+          ...(isBackwardTransition ? { isBackwardTransition: true } : {}),
+          ...(backwardReason !== undefined ? { backwardReason } : {}),
         },
       }),
     });

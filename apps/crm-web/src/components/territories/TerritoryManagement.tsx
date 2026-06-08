@@ -6,6 +6,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Divider,
   Group,
   Loader,
@@ -52,6 +53,7 @@ import type {
   TerritorySummary,
 } from '@pulse/contracts';
 import {
+  bulkReassignAccountsTerritory,
   fetchAccounts,
   fetchCalendarWorkspace,
   fetchLeads,
@@ -184,6 +186,13 @@ export function TerritoryManagement({
   const [showAllLeads, setShowAllLeads] = useState(false);
   const [showAllAccounts, setShowAllAccounts] = useState(false);
   const REGISTRY_PAGE_SIZE = 18;
+  // UX-TR-008: bulk account transfer state
+  const [bulkSelectedAccountIds, setBulkSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
+  const [bulkTransferTerritoryId, setBulkTransferTerritoryId] = useState('');
+  const [bulkTransferReasonCode, setBulkTransferReasonCode] = useState<string>('territory_realignment');
+  const [bulkTransferReasonNote, setBulkTransferReasonNote] = useState('');
+  const [isSavingBulkTransfer, setIsSavingBulkTransfer] = useState(false);
   const [isSavingAdminTerritory, setIsSavingAdminTerritory] = useState(false);
   const [territoryCalendarItems, setTerritoryCalendarItems] = useState<CalendarEventSummary[]>([]);
   const [isLoadingTerritoryCalendar, setIsLoadingTerritoryCalendar] = useState(false);
@@ -832,6 +841,44 @@ export function TerritoryManagement({
     }
   }
 
+  // UX-TR-008: bulk account territory transfer
+  async function handleBulkAccountTransfer() {
+    if (!auth || bulkSelectedAccountIds.size === 0 || !bulkTransferTerritoryId) {
+      return;
+    }
+
+    setIsSavingBulkTransfer(true);
+    try {
+      const response = await bulkReassignAccountsTerritory(apiBaseUrl, auth.tokens.accessToken, {
+        accountIds: Array.from(bulkSelectedAccountIds),
+        territoryId: bulkTransferTerritoryId,
+        reasonCode: bulkTransferReasonCode,
+        ...(bulkTransferReasonNote.trim() ? { reasonNote: bulkTransferReasonNote.trim() } : {}),
+      });
+
+      notifications.show({
+        title: 'Bulk transfer complete',
+        message: `${response.items.length} account${response.items.length === 1 ? '' : 's'} transferred to the selected territory.`,
+        color: 'green',
+      });
+
+      setBulkTransferOpen(false);
+      setBulkSelectedAccountIds(new Set());
+      setBulkTransferTerritoryId('');
+      setBulkTransferReasonCode('territory_realignment');
+      setBulkTransferReasonNote('');
+      setRefreshNonce((value) => value + 1);
+    } catch (error) {
+      notifications.show({
+        title: 'Bulk transfer failed',
+        message: error instanceof Error ? error.message : String(error),
+        color: 'red',
+      });
+    } finally {
+      setIsSavingBulkTransfer(false);
+    }
+  }
+
   async function handleLeadReassignment() {
     if (!auth || !reassignLead || !selectedTerritoryId) {
       return;
@@ -1382,36 +1429,98 @@ export function TerritoryManagement({
                 ) : null}
 
                 {territoryRegistryView === 'accounts' && canViewCustomers ? (
-                  <Table.ScrollContainer minWidth={980}>
-                    <Table striped highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Account</Table.Th>
-                          <Table.Th>Lifecycle</Table.Th>
-                          <Table.Th>Territory</Table.Th>
-                          <Table.Th>Region</Table.Th>
-                          <Table.Th>Assignment Method</Table.Th>
-                          <Table.Th>Shipping</Table.Th>
-                          <Table.Th>Actions</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {(showAllAccounts ? territoryAccountRoster : territoryAccountRoster.slice(0, REGISTRY_PAGE_SIZE)).map((account) => (
-                          <Table.Tr key={account.id}>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text fw={700}>{account.displayName}</Text>
-                                <Text size="xs" c="dimmed">
-                                  {account.accountType ?? 'Customer'}
-                                </Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>{formatAccountLifecycle(account.lifecycleStatus)}</Table.Td>
-                            <Table.Td>{account.territoryName ?? account.territoryCode ?? 'Unassigned'}</Table.Td>
-                            <Table.Td>{account.regionName ?? 'Unassigned'}</Table.Td>
-                            <Table.Td>{formatAssignmentMethod(account.territoryAssignmentMethod)}</Table.Td>
-                            <Table.Td>{account.shippingCenterName ?? 'Unassigned'}</Table.Td>
-                            <Table.Td>
+                  <>
+                    {/* UX-TR-008: bulk transfer action bar */}
+                    {canReassignTerritory && bulkSelectedAccountIds.size > 0 ? (
+                      <Group justify="flex-end" mb="xs">
+                        <Button
+                          size="xs"
+                          onClick={() => {
+                            setBulkTransferTerritoryId('');
+                            setBulkTransferReasonCode('territory_realignment');
+                            setBulkTransferReasonNote('');
+                            setBulkTransferOpen(true);
+                          }}
+                        >
+                          Bulk transfer {bulkSelectedAccountIds.size} account{bulkSelectedAccountIds.size === 1 ? '' : 's'}
+                        </Button>
+                        <Button size="xs" variant="subtle" color="gray" onClick={() => setBulkSelectedAccountIds(new Set())}>
+                          Clear selection
+                        </Button>
+                      </Group>
+                    ) : null}
+                    <Table.ScrollContainer minWidth={1020}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            {canReassignTerritory ? (
+                              <Table.Th w={40}>
+                                <Checkbox
+                                  indeterminate={
+                                    bulkSelectedAccountIds.size > 0
+                                    && bulkSelectedAccountIds.size < Math.min(territoryAccountRoster.length, showAllAccounts ? territoryAccountRoster.length : REGISTRY_PAGE_SIZE)
+                                  }
+                                  checked={
+                                    territoryAccountRoster.length > 0
+                                    && bulkSelectedAccountIds.size === Math.min(territoryAccountRoster.length, showAllAccounts ? territoryAccountRoster.length : REGISTRY_PAGE_SIZE)
+                                  }
+                                  onChange={(event) => {
+                                    const visible = showAllAccounts ? territoryAccountRoster : territoryAccountRoster.slice(0, REGISTRY_PAGE_SIZE);
+                                    if (event.currentTarget.checked) {
+                                      setBulkSelectedAccountIds(new Set(visible.map((a) => a.id)));
+                                    } else {
+                                      setBulkSelectedAccountIds(new Set());
+                                    }
+                                  }}
+                                  aria-label="Select all visible accounts"
+                                />
+                              </Table.Th>
+                            ) : null}
+                            <Table.Th>Account</Table.Th>
+                            <Table.Th>Lifecycle</Table.Th>
+                            <Table.Th>Territory</Table.Th>
+                            <Table.Th>Region</Table.Th>
+                            <Table.Th>Assignment Method</Table.Th>
+                            <Table.Th>Shipping</Table.Th>
+                            <Table.Th>Actions</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(showAllAccounts ? territoryAccountRoster : territoryAccountRoster.slice(0, REGISTRY_PAGE_SIZE)).map((account) => (
+                            <Table.Tr key={account.id}>
+                              {canReassignTerritory ? (
+                                <Table.Td>
+                                  <Checkbox
+                                    checked={bulkSelectedAccountIds.has(account.id)}
+                                    onChange={(event) => {
+                                      setBulkSelectedAccountIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (event.currentTarget.checked) {
+                                          next.add(account.id);
+                                        } else {
+                                          next.delete(account.id);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    aria-label={`Select ${account.displayName}`}
+                                  />
+                                </Table.Td>
+                              ) : null}
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Text fw={700}>{account.displayName}</Text>
+                                  <Text size="xs" c="dimmed">
+                                    {account.accountType ?? 'Customer'}
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{formatAccountLifecycle(account.lifecycleStatus)}</Table.Td>
+                              <Table.Td>{account.territoryName ?? account.territoryCode ?? 'Unassigned'}</Table.Td>
+                              <Table.Td>{account.regionName ?? 'Unassigned'}</Table.Td>
+                              <Table.Td>{formatAssignmentMethod(account.territoryAssignmentMethod)}</Table.Td>
+                              <Table.Td>{account.shippingCenterName ?? 'Unassigned'}</Table.Td>
+                              <Table.Td>
                                 <RowActionMenu
                                   label={`Actions for ${account.displayName}`}
                                   items={[
@@ -1432,23 +1541,24 @@ export function TerritoryManagement({
                                     },
                                   ]}
                                 />
-                            </Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                    {!showAllAccounts && territoryAccountRoster.length > REGISTRY_PAGE_SIZE ? (
-                      <Group justify="center" mt="sm">
-                        <Button
-                          variant="subtle"
-                          size="xs"
-                          onClick={() => setShowAllAccounts(true)}
-                        >
-                          Show all {territoryAccountRoster.length} accounts
-                        </Button>
-                      </Group>
-                    ) : null}
-                  </Table.ScrollContainer>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                      {!showAllAccounts && territoryAccountRoster.length > REGISTRY_PAGE_SIZE ? (
+                        <Group justify="center" mt="sm">
+                          <Button
+                            variant="subtle"
+                            size="xs"
+                            onClick={() => setShowAllAccounts(true)}
+                          >
+                            Show all {territoryAccountRoster.length} accounts
+                          </Button>
+                        </Group>
+                      ) : null}
+                    </Table.ScrollContainer>
+                  </>
                 ) : null}
               </Stack>
             </Paper>
@@ -1880,6 +1990,55 @@ export function TerritoryManagement({
               No assignment history has been recorded for this account yet.
             </Text>
           )}
+        </Stack>
+      </Modal>
+
+      {/* UX-TR-008: Bulk account territory transfer modal */}
+      <Modal
+        opened={bulkTransferOpen}
+        onClose={() => setBulkTransferOpen(false)}
+        title={`Bulk territory transfer — ${bulkSelectedAccountIds.size} account${bulkSelectedAccountIds.size === 1 ? '' : 's'}`}
+        centered
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Transfer all selected accounts to the chosen territory. This writes assignment history and updates territory
+            ownership immediately across all downstream views.
+          </Text>
+          <Select
+            label="Destination territory"
+            placeholder="Select a territory"
+            data={territorySelectData}
+            value={bulkTransferTerritoryId}
+            onChange={(value) => setBulkTransferTerritoryId(value ?? '')}
+            searchable
+          />
+          <Select
+            label="Reason"
+            data={TERRITORY_OVERRIDE_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            value={bulkTransferReasonCode}
+            onChange={(value) => setBulkTransferReasonCode(value ?? 'territory_realignment')}
+          />
+          <Textarea
+            label="Note"
+            placeholder="Optional detail for the bulk transfer history record."
+            value={bulkTransferReasonNote}
+            onChange={(event) => setBulkTransferReasonNote(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setBulkTransferOpen(false)} disabled={isSavingBulkTransfer}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleBulkAccountTransfer()}
+              loading={isSavingBulkTransfer}
+              disabled={!bulkTransferTerritoryId}
+            >
+              Transfer accounts
+            </Button>
+          </Group>
         </Stack>
       </Modal>
     </Stack>

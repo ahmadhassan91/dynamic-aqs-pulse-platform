@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -55,6 +56,18 @@ export function CustomerContacts(
   const [isSaving, setIsSaving] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [form, setForm] = useState<ContactFormState>(EMPTY_FORM);
+
+  // UX-A-005: detect when the editing contact is the sole active primary
+  const isSolePrimary = useMemo(() => {
+    if (!editingContactId) {
+      return false;
+    }
+    const editingContact = account.contacts.find((c) => c.id === editingContactId);
+    if (!editingContact?.isPrimary || !editingContact.isActive) {
+      return false;
+    }
+    return account.contacts.filter((c) => c.id !== editingContactId && c.isActive && c.isPrimary).length === 0;
+  }, [account.contacts, editingContactId]);
 
   const locationOptions = useMemo(
     () => [
@@ -146,6 +159,21 @@ export function CustomerContacts(
   async function handleToggleActive(contact: AccountDetail['contacts'][number]) {
     if (!auth) {
       return;
+    }
+
+    // UX-A-005: block deactivating the sole active primary contact without a replacement
+    if (contact.isActive && contact.isPrimary) {
+      const otherActivePrimaryCount = account.contacts.filter(
+        (c) => c.id !== contact.id && c.isActive && c.isPrimary,
+      ).length;
+      if (otherActivePrimaryCount === 0) {
+        notifications.show({
+          title: 'Cannot deactivate sole primary contact',
+          message: 'Please designate another contact as primary before removing this one.',
+          color: 'orange',
+        });
+        return;
+      }
     }
 
     try {
@@ -298,6 +326,13 @@ export function CustomerContacts(
               label="Contact is active"
             />
           </Group>
+          {/* UX-A-005: warn when removing primary designation from the sole primary contact */}
+          {isSolePrimary && !form.isPrimary ? (
+            <Alert color="orange" variant="light">
+              This is the only primary contact. Saving without a replacement will leave the account with no primary contact.
+              Designate another contact as primary first if a replacement is ready.
+            </Alert>
+          ) : null}
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setModalOpened(false)}>Cancel</Button>
             <Button

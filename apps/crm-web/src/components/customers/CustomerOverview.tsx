@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
@@ -202,6 +203,22 @@ export function CustomerOverview(
               <MetadataRow label="Lifecycle" value={formatLifecycle(account.lifecycleStatus)} />
               <MetadataRow label="Record Status" value={account.isActive ? 'Active In Pulse' : 'Inactive In Pulse'} />
               <MetadataRow label="Primary Location" value={formatLocation(primaryLocation)} />
+              {/* UX-A-008: source lead lineage row */}
+              {account.sourceLeadId ? (
+                <Group justify="space-between" align="flex-start" gap="md">
+                  <Text size="sm" c="dimmed">Source Lead</Text>
+                  <Text
+                    component={Link}
+                    href={`/leads/${account.sourceLeadId}`}
+                    size="sm"
+                    fw={500}
+                    c="blue"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    View converted lead
+                  </Text>
+                </Group>
+              ) : null}
             </Stack>
           </Card>
         </Grid.Col>
@@ -309,9 +326,14 @@ export function CustomerOverview(
             ]}
             allowDeselect={false}
           />
+          {/* UX-A-003: reason required for at_risk / inactive / churned transitions */}
           <Textarea
             label="Lifecycle note"
-            description={nextLifecycleStatus === 'churned' ? 'Required when confirming churn.' : 'Optional operator context.'}
+            description={
+              nextLifecycleStatus === 'at_risk' || nextLifecycleStatus === 'inactive' || nextLifecycleStatus === 'churned'
+                ? 'Required — describe the reason for this transition so the follow-up queue shows context.'
+                : 'Optional operator context.'
+            }
             value={lifecycleReasonNote}
             onChange={(event) => setLifecycleReasonNote(event.currentTarget.value)}
             minRows={3}
@@ -321,7 +343,10 @@ export function CustomerOverview(
             <Button
               onClick={() => void handleLifecycleSave()}
               loading={isLifecycleSaving}
-              disabled={nextLifecycleStatus === 'churned' && !lifecycleReasonNote.trim()}
+              disabled={
+                (nextLifecycleStatus === 'at_risk' || nextLifecycleStatus === 'inactive' || nextLifecycleStatus === 'churned')
+                && !lifecycleReasonNote.trim()
+              }
             >
               Save Lifecycle
             </Button>

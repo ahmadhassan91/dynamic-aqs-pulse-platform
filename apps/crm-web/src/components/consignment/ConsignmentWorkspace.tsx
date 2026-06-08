@@ -629,12 +629,21 @@ function SiteList({
               ),
             },
           ]}
-          rowActions={(site) => [{
-            id: 'open-site',
-            label: 'Open site',
-            icon: <IconArrowRight size={16} />,
-            onClick: () => router.push(`/consignment/${site.id}`),
-          }]}
+          rowActions={(site) => [
+            {
+              id: 'open-site',
+              label: 'Open site',
+              icon: <IconArrowRight size={16} />,
+              onClick: () => router.push(`/consignment/${site.id}`),
+            },
+            // UX-CSG-004: single-click path to discrepancy section when issues are open
+            ...((site.openDiscrepancyCount ?? 0) > 0 ? [{
+              id: 'open-discrepancy',
+              label: 'Open discrepancy review',
+              icon: <IconClipboardList size={16} />,
+              onClick: () => router.push(`/consignment/${site.id}?evidence=1`),
+            }] : []),
+          ]}
           emptyState={(
             <EmptyStateMessage
               kind={searchQuery || statusFilter ? 'filtered-out' : 'no-data'}

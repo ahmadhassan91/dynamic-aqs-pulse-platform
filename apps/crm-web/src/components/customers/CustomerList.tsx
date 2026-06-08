@@ -229,6 +229,10 @@ function AccountFollowUpQueue({
                     {account.displayName}
                   </Text>
                   <Text size="xs" c="dimmed">{account.legalName ?? 'Legal name pending'}</Text>
+                  {/* UX-A-002: follow-up reason label */}
+                  {account.lifecycleReasonNote ? (
+                    <Text size="xs" c="orange.7">{account.lifecycleReasonNote}</Text>
+                  ) : null}
                 </Stack>
               ),
             },
@@ -338,9 +342,15 @@ function AccountDirectoryTable({ accounts, total }: { accounts: AccountSummary[]
             key: 'lifecycle',
             header: 'Lifecycle',
             render: (account) => (
-              <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
-                {formatAccountLifecycle(account.lifecycleStatus)}
-              </Badge>
+              <Stack gap={2} align="flex-start">
+                <Badge color={accountLifecycleColor(account.lifecycleStatus)} variant="light">
+                  {formatAccountLifecycle(account.lifecycleStatus)}
+                </Badge>
+                {/* UX-A-002: follow-up reason label below lifecycle badge */}
+                {account.lifecycleReasonNote ? (
+                  <Text size="xs" c="dimmed">{account.lifecycleReasonNote}</Text>
+                ) : null}
+              </Stack>
             ),
             width: 140,
           },

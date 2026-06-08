@@ -200,6 +200,8 @@ export type EmptyStateMessageProps = {
 export type WorkbenchAdvancedSectionProps = {
   title: string;
   description?: string | undefined;
+  /** UX-CSG-004: open the accordion on first render (e.g. when navigating with ?evidence=1) */
+  defaultExpanded?: boolean | undefined;
   children: ReactNode;
 };
 
@@ -653,9 +655,9 @@ export function EmptyStateMessage({
   );
 }
 
-export function WorkbenchAdvancedSection({ title, description, children }: WorkbenchAdvancedSectionProps) {
+export function WorkbenchAdvancedSection({ title, description, defaultExpanded, children }: WorkbenchAdvancedSectionProps) {
   return (
-    <Accordion variant="contained" radius="md">
+    <Accordion variant="contained" radius="md" {...(defaultExpanded ? { defaultValue: 'advanced' } : {})}>
       <Accordion.Item value="advanced">
         <Accordion.Control>
           <Stack gap={2}>

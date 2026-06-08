@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
@@ -59,6 +60,18 @@ const formTypeLabel: Record<string, string> = {
   master_reference: 'Master reference',
 };
 
+// UX-CSG-003: Mantine color per form / audit type
+const formTypeColor: Record<string, string> = {
+  agreement: 'green',
+  blue: 'blue',
+  rose: 'pink',
+  purple: 'grape',
+  sand: 'yellow',
+  return: 'orange',
+  damage: 'red',
+  master_reference: 'gray',
+};
+
 const trueUpOutcomeOptions = [
   { value: 'po_required', label: 'Start PO follow-up clock' },
   { value: 'resolved_no_po', label: 'Resolve without PO follow-up' },
@@ -76,6 +89,9 @@ const trueUpReasonOptions = [
 
 export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
+  // UX-CSG-004: auto-expand evidence section when navigated with ?evidence=1
+  const searchParams = useSearchParams();
+  const openEvidence = searchParams.get('evidence') === '1';
   const [site, setSite] = useState<ConsignmentSiteDetailRecord | null>(null);
   const [readinessItems, setReadinessItems] = useState<ConsignmentReadinessItemSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -767,9 +783,11 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
             </SimpleGrid>
           </Card>
 
+          {/* UX-CSG-004: defaultExpanded when navigated with ?evidence=1 from site list */}
           <WorkbenchAdvancedSection
             title="Site details and evidence"
             description="Open for ROSE cadence, readiness checks, form counts, documents, audit history, and reviewed field notes."
+            defaultExpanded={openEvidence}
           >
             <SimpleGrid cols={{ base: 1, lg: 3 }} mb="md">
               <Card withBorder radius="md" p="md">
@@ -898,7 +916,15 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                               <Text size="xs" c="dimmed">Add {item.addQuantity} / remove {item.removeQuantity}</Text>
                             </Stack>
                           </Table.Td>
-                          <Table.Td><Badge variant="light">{formatConsignmentStatus(item.status)}</Badge></Table.Td>
+                          <Table.Td>
+                            <Group gap="xs">
+                              <Badge variant="light">{formatConsignmentStatus(item.status)}</Badge>
+                              {/* UX-CSG-005: pending Acumatica sync indicator on applied adjustments */}
+                              {item.status === 'applied' ? (
+                                <Badge color="gray" variant="light">Pending Acumatica</Badge>
+                              ) : null}
+                            </Group>
+                          </Table.Td>
                           <Table.Td>
                             {item.status === 'requested' && canManageConsignment ? (
                               <Button size="xs" variant="light" onClick={() => applyPurpleAdjustment(item.id)} loading={savingAction === `purple-apply-${item.id}`}>
@@ -960,7 +986,12 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                         {site.forms.map((document) => (
                           <Table.Tr key={document.id}>
                             <Table.Td>{document.title ?? document.formType}</Table.Td>
-                            <Table.Td>{formatConsignmentFormType(document.formType)}</Table.Td>
+                            {/* UX-CSG-003: color-coded form type badge */}
+                            <Table.Td>
+                              <Badge variant="light" color={formTypeColor[document.formType] ?? 'gray'}>
+                                {formatConsignmentFormType(document.formType)}
+                              </Badge>
+                            </Table.Td>
                             <Table.Td><Badge variant="light">{formatConsignmentStatus(document.status)}</Badge></Table.Td>
                             <Table.Td>
                               {document.documentUrl ? (
@@ -992,6 +1023,8 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th>Scheduled</Table.Th>
+                          {/* UX-CSG-003: audit type column */}
+                          <Table.Th>Type</Table.Th>
                           <Table.Th>Status</Table.Th>
                           <Table.Th>Site issue</Table.Th>
                           <Table.Th>Completed</Table.Th>
@@ -1001,6 +1034,8 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                         {site.audits.map((audit) => (
                           <Table.Tr key={audit.id}>
                             <Table.Td>{formatConsignmentDate(audit.scheduledFor)}</Table.Td>
+                            {/* UX-CSG-003: all site audits are ROSE (90-day reconciliation) */}
+                            <Table.Td><Badge variant="light" color="pink">ROSE</Badge></Table.Td>
                             <Table.Td><Badge variant="light">{formatConsignmentStatus(audit.status)}</Badge></Table.Td>
                             <Table.Td>{formatSiteIssueStatus(audit.reconciliationStatus)}</Table.Td>
                             <Table.Td>{formatConsignmentDate(audit.completedAt)}</Table.Td>

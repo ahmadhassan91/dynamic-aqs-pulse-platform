@@ -178,6 +178,10 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
                   {canViewFinancials ? <Menu.Item onClick={() => navigateToCustomerTab('payment-methods')}>Payment Methods</Menu.Item> : null}
                   {canViewTraining ? <Menu.Item onClick={() => navigateToCustomerTab('training')}>Training</Menu.Item> : null}
                   <Menu.Item onClick={() => navigateToCustomerTab('portal')}>Dealer Portal</Menu.Item>
+                  {/* UX-A-007: link to Field Activity Review queue */}
+                  <Menu.Item component={Link} href="/customers/field-activity">
+                    Field Activity Review
+                  </Menu.Item>
                 </Menu.Dropdown>
               </Menu>
             </Tabs.List>
@@ -370,6 +374,32 @@ function CustomerActivityDocs({ account, canViewFinancials }: { account: Account
           ))}
         </SimpleGrid>
       </Paper>
+
+      {/* UX-A-009: parked Acumatica dependency placeholder cards */}
+      {account.activityReview.parkedDependencies.length > 0 ? (
+        <Paper withBorder radius="md" p="lg">
+          <Group justify="space-between" align="flex-start" mb="md">
+            <Stack gap={4}>
+              <Title order={4}>Parked — Acumatica Dependencies</Title>
+              <Text size="sm" c="dimmed">
+                These features require the Acumatica service connection and will activate when the integration is live.
+              </Text>
+            </Stack>
+            <Badge color="gray" variant="light">{account.activityReview.parkedDependencies.length} parked</Badge>
+          </Group>
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            {account.activityReview.parkedDependencies.map((dep) => (
+              <Card key={dep} withBorder radius="md" p="md" style={{ opacity: 0.75, borderStyle: 'dashed' }}>
+                <Group gap="xs" mb="xs">
+                  <Badge color="gray" variant="light">Acumatica</Badge>
+                  <Badge color="gray" variant="outline">Pending Integration</Badge>
+                </Group>
+                <Text size="sm" c="dimmed">{dep}</Text>
+              </Card>
+            ))}
+          </SimpleGrid>
+        </Paper>
+      ) : null}
 
       <Paper withBorder radius="md" p="lg">
         <Group justify="space-between" align="flex-start" mb="md">

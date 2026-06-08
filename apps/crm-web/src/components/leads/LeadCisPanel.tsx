@@ -12,7 +12,6 @@ import type {
   CisPaymentTermsKey,
   LeadDetail,
 } from '@pulse/contracts';
-import { CIS_PACKAGE_STATUSES } from '@pulse/contracts';
 import {
   Alert,
   Badge,
@@ -100,6 +99,18 @@ const FINANCE_DECISION_OPTIONS: readonly { value: FinanceDecisionState; label: s
 ] as const;
 
 const PAYMENT_TERM_OPTIONS: readonly CisPaymentTermsKey[] = ['NET_30', 'NET_60', 'COD', 'CUSTOM'];
+
+const CIS_STEPPER_STATUSES: readonly CisPackageStatusKey[] = [
+  'link_sent',
+  'draft_in_progress',
+  'submitted',
+  'review_in_progress',
+  'sales_signed_off',
+  'finance_pending',
+  'finance_approved',
+  'finance_declined',
+  'completed',
+];
 
 export function LeadCisPanel({
   apiBaseUrl,
@@ -627,7 +638,6 @@ export function LeadCisPanel({
   ) : null;
 
   // UX-CIS-009: 9-state badge progression stepper (all statuses except 'not_sent' shown, total 9)
-  const CIS_STEPPER_STATUSES = CIS_PACKAGE_STATUSES.filter((s) => s !== 'not_sent') as readonly CisPackageStatusKey[];
   const currentStatusIndex = cisPackage ? CIS_STEPPER_STATUSES.indexOf(cisPackage.status) : -1;
 
   return (

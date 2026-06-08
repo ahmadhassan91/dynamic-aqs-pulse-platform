@@ -145,13 +145,16 @@ export async function createAdminUser(
   const temporaryPassword = input.password?.trim() || createTemporaryPassword();
   const passwordHash = hashSecret(temporaryPassword);
 
+  // UX-AD-011: support explicit actorType so dealer-portal users can be created from admin.
+  const resolvedUserKind = input.actorType === 'dealer' ? UserKind.DEALER : UserKind.INTERNAL;
+
   const created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
         email,
         displayName: `${firstName} ${lastName}`.trim(),
         roleCode: role,
-        userType: UserKind.INTERNAL,
+        userType: resolvedUserKind,
         isActive: input.isActive ?? true,
         identities: {
           create: {

@@ -332,11 +332,11 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-AD-007 | No reference data governance home (affinity groups, ownership groups, taxonomy) | AdminWorkspace.tsx | Yes | Open |
-| UX-AD-008 | No routing threshold and SLA timer configuration screen | AdminWorkspace.tsx | Yes | Open |
-| UX-AD-009 | No system settings panel (company name, logo, timezone, currency) | AdminWorkspace.tsx | Yes | Open |
-| UX-AD-010 | No feature-flag toggle list in configuration tab | AdminWorkspace.tsx | Yes | Open |
-| UX-AD-011 | Dealer-portal user type not selectable in create flow — only INTERNAL created | UserFormModal.tsx | Yes | Open |
-| UX-AD-012 | Audit activity tab missing CSV export | AdminWorkspace.tsx | Yes | Open |
+| UX-AD-007 | No reference data governance home (affinity groups, ownership groups, taxonomy) | AdminWorkspace.tsx | Yes | Done |
+| UX-AD-008 | No routing threshold and SLA timer configuration screen | AdminWorkspace.tsx | Yes | Done (parked: POST /admin/routing-thresholds endpoint needed for writes) |
+| UX-AD-009 | No system settings panel (company name, logo, timezone, currency) | AdminWorkspace.tsx | Yes | Done (parked: POST /admin/system-settings endpoint needed for writes) |
+| UX-AD-010 | No feature-flag toggle list in configuration tab | AdminWorkspace.tsx | Yes | Done (parked: GET /admin/feature-flags + PATCH endpoint needed) |
+| UX-AD-011 | Dealer-portal user type not selectable in create flow — only INTERNAL created | UserFormModal.tsx | Yes | Done |
+| UX-AD-012 | Audit activity tab missing CSV export | AdminWorkspace.tsx | Yes | Done |
 
 _To be completed during the review meeting._

@@ -49,6 +49,8 @@ export interface CreateAdminUserRequest {
   role: AuthRole;
   isActive?: boolean;
   password?: string;
+  /** UX-AD-011: explicit actor type for the user. Defaults to 'internal'. */
+  actorType?: 'internal' | 'dealer';
 }
 
 export interface CreateAdminUserResponse {

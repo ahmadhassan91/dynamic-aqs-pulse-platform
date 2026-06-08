@@ -835,6 +835,8 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                         <Table.Th>Work</Table.Th>
                         <Table.Th>Status</Table.Th>
                         <Table.Th>Due</Table.Th>
+                        {/* UX-CSG-006: entity quick-links column */}
+                        <Table.Th>Quick links</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -848,6 +850,53 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
                           </Table.Td>
                           <Table.Td><Badge variant="light">{formatConsignmentStatus(item.status)}</Badge></Table.Td>
                           <Table.Td>{formatConsignmentDate(item.dueAt)}</Table.Td>
+                          {/* UX-CSG-006: quick-links to site, audit history, PO cases, and forms */}
+                          <Table.Td>
+                            <Group gap={4} wrap="wrap">
+                              <Text
+                                component={Link}
+                                href={`/consignment/${item.siteId}`}
+                                size="xs"
+                                c="blue"
+                                fw={600}
+                              >
+                                Site
+                              </Text>
+                              {item.type === 'rose_audit' || item.type === 'audit' ? (
+                                <Text
+                                  component={Link}
+                                  href={`/consignment/${item.siteId}?evidence=1`}
+                                  size="xs"
+                                  c="blue"
+                                  fw={600}
+                                >
+                                  Audit
+                                </Text>
+                              ) : null}
+                              {item.type === 'po_follow_up' || item.type === 'discrepancy' ? (
+                                <Text
+                                  component={Link}
+                                  href={`/consignment/${item.siteId}?evidence=1`}
+                                  size="xs"
+                                  c="blue"
+                                  fw={600}
+                                >
+                                  PO / Discrepancy
+                                </Text>
+                              ) : null}
+                              {item.type === 'form' || item.type === 'document' ? (
+                                <Text
+                                  component={Link}
+                                  href={`/consignment/${item.siteId}?evidence=1`}
+                                  size="xs"
+                                  c="blue"
+                                  fw={600}
+                                >
+                                  Form
+                                </Text>
+                              ) : null}
+                            </Group>
+                          </Table.Td>
                         </Table.Tr>
                       ))}
                     </Table.Tbody>

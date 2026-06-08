@@ -23,6 +23,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowRight,
   IconClipboardList,
+  IconFilter,
   IconPlus,
   IconSearch,
 } from '@tabler/icons-react';
@@ -61,7 +62,7 @@ const statusOptions: Array<{ value: ConsignmentSiteStatus | ''; label: string }>
   { value: 'exited', label: 'Exited' },
 ];
 
-type ConsignmentView = 'next' | 'allSites' | 'reports';
+type ConsignmentView = 'next' | 'allSites' | 'reports' | 'onboarding';
 
 type NextSiteWorkRow = {
   accountName: string;
@@ -303,13 +304,22 @@ export function ConsignmentWorkspace() {
               All sites
             </Button>
             <WorkbenchMoreMenu
-              items={[{
-                id: 'consignment-reports',
-                label: 'Reports',
-                description: 'Program readiness and ROSE audit rollups.',
-                icon: <IconClipboardList size={16} />,
-                onClick: () => setActiveView('reports'),
-              }]}
+              items={[
+                {
+                  id: 'consignment-onboarding',
+                  label: 'Onboarding pipeline',
+                  description: 'Pre-warehouse funnel: enrollment through setup confirmation.',
+                  icon: <IconFilter size={16} />,
+                  onClick: () => setActiveView('onboarding'),
+                },
+                {
+                  id: 'consignment-reports',
+                  label: 'Reports',
+                  description: 'Program readiness and ROSE audit rollups.',
+                  icon: <IconClipboardList size={16} />,
+                  onClick: () => setActiveView('reports'),
+                },
+              ]}
             />
           </Group>
         )}
@@ -378,6 +388,15 @@ export function ConsignmentWorkspace() {
           dashboard={dashboard}
           isLoading={isLoadingDashboard || isLoadingSites}
           sites={sites}
+        />
+      ) : null}
+
+      {/* UX-CSG-007: pre-warehouse onboarding pipeline funnel view */}
+      {activeView === 'onboarding' ? (
+        <OnboardingPipelineFunnel
+          sites={sites}
+          dashboard={dashboard}
+          isLoading={isLoadingDashboard || isLoadingSites}
         />
       ) : null}
 
@@ -1043,6 +1062,146 @@ function MetricRow({ label, value }: { label: string; value: string }) {
       <Text size="sm">{label}</Text>
       <Badge variant="light">{value}</Badge>
     </Group>
+  );
+}
+
+// UX-CSG-007: Pre-warehouse onboarding pipeline funnel view.
+// Shows all sites in the pre-warehouse stages as a kanban-style funnel with
+// counts per stage, site lists per column, and quick navigation to each site.
+const ONBOARDING_STAGES: Array<{
+  key: ConsignmentSiteStatus;
+  label: string;
+  description: string;
+  color: string;
+}> = [
+  { key: 'onboarding_in_progress', label: 'Enrollment in progress', description: 'Program agreement and setup steps not yet complete', color: 'yellow' },
+  { key: 'ready_for_warehouse', label: 'Ready for setup', description: 'Agreement signed — waiting for Acumatica warehouse confirmation', color: 'blue' },
+  { key: 'warehouse_pending', label: 'Setup pending', description: 'Handoff in progress — follow up with operations', color: 'orange' },
+  { key: 'baseline_pending', label: 'Baseline pending', description: 'Warehouse set up — BLUE initial verification not yet confirmed', color: 'violet' },
+];
+
+function OnboardingPipelineFunnel({
+  sites,
+  dashboard,
+  isLoading,
+}: {
+  sites: ConsignmentSiteSummary[];
+  dashboard: ConsignmentDashboardResponse | null;
+  isLoading: boolean;
+}) {
+  const router = useRouter();
+
+  const stageMap = useMemo(() => {
+    const map = new Map<string, ConsignmentSiteSummary[]>();
+    for (const stage of ONBOARDING_STAGES) {
+      map.set(stage.key, []);
+    }
+    for (const site of sites) {
+      const stageSites = map.get(site.status);
+      if (stageSites) {
+        stageSites.push(site);
+      }
+    }
+    return map;
+  }, [sites]);
+
+  const totalOnboarding = ONBOARDING_STAGES.reduce(
+    (total, stage) => total + (stageMap.get(stage.key)?.length ?? 0),
+    0,
+  );
+
+  if (isLoading) {
+    return (
+      <Card withBorder radius="md" p="xl">
+        <Group justify="center">
+          <Loader color="blue" />
+        </Group>
+      </Card>
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      <WorkbenchMetricStrip
+        columns={{ base: 2, sm: 4 }}
+        metrics={ONBOARDING_STAGES.map((stage) => ({
+          label: stage.label,
+          value: stageMap.get(stage.key)?.length ?? 0,
+          tone: (stageMap.get(stage.key)?.length ?? 0) > 0 ? stage.color : 'gray',
+        }))}
+      />
+
+      <Card withBorder radius="md" p="lg">
+        <Group justify="space-between" mb="md" align="flex-start">
+          <Stack gap={2}>
+            <Text fw={700} size="md">Pre-warehouse pipeline ({totalOnboarding} sites)</Text>
+            <Text size="sm" c="dimmed">
+              Sites that have started enrollment but have not yet reached baseline-confirmed active status.
+            </Text>
+          </Stack>
+          {dashboard?.onboardingPipeline.length ? (
+            <Badge color="blue" variant="light">{dashboard.onboardingPipeline.length} stages reported</Badge>
+          ) : null}
+        </Group>
+
+        {totalOnboarding === 0 ? (
+          <EmptyStateMessage
+            kind="all-clear"
+            title="No sites in the onboarding pipeline"
+            description="All sites are either active, exiting, or not yet added to the consignment programme."
+          />
+        ) : (
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+            {ONBOARDING_STAGES.map((stage) => {
+              const stageSites = stageMap.get(stage.key) ?? [];
+              return (
+                <Card key={stage.key} withBorder radius="md" p="md" style={{ alignSelf: 'start' }}>
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="flex-start">
+                      <Stack gap={2}>
+                        <Text fw={700} size="sm">{stage.label}</Text>
+                        <Text size="xs" c="dimmed">{stage.description}</Text>
+                      </Stack>
+                      <Badge color={stage.color} variant="light">{stageSites.length}</Badge>
+                    </Group>
+
+                    {stageSites.length === 0 ? (
+                      <Text size="xs" c="dimmed">No sites at this stage.</Text>
+                    ) : (
+                      <Stack gap="xs">
+                        {stageSites.map((site) => (
+                          <Card
+                            key={site.id}
+                            withBorder
+                            radius="sm"
+                            p="xs"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => router.push(`/consignment/${site.id}`)}
+                          >
+                            <Stack gap={2}>
+                              <Text size="sm" fw={600}>{site.accountName}</Text>
+                              {site.locationName ? (
+                                <Text size="xs" c="dimmed">{site.locationName}</Text>
+                              ) : null}
+                              <Group gap={4} mt={2}>
+                                <Text size="xs" c="dimmed">{site.ownerTmName ?? 'TM unassigned'}</Text>
+                                {site.nextAuditDueAt ? (
+                                  <Text size="xs" c="dimmed">· {formatDate(site.nextAuditDueAt)}</Text>
+                                ) : null}
+                              </Group>
+                            </Stack>
+                          </Card>
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Card>
+              );
+            })}
+          </SimpleGrid>
+        )}
+      </Card>
+    </Stack>
   );
 }
 

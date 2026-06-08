@@ -9,6 +9,7 @@ import {
   Select,
   Stack,
   Switch,
+  Text,
   TextInput,
 } from '@mantine/core';
 import type { AdminUserSummary, AuthRole } from '@pulse/contracts';
@@ -19,14 +20,22 @@ import {
   getRoleSummary,
 } from '@/lib/auth-catalog';
 
+type ActorType = 'internal' | 'dealer';
+
 type UserFormValues = {
   email: string;
   firstName: string;
   lastName: string;
   role: AuthRole;
+  actorType: ActorType;
   isActive: boolean;
   password: string;
 };
+
+const actorTypeOptions: Array<{ value: ActorType; label: string }> = [
+  { value: 'internal', label: 'Internal (CRM user)' },
+  { value: 'dealer', label: 'Dealer portal user' },
+];
 
 const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
 
@@ -49,6 +58,7 @@ export function UserFormModal({
   const [validationError, setValidationError] = useState<string | null>(null);
   const selectedRoleSummary = getRoleSummary(values.role);
   const selectedRoleScopeSummary = getRoleScopeSummary(values.role);
+  const isDealerActorType = values.actorType === 'dealer';
 
   return (
     <Modal opened={opened} onClose={onClose} title={user ? 'Edit User' : 'Create New User'} size="md">
@@ -77,9 +87,45 @@ export function UserFormModal({
             </Alert>
           ) : null}
 
+          {/* UX-AD-011: actor type selector — allows dealer-portal user creation */}
+          {!user ? (
+            <Select
+              label="User type"
+              description="Internal users access the CRM. Dealer portal users access only the dealer-facing portal."
+              data={actorTypeOptions}
+              value={values.actorType}
+              onChange={(value) => {
+                const nextActorType = (value as ActorType | null) ?? 'internal';
+                setValues((current) => ({
+                  ...current,
+                  actorType: nextActorType,
+                  // Auto-switch role to DEALER_PORTAL_USER when dealer is selected
+                  ...(nextActorType === 'dealer' && current.role !== 'DEALER_PORTAL_USER'
+                    ? { role: 'DEALER_PORTAL_USER' as AuthRole }
+                    : {}),
+                  // Clear dealer role when switching back to internal
+                  ...(nextActorType === 'internal' && current.role === 'DEALER_PORTAL_USER'
+                    ? { role: 'ADMIN_CSR_OPS' as AuthRole }
+                    : {}),
+                }));
+              }}
+              allowDeselect={false}
+            />
+          ) : null}
+
+          {isDealerActorType ? (
+            <Alert color="orange" variant="light">
+              <Text size="sm">
+                Dealer portal users access only the dealer-facing portal surface. They cannot log in to the
+                internal CRM. Ensure the email matches the dealer organisation contact. The role will be set
+                to <strong>Dealer Portal User</strong> automatically.
+              </Text>
+            </Alert>
+          ) : null}
+
           <TextInput
             label="Email Address"
-            placeholder="user@dynamicaqs.com"
+            placeholder={isDealerActorType ? 'dealer@partnercompany.com' : 'user@dynamicaqs.com'}
             value={values.email}
             onChange={(event) => {
               const nextValue = event.currentTarget.value;
@@ -111,9 +157,13 @@ export function UserFormModal({
 
           <Select
             label="Role"
-            data={authRoleCatalog.map((role) => ({ value: role, label: getRoleDisplayName(role) }))}
+            description={isDealerActorType ? 'Dealer portal users are always assigned the Dealer Portal User role.' : undefined}
+            data={authRoleCatalog
+              .filter((role) => isDealerActorType ? role === 'DEALER_PORTAL_USER' : role !== 'DEALER_PORTAL_USER')
+              .map((role) => ({ value: role, label: getRoleDisplayName(role) }))}
             value={values.role}
             onChange={(value) => setValues((current) => ({ ...current, role: (value as AuthRole) || current.role }))}
+            disabled={isDealerActorType}
             required
           />
 
@@ -161,12 +211,14 @@ export function UserFormModal({
 
 function buildInitialValues(user?: AdminUserSummary | null): UserFormValues {
   const [firstName = '', ...rest] = (user?.displayName ?? '').split(/\s+/).filter(Boolean);
+  const derivedActorType: ActorType = user?.actorType === 'dealer' ? 'dealer' : 'internal';
 
   return {
     email: user?.email ?? '',
     firstName: user?.firstName ?? firstName,
     lastName: user?.lastName ?? rest.join(' '),
     role: user?.role ?? 'ADMIN_CSR_OPS',
+    actorType: derivedActorType,
     isActive: user?.isActive ?? true,
     password: '',
   };

@@ -1,10 +1,10 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
 import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
-import { Card, ErrorState, LoadingState, Pill, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { fetchAccountDetail, fetchAccountTrainingHistory } from '@/lib/api';
+import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { createMobileVoiceNote, fetchAccountDetail, fetchAccountTrainingHistory } from '@/lib/api';
 import { formatDate, initials } from '@/lib/format';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -16,6 +16,13 @@ export default function AccountDetailScreen() {
   const [trainingHistory, setTrainingHistory] = useState<AccountTrainingHistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // UX-M-006 — quick visit-log action
+  const [showVisitLog, setShowVisitLog] = useState(false);
+  const [visitNote, setVisitNote] = useState('');
+  const [isLoggingVisit, setIsLoggingVisit] = useState(false);
+  const [visitLogMessage, setVisitLogMessage] = useState<string | null>(null);
+  const [visitLogError, setVisitLogError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth || !id) return;
@@ -37,6 +44,29 @@ export default function AccountDetailScreen() {
       .catch((error) => setErrorMessage(error instanceof Error ? error.message : 'Unable to load account.'))
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, auth, id]);
+
+  async function handleLogVisit() {
+    if (!auth || !id || !visitNote.trim()) return;
+    setIsLoggingVisit(true);
+    setVisitLogError(null);
+    setVisitLogMessage(null);
+    try {
+      await createMobileVoiceNote(apiBaseUrl, auth.tokens.accessToken, {
+        contextType: 'route_visit',
+        accountId: id,
+        title: `Visit: ${account?.displayName ?? 'Account visit'}`,
+        transcriptText: visitNote.trim(),
+        recordedAt: new Date().toISOString(),
+      });
+      setVisitLogMessage('Visit note logged to CRM for office review.');
+      setVisitNote('');
+      setShowVisitLog(false);
+    } catch (error) {
+      setVisitLogError(error instanceof Error ? error.message : 'Could not log visit note.');
+    } finally {
+      setIsLoggingVisit(false);
+    }
+  }
 
   return (
     <>
@@ -71,6 +101,78 @@ export default function AccountDetailScreen() {
                 <Pill label={account.lifecycleStatus} tone={account.lifecycleStatus} />
               </View>
             </Card>
+
+            {/* UX-M-006 — Quick visit-log action */}
+            <SectionTitle title="Visit log" detail="Log a quick note from this visit. The note goes to CRM for office review." />
+
+            {visitLogMessage ? (
+              <Card style={{ borderColor: colors.success, backgroundColor: colors.successSoft }}>
+                <Text selectable style={{ ...typography.callout, color: colors.success }}>
+                  {visitLogMessage}
+                </Text>
+              </Card>
+            ) : null}
+
+            {showVisitLog ? (
+              <Card>
+                <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+                  Account visit note
+                </Text>
+                <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                  Describe the visit interaction, key observations, or next steps. This note syncs to CRM for office review.
+                </Text>
+                <TextInput
+                  value={visitNote}
+                  onChangeText={setVisitNote}
+                  multiline
+                  placeholder="What happened on this visit? Key contacts, observations, follow-ups..."
+                  placeholderTextColor={colors.subtle}
+                  style={{
+                    minHeight: 100,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                    padding: spacing.md,
+                    textAlignVertical: 'top',
+                    color: colors.text,
+                    ...typography.body,
+                  }}
+                />
+                {visitLogError ? (
+                  <Text selectable style={{ ...typography.callout, color: colors.danger }}>
+                    {visitLogError}
+                  </Text>
+                ) : null}
+                <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <SecondaryButton
+                      label="Cancel"
+                      icon={{ name: 'xmark.circle', fallback: 'X' }}
+                      onPress={() => {
+                        setShowVisitLog(false);
+                        setVisitNote('');
+                        setVisitLogError(null);
+                      }}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <PrimaryButton
+                      label={isLoggingVisit ? 'Saving...' : 'Log to CRM'}
+                      disabled={!visitNote.trim() || isLoggingVisit}
+                      icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }}
+                      onPress={() => void handleLogVisit()}
+                    />
+                  </View>
+                </View>
+              </Card>
+            ) : (
+              <SecondaryButton
+                label="Log visit note"
+                icon={{ name: 'pencil.and.list.clipboard', fallback: 'Log' }}
+                onPress={() => setShowVisitLog(true)}
+              />
+            )}
 
             <SectionTitle title="Field ownership" />
             <Card>

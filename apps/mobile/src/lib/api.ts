@@ -1,5 +1,6 @@
 import type { AccountDetail, ListAccountsResponse } from '@pulse/contracts/accounts';
 import type { AuthIdentity, AuthSession, LoginRequest, TokenPair } from '@pulse/contracts/auth';
+import type { CalendarWorkspaceRequest, CalendarWorkspaceResponse } from '@pulse/contracts/calendar';
 import type {
   ConsignmentOperationalQueueRequest,
   ConsignmentOperationalQueueResponse,
@@ -24,8 +25,10 @@ import type {
   ListLeadsResponse,
   ListLeadWorkflowQueueRequest,
   ListLeadWorkflowQueueResponse,
+  LogLeadInitialContactRequest,
   PreviewLeadOcrCaptureRequest,
   PreviewLeadOcrCaptureResponse,
+  TransitionLeadStageRequest,
 } from '@pulse/contracts/leads';
 import type {
   CreateMobileVoiceNoteRequest,
@@ -120,6 +123,29 @@ export async function previewLeadOcrCapture(apiBaseUrl: string, accessToken: str
     accessToken,
     body: input,
   });
+}
+
+export async function transitionLeadStage(apiBaseUrl: string, accessToken: string, leadId: string, input: TransitionLeadStageRequest) {
+  return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${encodeURIComponent(leadId)}/stage-transition`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function logLeadInitialContact(apiBaseUrl: string, accessToken: string, leadId: string, input: LogLeadInitialContactRequest = {}) {
+  return requestJson<LeadDetail>(apiBaseUrl, `/api/v1/leads/${encodeURIComponent(leadId)}/log-initial-contact`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchCalendarWorkspace(apiBaseUrl: string, accessToken: string, query: CalendarWorkspaceRequest) {
+  const searchParams = new URLSearchParams();
+  searchParams.set('startDate', query.startDate);
+  searchParams.set('endDate', query.endDate);
+  return requestJson<CalendarWorkspaceResponse>(apiBaseUrl, `/api/v1/calendar/workspace?${searchParams.toString()}`, { accessToken });
 }
 
 export async function fetchAccounts(apiBaseUrl: string, accessToken: string, query: { search?: string; limit?: number } = {}) {

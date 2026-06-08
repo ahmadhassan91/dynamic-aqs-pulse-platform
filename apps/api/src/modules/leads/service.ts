@@ -469,12 +469,14 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
       code: normalizeCode(query.leadSourceCode),
     };
   }
-  // UX-L-014: affinity group / ownership group / territory filters
+  // UX-L-014: affinity group / ownership group / territory filters.
+  // Group codes are stored UPPER_SNAKE (see normalizeOptionalCode in reference/group-classification),
+  // so the filter must use the same normalization — normalizeCode (lower-case) never matched.
   if (query.affinityGroupCode) {
-    where.affinityGroup = { code: normalizeCode(query.affinityGroupCode) };
+    where.affinityGroup = { code: normalizeGroupCode(query.affinityGroupCode) };
   }
   if (query.ownershipGroupCode) {
-    where.ownershipGroup = { code: normalizeCode(query.ownershipGroupCode) };
+    where.ownershipGroup = { code: normalizeGroupCode(query.ownershipGroupCode) };
   }
   if (query.territoryId) {
     where.territoryId = query.territoryId;
@@ -6119,6 +6121,12 @@ function normalizeOptionalGroupAxisSelection(value: string | undefined, fieldNam
 
 function normalizeCode(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+// Affinity/ownership group codes are persisted UPPER_SNAKE (normalizeOptionalCode in
+// reference/group-classification uppercases). Filters must match that canonical form.
+function normalizeGroupCode(value: string) {
+  return value.trim().replace(/\s+/g, '_').toUpperCase();
 }
 
 function normalizeState(value: string | undefined) {

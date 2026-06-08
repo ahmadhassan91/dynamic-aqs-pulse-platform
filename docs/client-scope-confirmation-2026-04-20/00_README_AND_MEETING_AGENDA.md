@@ -42,12 +42,18 @@ Where a topic still needs confirmation, the PRDs call that out as a decision poi
 
 Consignment is included here as the current working PRD mirror for development traceability. Pulse-owned workflow, audit, document, calendar, role, and dashboard work can proceed now; Acumatica-owned warehouse creation, inventory truth, transfer/receipt posting, PO creation, and financial settlement remain explicitly parked until sandbox access, certified endpoints, and field mappings are available.
 
-The second meeting on **April 22, 2026** will cover the remaining module group:
+### Meeting 2 / Extended Module Group
 
-- Foundation / Auth / Roles / Permissions
-- Accounts / Contacts / Customers
-- CIS / Finance / Onboarding
-- Dealer / Portal-facing follow-through
+The second meeting on **April 22, 2026** covered the remaining module group. Scope-confirmation PRDs for these modules have now been authored (2026-06-07) in the same format, grounded in the current built state with Acumatica/payment/Widen dependencies parked:
+
+| # | Module | File |
+|---|---|---|
+| 6 | Accounts / Customers / Contacts / Multi-Location | `06_ACCOUNTS_CUSTOMERS_PRD.md` |
+| 7 | CIS / Credit / Onboarding | `07_CIS_CREDIT_ONBOARDING_PRD.md` |
+| 8 | Mobile Field App | `08_MOBILE_FIELD_APP_PRD.md` |
+| 9 | Admin / Master Data & Configuration | `09_ADMIN_MASTER_DATA_CONFIG_PRD.md` |
+
+Two modules in this group already had standalone PRDs and are not duplicated here: Dealer Portal (`docs/DEALER_PORTAL_PRD_2026-05-05.md`) and Product Management / Digital Assets (`docs/PRODUCT_MANAGEMENT_END_TO_END_PRD_2026-05-01.md`, `docs/WIDEN_REPLACEMENT_DIGITAL_ASSETS_PRD_2026-05-01.md`).
 
 ---
 

@@ -807,3 +807,31 @@ The consignment PRD is now traceable enough to start implementation planning, wi
 - `Not source-of-truth in Pulse`: warehouse creation, posted inventory, posted orders/invoices/credit memos, financial settlement. These remain Acumatica-owned.
 - `Prototype-only today`: the CRM and mobile consignment screens are mock/Zustand-backed and must be rebuilt against Pulse backend services before they count as production.
 - `Must not be called 100% complete until`: every UAT row above passes against durable backend state, Acumatica source-of-truth boundaries are implemented or stubbed with explicit sync status, and all open decisions in Section I are either closed or parked with signed owner acceptance.
+
+---
+
+## §UX-GAPS — Audit 2026-06-08
+
+Gaps identified during a full platform UX/requirements audit. Organised by sprint priority.
+All items with **Can do now = Yes** have no external dependency.
+
+### Already Delivered (2026-06-08)
+| ID | Item | Commit |
+|----|------|--------|
+| UX-CSG-000a | PENDING alerts surfaced in Next Site Work queue via pendingAlerts in dashboard response | 4060aba |
+
+### Sprint 1 — Quick Wins (S effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-CSG-001 | Reports KPI cards have no drill-through to filtered list (e.g. compliance % → late audits) | ConsignmentWorkspace.tsx | Yes | Open |
+| UX-CSG-002 | CustomerConsignmentIndicator placement needs verification — must be in account hero area not sub-tab (FR-CSG-050) | CustomerDetail.tsx | Yes | Open |
+| UX-CSG-003 | No color-coded cycle-type badge (BLUE/ROSE/PURPLE/SAND) on audit history rows | ConsignmentSiteDetail.tsx | Yes | Open |
+| UX-CSG-004 | No single-click path from site list row to open reconciliation form | ConsignmentWorkspace.tsx | Yes | Open |
+| UX-CSG-005 | No PURPLE adjustment "pending Acumatica confirmation" status badge | ConsignmentSiteDetail.tsx | Yes | Open |
+
+### Sprint 2 — Core Workflow (M effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-CSG-006 | Mailbox work item tab needs entity quick-links (site, audit, PO, form) | ConsignmentSiteDetail.tsx | Yes | Open |
+| UX-CSG-007 | No pre-warehouse onboarding pipeline funnel view | ConsignmentWorkspace.tsx | Yes | Open |
+| UX-CSG-008 | No ConsignmentAlertDeliveryPanel in Admin (mirrors AdminLeadAlertDeliveryPanel) | AdminWorkspace.tsx | Yes | Open |

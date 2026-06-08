@@ -304,3 +304,37 @@ Dynamic AQS approval of this PRD will confirm:
 ### Notes
 
 _To be completed during the review meeting._
+
+---
+
+## §UX-GAPS — Audit 2026-06-08
+
+Gaps identified during a full platform UX/requirements audit. Organised by sprint priority.
+All items with **Can do now = Yes** have no external dependency (no Acumatica, Microsoft Graph, or payment provider required).
+
+### Sprint 1 — Quick Wins (S effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-L-001 | No empty state when territory filter returns zero leads | LeadWorkspace.tsx | Yes | Open |
+| UX-L-002 | Kanban stage columns render blank when empty — no ghost-card prompt | LeadWorkspace.tsx | Yes | Open |
+| UX-L-003 | SLA breach banner missing on lead hero panel when slaState.overdue = true | LeadRecordWorkspace.tsx | Yes | Open |
+| UX-L-004 | No lead lifecycle badge on list rows (active vs parked indistinguishable) | LeadWorkspace.tsx | Yes | Open |
+| UX-L-005 | No "Reassign lead" action with reason field on lead record | LeadRecordWorkspace.tsx | Yes | Open |
+| UX-L-006 | Duplicate resolution missing "Use existing record" path | LeadWorkspace.tsx | Yes | Open |
+| UX-L-007 | leadCaptureMethod not set to card_scan when OCR file was used | LeadWorkspace.tsx | Yes | Open |
+| UX-L-008 | source_brand_tag and private_label_name missing from intake form | LeadWorkspace.tsx | Yes | Open |
+| UX-L-009 | In-app SLA breach notifications not surfaced (no Graph required) | LeadWorkspace.tsx | Yes | Open |
+
+### Sprint 2 — Core Workflow (M effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-L-010 | No freeform activity/note logging on lead record — timeline is read-only | LeadRecordWorkspace.tsx | Yes | Open |
+| UX-L-011 | Backward Kanban stage drag has no reason gate (BR-L-07 governed transitions) | LeadWorkspace.tsx | Yes | Open |
+| UX-L-012 | Insights tab missing time-in-stage, SLA breach trend, pipeline value, territory breakdown | LeadWorkspace.tsx | Yes | Open |
+| UX-L-013 | No pagination on lead list — hard-coded limit: 200 | LeadWorkspace.tsx | Yes | Open |
+| UX-L-014 | No filter by affinity group or ownership group in lead queue | LeadWorkspace.tsx | Yes | Open |
+| UX-L-015 | Website form setup page has no form preview or test-submission button | LeadWebsiteFormsWorkspace.tsx | Yes | Open |
+| UX-L-016 | "Schedule discovery call" action does not wire to CalendarWorkspace | LeadRecordWorkspace.tsx | Yes | Open |
+| UX-L-017 | Referral source has no referral-context fields (referred-by name, relationship) | LeadWorkspace.tsx | Yes | Open |
+
+_To be completed during the review meeting._

@@ -293,3 +293,29 @@ Dynamic AQS approval of this PRD will confirm:
 ### Notes
 
 _To be completed during the review meeting._
+
+---
+
+## §UX-GAPS — Audit 2026-06-08
+
+Gaps identified during a full platform UX/requirements audit. Organised by sprint priority.
+All items with **Can do now = Yes** have no external dependency.
+
+### Sprint 1 — Quick Wins (S effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-T-001 | No confirmation step before certification revocation | TrainingCertificationOpsModal.tsx | Yes | Open |
+| UX-T-002 | Coaching row has no drill-through to account training program | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-003 | No "proof required" badge column on sessions list | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-004 | Recertification queue rendering needs verification and scheduled-renewal CTA | TrainingWorkspace.tsx | Yes | Open |
+
+### Sprint 2 — Core Workflow (M effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-T-005 | No onboarding training program initiation action from account activation | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-006 | No cadence-rule management UI in catalog admin tab | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-007 | No trainer records CRUD UI — fetchTrainingTrainers exists but no UI | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-008 | File upload in execution modal proof step unconfirmed — no FileInput wired | TrainingSessionExecutionModal.tsx | Yes | Open |
+| UX-T-009 | Territory training-penetration table missing from reports tab | TrainingWorkspace.tsx | Yes | Open |
+
+_To be completed during the review meeting._

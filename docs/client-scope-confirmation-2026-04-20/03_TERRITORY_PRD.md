@@ -264,3 +264,28 @@ Dynamic AQS approval of this PRD will confirm:
 
 _To be completed during the review meeting._
 
+---
+
+## §UX-GAPS — Audit 2026-06-08
+
+Gaps identified during a full platform UX/requirements audit. Organised by sprint priority.
+All items with **Can do now = Yes** have no external dependency.
+
+### Sprint 1 — Quick Wins (S effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-TR-001 | Command dashboard next-work items have no drill-through click handler | TerritoryCommandDashboard.tsx | Yes | Open |
+| UX-TR-002 | Assignment history rendering needs verification — may be placeholder only | TerritoryManagement.tsx | Yes | Open |
+| UX-TR-003 | No empty state on filtered territory list | TerritoryManagement.tsx | Yes | Open |
+| UX-TR-004 | No "state-level coverage only" context banner on map | TerritoryCoverageMapPage.tsx | Yes | Open |
+| UX-TR-005 | RD region rows not expandable to territory list | TerritoryCommandDashboard.tsx | Yes | Open |
+| UX-TR-006 | No shipping-center layer on territory map | TerritoryCoverageMapPage.tsx | Yes | Open |
+| UX-TR-007 | Calendar not filterable by territory from within CalendarWorkspace | CalendarWorkspace.tsx | Yes | Open |
+
+### Sprint 2 — Core Workflow (M effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-TR-008 | No bulk account transfer between territories with reason | TerritoryManagement.tsx | Yes | Open |
+| UX-TR-009 | Map pins have no lead/account drill-through | TerritoryCoverageMapPage.tsx | Yes | Open |
+| UX-TR-010 | No named-owner override action with reason field | TerritoryManagement.tsx | Yes | Open |
+

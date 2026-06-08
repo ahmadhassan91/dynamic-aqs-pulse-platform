@@ -240,3 +240,32 @@ Dynamic AQS approval of this PRD will confirm:
 ### Notes
 
 _To be completed during the review meeting._
+
+---
+
+## §UX-GAPS — Audit 2026-06-08
+
+Gaps identified during a full platform UX/requirements audit. Organised by sprint priority.
+All items with **Can do now = Yes** have no external dependency.
+
+### Sprint 1 — Quick Wins (S effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-C-001 | No empty state when date range has no events | CalendarWorkspace.tsx | Yes | Open |
+| UX-C-002 | Scheduler modal missing "this also creates a record in the source workflow" info banner | CalendarSchedulerModal.tsx | Yes | Open |
+| UX-C-003 | No in-app reminder settings on scheduler modal | CalendarSchedulerModal.tsx | Yes | Open |
+| UX-C-004 | Event click drill-through to owning record unverified | CalendarWorkspace.tsx | Yes | Open |
+
+### Sprint 2 — Core Workflow (M effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-C-005 | No territory filter in calendar workspace | CalendarWorkspace.tsx | Yes | Open |
+| UX-C-006 | No account/lead filter in calendar workspace | CalendarWorkspace.tsx | Yes | Open |
+| UX-C-007 | Recurring schedule toggle absent in scheduler modal | CalendarSchedulerModal.tsx | Yes | Open |
+
+### Sprint 3 — New Surfaces (L effort)
+| ID | Requirement | Component | Can do now? | Status |
+|----|-------------|-----------|-------------|--------|
+| UX-C-008 | Day/week/month grid views not implemented — list view only (BR-C-05 requires all four) | CalendarWorkspace.tsx | Yes | Open |
+
+_To be completed during the review meeting._

@@ -18,7 +18,7 @@
     "start": "node dist/index.js",
     "build": "rm -f tsconfig.tsbuildinfo && tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm run build && node --test --experimental-test-coverage --test-concurrency=1 test/*.test.mjs",
+    "test": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm run build && node --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=55 --test-coverage-functions=80 --test-concurrency=1 test/*.test.mjs",
     "test:calendar": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm run build && node --test --test-concurrency=1 test/calendar.regression.test.mjs && node --test --test-concurrency=1 test/calendar.outlook.regression.test.mjs && node --test --test-concurrency=1 test/calendar.admin.regression.test.mjs",
     "test:admin": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm run build && node --test --test-concurrency=1 test/auth.admin.*.test.mjs && node --test --test-concurrency=1 test/auth.password-recovery.regression.test.mjs",
     "test:customers": "pnpm --dir ../.. --filter @pulse/contracts build && pnpm --dir ../.. --filter @pulse/config build && pnpm --dir ../.. --filter @pulse/db build && pnpm run build && node --test --test-concurrency=1 test/accounts.regression.test.mjs",

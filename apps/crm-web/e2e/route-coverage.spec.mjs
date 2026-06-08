@@ -7,7 +7,9 @@ const e2eDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRootDir = path.resolve(e2eDir, '../../..');
 const appDir = path.join(repoRootDir, 'apps', 'crm-web', 'src', 'app');
 const outputDir = path.join(repoRootDir, 'output', 'playwright', 'ux-03-route-coverage');
-const todayIso = '2026-05-31';
+// Dynamic "today" so waiver-expiry checks actually catch stale waivers
+// (previously hard-coded, which let expired waivers pass silently).
+const todayIso = new Date().toISOString().slice(0, 10);
 
 const routeInventory = [
   visual('/admin', 'Admin dashboard default workbench'),

@@ -31,6 +31,7 @@ import {
   Title,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
 import {
   IconArrowRight,
   IconChartBar,
@@ -75,11 +76,12 @@ import {
   fetchTerritories,
   previewLeadDuplicateCandidates,
   previewLeadOcrCapture,
+  reassignLeadTerritory,
   transitionLeadStage,
 } from '@/lib/pulse-api';
 import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
-import { EmptyStateMessage, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
+import { EmptyStateMessage, RowActionMenu, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip } from '@/components/ui/Workbench';
 
 export type LeadWorkspaceTab = 'queue' | 'insights';
 type ViewMode = 'kanban' | 'list';
@@ -102,6 +104,8 @@ type LeadCreateFormState = {
   serviceTechCount: number;
   installTechCount: number;
   notes: string;
+  sourceBrandTag: string;
+  privateLabelName: string;
 };
 
 type StageMeta = {
@@ -137,6 +141,8 @@ const EMPTY_LEAD_FORM: LeadCreateFormState = {
   serviceTechCount: 1,
   installTechCount: 0,
   notes: '',
+  sourceBrandTag: '',
+  privateLabelName: '',
 };
 
 const leadRegionOptions = APP_LEAD_REGION_OPTIONS;
@@ -201,6 +207,11 @@ export function LeadWorkspace({
   const [dropStageKey, setDropStageKey] = useState<LeadStageKey | null>(null);
   const [transitioningLeadId, setTransitioningLeadId] = useState<string | null>(null);
   const dragSuppressUntilRef = useRef(0);
+  const [reassignLeadTarget, setReassignLeadTarget] = useState<LeadSummary | null>(null);
+  const [reassignTerritoryId, setReassignTerritoryId] = useState('');
+  const [reassignReasonCode, setReassignReasonCode] = useState('territory_realignment');
+  const [reassignReasonNote, setReassignReasonNote] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
 
   const deferredSearch = useDeferredValue(searchQuery.trim());
 
@@ -304,6 +315,25 @@ export function LeadWorkspace({
       cancelled = true;
     };
   }, [apiBaseUrl, auth, deferredSearch, leadSourceFilter, refreshNonce, routingTeamFilter, stageFilter, territoryIdFilter]);
+
+  // UX-L-009: in-app SLA breach notification when overdue leads exist in the queue
+  useEffect(() => {
+    if (!leads.length) {
+      return;
+    }
+    const overdueCount = leads.filter(
+      (lead) => lead.initialContactDueAt && new Date(lead.initialContactDueAt).getTime() < Date.now(),
+    ).length;
+    if (overdueCount > 0) {
+      notifications.show({
+        id: 'sla-breach-alert',
+        title: `${overdueCount} lead${overdueCount === 1 ? '' : 's'} past SLA deadline`,
+        message: 'Review the overdue leads and make initial contact as soon as possible.',
+        color: 'red',
+        autoClose: 8000,
+      });
+    }
+  }, [leads]);
 
   const stageCounts = useMemo(
     () =>
@@ -497,6 +527,8 @@ export function LeadWorkspace({
       ...(createLeadForm.leadRating ? { leadRating: createLeadForm.leadRating } : {}),
       ...(createLeadForm.installTechCount > 0 ? { installTechCount: createLeadForm.installTechCount } : {}),
       ...(createLeadForm.notes.trim() ? { notes: createLeadForm.notes.trim() } : {}),
+      ...(createLeadForm.sourceBrandTag.trim() ? { sourceBrandTag: createLeadForm.sourceBrandTag.trim() } : {}),
+      ...(createLeadForm.privateLabelName.trim() ? { privateLabelName: createLeadForm.privateLabelName.trim() } : {}),
     };
   }
 
@@ -766,6 +798,11 @@ export function LeadWorkspace({
     }
   }
 
+  function handleUseExistingLead(leadId: string) {
+    resetCreateLeadModal();
+    router.push(`/leads/${leadId}`);
+  }
+
   function exportVisibleLeads() {
     const rows = leads.map((lead) => ({
       companyName: lead.companyName,
@@ -823,6 +860,27 @@ export function LeadWorkspace({
       setListError(error instanceof Error ? error.message : String(error));
     } finally {
       setTransitioningLeadId(null);
+    }
+  }
+
+  async function handleReassignLead() {
+    if (!auth || !reassignLeadTarget || !reassignTerritoryId) {
+      return;
+    }
+    setIsReassigning(true);
+    try {
+      await reassignLeadTerritory(apiBaseUrl, auth.tokens.accessToken, reassignLeadTarget.id, {
+        territoryId: reassignTerritoryId,
+        reasonCode: reassignReasonCode,
+        ...(reassignReasonNote.trim() ? { reasonNote: reassignReasonNote.trim() } : {}),
+      });
+      setReassignLeadTarget(null);
+      setRefreshNonce((n) => n + 1);
+      notifications.show({ title: 'Lead reassigned', message: 'Territory assignment updated.', color: 'green' });
+    } catch (error) {
+      notifications.show({ title: 'Reassign failed', message: error instanceof Error ? error.message : String(error), color: 'red' });
+    } finally {
+      setIsReassigning(false);
     }
   }
 
@@ -1261,17 +1319,22 @@ export function LeadWorkspace({
                                     {lead.workflowTask.reason}
                                   </Text>
                                 ) : null}
-                                <Button
-                                  component={Link}
-                                  href={`/leads/${lead.id}`}
-                                  variant="light"
-                                  color={leadActionColor(lead)}
-                                  size="xs"
-                                  w="fit-content"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  Open lead
-                                </Button>
+                                <Group gap="xs" wrap="wrap">
+                                  <Button
+                                    component={Link}
+                                    href={`/leads/${lead.id}`}
+                                    variant="light"
+                                    color={leadActionColor(lead)}
+                                    size="xs"
+                                    w="fit-content"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    Open lead
+                                  </Button>
+                                  <Group onClick={(e) => e.stopPropagation()}>
+                                    <RowActionMenu items={[{ id: 'reassign', label: 'Reassign lead', onClick: () => { setReassignLeadTarget(lead); setReassignTerritoryId(lead.territoryId ?? ''); setReassignReasonCode('territory_realignment'); setReassignReasonNote(''); } }]} />
+                                  </Group>
+                                </Group>
                               </Stack>
                             </Table.Td>
                             <Table.Td>
@@ -1372,6 +1435,60 @@ export function LeadWorkspace({
           </Tabs.Panel>
         </Tabs>
       </Stack>
+
+      <Modal
+        opened={reassignLeadTarget !== null}
+        onClose={() => setReassignLeadTarget(null)}
+        title="Reassign Lead Territory"
+        centered
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            {reassignLeadTarget ? `Reassigning territory for ${reassignLeadTarget.companyName}.` : ''}
+          </Text>
+          <Select
+            label="New Territory"
+            placeholder="Select territory..."
+            value={reassignTerritoryId || null}
+            onChange={(value) => setReassignTerritoryId(value ?? '')}
+            data={territories.filter((t) => t.isActive).map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
+            searchable
+            required
+          />
+          <Select
+            label="Reason Code"
+            value={reassignReasonCode}
+            onChange={(value) => setReassignReasonCode(value ?? 'territory_realignment')}
+            data={[
+              { value: 'territory_realignment', label: 'Territory Realignment' },
+              { value: 'tm_change', label: 'TM Change' },
+              { value: 'routing_correction', label: 'Routing Correction' },
+              { value: 'manual_override', label: 'Manual Override' },
+            ]}
+            required
+          />
+          <Textarea
+            label="Reason Note"
+            description="Optional — provide additional context for this reassignment."
+            value={reassignReasonNote}
+            onChange={(event) => setReassignReasonNote(event.currentTarget.value)}
+            minRows={2}
+          />
+          <Group justify="flex-end" gap="xs">
+            <Button variant="default" onClick={() => setReassignLeadTarget(null)} disabled={isReassigning}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleReassignLead()}
+              loading={isReassigning}
+              disabled={!reassignTerritoryId}
+            >
+              Reassign
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal opened={createLeadOpened} onClose={resetCreateLeadModal} title="New Intake" centered size="xl">
         <Stack gap="lg">
@@ -1654,6 +1771,19 @@ export function LeadWorkspace({
                       onChange={(value) => updateCreateLeadDraft((current) => ({ ...current, sourceCampaign: value ?? '' }))}
                       data={leadMarketingSourceOptions}
                     />
+                    {/* UX-L-008: brand fields on intake form */}
+                    <TextInput
+                      label="Source Brand Tag"
+                      description="Brand under which this lead first engaged (e.g. sub-brand or co-brand code)"
+                      value={createLeadForm.sourceBrandTag}
+                      onChange={(event) => updateCreateLeadDraft((c) => ({ ...c, sourceBrandTag: event.currentTarget.value }))}
+                    />
+                    <TextInput
+                      label="Private Label Name"
+                      description="Private label or white-label brand name if applicable"
+                      value={createLeadForm.privateLabelName}
+                      onChange={(event) => updateCreateLeadDraft((c) => ({ ...c, privateLabelName: event.currentTarget.value }))}
+                    />
                     <Select
                       label="Lead rating"
                       placeholder="Select lead rating..."
@@ -1726,6 +1856,10 @@ export function LeadWorkspace({
                         </Group>
                         {candidate.entityType === 'lead' ? (
                           <Group justify="flex-end" mt="sm">
+                            {/* UX-L-006: navigate to existing record instead of creating/enriching */}
+                            <Button size="xs" variant="subtle" color="blue" onClick={() => handleUseExistingLead(candidate.entityId)}>
+                              Open Existing Lead
+                            </Button>
                             <Button
                               size="xs"
                               variant="light"

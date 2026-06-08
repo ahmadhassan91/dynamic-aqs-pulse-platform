@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "lint": "echo \"Contracts lint pending\"",
-    "test": "echo \"Contracts test pending\"",
+    "test": "tsc --noEmit -p tsconfig.json && tsc --noEmit --strict --exactOptionalPropertyTypes --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck test/sprint2-types.test-d.ts",
     "typecheck": "tsc -b tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   }

@@ -12,16 +12,9 @@ import { fetchCalendarWorkspace } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import type { MobileNextAction } from '@/lib/mobile-next-action';
+import { countOverdueRoseSites } from '@/lib/today-metrics';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
-
-// Derive overdue ROSE count: sites whose nextAuditDueAt is in the past
-function countOverdueRoseSites(consignmentSites: { nextAuditDueAt?: string }[], now: Date): number {
-  return consignmentSites.filter((site) => {
-    if (!site.nextAuditDueAt) return false;
-    return new Date(site.nextAuditDueAt).getTime() < now.getTime();
-  }).length;
-}
 
 export default function FieldHomeScreen() {
   const { auth, signOut, apiBaseUrl } = useSession();

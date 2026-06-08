@@ -6,13 +6,9 @@ import { LEAD_STAGES } from '@pulse/contracts/leads';
 import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { fetchLeadDetail, logLeadInitialContact, transitionLeadStage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
+import { MOBILE_ADVANCEABLE_STAGES } from '@/lib/lead-stage-policy';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
-
-// Stages that may be advanced from mobile — excludes final/complex back-office stages
-const MOBILE_ADVANCEABLE_STAGES = LEAD_STAGES.filter(
-  (stage) => !['onboarding_completed', 'customer_active'].includes(stage),
-);
 
 export default function LeadDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

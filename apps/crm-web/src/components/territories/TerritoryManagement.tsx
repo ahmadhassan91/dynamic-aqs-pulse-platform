@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -30,6 +30,8 @@ import {
   IconArrowRight,
   IconCalendar,
   IconChartBar,
+  IconChevronDown,
+  IconChevronRight,
   IconChecklist,
   IconMap,
   IconRefresh,
@@ -1192,9 +1194,8 @@ export function TerritoryManagement({
                           const regionTerritories = territories.filter((t) => t.regionId === region.id);
                           const isExpanded = expandedRegionId === region.id;
                           return (
-                            <>
+                            <Fragment key={region.id}>
                               <Table.Tr
-                                key={region.id}
                                 style={{ cursor: regionTerritories.length > 0 ? 'pointer' : undefined }}
                                 onClick={() => {
                                   if (regionTerritories.length === 0) return;
@@ -1204,7 +1205,7 @@ export function TerritoryManagement({
                                 <Table.Td>
                                   <Group gap="xs" wrap="nowrap">
                                     {regionTerritories.length > 0 ? (
-                                      <Text size="xs" c="blue" fw={700}>{isExpanded ? '▾' : '▸'}</Text>
+                                      isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />
                                     ) : null}
                                     <Stack gap={2}>
                                       <Text fw={700}>{region.name}</Text>
@@ -1241,7 +1242,7 @@ export function TerritoryManagement({
                                   </Table.Td>
                                 </Table.Tr>
                               )) : null}
-                            </>
+                            </Fragment>
                           );
                         })}
                       </Table.Tbody>

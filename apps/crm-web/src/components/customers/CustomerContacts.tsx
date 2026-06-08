@@ -68,6 +68,7 @@ export function CustomerContacts(
     }
     return account.contacts.filter((c) => c.id !== editingContactId && c.isActive && c.isPrimary).length === 0;
   }, [account.contacts, editingContactId]);
+  const wouldRemoveSolePrimary = isSolePrimary && (!form.isPrimary || !form.isActive);
 
   const locationOptions = useMemo(
     () => [
@@ -105,6 +106,14 @@ export function CustomerContacts(
 
   async function handleSave() {
     if (!auth) {
+      return;
+    }
+    if (wouldRemoveSolePrimary) {
+      notifications.show({
+        title: 'Primary contact required',
+        message: 'Designate another active primary contact before removing this one.',
+        color: 'orange',
+      });
       return;
     }
 
@@ -327,10 +336,9 @@ export function CustomerContacts(
             />
           </Group>
           {/* UX-A-005: warn when removing primary designation from the sole primary contact */}
-          {isSolePrimary && !form.isPrimary ? (
+          {wouldRemoveSolePrimary ? (
             <Alert color="orange" variant="light">
-              This is the only primary contact. Saving without a replacement will leave the account with no primary contact.
-              Designate another contact as primary first if a replacement is ready.
+              This is the only active primary contact. Designate another active primary contact before saving this change.
             </Alert>
           ) : null}
           <Group justify="flex-end">
@@ -338,7 +346,7 @@ export function CustomerContacts(
             <Button
               onClick={() => void handleSave()}
               loading={isSaving}
-              disabled={!form.firstName.trim() || !form.lastName.trim()}
+              disabled={!form.firstName.trim() || !form.lastName.trim() || wouldRemoveSolePrimary}
             >
               {editingContactId ? 'Save Contact' : 'Create Contact'}
             </Button>

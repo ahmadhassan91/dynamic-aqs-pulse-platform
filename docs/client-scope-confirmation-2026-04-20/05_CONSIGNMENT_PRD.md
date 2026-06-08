@@ -304,7 +304,7 @@ flowchart TB
 
 **Phase 3 — Active ROSE 90-day cycle**
 
-14. **Pulse scheduler fires** T-14d, T-7d, T-0 alerts to TM + RD (**FR-CSG-012 — not wired today; see 4A.5**).
+14. **Pulse scheduler fires** T-14d, T-7d, T-0 alerts to TM + RD (FR-CSG-012; scanner wired in commit `ae7385a`, delivery dispatcher parked behind Microsoft Graph).
 15. TM opens mobile app and runs the 7-step ROSE flow:
     - Step 1 Review: expected = `lastBaseline + additionsAfterLastAudit - knownPOs`
     - Step 2 Observe: photos of storage conditions
@@ -314,9 +314,9 @@ flowchart TB
     - Step 6 Report: Pulse generates `ConsignmentAudit` + `ConsignmentAuditLine[]` + `ConsignmentAuditEvidence[]`
     - Step 7 Attest: TM digital attestation; customer signature optional unless program variant requires it
 16. Back-office true-up review (Ops/mailbox queue). When confirmed, `trueUpConfirmedAt = NOW`.
-17. **Pulse starts the 5-business-day PO clock**: `poClockStartAt = trueUpConfirmedAt`, `poDueAt = addBusinessDays(trueUpConfirmedAt, 5)`. Alerts fire at clock start, T-3, T-1, OVERDUE (**FR-CSG-030 — not wired today; see 4A.5**).
+17. **Pulse starts the 5-business-day PO clock**: `poClockStartAt = trueUpConfirmedAt`, `poDueAt = addBusinessDays(trueUpConfirmedAt, 5)`. Alerts fire at clock start, T-3, T-1, OVERDUE (FR-CSG-030; scanner wired in commit `ae7385a`).
 18. Branch on outcome:
-    - **PO received in time** → Ops/mailbox marks PO received → **Acumatica posts/links the PO** → Acumatica updates ERP inventory → Pulse stamps the new `baselineEstablishedAt` and schedules `nextAuditDueAt = +90d`. (Today: Pulse closes the work item but does NOT recalculate the baseline — **FR-CSG-031/033 gap**.)
+    - **PO received in time** → Ops/mailbox marks PO received → **Acumatica posts/links the PO** → Acumatica updates ERP inventory → Pulse stamps the new `baselineEstablishedAt` and schedules `nextAuditDueAt = +90d` (FR-CSG-031/033 wired in commit `3fc9e8d`: `markConsignmentPoReceived` recalculates when the audit's last PO-required discrepancy closes).
     - **PO overdue** → Day +5 escalates to TM+RD, Day +10 to Sales Leadership; case stays open until resolved (waived / written off / received late).
 
 **Phase 4 — PURPLE adjustments (event-driven, optional)**
@@ -335,29 +335,34 @@ flowchart TB
 27. **Acumatica posts final settlement** — PO/invoice/credit memo for netted reconciliation, then closes the warehouse.
 28. Pulse stamps `exitedAt = NOW`, `status = closed`. `ConsignmentExit` holds closure evidence.
 
-### 4A.5 Wired-today status (truth as of 2026-06-07)
+### 4A.5 Wired-today status (truth as of 2026-06-08)
 
 This is the honest delta between the architecture above and shipping code. Anything marked `WIRED` has both API service operations and a UI surface; `PARTIAL` has API but no UI or vice versa; `GAP` is in-scope-not-parked and is not yet implemented; `PARKED` waits on Acumatica/payment/Widen access.
 
+Section 4A.7's first build slice (commits `3fc9e8d`, `b1ccbb7`, `f5223ca`, `ae7385a`) closed the four gaps the original audit flagged. The remaining items are all `PARKED` behind Acumatica/payment/Widen access and are not Pulse-owned work.
+
 | Step | Requirement | Status | Evidence / location |
 | --- | --- | --- | --- |
-| 1–5 | Phase 1 enrollment + agreement | `WIRED` | `ConsignmentSiteDetail.tsx` Forms tab supports `agreement` formType (lines 206, 427); `upsertConsignmentDocument` / `updateConsignmentDocument` in `service.ts` |
-| Gate 1 | Signed agreement before warehouse | `WIRED` | `hasSignedAgreement` check in `ConsignmentSiteDetail.tsx:387` |
-| 6–7 | Site create + onboarding checklist | `WIRED` | `createConsignmentSite` in `service.ts:194`; `listConsignmentReadinessItems` at `service.ts:755`; Create Site primary action in `ConsignmentWorkspace.tsx` |
-| 8–10 | Acumatica warehouse create + TR + receipt | `PARKED` | `acumaticaStatus = PARKED` enum default in schema (line 3076); resume requires sandbox + endpoint certification |
-| 11–13 | BLUE form + baseline establishment | `WIRED` | BLUE formType in `ConsignmentSiteDetail.tsx:220, 434`; `baselineEstablishedAt` column in schema |
-| 14 | T-14 / T-7 / T-0 audit alerts | `GAP` (FR-CSG-012) | No `pg-boss` job or alert dispatcher in `apps/api/src/modules/consignment/`; grep for `T-14`/`fourteenDay`/`audit.*alert` returns empty |
+| 1–5 | Phase 1 enrollment + agreement | `WIRED` | `ConsignmentSiteDetail.tsx` Forms tab supports `agreement` formType; `upsertConsignmentDocument` / `updateConsignmentDocument` in `service.ts` |
+| Gate 1 | Signed agreement before warehouse | `WIRED` | `hasSignedAgreement` check in `ConsignmentSiteDetail.tsx` |
+| 6–7 | Site create + onboarding checklist | `WIRED` | `createConsignmentSite`, `listConsignmentReadinessItems` in `service.ts`; Create Site primary action in `ConsignmentWorkspace.tsx` |
+| 8–10 | Acumatica warehouse create + TR + receipt | `PARKED` | `acumaticaStatus = PARKED` default in schema; resume requires sandbox + endpoint certification |
+| 11–13 | BLUE form + baseline establishment | `WIRED` | BLUE formType in `ConsignmentSiteDetail.tsx`; `baselineEstablishedAt` column in schema |
+| 14 | T-14 / T-7 / T-0 audit alerts | `WIRED` (FR-CSG-012, commit `ae7385a`) | Scanner `scanConsignmentOperationalAlerts` in `apps/api/src/modules/consignment/alerts.ts`; queue `CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE`; persists `ConsignmentOperationalAlert` records, dedupe-key idempotent. Delivery dispatcher is the same parked Microsoft Graph dependency as lead alerts |
 | 15 | Mobile 7-step ROSE execution | `WIRED` | `apps/mobile/src/hooks/use-consignment-rose-audit.ts`; `apps/mobile/app/(tabs)/consignment.tsx`; offline-capable via `mobile-draft-queue.ts` |
-| 16 | True-up review | `WIRED` | `confirmConsignmentTrueUp` in `service.ts:779` |
-| 17 | PO clock start + T-3 / T-1 / overdue alerts | `PARTIAL` (FR-CSG-030) | Clock start IS wired (`poDueAt = addBusinessDays(confirmedAt, 5)` at `service.ts:813`); **alerts not dispatched** |
-| 18 PO-yes | Mark PO received | `PARTIAL` (FR-CSG-031/033) | `markConsignmentPoReceived` at `service.ts:597` **closes work item but does NOT recalc `baselineEstablishedAt` or `nextAuditDueAt`** — verifier-confirmed gap |
-| 18 PO-no | +5 / +10 escalations | `GAP` (FR-CSG-032) | No escalation dispatcher wired |
+| 16 | True-up review | `WIRED` | `confirmConsignmentTrueUp` in `service.ts` |
+| 17 | PO clock start + T-3 / T-1 / overdue alerts | `WIRED` (FR-CSG-030, commit `ae7385a`) | Clock start in `service.ts` + scanner produces `PO_CLOCK_START` / `PO_CLOCK_THREE_DAYS_REMAINING` / `PO_CLOCK_ONE_DAY_REMAINING` alerts |
+| 18 PO-yes | Mark PO received | `WIRED` (FR-CSG-031/033, commit `3fc9e8d`) | `markConsignmentPoReceived` now recalculates `baselineEstablishedAt = receivedAt`, schedules `nextAuditDueAt = +90d`, and sets `audit.reconciliationStatus = RESOLVED` when the last PO-required discrepancy for the audit closes |
+| 18 PO-no | +5 / +10 escalations | `WIRED` (FR-CSG-032, commit `ae7385a`) | Scanner produces `PO_OVERDUE_FIVE_DAYS` (TM+RD) and `PO_OVERDUE_TEN_DAYS` (Sales Leadership) alerts |
 | 18 → ERP | Acumatica PO posting + inventory baseline | `PARKED` | Resume on PO/order endpoint certification |
-| 19–22 | PURPLE adjustment flow | `WIRED` (Pulse) / `PARKED` (Acumatica) | `createConsignmentAdjustment` + `applyConsignmentAdjustment` (`service.ts:346, 416`); UI tab in `ConsignmentSiteDetail.tsx:882`; the Acumatica posting half is parked |
-| 23–24 | SAND exit start + joint reconciliation | `WIRED` (Pulse) | `startConsignmentExit` (`service.ts:469`); UI tab at `ConsignmentSiteDetail.tsx:919` |
+| Audit overdue | +7 / +14 escalations | `WIRED` (FR-CSG-013, commit `ae7385a`) | Scanner produces `AUDIT_OVERDUE_SEVEN_DAYS` and `AUDIT_OVERDUE_FOURTEEN_DAYS` alerts |
+| 19–22 | PURPLE adjustment flow | `WIRED` (Pulse) / `PARKED` (Acumatica) | `createConsignmentAdjustment` + `applyConsignmentAdjustment` in `service.ts`; UI tab in `ConsignmentSiteDetail.tsx`; the Acumatica posting half is parked |
+| 23–24 | SAND exit start + joint reconciliation | `WIRED` (Pulse) | `startConsignmentExit` in `service.ts`; UI tab at `ConsignmentSiteDetail.tsx` |
 | 25–27 | Final PO + returns + settlement | `PARKED` | Acumatica finance truth |
-| 28 | Close exit | `WIRED` (Pulse) | `closeConsignmentExit` (`service.ts:538`) |
-| Reports | Section 6 KPIs (10 formulas) | `PARTIAL` | 4 cards wired (`overdueAudits`, `openMailboxWorkItems`, `readyForWarehouseSites`, `activeSites`); 6 missing (audit compliance rate, on-time first BLUE, PO overdue count, mean PO cycle time, inventory value by site, exit reconciliation accuracy) |
+| 28 | Close exit | `WIRED` (Pulse) | `closeConsignmentExit` in `service.ts` |
+| Dashboard | Server-owned `/api/v1/consignment/dashboard` | `WIRED` (commit `b1ccbb7`) | `getConsignmentDashboard` in `apps/api/src/modules/consignment/service.ts`; scoped via `siteScopeWhere`, computes 14 metrics directly from Prisma (no client-side 200-row truncation) |
+| Reports | Section 6 KPIs (10 formulas) | `WIRED` for 5 / `PARKED` for 1 (commits `b1ccbb7` + `f5223ca`) | Five new server-computed KPIs: `auditComplianceRatePct` (FR-CSG-019/021), `onTimeFirstBaselinePct` (FR-CSG-006/007), `overduePoCount` (FR-CSG-030), `meanPoCycleDays` (FR-CSG-029), `exitCompletionRatePct` (FR-CSG-008). Sixth KPI (`inventoryValueBySiteParked`) is correctly parked behind Acumatica inventory truth and surfaces a dashed "Parked" card in the Reports view |
+| Alert delivery | Microsoft Graph sendMail for consignment alerts | `PARKED` | Same provider/credentials dependency as lead alerts; persisted `ConsignmentOperationalAlert` records sit in `PENDING` until Graph is certified |
 
 ### 4A.6 Integration boundary rules — non-negotiable
 
@@ -367,16 +372,25 @@ Three rules keep Pulse and Acumatica from creating double-truth:
 2. **Pulse never posts a PO.** It closes its own work item and stamps `poReceivedAt`, then *requests* Acumatica to post. Until Acumatica confirms, the PO is `pending_acumatica`. Inventory baseline does NOT recalculate until the Acumatica confirmation arrives.
 3. **Every Acumatica-sourced number in Pulse carries `sourceRef + lastSyncedAt + syncStatus`** plus a stale-data warning. Pulse reports on workflow state truthfully; it does **not** report financial truth — it links out to Acumatica for that.
 
-### 4A.7 Highest-leverage build slice to close the gap
+### 4A.7 First build slice — DELIVERED
 
-The single slice that closes the most of the 14-point completion delta the audit found is the **time-pressure engine**:
+The single slice originally identified as closing the audit's 14-point completion delta — the **time-pressure engine + baseline recalc + missing KPIs** — has been delivered across four commits:
 
-- `pg-boss` scheduled jobs for ROSE T-14 / T-7 / T-0 and overdue +7 / +14
-- `pg-boss` scheduled jobs for PO clock start / T-3 / T-1 / overdue +5 / +10
-- Fix `markConsignmentPoReceived` to recalculate `baselineEstablishedAt` and emit `nextAuditDueAt = +90d` after Acumatica confirms (today it only closes the work item)
-- 6 missing KPI cards on the Reports view, sourced from `dashboard.metrics`
+| Commit | Slice | What it closed |
+| --- | --- | --- |
+| `3fc9e8d` | Baseline recalc bug fix | FR-CSG-031 / FR-CSG-033 — `markConsignmentPoReceived` now recalcs `baselineEstablishedAt` + `nextAuditDueAt` when the last PO-required discrepancy for an audit closes |
+| `b1ccbb7` | Server-owned dashboard + 5 KPIs | `/api/v1/consignment/dashboard` endpoint with typed contract; replaces the client-side 200-row sample assembly; adds `auditComplianceRatePct`, `onTimeFirstBaselinePct`, `overduePoCount`, `meanPoCycleDays`, `exitCompletionRatePct` |
+| `f5223ca` | KPI cards in Reports UI | Surfaces the 5 new KPIs as tone-colored cards with FR-CSG mapping in helper text; renders the 6th KPI (inventory value) as an explicit dashed "Parked" card |
+| `ae7385a` | Time-pressure engine scanner | FR-CSG-012 / FR-CSG-013 / FR-CSG-030 / FR-CSG-032 — `ConsignmentOperationalAlert` schema + scheduled pg-boss scanner that materializes alerts for all 10 audit/PO windows, idempotent via `dedupeKey` |
 
-This is Pulse-owned work — no Acumatica dependency, no parked-blocker.
+### 4A.7.1 Next Pulse-owned slices
+
+After this slice, the remaining Pulse-owned work (everything except Acumatica/payment/Widen) is:
+
+1. **In-app alert surface** — pull `ConsignmentOperationalAlert` records with status `PENDING` into the Next Site Work queue and the mobile Today screen, so TMs and RDs see them without needing email delivery. This is the highest-leverage follow-up and does NOT require Microsoft Graph.
+2. **Alert delivery dispatcher** — mirror the lead-alert `DELIVERY_QUEUE` + Microsoft Graph sendMail pattern for consignment alerts when Graph credentials are certified.
+3. **Audit alert recipient roster** — admin-managed roster (TM / RD / Sales Leadership) by site/territory, modeled on `LeadOperationalAlertRecipient`.
+4. **Reports drill-throughs** — clicking a KPI card opens the underlying filtered queue (e.g. "Audit compliance 70%" → list the late audits).
 
 ---
 

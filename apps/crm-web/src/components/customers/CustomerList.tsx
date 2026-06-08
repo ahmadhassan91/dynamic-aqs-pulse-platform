@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Badge, Group, Loader, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
-import { IconSearch } from '@tabler/icons-react';
+import { Alert, Badge, Button, Group, Loader, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
+import { IconChevronLeft, IconChevronRight, IconSearch } from '@tabler/icons-react';
 import type { AccountLifecycleStatusKey, AccountSummary } from '@pulse/contracts';
-import { fetchAccounts } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+import { fetchAccountsPage } from '@/lib/pulse-api-ext-calendar-accounts';
 import {
   EmptyStateMessage,
   WorkbenchAdvancedSection,
@@ -15,6 +15,8 @@ import {
   WorkbenchTable,
 } from '@/components/ui/Workbench';
 
+const PAGE_SIZE = 50;
+
 export function CustomerList() {
   const { auth, apiBaseUrl, isHydrated } = usePulseSession();
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,8 +24,12 @@ export function CustomerList() {
   const [viewMode, setViewMode] = useState<'follow_up' | 'all'>('follow_up');
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [totalAccounts, setTotalAccounts] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Reset to first page when search/filter changes (UX-A-010)
+  const resetPage = () => setCurrentPage(0);
 
   useEffect(() => {
     if (!auth) {
@@ -38,10 +44,11 @@ export function CustomerList() {
         setIsLoading(true);
         setErrorMessage(null);
         try {
-          const response = await fetchAccounts(apiBaseUrl, auth.tokens.accessToken, {
+          const response = await fetchAccountsPage(apiBaseUrl, auth.tokens.accessToken, {
             ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
             ...(lifecycleFilter ? { lifecycleStatus: lifecycleFilter } : {}),
-            limit: 200,
+            limit: PAGE_SIZE,
+            ...(currentPage > 0 ? { offset: currentPage * PAGE_SIZE } : {}),
           });
           if (!cancelled) {
             setAccounts(response.items);
@@ -63,7 +70,7 @@ export function CustomerList() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [apiBaseUrl, auth, lifecycleFilter, searchQuery]);
+  }, [apiBaseUrl, auth, lifecycleFilter, searchQuery, currentPage]);
 
   const attentionAccounts = useMemo(() => accounts.filter(accountNeedsAttention), [accounts]);
   const sourcedFromLeadCount = useMemo(
@@ -122,14 +129,14 @@ export function CustomerList() {
             <TextInput
               label="Search accounts"
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              onChange={(event) => { setSearchQuery(event.currentTarget.value); resetPage(); }}
               placeholder="Search by account name, legal name, or account number"
               leftSection={<IconSearch size={16} />}
             />
             <Select
               label="Lifecycle"
               value={lifecycleFilter}
-              onChange={(value) => setLifecycleFilter((value as AccountLifecycleStatusKey | '') ?? '')}
+              onChange={(value) => { setLifecycleFilter((value as AccountLifecycleStatusKey | '') ?? ''); resetPage(); }}
               data={[
                 { value: '', label: 'All lifecycle states' },
                 { value: 'active', label: 'Active' },
@@ -156,7 +163,13 @@ export function CustomerList() {
       ) : viewMode === 'follow_up' ? (
         <AccountFollowUpQueue accounts={attentionAccounts} totalAttention={attentionAccounts.length} />
       ) : (
-        <AccountDirectoryTable accounts={accounts} total={totalAccounts} />
+        <AccountDirectoryTable
+          accounts={accounts}
+          total={totalAccounts}
+          page={currentPage}
+          pageSize={PAGE_SIZE}
+          onPageChange={setCurrentPage}
+        />
       )}
 
       {viewMode === 'all' ? (
@@ -274,8 +287,22 @@ function AccountFollowUpQueue({
   );
 }
 
-function AccountDirectoryTable({ accounts, total }: { accounts: AccountSummary[]; total: number }) {
-  const isCapped = total > accounts.length;
+function AccountDirectoryTable({
+  accounts,
+  total,
+  page,
+  pageSize,
+  onPageChange,
+}: {
+  accounts: AccountSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasNextPage = page + 1 < totalPages;
+  const hasPrevPage = page > 0;
 
   return (
     <Stack gap="sm">
@@ -284,7 +311,7 @@ function AccountDirectoryTable({ accounts, total }: { accounts: AccountSummary[]
           <Text fw={800}>All accounts</Text>
           <Text size="sm" c="dimmed">Open a profile for contacts, locations, source lead, training, portal, and financial context.</Text>
         </Stack>
-        <Badge variant="light" color="blue">{isCapped ? `${accounts.length} of ${total}` : accounts.length}</Badge>
+        <Badge variant="light" color="blue">{total} total</Badge>
       </Group>
       <WorkbenchTable
         rows={accounts}
@@ -362,11 +389,40 @@ function AccountDirectoryTable({ accounts, total }: { accounts: AccountSummary[]
           },
         ]}
       />
-      {isCapped ? (
-        <Text size="xs" c="dimmed" ta="right">
-          Showing {accounts.length} of {total} accounts — use search or lifecycle filter to narrow.
-        </Text>
-      ) : null}
+      {/* UX-A-010: offset-based pagination controls */}
+      {totalPages > 1 ? (
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed">
+            Page {page + 1} of {totalPages} ({total} accounts)
+          </Text>
+          <Group gap="xs">
+            <Button
+              variant="default"
+              size="xs"
+              leftSection={<IconChevronLeft size={14} />}
+              disabled={!hasPrevPage}
+              onClick={() => onPageChange(page - 1)}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="default"
+              size="xs"
+              rightSection={<IconChevronRight size={14} />}
+              disabled={!hasNextPage}
+              onClick={() => onPageChange(page + 1)}
+            >
+              Next
+            </Button>
+          </Group>
+        </Group>
+      ) : (
+        total > accounts.length ? (
+          <Text size="xs" c="dimmed" ta="right">
+            Showing {accounts.length} of {total} — use search or lifecycle filter to narrow.
+          </Text>
+        ) : null
+      )}
     </Stack>
   );
 }

@@ -10,11 +10,14 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
+  NumberInput,
   Paper,
   Select,
   SimpleGrid,
   Stack,
   Stepper,
+  Switch,
   Table,
   Tabs,
   Text,
@@ -22,7 +25,8 @@ import {
   Textarea,
   Title,
 } from '@mantine/core';
-import { IconCalendarPlus, IconClipboardCheck, IconClockEdit } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { IconCalendarPlus, IconClipboardCheck, IconClockEdit, IconPlaylistAdd, IconUsers } from '@tabler/icons-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -46,6 +50,10 @@ import {
   fetchTrainingSessions,
   fetchTrainingTrainers,
 } from '@/lib/pulse-api';
+import {
+  fetchTerritoryTrainingPenetration,
+  initiateOnboardingTrainingProgram,
+} from '@/lib/pulse-api-ext-training-territory';
 import type {
   CreateTrainingCategoryRequest,
   CreateTrainingTemplateRequest,
@@ -58,6 +66,8 @@ import type {
   ListTrainingSessionStatusKey,
   ResolveTrainingCertificationDecisionRequest,
   RevokeTrainingCertificationRequest,
+  TerritoryTrainingPenetrationResponse,
+  TrainingCadencePolicySummary,
   TrainingCatalogResponse,
   TrainingCoachingWorkloadResponse,
   TrainingOperationalCertificationQueueItem,
@@ -448,6 +458,14 @@ export function TrainingWorkspace() {
   const [coachingWorkload, setCoachingWorkload] = useState<TrainingCoachingWorkloadResponse | null>(null);
   const [complianceReport, setComplianceReport] = useState<ListTrainingComplianceReportResponse | null>(null);
   const [trainers, setTrainers] = useState<TrainingTrainerSummary[]>([]);
+  const [territoryPenetration, setTerritoryPenetration] = useState<TerritoryTrainingPenetrationResponse | null>(null);
+  // UX-T-005: onboarding program initiation modal state
+  const [onboardingAccountId, setOnboardingAccountId] = useState<string | null>(null);
+  const [onboardingAccountName, setOnboardingAccountName] = useState('');
+  const [onboardingTrainingTypeId, setOnboardingTrainingTypeId] = useState('');
+  const [onboardingCadenceDays, setOnboardingCadenceDays] = useState<number | string>(30);
+  const [onboardingNotes, setOnboardingNotes] = useState('');
+  const [isSavingOnboarding, setIsSavingOnboarding] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ListTrainingAccountStatusKey>('all');
   const [sessionStatusFilter, setSessionStatusFilter] = useState<ListTrainingSessionStatusKey>('all');
@@ -497,6 +515,7 @@ export function TrainingWorkspace() {
         nextRecertificationQueue,
         nextCoachingWorkload,
         nextComplianceReport,
+        nextTerritoryPenetration,
       ] = await Promise.all([
         fetchTrainingOverview(apiBaseUrl, accessToken),
         fetchTrainingCatalog(apiBaseUrl, accessToken),
@@ -527,6 +546,7 @@ export function TrainingWorkspace() {
           ...(opsRdFilter ? { ownerRdUserId: opsRdFilter } : {}),
           certificationWindowDays: Number(opsCertificationWindowDays || 45),
         }),
+        fetchTerritoryTrainingPenetration(apiBaseUrl, accessToken).catch(() => null),
       ]);
 
       setOverview(nextOverview);
@@ -538,6 +558,7 @@ export function TrainingWorkspace() {
       setRecertificationQueue(nextRecertificationQueue);
       setCoachingWorkload(nextCoachingWorkload);
       setComplianceReport(nextComplianceReport);
+      setTerritoryPenetration(nextTerritoryPenetration);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -569,6 +590,14 @@ export function TrainingWorkspace() {
     value: entry.id,
     label: entry.name,
   }));
+
+  // UX-T-005: onboarding type options (filter catalog for onboarding family or category)
+  const onboardingTypeOptions = useMemo(
+    () => (catalog?.trainingTypes ?? [])
+      .filter((entry) => entry.categoryCode === 'onboarding' || entry.family === 'program_foundation')
+      .map((entry) => ({ value: entry.id, label: entry.name })),
+    [catalog],
+  );
 
   const certificationTrackSummary = useMemo(
     () => (catalog?.trainingTypes ?? []).filter((entry) => entry.isCertificationTrack),
@@ -658,6 +687,54 @@ export function TrainingWorkspace() {
       setIsSaving(false);
     }
   }, [accessToken, apiBaseUrl, auth, loadWorkspace, revocationCertification]);
+
+  // UX-T-005: initiate onboarding training program
+  const handleInitiateOnboardingProgram = useCallback(async () => {
+    if (!auth || !onboardingAccountId) {
+      return;
+    }
+
+    setIsSavingOnboarding(true);
+    try {
+      await initiateOnboardingTrainingProgram(apiBaseUrl, accessToken, onboardingAccountId, {
+        title: 'Onboarding Training Program',
+        description: 'Structured onboarding program initiated from training workbench.',
+        ...(onboardingTrainingTypeId ? { trainingTypeId: onboardingTrainingTypeId } : {}),
+        cadenceDays: Number(onboardingCadenceDays || 30),
+        isRequired: true,
+        ...(onboardingNotes.trim() ? { notes: onboardingNotes.trim() } : {}),
+      });
+      notifications.show({
+        color: 'green',
+        title: 'Onboarding program started',
+        message: `Onboarding program for ${onboardingAccountName} was created successfully.`,
+      });
+      setOnboardingAccountId(null);
+      setOnboardingAccountName('');
+      setOnboardingTrainingTypeId('');
+      setOnboardingCadenceDays(30);
+      setOnboardingNotes('');
+      await loadWorkspace();
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Failed to start onboarding program',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsSavingOnboarding(false);
+    }
+  }, [
+    accessToken,
+    apiBaseUrl,
+    auth,
+    loadWorkspace,
+    onboardingAccountId,
+    onboardingAccountName,
+    onboardingCadenceDays,
+    onboardingNotes,
+    onboardingTrainingTypeId,
+  ]);
 
   const handleCategoryCreate = async () => {
     if (!auth) {
@@ -957,6 +1034,17 @@ export function TrainingWorkspace() {
                                   onClick: () => router.push(`/customers/${account.accountId}?tab=training-history`),
                                 },
                                 ...(canSchedule ? [{
+                                  id: 'start-onboarding',
+                                  label: 'Start onboarding program',
+                                  icon: <IconPlaylistAdd size={14} />,
+                                  onClick: () => {
+                                    setOnboardingAccountId(account.accountId);
+                                    setOnboardingAccountName(account.accountName);
+                                    setOnboardingTrainingTypeId(onboardingTypeOptions[0]?.value ?? '');
+                                    setOnboardingCadenceDays(30);
+                                    setOnboardingNotes('');
+                                  },
+                                }, {
                                   id: 'schedule-session',
                                   label: 'Schedule session',
                                   icon: <IconCalendarPlus size={14} />,
@@ -1654,6 +1742,84 @@ export function TrainingWorkspace() {
                     </SimpleGrid>
                   </Stack>
                 </Paper>
+
+                {/* UX-T-009: Territory training-penetration table */}
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="md">
+                    <Title order={4}>Territory training penetration</Title>
+                    <Text size="sm" c="dimmed">
+                      Accounts with active programs versus total active accounts per territory. Source: live territory kernel.
+                    </Text>
+                    {territoryPenetration ? (
+                      <>
+                        <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                          <Card withBorder radius="md" p="md">
+                            <Text size="xs" tt="uppercase" fw={700} c="dimmed">Total accounts</Text>
+                            <Text fw={700} size="xl">{territoryPenetration.summary.totalAccounts}</Text>
+                          </Card>
+                          <Card withBorder radius="md" p="md">
+                            <Text size="xs" tt="uppercase" fw={700} c="dimmed">Trained accounts</Text>
+                            <Text fw={700} size="xl">{territoryPenetration.summary.trainedAccounts}</Text>
+                          </Card>
+                          <Card withBorder radius="md" p="md">
+                            <Text size="xs" tt="uppercase" fw={700} c="dimmed">Penetration %</Text>
+                            <Text fw={700} size="xl">{territoryPenetration.summary.penetrationPercent.toFixed(1)}%</Text>
+                          </Card>
+                        </SimpleGrid>
+                        <Table striped highlightOnHover>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>Territory</Table.Th>
+                              <Table.Th>Region</Table.Th>
+                              <Table.Th>Total Accounts</Table.Th>
+                              <Table.Th>Trained</Table.Th>
+                              <Table.Th>Penetration</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {territoryPenetration.territories.length > 0 ? territoryPenetration.territories.map((row) => (
+                              <Table.Tr key={row.territoryId}>
+                                <Table.Td>
+                                  <Stack gap={0}>
+                                    <Text fw={600}>{row.territoryName}</Text>
+                                    <Text size="xs" c="dimmed">{row.territoryCode}</Text>
+                                  </Stack>
+                                </Table.Td>
+                                <Table.Td>{row.regionName}</Table.Td>
+                                <Table.Td>{row.totalAccounts}</Table.Td>
+                                <Table.Td>{row.trainedAccounts}</Table.Td>
+                                <Table.Td>
+                                  <Badge
+                                    color={row.penetrationPercent >= 75 ? 'teal' : row.penetrationPercent >= 40 ? 'orange' : 'red'}
+                                    variant="light"
+                                  >
+                                    {row.penetrationPercent.toFixed(1)}%
+                                  </Badge>
+                                </Table.Td>
+                              </Table.Tr>
+                            )) : (
+                              <Table.Tr>
+                                <Table.Td colSpan={5}>
+                                  <EmptyStateMessage
+                                    kind="no-data"
+                                    title="No territory penetration data yet"
+                                    description="Territory data will appear once accounts are assigned to territories and training programs are started."
+                                  />
+                                </Table.Td>
+                              </Table.Tr>
+                            )}
+                          </Table.Tbody>
+                        </Table>
+                      </>
+                    ) : (
+                      <EmptyStateMessage
+                        kind="no-data"
+                        title="Territory penetration unavailable"
+                        description="Training penetration by territory will appear here once territory data is loaded."
+                      />
+                    )}
+                  </Stack>
+                </Paper>
               </Stack>
             </Tabs.Panel>
 
@@ -1848,10 +2014,208 @@ export function TrainingWorkspace() {
                     </Stepper>
                   </Stack>
                 </Paper>
+
+                {/* UX-T-006: Cadence-rule management — read view from catalog (no backend CRUD endpoint yet; display existing policies) */}
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Stack gap={4}>
+                        <Title order={4}>Cadence rules</Title>
+                        <Text size="sm" c="dimmed">
+                          Training cadence policies per type. Cadence rules are auto-created with each training type and
+                          control the overdue calculation window.
+                        </Text>
+                      </Stack>
+                    </Group>
+                    {(catalog?.cadencePolicies ?? []).length > 0 ? (
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Training Type</Table.Th>
+                            <Table.Th>Cadence (days)</Table.Th>
+                            <Table.Th>Scope</Table.Th>
+                            <Table.Th>Required</Table.Th>
+                            <Table.Th>Active</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {(catalog?.cadencePolicies ?? []).map((policy: TrainingCadencePolicySummary) => (
+                            <Table.Tr key={policy.id}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{policy.trainingTypeCode}</Text>
+                                  {policy.segmentScope ? (
+                                    <Text size="xs" c="dimmed">{policy.segmentScope}</Text>
+                                  ) : null}
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color="blue" variant="light">{policy.cadenceDays} days</Badge>
+                              </Table.Td>
+                              <Table.Td>
+                                {policy.appliesToAllAccounts ? (
+                                  <Badge color="teal" variant="light" size="sm">All accounts</Badge>
+                                ) : (
+                                  <Badge color="orange" variant="light" size="sm">
+                                    {policy.segmentScope ?? 'Custom scope'}
+                                  </Badge>
+                                )}
+                              </Table.Td>
+                              <Table.Td>
+                                <Switch
+                                  checked={policy.isRequired}
+                                  readOnly
+                                  aria-label="Required cadence"
+                                  size="sm"
+                                />
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color={policy.isActive ? 'teal' : 'gray'} variant="light" size="sm">
+                                  {policy.isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    ) : (
+                      <EmptyStateMessage
+                        kind="no-data"
+                        title="No cadence rules configured"
+                        description="Cadence policies are created automatically when training types are saved. Create a training type above to generate the default cadence rule."
+                      />
+                    )}
+                  </Stack>
+                </Paper>
+
+                {/* UX-T-007: Trainer records UI */}
+                <Paper withBorder radius="md" p="lg">
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Stack gap={4}>
+                        <Group gap="xs">
+                          <IconUsers size={18} />
+                          <Title order={4}>Trainer records</Title>
+                        </Group>
+                        <Text size="sm" c="dimmed">
+                          Active CRM users eligible to deliver training sessions. Sourced from user accounts with eligible roles.
+                        </Text>
+                      </Stack>
+                      <Badge color="blue" variant="light">
+                        {trainers.filter((entry) => entry.isActive).length} active
+                      </Badge>
+                    </Group>
+                    {trainers.length > 0 ? (
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Name</Table.Th>
+                            <Table.Th>Role</Table.Th>
+                            <Table.Th>Title</Table.Th>
+                            <Table.Th>Status</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {trainers.map((trainer: TrainingTrainerSummary) => (
+                            <Table.Tr key={trainer.userId}>
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text fw={600}>{trainer.displayName}</Text>
+                                  {trainer.email ? (
+                                    <Text size="xs" c="dimmed">{trainer.email}</Text>
+                                  ) : null}
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color="violet" variant="light" size="sm">
+                                  {trainer.roleCode.replace(/_/g, ' ')}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>{trainer.title ?? '—'}</Table.Td>
+                              <Table.Td>
+                                <Badge color={trainer.isActive ? 'teal' : 'gray'} variant="light" size="sm">
+                                  {trainer.isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    ) : (
+                      <EmptyStateMessage
+                        kind="no-data"
+                        title="No trainers configured"
+                        description="Users with trainer-eligible roles will appear here once their accounts are active in the CRM."
+                      />
+                    )}
+                  </Stack>
+                </Paper>
               </Stack>
             </Tabs.Panel>
           </Tabs>
         </>
+      ) : null}
+
+      {/* UX-T-005: Onboarding program initiation modal */}
+      {canSchedule && onboardingAccountId ? (
+        <Modal
+          opened={Boolean(onboardingAccountId)}
+          onClose={() => {
+            setOnboardingAccountId(null);
+            setOnboardingAccountName('');
+          }}
+          title={`Start Onboarding Program — ${onboardingAccountName}`}
+          centered
+          size="md"
+        >
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              Create a structured onboarding training program for this account. The program will appear in the training workbench and overdue cadence queue.
+            </Text>
+            {onboardingTypeOptions.length > 0 ? (
+              <Select
+                label="Onboarding training type"
+                description="Choose the onboarding type from the catalog."
+                data={onboardingTypeOptions}
+                value={onboardingTrainingTypeId}
+                onChange={(value) => setOnboardingTrainingTypeId(value ?? '')}
+                clearable
+                searchable
+              />
+            ) : (
+              <Alert color="yellow" variant="light">
+                No onboarding training types found in the catalog. Create an onboarding category and type in Catalog Setup first.
+              </Alert>
+            )}
+            <NumberInput
+              label="Cadence (days)"
+              description="How often this program session should recur."
+              min={1}
+              step={7}
+              value={onboardingCadenceDays}
+              onChange={setOnboardingCadenceDays}
+            />
+            <Textarea
+              label="Notes"
+              placeholder="Optional notes for the onboarding program record."
+              minRows={2}
+              value={onboardingNotes}
+              onChange={(event) => setOnboardingNotes(event.currentTarget.value)}
+            />
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setOnboardingAccountId(null)} disabled={isSavingOnboarding}>
+                Cancel
+              </Button>
+              <Button
+                leftSection={<IconPlaylistAdd size={14} />}
+                onClick={() => void handleInitiateOnboardingProgram()}
+                loading={isSavingOnboarding}
+              >
+                Start Onboarding Program
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       ) : null}
 
       {canSchedule && bulkScheduleOpen ? (

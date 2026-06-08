@@ -337,8 +337,8 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-CIS-007 | Scanned CIS upload flow incomplete — no file upload and parsed-field review modal (A-CIS-04) | LeadCisPanel.tsx | Yes | Open |
-| UX-CIS-008 | Finance queue has no inline approve/decline/request-info quick actions (Q-CIS-05) | LeadFinanceQueue.tsx | Yes | Open |
-| UX-CIS-009 | No 9-state badge progression stepper in CIS panel | LeadCisPanel.tsx | Yes | Open |
+| UX-CIS-007 | Scanned CIS upload flow incomplete — no file upload and parsed-field review modal (A-CIS-04) | LeadCisPanel.tsx | Yes | Done |
+| UX-CIS-008 | Finance queue has no inline approve/decline/request-info quick actions (Q-CIS-05) | LeadFinanceQueue.tsx | Yes | Done |
+| UX-CIS-009 | No 9-state badge progression stepper in CIS panel | LeadCisPanel.tsx | Yes | Done |
 
 _To be completed during the review meeting._

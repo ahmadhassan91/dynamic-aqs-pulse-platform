@@ -51,16 +51,18 @@ export function SectionTitle({ title, detail }: { title: string; detail?: string
   );
 }
 
-export function MetricCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
+export function MetricCard({ label, value, detail, badge }: { label: string; value: string; detail?: string; badge?: 'warning' | 'danger' }) {
+  const badgeBg = badge === 'danger' ? colors.dangerSoft : badge === 'warning' ? colors.warningSoft : undefined;
+  const badgeBorder = badge === 'danger' ? colors.danger : badge === 'warning' ? colors.warning : colors.border;
   return (
     <View
       style={{
         flex: 1,
         minWidth: 145,
-        backgroundColor: colors.surface,
+        backgroundColor: badgeBg ?? colors.surface,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: badgeBorder,
         padding: spacing.lg,
         gap: spacing.xs,
         borderCurve: 'continuous',
@@ -70,11 +72,11 @@ export function MetricCard({ label, value, detail }: { label: string; value: str
       <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
         {label}
       </Text>
-      <Text selectable style={{ fontSize: 30, lineHeight: 35, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] }}>
+      <Text selectable style={{ fontSize: 30, lineHeight: 35, fontWeight: '800', color: badge === 'danger' ? colors.danger : badge === 'warning' ? colors.warning : colors.text, fontVariant: ['tabular-nums'] }}>
         {value}
       </Text>
       {detail ? (
-        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+        <Text selectable style={{ ...typography.caption, color: badge ? (badge === 'danger' ? colors.danger : colors.warning) : colors.subtle }}>
           {detail}
         </Text>
       ) : null}

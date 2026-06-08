@@ -285,7 +285,7 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-TR-008 | No bulk account transfer between territories with reason | TerritoryManagement.tsx | Yes | Open |
-| UX-TR-009 | Map pins have no lead/account drill-through | TerritoryCoverageMapPage.tsx | Yes | Open |
-| UX-TR-010 | No named-owner override action with reason field | TerritoryManagement.tsx | Yes | Open |
+| UX-TR-008 | No bulk account transfer between territories with reason | TerritoryManagement.tsx | Yes | Done |
+| UX-TR-009 | Map pins have no lead/account drill-through | TerritoryCoverageMapPage.tsx | Yes | Done |
+| UX-TR-010 | No named-owner override action with reason field | TerritoryManagement.tsx | Yes | Done |
 

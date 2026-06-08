@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Badge, Button, Paper, Select, Stack, Table, Text, Title } from '@mantine/core';
-import type { FinanceQueueItem } from '@pulse/contracts';
+import { Alert, Badge, Button, Group, Modal, Paper, Select, Stack, Table, Text, Textarea, Title } from '@mantine/core';
+import type { CisFinanceDecisionRequest, CisFinanceDecisionStatusKey, FinanceQueueItem } from '@pulse/contracts';
 import { fetchFinanceQueue } from '@/lib/pulse-api';
+import { recordFinanceQueueDecision } from '@/lib/pulse-api-ext-leads-cis';
 import { usePulseSession } from '@/lib/pulse-session';
+import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 
 export function LeadFinanceQueue() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
@@ -13,6 +15,13 @@ export function LeadFinanceQueue() {
   const [items, setItems] = useState<FinanceQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UX-CIS-008: inline quick-action state
+  const [actionTarget, setActionTarget] = useState<FinanceQueueItem | null>(null);
+  const [quickDecision, setQuickDecision] = useState<Exclude<CisFinanceDecisionStatusKey, 'not_submitted' | 'pending'>>('approved');
+  const [quickDecisionNotes, setQuickDecisionNotes] = useState('');
+  const [isRecordingDecision, setIsRecordingDecision] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [decisionSuccess, setDecisionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) {
@@ -51,6 +60,35 @@ export function LeadFinanceQueue() {
       cancelled = true;
     };
   }, [apiBaseUrl, auth, decisionFilter]);
+
+  async function handleQuickDecision() {
+    if (!auth || !actionTarget) {
+      return;
+    }
+    setIsRecordingDecision(true);
+    setDecisionError(null);
+    setDecisionSuccess(null);
+
+    try {
+      const payload: CisFinanceDecisionRequest = {
+        decision: quickDecision,
+        ...(quickDecisionNotes.trim() ? { decisionNotes: quickDecisionNotes.trim() } : {}),
+      };
+      await recordFinanceQueueDecision(apiBaseUrl, auth.tokens.accessToken, actionTarget.cisPackageId, payload);
+      setDecisionSuccess(`Decision recorded: ${formatDecisionLabel(quickDecision)}`);
+      setActionTarget(null);
+      setQuickDecisionNotes('');
+      // Refresh queue
+      const response = await fetchFinanceQueue(apiBaseUrl, auth.tokens.accessToken, {
+        ...(decisionFilter ? { decisionStatus: decisionFilter as never } : {}),
+      });
+      setItems(response.items);
+    } catch (err) {
+      setDecisionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRecordingDecision(false);
+    }
+  }
 
   if (!isHydrated || !auth) {
     return null;
@@ -118,9 +156,55 @@ export function LeadFinanceQueue() {
                   <Table.Td>{item.paymentMethod ?? '—'}</Table.Td>
                   <Table.Td>{item.submittedToFinanceAt ? formatDateTimeLabel(item.submittedToFinanceAt) : '—'}</Table.Td>
                   <Table.Td>
-                    <Button component={Link} href={`/leads/${item.leadId}`} size="xs" variant="light">
-                      Open Lead
-                    </Button>
+                    <Group gap="xs" wrap="nowrap">
+                      {/* UX-CIS-008: inline quick-action buttons */}
+                      {item.financeDecisionStatus === 'pending' || item.financeDecisionStatus === 'info_requested' ? (
+                        <>
+                          <Button
+                            size="xs"
+                            color="green"
+                            variant="light"
+                            onClick={() => {
+                              setActionTarget(item);
+                              setQuickDecision('approved');
+                              setQuickDecisionNotes('');
+                              setDecisionError(null);
+                            }}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="xs"
+                            color="red"
+                            variant="light"
+                            onClick={() => {
+                              setActionTarget(item);
+                              setQuickDecision('declined');
+                              setQuickDecisionNotes('');
+                              setDecisionError(null);
+                            }}
+                          >
+                            Decline
+                          </Button>
+                          <Button
+                            size="xs"
+                            color="orange"
+                            variant="light"
+                            onClick={() => {
+                              setActionTarget(item);
+                              setQuickDecision('info_requested');
+                              setQuickDecisionNotes('');
+                              setDecisionError(null);
+                            }}
+                          >
+                            Request info
+                          </Button>
+                        </>
+                      ) : null}
+                      <Button component={Link} href={`/leads/${item.leadId}`} size="xs" variant="light">
+                        Open Lead
+                      </Button>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -134,6 +218,66 @@ export function LeadFinanceQueue() {
           </Text>
         ) : null}
       </Paper>
+
+      {decisionSuccess ? (
+        <Paper withBorder p="md" radius="xl" className="premium-subhero-panel">
+          <Alert color="teal" icon={<IconCheck size={16} />}>{decisionSuccess}</Alert>
+        </Paper>
+      ) : null}
+
+      {/* UX-CIS-008: quick decision modal */}
+      <Modal
+        opened={actionTarget !== null}
+        onClose={() => { setActionTarget(null); setQuickDecisionNotes(''); setDecisionError(null); }}
+        title={actionTarget ? `Finance Decision — ${actionTarget.companyName}` : ''}
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <Select
+            label="Decision"
+            value={quickDecision}
+            onChange={(value) => {
+              if (value) {
+                setQuickDecision(value as Exclude<CisFinanceDecisionStatusKey, 'not_submitted' | 'pending'>);
+              }
+            }}
+            data={[
+              { value: 'approved', label: 'Approve' },
+              { value: 'conditional', label: 'Approve with conditions' },
+              { value: 'info_requested', label: 'Request more information' },
+              { value: 'declined', label: 'Decline' },
+            ]}
+            disabled={isRecordingDecision}
+          />
+          <Textarea
+            label="Decision notes (optional)"
+            placeholder="Capture approval terms, conditions, or decline reasons."
+            value={quickDecisionNotes}
+            onChange={(event) => setQuickDecisionNotes(event.currentTarget.value)}
+            minRows={3}
+            disabled={isRecordingDecision}
+          />
+          {decisionError ? (
+            <Alert color="red" icon={<IconAlertCircle size={16} />}>{decisionError}</Alert>
+          ) : null}
+          <Group justify="flex-end" gap="xs">
+            <Button
+              variant="default"
+              onClick={() => { setActionTarget(null); setQuickDecisionNotes(''); setDecisionError(null); }}
+              disabled={isRecordingDecision}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => { void handleQuickDecision(); }}
+              loading={isRecordingDecision}
+            >
+              Confirm {formatDecisionLabel(quickDecision)}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
@@ -146,4 +290,14 @@ function formatDateTimeLabel(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function formatDecisionLabel(decision: Exclude<CisFinanceDecisionStatusKey, 'not_submitted' | 'pending'>) {
+  switch (decision) {
+    case 'approved': return 'Approve';
+    case 'conditional': return 'Approve with conditions';
+    case 'info_requested': return 'Request info';
+    case 'declined': return 'Decline';
+    default: return decision;
+  }
 }

@@ -312,10 +312,10 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-T-005 | No onboarding training program initiation action from account activation | TrainingWorkspace.tsx | Yes | Open |
-| UX-T-006 | No cadence-rule management UI in catalog admin tab | TrainingWorkspace.tsx | Yes | Open |
-| UX-T-007 | No trainer records CRUD UI — fetchTrainingTrainers exists but no UI | TrainingWorkspace.tsx | Yes | Open |
-| UX-T-008 | File upload in execution modal proof step unconfirmed — no FileInput wired | TrainingSessionExecutionModal.tsx | Yes | Open |
-| UX-T-009 | Territory training-penetration table missing from reports tab | TrainingWorkspace.tsx | Yes | Open |
+| UX-T-005 | No onboarding training program initiation action from account activation | TrainingWorkspace.tsx | Yes | Done |
+| UX-T-006 | No cadence-rule management UI in catalog admin tab | TrainingWorkspace.tsx | Yes | Done |
+| UX-T-007 | No trainer records CRUD UI — fetchTrainingTrainers exists but no UI | TrainingWorkspace.tsx | Yes | Done |
+| UX-T-008 | File upload in execution modal proof step unconfirmed — no FileInput wired | TrainingSessionExecutionModal.tsx | Yes | Done |
+| UX-T-009 | Territory training-penetration table missing from reports tab | TrainingWorkspace.tsx | Yes | Done |
 
 _To be completed during the review meeting._

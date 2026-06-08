@@ -69,6 +69,7 @@ import {
   updateLead,
   updateLeadLifecycle,
 } from '@/lib/pulse-api';
+import { logLeadActivityNote } from '@/lib/pulse-api-ext-leads-cis';
 import { usePulseSession } from '@/lib/pulse-session';
 import { APP_LEAD_RATINGS, APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
 import { LeadCisPanel } from './LeadCisPanel';
@@ -173,6 +174,12 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
   const [lifecycleReasonCode, setLifecycleReasonCode] = useState<LeadLifecycleReasonCodeKey>('follow_up_later');
   const [lifecycleReasonNote, setLifecycleReasonNote] = useState('');
   const [lifecycleOpened, setLifecycleOpened] = useState(false);
+  // UX-L-010: freeform activity note
+  const [activityNoteText, setActivityNoteText] = useState('');
+  const [activityNoteTitle, setActivityNoteTitle] = useState('');
+  const [isLoggingActivityNote, setIsLoggingActivityNote] = useState(false);
+  const [activityNoteError, setActivityNoteError] = useState<string | null>(null);
+  const [activityNoteSuccess, setActivityNoteSuccess] = useState<string | null>(null);
   const [editOpened, setEditOpened] = useState(false);
   const [isSavingLead, setIsSavingLead] = useState(false);
   const [leadEditForm, setLeadEditForm] = useState<LeadEditFormState>({
@@ -567,6 +574,8 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     try {
       const updated = await scheduleLeadDiscovery(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id, {});
       setLead(updated);
+      // UX-L-016: navigate to existing calendar route after scheduling
+      router.push('/calendar');
     } catch (action) {
       setActionError(action instanceof Error ? action.message : String(action));
     } finally {
@@ -659,6 +668,33 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     );
     setLifecycleReasonNote(status === 'active' ? '' : (currentLead.lifecycleReasonNote ?? ''));
     setLifecycleOpened(true);
+  }
+
+  // UX-L-010: freeform activity note
+  async function handleLogActivityNote() {
+    if (!activityNoteText.trim()) {
+      setActivityNoteError('Note text is required.');
+      return;
+    }
+    setIsLoggingActivityNote(true);
+    setActivityNoteError(null);
+    setActivityNoteSuccess(null);
+    try {
+      await logLeadActivityNote(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id, {
+        note: activityNoteText.trim(),
+        ...(activityNoteTitle.trim() ? { title: activityNoteTitle.trim() } : {}),
+      });
+      setActivityNoteText('');
+      setActivityNoteTitle('');
+      setActivityNoteSuccess('Note saved and added to the activity timeline.');
+      // Reload lead to pick up the new fieldActivity entry
+      const updated = await fetchLeadDetail(apiBaseUrl, currentAuth.tokens.accessToken, currentLead.id);
+      setLead(updated);
+    } catch (err) {
+      setActivityNoteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoggingActivityNote(false);
+    }
   }
 
   async function handleSaveLeadEdits() {
@@ -1741,21 +1777,66 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
         </Tabs.Panel>
 
         <Tabs.Panel value="activity" pt="md">
-          <Card withBorder radius="xl" p="lg" className="premium-detail-card">
-            <Title order={4} mb="xl">Activity Timeline</Title>
-            <Timeline active={Math.max(activityItems.length - 1, 0)} bulletSize={24} lineWidth={2}>
-              {activityItems.map((item) => (
-                <Timeline.Item
-                  key={item.key}
-                  bullet={timelineIcon(item.title)}
-                  title={item.title}
-                >
-                  <Text c="dimmed" size="sm">{item.description}</Text>
-                  <Text size="xs" mt={4}>{formatDateTimeLabel(item.occurredAt)}</Text>
-                </Timeline.Item>
-              ))}
-            </Timeline>
-          </Card>
+          <Stack gap="md">
+            {/* UX-L-010: freeform activity note input */}
+            {canManageLead ? (
+              <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+                <Stack gap="sm">
+                  <Title order={5}>Log Activity Note</Title>
+                  <Text size="xs" c="dimmed">
+                    Add a freeform note or activity record to the lead timeline.
+                  </Text>
+                  {activityNoteSuccess ? (
+                    <Alert color="teal" icon={<IconCheck size={16} />}>{activityNoteSuccess}</Alert>
+                  ) : null}
+                  {activityNoteError ? (
+                    <Alert color="red" icon={<IconAlertCircle size={16} />}>{activityNoteError}</Alert>
+                  ) : null}
+                  <TextInput
+                    label="Title (optional)"
+                    placeholder="e.g. Follow-up call, Internal update"
+                    value={activityNoteTitle}
+                    onChange={(event) => setActivityNoteTitle(event.currentTarget.value)}
+                    disabled={isLoggingActivityNote}
+                  />
+                  <Textarea
+                    label="Note"
+                    placeholder="Describe the activity, context, or outcome..."
+                    value={activityNoteText}
+                    onChange={(event) => setActivityNoteText(event.currentTarget.value)}
+                    minRows={4}
+                    disabled={isLoggingActivityNote}
+                    required
+                  />
+                  <Group justify="flex-end">
+                    <Button
+                      leftSection={<IconActivity size={16} />}
+                      loading={isLoggingActivityNote}
+                      onClick={() => { void handleLogActivityNote(); }}
+                    >
+                      Save note
+                    </Button>
+                  </Group>
+                </Stack>
+              </Card>
+            ) : null}
+
+            <Card withBorder radius="xl" p="lg" className="premium-detail-card">
+              <Title order={4} mb="xl">Activity Timeline</Title>
+              <Timeline active={Math.max(activityItems.length - 1, 0)} bulletSize={24} lineWidth={2}>
+                {activityItems.map((item) => (
+                  <Timeline.Item
+                    key={item.key}
+                    bullet={timelineIcon(item.title)}
+                    title={item.title}
+                  >
+                    <Text c="dimmed" size="sm">{item.description}</Text>
+                    <Text size="xs" mt={4}>{formatDateTimeLabel(item.occurredAt)}</Text>
+                  </Timeline.Item>
+                ))}
+              </Timeline>
+            </Card>
+          </Stack>
         </Tabs.Panel>
       </Tabs>
     </Stack>

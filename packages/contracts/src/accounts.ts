@@ -58,6 +58,15 @@ export interface AccountSummary {
   updatedAt: string;
 }
 
+export const ACCOUNT_LOCATION_TYPES = [
+  'billing',
+  'shipping',
+  'both',
+  'other',
+] as const;
+
+export type AccountLocationTypeKey = (typeof ACCOUNT_LOCATION_TYPES)[number];
+
 export interface AccountLocationSummary {
   id: string;
   locationCode?: string;
@@ -70,6 +79,8 @@ export interface AccountLocationSummary {
   countryCode?: string;
   isPrimary: boolean;
   isActive: boolean;
+  /** UX-A-012: billing vs shipping intent (UI label convention — DB column parked pending Q-A-02 schema decision) */
+  locationType?: AccountLocationTypeKey;
 }
 
 export interface ContactSummary {
@@ -161,6 +172,8 @@ export interface ListAccountPaymentMethodsResponse {
 export interface ListAccountsRequest {
   search?: string;
   limit?: number;
+  /** UX-A-010: offset-based pagination cursor */
+  offset?: number;
   includeInactive?: boolean;
   lifecycleStatus?: AccountLifecycleStatusKey;
 }
@@ -265,6 +278,8 @@ export interface CreateAccountLocationRequest {
   countryCode?: string;
   isPrimary?: boolean;
   isActive?: boolean;
+  /** UX-A-012: billing vs shipping intent label */
+  locationType?: AccountLocationTypeKey;
 }
 
 export interface UpdateAccountLocationRequest {
@@ -278,4 +293,6 @@ export interface UpdateAccountLocationRequest {
   countryCode?: string | null;
   isPrimary?: boolean;
   isActive?: boolean;
+  /** UX-A-012: billing vs shipping intent label */
+  locationType?: AccountLocationTypeKey | null;
 }

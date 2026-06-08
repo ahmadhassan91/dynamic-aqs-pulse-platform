@@ -1,12 +1,18 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import type { LeadDetail } from '@pulse/contracts/leads';
-import { Card, ErrorState, LoadingState, Pill, Screen, SectionTitle } from '@/components/native-kit';
-import { fetchLeadDetail } from '@/lib/api';
+import { LEAD_STAGES } from '@pulse/contracts/leads';
+import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { fetchLeadDetail, logLeadInitialContact, transitionLeadStage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
+
+// Stages that may be advanced from mobile — excludes final/complex back-office stages
+const MOBILE_ADVANCEABLE_STAGES = LEAD_STAGES.filter(
+  (stage) => !['onboarding_completed', 'customer_active'].includes(stage),
+);
 
 export default function LeadDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -14,6 +20,21 @@ export default function LeadDetailScreen() {
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // UX-M-005 — call disposition panel state
+  const [showDisposition, setShowDisposition] = useState(false);
+  const [dispositionNote, setDispositionNote] = useState('');
+  const [isLoggingCall, setIsLoggingCall] = useState(false);
+  const [callLogMessage, setCallLogMessage] = useState<string | null>(null);
+  const [callLogError, setCallLogError] = useState<string | null>(null);
+
+  // UX-M-005 — stage change panel state
+  const [showStageChange, setShowStageChange] = useState(false);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const [stageNote, setStageNote] = useState('');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [stageMessage, setStageMessage] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth || !id) return;
@@ -24,6 +45,48 @@ export default function LeadDetailScreen() {
       .catch((error) => setErrorMessage(error instanceof Error ? error.message : 'Unable to load lead.'))
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, auth, id]);
+
+  async function handleLogCall() {
+    if (!auth || !id) return;
+    setIsLoggingCall(true);
+    setCallLogError(null);
+    setCallLogMessage(null);
+    try {
+      const updated = await logLeadInitialContact(apiBaseUrl, auth.tokens.accessToken, id, {
+        ...(dispositionNote.trim() ? { note: dispositionNote.trim() } : {}),
+      });
+      setLead(updated);
+      setCallLogMessage('Call disposition logged to CRM.');
+      setDispositionNote('');
+      setShowDisposition(false);
+    } catch (error) {
+      setCallLogError(error instanceof Error ? error.message : 'Could not log call disposition.');
+    } finally {
+      setIsLoggingCall(false);
+    }
+  }
+
+  async function handleStageChange() {
+    if (!auth || !id || !selectedStage) return;
+    setIsTransitioning(true);
+    setStageError(null);
+    setStageMessage(null);
+    try {
+      const updated = await transitionLeadStage(apiBaseUrl, auth.tokens.accessToken, id, {
+        toStage: selectedStage as (typeof LEAD_STAGES)[number],
+        ...(stageNote.trim() ? { note: stageNote.trim() } : {}),
+      });
+      setLead(updated);
+      setStageMessage(`Stage updated to "${humanize(selectedStage)}".`);
+      setSelectedStage(null);
+      setStageNote('');
+      setShowStageChange(false);
+    } catch (error) {
+      setStageError(error instanceof Error ? error.message : 'Could not update lead stage.');
+    } finally {
+      setIsTransitioning(false);
+    }
+  }
 
   return (
     <>
@@ -65,6 +128,158 @@ export default function LeadDetailScreen() {
               <Action label="Call" disabled={!lead.phone} onPress={() => void Linking.openURL(`tel:${lead.phone}`)} />
               <Action label="Email" disabled={!lead.email} onPress={() => void Linking.openURL(`mailto:${lead.email}`)} />
             </View>
+
+            {/* UX-M-005 — Field actions */}
+            <SectionTitle title="Field actions" detail="Log a call disposition or advance the lead stage after an on-site interaction." />
+
+            {callLogMessage ? (
+              <Card style={{ borderColor: colors.success, backgroundColor: colors.successSoft }}>
+                <Text selectable style={{ ...typography.callout, color: colors.success }}>
+                  {callLogMessage}
+                </Text>
+              </Card>
+            ) : null}
+            {stageMessage ? (
+              <Card style={{ borderColor: colors.success, backgroundColor: colors.successSoft }}>
+                <Text selectable style={{ ...typography.callout, color: colors.success }}>
+                  {stageMessage}
+                </Text>
+              </Card>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <SecondaryButton
+                  label={showDisposition ? 'Cancel' : 'Log call'}
+                  icon={{ name: 'phone.fill', fallback: 'Ph' }}
+                  onPress={() => {
+                    setShowDisposition((prev) => !prev);
+                    setShowStageChange(false);
+                    setCallLogError(null);
+                  }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <SecondaryButton
+                  label={showStageChange ? 'Cancel' : 'Stage change'}
+                  icon={{ name: 'arrow.right.circle.fill', fallback: 'St' }}
+                  onPress={() => {
+                    setShowStageChange((prev) => !prev);
+                    setShowDisposition(false);
+                    setStageError(null);
+                  }}
+                />
+              </View>
+            </View>
+
+            {showDisposition ? (
+              <Card>
+                <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+                  Log call disposition
+                </Text>
+                <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                  Records the initial contact against this lead in CRM.
+                </Text>
+                <TextInput
+                  value={dispositionNote}
+                  onChangeText={setDispositionNote}
+                  multiline
+                  placeholder="Optional: call outcome or follow-up note..."
+                  placeholderTextColor={colors.subtle}
+                  style={{
+                    minHeight: 80,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                    padding: spacing.md,
+                    textAlignVertical: 'top',
+                    color: colors.text,
+                    ...typography.body,
+                  }}
+                />
+                {callLogError ? (
+                  <Text selectable style={{ ...typography.callout, color: colors.danger }}>
+                    {callLogError}
+                  </Text>
+                ) : null}
+                <PrimaryButton
+                  label={isLoggingCall ? 'Logging...' : 'Log call to CRM'}
+                  disabled={isLoggingCall}
+                  icon={{ name: 'checkmark.circle.fill', fallback: 'OK' }}
+                  onPress={() => void handleLogCall()}
+                />
+              </Card>
+            ) : null}
+
+            {showStageChange ? (
+              <Card>
+                <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+                  Advance stage
+                </Text>
+                <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                  Move this lead to the next stage in CRM. Back-office stage changes (onboarding, customer active) must go through the web app.
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  {MOBILE_ADVANCEABLE_STAGES.filter((stage) => stage !== lead.stage).map((stage) => (
+                    <Pressable
+                      key={stage}
+                      onPress={() => setSelectedStage((prev) => (prev === stage ? null : stage))}
+                      style={({ pressed }) => ({
+                        borderRadius: radius.md,
+                        borderWidth: 1,
+                        borderColor: selectedStage === stage ? colors.primary : colors.border,
+                        backgroundColor: selectedStage === stage ? colors.primarySoft : colors.surface,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <Text
+                        style={{
+                          ...typography.callout,
+                          color: selectedStage === stage ? colors.primary : colors.text,
+                          fontWeight: selectedStage === stage ? '700' : '500',
+                        }}
+                      >
+                        {humanize(stage)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {selectedStage ? (
+                  <TextInput
+                    value={stageNote}
+                    onChangeText={setStageNote}
+                    multiline
+                    placeholder="Optional: reason or follow-up note..."
+                    placeholderTextColor={colors.subtle}
+                    style={{
+                      minHeight: 72,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.surface,
+                      padding: spacing.md,
+                      textAlignVertical: 'top',
+                      color: colors.text,
+                      ...typography.body,
+                    }}
+                  />
+                ) : null}
+                {stageError ? (
+                  <Text selectable style={{ ...typography.callout, color: colors.danger }}>
+                    {stageError}
+                  </Text>
+                ) : null}
+                <PrimaryButton
+                  label={isTransitioning ? 'Updating...' : 'Save stage change'}
+                  disabled={!selectedStage || isTransitioning}
+                  icon={{ name: 'arrow.right.circle.fill', fallback: 'Go' }}
+                  onPress={() => void handleStageChange()}
+                />
+              </Card>
+            ) : null}
 
             <SectionTitle title="Field context" />
             <Card>

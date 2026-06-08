@@ -79,6 +79,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
   assertActionAccess(actor.role, 'customer.view');
 
   const limit = normalizeLimit(query.limit);
+  const offset = normalizeOffset(query.offset);
   const search = query.search?.trim();
   const includeInactive = query.includeInactive ?? false;
   const lifecycleStatus = query.lifecycleStatus ? toAccountLifecycleStatusEnum(query.lifecycleStatus) : undefined;
@@ -107,6 +108,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
         { createdAt: 'asc' },
       ],
       take: limit,
+      skip: offset,
       include: ACCOUNT_SUMMARY_INCLUDE,
     }),
     prisma.account.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
@@ -885,7 +887,9 @@ export async function createAccountLocation(
   }
 
   const locationCode = optionalTrimmed(input.locationCode);
-  const name = optionalTrimmed(input.name);
+  const rawName = optionalTrimmed(input.name);
+  // UX-A-012: embed locationType as name prefix pending Q-A-02 schema decision
+  const name = buildLocationNameWithType(rawName, input.locationType);
   const line1 = optionalTrimmed(input.line1);
   const line2 = optionalTrimmed(input.line2);
   const city = optionalTrimmed(input.city);
@@ -989,8 +993,12 @@ export async function updateAccountLocation(
   if (input.locationCode !== undefined) {
     data.locationCode = normalizeNullableText(input.locationCode);
   }
-  if (input.name !== undefined) {
-    data.name = normalizeNullableText(input.name);
+  if (input.name !== undefined || input.locationType !== undefined) {
+    // UX-A-012: rebuild name with locationType prefix if either changes
+    const existingName = stripLocationTypePrefix(location.name ?? '');
+    const rawName = input.name !== undefined ? normalizeNullableText(input.name) : existingName || null;
+    const locationType = input.locationType !== undefined ? input.locationType : deriveLocationTypeFromName(location.name);
+    data.name = locationType ? buildLocationNameWithType(rawName ?? undefined, locationType) ?? null : rawName;
   }
   if (input.line1 !== undefined) {
     data.line1 = normalizeNullableText(input.line1);
@@ -2107,17 +2115,41 @@ function toAccountLocationSummary(location: {
     isActive: location.isActive,
   };
 
+  // UX-A-012: derive locationType from name prefix convention
+  // e.g. "[billing]", "[shipping]", "[both]" — pending Q-A-02 schema decision for a proper DB column
+  const locationType = deriveLocationTypeFromName(location.name);
+
   return {
     ...summary,
     ...(location.locationCode ? { locationCode: location.locationCode } : {}),
-    ...(location.name ? { name: location.name } : {}),
+    ...(location.name ? { name: stripLocationTypePrefix(location.name) } : {}),
     ...(location.line1 ? { line1: location.line1 } : {}),
     ...(location.line2 ? { line2: location.line2 } : {}),
     ...(location.city ? { city: location.city } : {}),
     ...(location.state ? { state: location.state } : {}),
     ...(location.postalCode ? { postalCode: location.postalCode } : {}),
     ...(location.countryCode ? { countryCode: location.countryCode } : {}),
+    ...(locationType ? { locationType } : {}),
   };
+}
+
+const LOCATION_TYPE_PREFIX_RE = /^\[(billing|shipping|both|other)\]\s*/i;
+
+function deriveLocationTypeFromName(name: string | null): AccountLocationSummary['locationType'] {
+  if (!name) return undefined;
+  const match = LOCATION_TYPE_PREFIX_RE.exec(name);
+  if (!match) return undefined;
+  return match[1]!.toLowerCase() as AccountLocationSummary['locationType'];
+}
+
+function stripLocationTypePrefix(name: string) {
+  return name.replace(LOCATION_TYPE_PREFIX_RE, '');
+}
+
+function buildLocationNameWithType(name: string | undefined, locationType: string | null | undefined): string | undefined {
+  if (!locationType || locationType === 'other') return name;
+  const base = name?.trim() ?? '';
+  return base ? `[${locationType}] ${base}` : `[${locationType}]`;
 }
 
 async function resolveAccountClassificationInput(
@@ -2169,6 +2201,18 @@ function normalizeLimit(limit: number | undefined) {
   }
 
   return Math.min(limit, 100);
+}
+
+function normalizeOffset(offset: number | undefined) {
+  if (offset === undefined || offset === 0) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error('offset must be a non-negative integer');
+  }
+
+  return offset;
 }
 
 function optionalTrimmed(value: string | undefined) {

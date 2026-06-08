@@ -832,6 +832,6 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-CSG-006 | Mailbox work item tab needs entity quick-links (site, audit, PO, form) | ConsignmentSiteDetail.tsx | Yes | Open |
-| UX-CSG-007 | No pre-warehouse onboarding pipeline funnel view | ConsignmentWorkspace.tsx | Yes | Open |
-| UX-CSG-008 | No ConsignmentAlertDeliveryPanel in Admin (mirrors AdminLeadAlertDeliveryPanel) | AdminWorkspace.tsx | Yes | Open |
+| UX-CSG-006 | Mailbox work item tab needs entity quick-links (site, audit, PO, form) | ConsignmentSiteDetail.tsx | Yes | Done |
+| UX-CSG-007 | No pre-warehouse onboarding pipeline funnel view | ConsignmentWorkspace.tsx | Yes | Done |
+| UX-CSG-008 | No ConsignmentAlertDeliveryPanel in Admin (mirrors AdminLeadAlertDeliveryPanel) | AdminWorkspace.tsx | Yes | Done (parked: email delivery endpoint needed; panel shows in-app state only) |

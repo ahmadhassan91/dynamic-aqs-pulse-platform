@@ -8,6 +8,7 @@ import {
   Group,
   Modal,
   Paper,
+  Select,
   SimpleGrid,
   Stack,
   Switch,
@@ -16,10 +17,17 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import type { AccountDetail } from '@pulse/contracts';
+import type { AccountDetail, AccountLocationTypeKey } from '@pulse/contracts';
 import { EmptyStateMessage, RowActionMenu } from '@/components/ui/Workbench';
 import { createAccountLocationRecord, updateAccountLocationRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+
+const LOCATION_TYPE_OPTIONS: Array<{ value: AccountLocationTypeKey; label: string }> = [
+  { value: 'billing', label: 'Billing address' },
+  { value: 'shipping', label: 'Shipping address' },
+  { value: 'both', label: 'Billing & Shipping' },
+  { value: 'other', label: 'Other / General' },
+];
 
 const EMPTY_FORM = {
   locationCode: '',
@@ -32,6 +40,7 @@ const EMPTY_FORM = {
   countryCode: 'US',
   isPrimary: false,
   isActive: true,
+  locationType: 'both' as AccountLocationTypeKey,
 };
 
 type LocationFormState = typeof EMPTY_FORM;
@@ -67,6 +76,7 @@ export function CustomerLocations(
       countryCode: location.countryCode ?? 'US',
       isPrimary: location.isPrimary,
       isActive: location.isActive,
+      locationType: location.locationType ?? 'both',
     });
     setModalOpened(true);
   }
@@ -90,6 +100,7 @@ export function CustomerLocations(
           countryCode: form.countryCode.trim() || null,
           isPrimary: form.isPrimary,
           isActive: form.isActive,
+          locationType: form.locationType,
         });
       } else {
         await createAccountLocationRecord(apiBaseUrl, auth.tokens.accessToken, account.id, {
@@ -103,6 +114,7 @@ export function CustomerLocations(
           ...(form.countryCode.trim() ? { countryCode: form.countryCode.trim() } : {}),
           isPrimary: form.isPrimary,
           isActive: form.isActive,
+          locationType: form.locationType,
         });
       }
 
@@ -180,6 +192,12 @@ export function CustomerLocations(
               <Stack gap="xs" align="flex-end">
                 <Group gap="xs">
                   {location.isPrimary ? <Badge color="blue" variant="light">Primary</Badge> : null}
+                  {/* UX-A-012: billing vs shipping location type */}
+                  {location.locationType ? (
+                    <Badge color={locationTypeColor(location.locationType)} variant="light">
+                      {formatLocationTypeLabel(location.locationType)}
+                    </Badge>
+                  ) : null}
                   <Badge color={location.isActive ? 'green' : 'gray'} variant="outline">
                     {location.isActive ? 'Active' : 'Inactive'}
                   </Badge>
@@ -259,6 +277,15 @@ export function CustomerLocations(
             value={form.countryCode}
             onChange={(event) => setForm((current) => ({ ...current, countryCode: event.currentTarget.value }))}
           />
+          {/* UX-A-012: billing vs shipping intent */}
+          <Select
+            label="Location type"
+            description="Billing vs shipping intent (BR-A-07). Pending Q-A-02 schema decision — stored as name prefix for now."
+            data={LOCATION_TYPE_OPTIONS}
+            value={form.locationType}
+            onChange={(value) => setForm((current) => ({ ...current, locationType: (value as AccountLocationTypeKey | null) ?? 'both' }))}
+            allowDeselect={false}
+          />
           <Group grow>
             <Switch
               checked={form.isPrimary}
@@ -285,4 +312,30 @@ export function CustomerLocations(
       </Modal>
     </Card>
   );
+}
+
+function locationTypeColor(locationType: AccountLocationTypeKey): string {
+  switch (locationType) {
+    case 'billing':
+      return 'grape';
+    case 'shipping':
+      return 'teal';
+    case 'both':
+      return 'blue';
+    default:
+      return 'gray';
+  }
+}
+
+function formatLocationTypeLabel(locationType: AccountLocationTypeKey): string {
+  switch (locationType) {
+    case 'billing':
+      return 'Billing';
+    case 'shipping':
+      return 'Shipping';
+    case 'both':
+      return 'Billing & Shipping';
+    default:
+      return 'Other';
+  }
 }

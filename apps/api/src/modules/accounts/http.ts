@@ -71,6 +71,7 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         const query: ListAccountsRequest = {};
         const search = url.searchParams.get('search')?.trim();
         const limit = parseInteger(url.searchParams.get('limit'));
+        const offset = parseInteger(url.searchParams.get('offset'));
         const includeInactive = parseBoolean(url.searchParams.get('includeInactive'));
         const lifecycleStatus = url.searchParams.get('lifecycleStatus')?.trim();
 
@@ -79,6 +80,9 @@ export async function handleAccountRoutes(req: IncomingMessage, res: ServerRespo
         }
         if (limit !== undefined) {
           query.limit = limit;
+        }
+        if (offset !== undefined) {
+          query.offset = offset;
         }
         if (includeInactive !== undefined) {
           query.includeInactive = includeInactive;

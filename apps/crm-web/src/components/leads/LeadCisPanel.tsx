@@ -6,11 +6,13 @@ import type {
   CisFinanceDecisionRequest,
   CisFinanceDecisionStatusKey,
   CisPackageDetail,
+  CisPackageStatusKey,
   CisParsedDraftRecord,
   CisPaymentMethodKey,
   CisPaymentTermsKey,
   LeadDetail,
 } from '@pulse/contracts';
+import { CIS_PACKAGE_STATUSES } from '@pulse/contracts';
 import {
   Alert,
   Badge,
@@ -19,6 +21,7 @@ import {
   Checkbox,
   CopyButton,
   Divider,
+  FileInput,
   Group,
   Paper,
   Select,
@@ -30,6 +33,7 @@ import {
   Textarea,
   ThemeIcon,
   Title,
+  Tooltip,
 } from '@mantine/core';
 import {
   IconAlertCircle,
@@ -42,6 +46,7 @@ import {
   IconLink,
   IconMail,
   IconSend,
+  IconUpload,
 } from '@tabler/icons-react';
 import {
   applyCisParsedDraft,
@@ -128,6 +133,8 @@ export function LeadCisPanel({
   const [scanSafeFieldPayloadJson, setScanSafeFieldPayloadJson] = useState('{\n  "legalCompanyName": "",\n  "primaryContactName": "",\n  "primaryContactEmail": ""\n}');
   const [scanPaymentFieldsDetected, setScanPaymentFieldsDetected] = useState(false);
   const [isRegisteringScan, setIsRegisteringScan] = useState(false);
+  // UX-CIS-007: file upload for scanned CIS
+  const [scanFile, setScanFile] = useState<File | null>(null);
   const [applyingParsedDraftId, setApplyingParsedDraftId] = useState<string | null>(null);
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [isSigningOff, setIsSigningOff] = useState(false);
@@ -276,6 +283,13 @@ export function LeadCisPanel({
       return;
     }
 
+    // UX-CIS-007: derive file name from uploaded file if present
+    const resolvedFileName = scanFile?.name ?? scanFileName.trim();
+    if (!resolvedFileName) {
+      setActionError('File name is required. Upload a file or enter a file name.');
+      return;
+    }
+
     setIsRegisteringScan(true);
     setActionError(null);
     setActionMessage(null);
@@ -283,7 +297,7 @@ export function LeadCisPanel({
     try {
       const safeFieldPayload = parseOptionalJsonObject(scanSafeFieldPayloadJson, 'Safe field payload');
       const request = {
-        fileName: scanFileName.trim(),
+        fileName: resolvedFileName,
         ...(scanParserVersion.trim() ? { parserVersion: scanParserVersion.trim() } : {}),
         ...(scanRawExtractionText.trim() ? { rawExtractionText: scanRawExtractionText.trim() } : {}),
         ...(safeFieldPayload ? { safeFieldPayload: safeFieldPayload as unknown as NonNullable<Parameters<typeof uploadLeadCisScan>[3]['safeFieldPayload']> } : {}),
@@ -293,6 +307,7 @@ export function LeadCisPanel({
 
       setCisPackage(response.cisPackage);
       await reloadParsedDraftsByPackageId(response.cisPackage.id);
+      setScanFile(null);
       setActionMessage(
         response.parsedDraft.paymentFieldsDetected
           ? 'Scanned CIS parse registered. Payment fields were flagged and kept out of canonical CIS data.'
@@ -485,13 +500,31 @@ export function LeadCisPanel({
           </Alert>
         ) : null}
 
+        {/* UX-CIS-007: file upload input — file name auto-populates from the selected file */}
+        <FileInput
+          label="Upload scanned CIS PDF"
+          placeholder="Click to choose PDF file..."
+          accept=".pdf,application/pdf"
+          value={scanFile}
+          onChange={(file) => {
+            setScanFile(file);
+            if (file) {
+              setScanFileName(file.name);
+            }
+          }}
+          leftSection={<IconUpload size={16} />}
+          disabled={leadLifecycleLocked || isRegisteringScan}
+          clearable
+        />
+
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput
             label="Scan file name"
-            value={scanFileName}
+            value={scanFile?.name ?? scanFileName}
             onChange={(event) => setScanFileName(event.currentTarget.value)}
             placeholder="dealer-cis-scan.pdf"
-            disabled={leadLifecycleLocked || isRegisteringScan}
+            disabled={leadLifecycleLocked || isRegisteringScan || Boolean(scanFile)}
+            description={scanFile ? 'Auto-populated from uploaded file.' : undefined}
           />
           <TextInput
             label="Parser version"
@@ -593,6 +626,10 @@ export function LeadCisPanel({
     </Card>
   ) : null;
 
+  // UX-CIS-009: 9-state badge progression stepper (all statuses except 'not_sent' shown, total 9)
+  const CIS_STEPPER_STATUSES = CIS_PACKAGE_STATUSES.filter((s) => s !== 'not_sent') as readonly CisPackageStatusKey[];
+  const currentStatusIndex = cisPackage ? CIS_STEPPER_STATUSES.indexOf(cisPackage.status) : -1;
+
   return (
     <Paper withBorder radius="xl" p="lg" className="premium-drawer-card">
       <Stack gap="md">
@@ -607,6 +644,33 @@ export function LeadCisPanel({
             {cisPackage ? formatCisStatus(cisPackage.status) : canIssueCis ? 'Ready to send' : 'Discovery gated'}
           </Badge>
         </Group>
+
+        {/* UX-CIS-009: 9-state badge stepper — visible when a package exists */}
+        {cisPackage ? (
+          <Group gap={4} wrap="wrap">
+            {CIS_STEPPER_STATUSES.map((status, index) => {
+              const isPast = index < currentStatusIndex;
+              const isCurrent = index === currentStatusIndex;
+              const isFuture = index > currentStatusIndex;
+              const color = isCurrent
+                ? statusColor(status)
+                : isPast
+                  ? 'teal'
+                  : 'gray';
+              return (
+                <Tooltip key={status} label={formatCisStatus(status)} withArrow>
+                  <Badge
+                    variant={isCurrent ? 'filled' : isPast ? 'light' : 'outline'}
+                    color={color}
+                    style={{ ...(isFuture ? { opacity: 0.45 } : {}) }}
+                  >
+                    {index + 1}. {formatCisStatus(status)}
+                  </Badge>
+                </Tooltip>
+              );
+            })}
+          </Group>
+        ) : null}
 
         {loadError ? (
           <Alert color="red" icon={<IconAlertCircle size={16} />}>

@@ -13,6 +13,8 @@ import {
   LeadRoutingTeam,
   LeadStage,
   GroupClassification,
+  MobileVoiceNoteContextType,
+  MobileVoiceNoteProcessingStatus,
   MobileVoiceNoteReviewStatus,
   TerritoryAssignmentMethod,
   Prisma,
@@ -46,6 +48,8 @@ import type {
   LeadLifecycleReasonCodeKey,
   LeadLifecycleStatusKey,
   LogLeadInitialContactRequest,
+  LogLeadActivityNoteRequest,
+  LogLeadActivityNoteResponse,
   LeadDetail,
   LeadConsignmentEntryTimingKey,
   LeadConsignmentInterestStatusKey,
@@ -465,6 +469,16 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
       code: normalizeCode(query.leadSourceCode),
     };
   }
+  // UX-L-014: affinity group / ownership group / territory filters
+  if (query.affinityGroupCode) {
+    where.affinityGroup = { code: normalizeCode(query.affinityGroupCode) };
+  }
+  if (query.ownershipGroupCode) {
+    where.ownershipGroup = { code: normalizeCode(query.ownershipGroupCode) };
+  }
+  if (query.territoryId) {
+    where.territoryId = query.territoryId;
+  }
   if (search) {
     where.OR = [
       { companyName: { contains: search, mode: Prisma.QueryMode.insensitive } },
@@ -475,6 +489,11 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
       { ownershipGroup: { is: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
     ];
   }
+
+  // UX-L-013: pagination
+  const pageSize = limit;
+  const pageIndex = query.page !== undefined ? Math.max(0, query.page) : 0;
+  const skipCount = pageIndex * pageSize;
 
   const [policy, items, total] = await Promise.all([
     prisma.leadRoutingPolicy.findUnique({
@@ -488,7 +507,8 @@ export async function listLeads(actor: AuthenticatedActor, query: ListLeadsReque
         { updatedAt: 'desc' },
         { createdAt: 'desc' },
       ],
-      take: limit,
+      take: pageSize,
+      skip: skipCount,
       include: LEAD_WORKFLOW_INCLUDE,
     }),
     prisma.lead.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),
@@ -1574,6 +1594,55 @@ export async function logLeadInitialContact(
   });
 
   return (await getLeadDetail(actor, leadId)) as LeadDetail;
+}
+
+// UX-L-010: freeform activity note on lead record
+export async function logLeadActivityNote(
+  actor: AuthenticatedActor,
+  leadId: string,
+  input: LogLeadActivityNoteRequest,
+): Promise<LogLeadActivityNoteResponse> {
+  assertModuleAccess(actor.role, 'leads');
+  assertActionAccess(actor.role, 'lead.intake_manage');
+
+  const noteText = optionalTrimmed(input.note) ?? '';
+  if (!noteText) {
+    throw new Error('Note text is required');
+  }
+
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead) {
+    throw new Error(`Lead not found: ${leadId}`);
+  }
+
+  const title = optionalTrimmed(input.title) ?? 'Activity note';
+  const now = new Date();
+
+  const note = await prisma.mobileVoiceNote.create({
+    data: {
+      leadId,
+      contextType: MobileVoiceNoteContextType.LEAD,
+      title,
+      rawTranscript: noteText,
+      structuredSummary: noteText,
+      processingStatus: MobileVoiceNoteProcessingStatus.STRUCTURED,
+      reviewStatus: MobileVoiceNoteReviewStatus.APPROVED,
+      reviewedAt: now,
+      ...(actor.userId ? { createdByUserId: actor.userId, reviewedByUserId: actor.userId } : {}),
+    },
+    include: {
+      createdBy: true,
+    },
+  });
+
+  return {
+    id: note.id,
+    leadId,
+    note: noteText,
+    title,
+    ...(note.createdBy ? { createdByName: note.createdBy.displayName || note.createdBy.email } : {}),
+    createdAt: note.createdAt.toISOString(),
+  };
 }
 
 export async function scheduleLeadDiscovery(

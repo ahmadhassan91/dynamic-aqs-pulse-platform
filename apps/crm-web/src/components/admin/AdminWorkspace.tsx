@@ -25,7 +25,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconActivity,
-  IconChevronDown,
+  IconDatabase,
   IconDashboard,
   IconDotsVertical,
   IconDownload,
@@ -35,6 +35,7 @@ import {
   IconLink,
   IconPlus,
   IconSearch,
+  IconSettings,
   IconShield,
   IconUsers,
 } from '@tabler/icons-react';
@@ -49,10 +50,14 @@ import type {
   AdminRoleAccessCatalogResponse,
   AdminUserStatus,
   AdminUserSummary,
+  AffinityGroupReferenceSummary,
+  BrandLabelReferenceSummary,
   AuthRole,
   CreateAdminUserRequest,
   ImportAdminUsersResponse,
   ListAdminUsersResponse,
+  OwnershipGroupReferenceSummary,
+  ReferenceValueSummary,
   UpdateAdminUserRequest,
 } from '@pulse/contracts';
 import {
@@ -78,6 +83,20 @@ import {
   updateAdminUser as updateAdminUserRequest,
 } from '@/lib/pulse-api';
 import {
+  fetchAdminAffinityGroups,
+  fetchAdminBrandLabels,
+  fetchAdminConsignmentAlertDeliverySettings,
+  fetchAdminFeatureFlags,
+  fetchAdminLeadSources,
+  fetchAdminOwnershipGroups,
+  fetchAdminRoutingThresholds,
+  fetchAdminSystemSettings,
+  type AdminConsignmentAlertDeliverySettingsResponse,
+  type AdminFeatureFlagSummary,
+  type AdminRoutingThresholdsResponse,
+  type AdminSystemSettingsResponse,
+} from '@/lib/pulse-api-ext-admin-consignment';
+import {
   AUTH_ROLE_CATALOG,
   getRoleDisplayName,
 } from '@/lib/auth-catalog';
@@ -93,13 +112,19 @@ import {
 } from '@/components/ui/Workbench';
 import { AdminCalendarIntegrationPanel } from './AdminCalendarIntegrationPanel';
 import { AdminEntraIntegrationPanel } from './AdminEntraIntegrationPanel';
+import { AdminFeatureFlagsPanel } from './AdminFeatureFlagsPanel';
 import { AdminLeadAlertDeliveryPanel } from './AdminLeadAlertDeliveryPanel';
 import { AdminPaymentIntegrationPanel } from './AdminPaymentIntegrationPanel';
+import { AdminReferenceDataPanel } from './AdminReferenceDataPanel';
+import { AdminRoutingThresholdsPanel } from './AdminRoutingThresholdsPanel';
+import { AdminSystemSettingsPanel } from './AdminSystemSettingsPanel';
+import { ConsignmentAlertDeliveryPanel } from './ConsignmentAlertDeliveryPanel';
 import { UserFormModal } from './UserFormModal';
 import { UserImportModal } from './UserImportModal';
 
-type AdminTab = 'overview' | 'users' | 'roles' | 'activity' | 'integrations';
-type AdminIntegrationProvider = 'entra' | 'calendar' | 'payments' | 'lead-alerts';
+type AdminTab = 'overview' | 'users' | 'roles' | 'activity' | 'integrations' | 'configuration' | 'reference';
+type AdminIntegrationProvider = 'entra' | 'calendar' | 'payments' | 'lead-alerts' | 'consignment-alerts';
+type AdminConfigSection = 'routing' | 'system' | 'flags';
 type AdminRoleAccessSummary = AdminRoleAccessCatalogResponse['roles'][number];
 
 const authRoleCatalog = AUTH_ROLE_CATALOG ?? [];
@@ -109,14 +134,23 @@ const adminIntegrationProviderOptions: Array<{ value: AdminIntegrationProvider; 
   { value: 'calendar', label: 'Outlook calendar' },
   { value: 'payments', label: 'Payment capture boundary' },
   { value: 'lead-alerts', label: 'Lead alerts' },
+  { value: 'consignment-alerts', label: 'Consignment alerts' },
+];
+
+const adminConfigSectionOptions: Array<{ value: AdminConfigSection; label: string }> = [
+  { value: 'routing', label: 'Routing thresholds & SLA timers' },
+  { value: 'system', label: 'System settings' },
+  { value: 'flags', label: 'Feature flags' },
 ];
 
 export function AdminWorkspace({
   initialTab = 'users',
   initialIntegrationProvider = 'entra',
+  initialConfigSection = 'routing',
 }: {
   initialTab?: AdminTab;
   initialIntegrationProvider?: AdminIntegrationProvider;
+  initialConfigSection?: AdminConfigSection;
 }) {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const router = useRouter();
@@ -155,7 +189,29 @@ export function AdminWorkspace({
   const [isExporting, setIsExporting] = useState(false);
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [selectedIntegrationProvider, setSelectedIntegrationProvider] = useState<AdminIntegrationProvider>(initialIntegrationProvider);
+  const [selectedConfigSection, setSelectedConfigSection] = useState<AdminConfigSection>(initialConfigSection);
   const [userMutationError, setUserMutationError] = useState<string | null>(null);
+  // UX-AD-007: Reference data
+  const [affinityGroups, setAffinityGroups] = useState<AffinityGroupReferenceSummary[]>([]);
+  const [ownershipGroups, setOwnershipGroups] = useState<OwnershipGroupReferenceSummary[]>([]);
+  const [brandLabels, setBrandLabels] = useState<BrandLabelReferenceSummary[]>([]);
+  const [leadSources, setLeadSources] = useState<ReferenceValueSummary[]>([]);
+  const [referenceLoading, setReferenceLoading] = useState(false);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  // UX-AD-008: Routing thresholds
+  const [routingThresholds, setRoutingThresholds] = useState<AdminRoutingThresholdsResponse | null>(null);
+  const [routingLoading, setRoutingLoading] = useState(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+  // UX-AD-009: System settings
+  const [systemSettings, setSystemSettings] = useState<AdminSystemSettingsResponse | null>(null);
+  const [systemSettingsLoading, setSystemSettingsLoading] = useState(false);
+  const [systemSettingsError, setSystemSettingsError] = useState<string | null>(null);
+  // UX-AD-010: Feature flags
+  const [featureFlags, setFeatureFlags] = useState<AdminFeatureFlagSummary[]>([]);
+  const [featureFlagsLoading, setFeatureFlagsLoading] = useState(false);
+  const [featureFlagsError, setFeatureFlagsError] = useState<string | null>(null);
+  // UX-CSG-008: Consignment alert delivery settings
+  const [consignmentAlertSettings, setConsignmentAlertSettings] = useState<AdminConsignmentAlertDeliverySettingsResponse | null>(null);
   // UX-AD-001: confirmation state before deactivation
   const [pendingDeactivateUser, setPendingDeactivateUser] = useState<AdminUserSummary | null>(null);
   const role = auth?.identity.role;
@@ -166,13 +222,16 @@ export function AdminWorkspace({
       roles: role ? canPerformAction(role, 'admin.role_view') : false,
       activity: role ? canPerformAction(role, 'admin.audit_view') : false,
       integrations: role ? canPerformAction(role, 'admin.integration_view') : false,
+      configuration: role ? canPerformAction(role, 'admin.integration_manage') : false,
+      reference: role ? canPerformAction(role, 'reference.view') : false,
     }),
     [role],
   );
   const canManageIntegrations = role ? canPerformAction(role, 'admin.integration_manage') : false;
   const canManageBusinessRules = role ? canPerformAction(role, 'product.manage') : false;
+  const canManageReference = role ? canPerformAction(role, 'reference.manage') : false;
   const availableTabs = useMemo(
-    () => (['users', 'roles', 'overview', 'activity', 'integrations'] as const).filter((tab) => tabAccess[tab]),
+    () => (['users', 'roles', 'overview', 'activity', 'integrations', 'configuration', 'reference'] as const).filter((tab) => tabAccess[tab]),
     [tabAccess],
   );
 
@@ -187,6 +246,10 @@ export function AdminWorkspace({
   useEffect(() => {
     setSelectedIntegrationProvider(initialIntegrationProvider);
   }, [initialIntegrationProvider]);
+
+  useEffect(() => {
+    setSelectedConfigSection(initialConfigSection);
+  }, [initialConfigSection]);
 
   useEffect(() => {
     const accessToken = auth?.tokens.accessToken;
@@ -314,12 +377,13 @@ export function AdminWorkspace({
 
     async function loadIntegrations() {
       try {
-        const [statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse] = await Promise.all([
+        const [statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse, consignmentAlertSettingsResponse] = await Promise.all([
           fetchAdminIntegrations(apiBaseUrl, token),
           fetchAdminCalendarIntegrationSettings(apiBaseUrl, token),
           fetchAdminPaymentIntegrationSettings(apiBaseUrl, token),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, token),
           fetchAdminLeadAlertDeliverySettings(apiBaseUrl, token),
+          fetchAdminConsignmentAlertDeliverySettings(apiBaseUrl, token),
         ]);
 
         if (cancelled) {
@@ -331,6 +395,7 @@ export function AdminWorkspace({
         setPaymentIntegrationSettings(paymentSettingsResponse);
         setEntraIntegrationSettings(entraSettingsResponse);
         setLeadAlertDeliverySettings(leadAlertSettingsResponse);
+        setConsignmentAlertSettings(consignmentAlertSettingsResponse);
         setIntegrationsError(null);
       } catch (error) {
         if (!cancelled) {
@@ -349,6 +414,94 @@ export function AdminWorkspace({
       cancelled = true;
     };
   }, [apiBaseUrl, auth, tabAccess.integrations]);
+
+  // UX-AD-007: load reference data when the reference tab is active
+  useEffect(() => {
+    const accessToken = auth?.tokens.accessToken;
+    if (!accessToken || !tabAccess.reference) {
+      return;
+    }
+    const token = accessToken;
+    let cancelled = false;
+    setReferenceLoading(true);
+
+    async function loadReference() {
+      try {
+        const [affinityResponse, ownershipResponse, brandResponse, sourceResponse] = await Promise.all([
+          fetchAdminAffinityGroups(apiBaseUrl, token),
+          fetchAdminOwnershipGroups(apiBaseUrl, token),
+          fetchAdminBrandLabels(apiBaseUrl, token),
+          fetchAdminLeadSources(apiBaseUrl, token),
+        ]);
+        if (!cancelled) {
+          setAffinityGroups(affinityResponse.items);
+          setOwnershipGroups(ownershipResponse.items);
+          setBrandLabels(brandResponse.items);
+          setLeadSources(sourceResponse.items);
+          setReferenceError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setReferenceError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setReferenceLoading(false);
+        }
+      }
+    }
+
+    void loadReference();
+    return () => { cancelled = true; };
+  }, [apiBaseUrl, auth, tabAccess.reference]);
+
+  // UX-AD-008/009/010: load configuration data when the configuration tab is active
+  useEffect(() => {
+    const accessToken = auth?.tokens.accessToken;
+    if (!accessToken || !tabAccess.configuration) {
+      return;
+    }
+    const token = accessToken;
+    let cancelled = false;
+
+    async function loadConfiguration() {
+      setRoutingLoading(true);
+      setSystemSettingsLoading(true);
+      setFeatureFlagsLoading(true);
+
+      try {
+        const [routingResponse, systemResponse, flagsResponse] = await Promise.all([
+          fetchAdminRoutingThresholds(apiBaseUrl, token),
+          fetchAdminSystemSettings(apiBaseUrl, token),
+          fetchAdminFeatureFlags(apiBaseUrl, token),
+        ]);
+        if (!cancelled) {
+          setRoutingThresholds(routingResponse);
+          setSystemSettings(systemResponse);
+          setFeatureFlags(flagsResponse.flags);
+          setRoutingError(null);
+          setSystemSettingsError(null);
+          setFeatureFlagsError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const msg = error instanceof Error ? error.message : String(error);
+          setRoutingError(msg);
+          setSystemSettingsError(msg);
+          setFeatureFlagsError(msg);
+        }
+      } finally {
+        if (!cancelled) {
+          setRoutingLoading(false);
+          setSystemSettingsLoading(false);
+          setFeatureFlagsLoading(false);
+        }
+      }
+    }
+
+    void loadConfiguration();
+    return () => { cancelled = true; };
+  }, [apiBaseUrl, auth, tabAccess.configuration]);
 
   useEffect(() => {
     const accessToken = auth?.tokens.accessToken;
@@ -443,12 +596,14 @@ export function AdminWorkspace({
           fetchAdminPaymentIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminMicrosoftEntraIntegrationSettings(apiBaseUrl, auth.tokens.accessToken),
           fetchAdminLeadAlertDeliverySettings(apiBaseUrl, auth.tokens.accessToken),
-        ]).then(([statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse]) => {
+          fetchAdminConsignmentAlertDeliverySettings(apiBaseUrl, auth.tokens.accessToken),
+        ]).then(([statusResponse, calendarSettingsResponse, paymentSettingsResponse, entraSettingsResponse, leadAlertSettingsResponse, consignmentAlertSettingsResponse]) => {
           setIntegrationStatuses(statusResponse);
           setCalendarIntegrationSettings(calendarSettingsResponse);
           setPaymentIntegrationSettings(paymentSettingsResponse);
           setEntraIntegrationSettings(entraSettingsResponse);
           setLeadAlertDeliverySettings(leadAlertSettingsResponse);
+          setConsignmentAlertSettings(consignmentAlertSettingsResponse);
           setIntegrationsError(null);
         }),
       );
@@ -477,6 +632,7 @@ export function AdminWorkspace({
     firstName: string;
     lastName: string;
     role: AuthRole;
+    actorType: 'internal' | 'dealer';
     isActive: boolean;
     password: string;
   }) {
@@ -499,6 +655,7 @@ export function AdminWorkspace({
         await updateAdminUserRequest(apiBaseUrl, auth.tokens.accessToken, selectedUser.id, updatePayload);
         notifications.show({ color: 'green', message: 'User updated successfully.' });
       } else {
+        // UX-AD-011: include actorType so dealer-portal users can be created
         const createPayload: CreateAdminUserRequest = {
           email: values.email,
           firstName: values.firstName,
@@ -506,6 +663,7 @@ export function AdminWorkspace({
           role: values.role,
           isActive: values.isActive,
           ...(values.password ? { password: values.password } : {}),
+          ...(values.actorType === 'dealer' ? { actorType: 'dealer' as const } : {}),
         };
         const created = await createAdminUserRequest(apiBaseUrl, auth.tokens.accessToken, createPayload);
         notifications.show({
@@ -859,6 +1017,40 @@ export function AdminWorkspace({
     }
   }
 
+  // UX-AD-012: client-side CSV export of already-fetched audit rows
+  async function handleExportAuditCsv() {
+    if (activity.length === 0) {
+      notifications.show({ color: 'yellow', message: 'No audit rows to export. Load the Audit Monitor tab first.' });
+      return;
+    }
+
+    try {
+      const header = ['User', 'Action', 'Entity Type', 'Entity ID', 'Timestamp', 'Summary'].join(',');
+      const rows = activity.map((entry) => [
+        JSON.stringify(entry.actor?.displayName ?? 'System'),
+        JSON.stringify(entry.action),
+        JSON.stringify(entry.entityType),
+        JSON.stringify(entry.entityId ?? ''),
+        new Date(entry.createdAt).toISOString(),
+        JSON.stringify(entry.summary ?? ''),
+      ].join(','));
+
+      const csv = [header, ...rows].join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pulse-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Export failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const currentTabLoading = (
     !isHydrated
     || (activeTab === 'overview' && tabAccess.overview && (overviewLoading || !overview))
@@ -866,6 +1058,8 @@ export function AdminWorkspace({
     || (activeTab === 'roles' && tabAccess.roles && (rolesLoading || !rolesCatalog))
     || (activeTab === 'activity' && tabAccess.activity && activityLoading && activity.length === 0)
     || (activeTab === 'integrations' && tabAccess.integrations && (integrationsLoading || !integrationStatuses || !calendarIntegrationSettings || !paymentIntegrationSettings || !entraIntegrationSettings || !leadAlertDeliverySettings))
+    || (activeTab === 'reference' && tabAccess.reference && referenceLoading && affinityGroups.length === 0 && ownershipGroups.length === 0)
+    || (activeTab === 'configuration' && tabAccess.configuration && routingLoading && !routingThresholds)
   );
 
   const currentTabError = (
@@ -873,6 +1067,8 @@ export function AdminWorkspace({
     : activeTab === 'users' ? userError
     : activeTab === 'roles' ? rolesError
     : activeTab === 'integrations' ? integrationsError
+    : activeTab === 'reference' ? referenceError
+    : activeTab === 'configuration' ? routingError
     : activityError
   );
 
@@ -957,6 +1153,16 @@ export function AdminWorkspace({
             {tabAccess.integrations ? (
               <Tabs.Tab value="integrations" leftSection={<IconLink size={16} />}>
                 Integrations
+              </Tabs.Tab>
+            ) : null}
+            {tabAccess.configuration ? (
+              <Tabs.Tab value="configuration" leftSection={<IconSettings size={16} />}>
+                Configuration
+              </Tabs.Tab>
+            ) : null}
+            {tabAccess.reference ? (
+              <Tabs.Tab value="reference" leftSection={<IconDatabase size={16} />}>
+                Reference Data
               </Tabs.Tab>
             ) : null}
           </Tabs.List>
@@ -1322,9 +1528,21 @@ export function AdminWorkspace({
             <Paper shadow="sm" p="md">
               <Group justify="space-between" mb="md">
                 <Title order={3}>Audit Monitor</Title>
-                <Button component={Link} href="/admin" variant="light" size="xs">
-                  Back to System Setup
-                </Button>
+                <Group gap="sm">
+                  {/* UX-AD-012: CSV export of already-fetched audit rows */}
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconDownload size={14} />}
+                    onClick={() => void handleExportAuditCsv()}
+                    disabled={activity.length === 0}
+                  >
+                    Export CSV
+                  </Button>
+                  <Button component={Link} href="/admin" variant="light" size="xs">
+                    Back to System Setup
+                  </Button>
+                </Group>
               </Group>
 
               <WorkbenchTable<AdminActivityEntry>
@@ -1439,8 +1657,85 @@ export function AdminWorkspace({
                   />
                 </div>
               ) : null}
+              {/* UX-CSG-008: Consignment alert delivery panel */}
+              {selectedIntegrationProvider === 'consignment-alerts' ? (
+                <div data-testid="admin-integration-panel-consignment-alerts">
+                  <ConsignmentAlertDeliveryPanel
+                    settings={consignmentAlertSettings}
+                    statuses={integrationStatuses}
+                  />
+                </div>
+              ) : null}
             </Stack>
           </Tabs.Panel>
+
+          {/* UX-AD-008/009/010: Configuration tab */}
+          {tabAccess.configuration ? (
+            <Tabs.Panel value="configuration" pt="md">
+              <Stack gap="md">
+                <Paper shadow="sm" p="md">
+                  <Group justify="space-between" align="flex-end" gap="md" wrap="wrap">
+                    <Stack gap={4}>
+                      <Title order={3}>Configuration</Title>
+                      <Text size="sm" c="dimmed">
+                        System-wide thresholds, company identity settings, and feature flag toggles.
+                      </Text>
+                    </Stack>
+                    <Select
+                      aria-label="Configuration section"
+                      data={adminConfigSectionOptions}
+                      value={selectedConfigSection}
+                      onChange={(value) => setSelectedConfigSection((value as AdminConfigSection | null) ?? 'routing')}
+                      allowDeselect={false}
+                      w={{ base: '100%', sm: 300 }}
+                    />
+                  </Group>
+                </Paper>
+
+                {selectedConfigSection === 'routing' ? (
+                  <AdminRoutingThresholdsPanel
+                    settings={routingThresholds}
+                    isLoading={routingLoading}
+                    error={routingError}
+                    canManage={canManageIntegrations}
+                  />
+                ) : null}
+
+                {selectedConfigSection === 'system' ? (
+                  <AdminSystemSettingsPanel
+                    settings={systemSettings}
+                    isLoading={systemSettingsLoading}
+                    error={systemSettingsError}
+                    canManage={canManageIntegrations}
+                  />
+                ) : null}
+
+                {selectedConfigSection === 'flags' ? (
+                  <AdminFeatureFlagsPanel
+                    flags={featureFlags}
+                    isLoading={featureFlagsLoading}
+                    error={featureFlagsError}
+                    canManage={canManageIntegrations}
+                  />
+                ) : null}
+              </Stack>
+            </Tabs.Panel>
+          ) : null}
+
+          {/* UX-AD-007: Reference data governance tab */}
+          {tabAccess.reference ? (
+            <Tabs.Panel value="reference" pt="md">
+              <AdminReferenceDataPanel
+                affinityGroups={affinityGroups}
+                ownershipGroups={ownershipGroups}
+                brandLabels={brandLabels}
+                leadSources={leadSources}
+                isLoading={referenceLoading}
+                error={referenceError}
+                canManage={canManageReference}
+              />
+            </Tabs.Panel>
+          ) : null}
         </Tabs>
       </Stack>
 

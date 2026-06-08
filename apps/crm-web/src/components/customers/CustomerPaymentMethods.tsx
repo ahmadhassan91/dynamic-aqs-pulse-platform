@@ -201,14 +201,16 @@ export function CustomerPaymentMethods(
       <Card withBorder radius="md" p="lg">
         <Group justify="space-between" align="flex-start">
           <Stack gap={4}>
-            <Title order={4}>Tokenized payment methods</Title>
+            <Title order={4}>Vault payment references</Title>
             <Text size="sm" c="dimmed">
-              Pulse stores provider references and masked descriptors only. Raw card or bank details stay outside CRM by design.
+              Pulse stores provider-issued vault token references and masked card descriptors only.
+              Raw card or bank details must never be entered here — register the token your payment processor issues instead.
             </Text>
           </Stack>
+          {/* UX-A-013: Register vault reference create form */}
           {canManage ? (
             <Button variant="light" onClick={openCreateModal}>
-              Add Tokenized Method
+              Register Vault Reference
             </Button>
           ) : null}
         </Group>
@@ -227,9 +229,10 @@ export function CustomerPaymentMethods(
       {!isLoading && items.length === 0 ? (
         <Card withBorder radius="md" p="lg">
           <Stack gap="xs">
-            <Text fw={600}>No tokenized payment methods yet</Text>
+            <Text fw={600}>No vault references registered</Text>
             <Text size="sm" c="dimmed">
-              Add a vaulted provider reference once finance has captured or approved the hosted payment token outside of Pulse.
+              Register a vault token reference once your payment provider (eBizCharge, Moneris, etc.) has issued a token for this account.
+              This is a manual reference record only — no payment processing happens inside Pulse.
             </Text>
           </Stack>
         </Card>
@@ -281,10 +284,10 @@ export function CustomerPaymentMethods(
         </Card>
       ))}
 
-      <Modal opened={createOpened} onClose={() => setCreateOpened(false)} title="Add tokenized payment method" centered size="lg">
+      <Modal opened={createOpened} onClose={() => setCreateOpened(false)} title="Register vault payment reference" centered size="lg">
         <Stack gap="md">
           <Alert color="blue" variant="light">
-            Enter provider-issued token references only. Do not paste full card numbers, bank account numbers, or unmasked payment credentials into Pulse.
+            Enter provider-issued vault token references only (e.g. a token returned by eBizCharge or Moneris after card capture). Do not paste raw card numbers, CVVs, bank account numbers, or unmasked payment credentials into Pulse — this is a reference record only, not live payment processing.
           </Alert>
           <Select
             label="Provider"
@@ -362,7 +365,7 @@ export function CustomerPaymentMethods(
               Cancel
             </Button>
             <Button loading={isSaving} onClick={() => void handleCreate()}>
-              Save Tokenized Method
+              Register Vault Reference
             </Button>
           </Group>
         </Stack>

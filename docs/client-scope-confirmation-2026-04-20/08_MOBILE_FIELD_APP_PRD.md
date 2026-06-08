@@ -349,14 +349,14 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-M-004 | No day-agenda/calendar strip on mobile Today home | Mobile app | Yes | Open |
-| UX-M-005 | Mobile lead detail is read-only — no call disposition or stage change | Mobile app | Yes | Open |
-| UX-M-006 | No lightweight account-visit log action on mobile account detail | Mobile app | Yes | Open |
-| UX-M-007 | In-app overdue ROSE audit and SLA breach badge in Today home metric strip (no push provider needed) | Mobile app | Yes | Open |
+| UX-M-004 | No day-agenda/calendar strip on mobile Today home | Mobile app | Yes | Done |
+| UX-M-005 | Mobile lead detail is read-only — no call disposition or stage change | Mobile app | Yes | Done |
+| UX-M-006 | No lightweight account-visit log action on mobile account detail | Mobile app | Yes | Done |
+| UX-M-007 | In-app overdue ROSE audit and SLA breach badge in Today home metric strip (no push provider needed) | Mobile app | Yes | Done |
 
 ### Sprint 3 — New Surfaces (L effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-M-008 | Business-card OCR commit path — create lead from mobile via web-side intake pre-fill (Q-M-01) | Mobile app | Yes | Open |
+| UX-M-008 | Business-card OCR commit path — create lead from mobile via web-side intake pre-fill (Q-M-01) | Mobile app | Yes | Open (parked: the "create lead" commit endpoint POST /api/v1/leads belongs to the leads backend module owned by another agent; mobile share/preview path is already complete in ocr-capture.tsx; full commit path requires a new leads-module endpoint or a governed Q-M-01 decision from Dynamic AQS) |
 
 _To be completed during the review meeting._

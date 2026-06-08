@@ -507,10 +507,41 @@ export interface ConsignmentDashboardWorkQueueEntry {
   lastContactAt?: string;
 }
 
+// Alert type string union — mirrors the ConsignmentOperationalAlertType DB enum
+// so the workspace can pattern-match without importing the Prisma enum directly.
+export type ConsignmentOperationalAlertTypeKey =
+  | 'AUDIT_DUE_FOURTEEN_DAYS'
+  | 'AUDIT_DUE_SEVEN_DAYS'
+  | 'AUDIT_DUE_TODAY'
+  | 'AUDIT_OVERDUE_SEVEN_DAYS'
+  | 'AUDIT_OVERDUE_FOURTEEN_DAYS'
+  | 'PO_CLOCK_START'
+  | 'PO_CLOCK_THREE_DAYS_REMAINING'
+  | 'PO_CLOCK_ONE_DAY_REMAINING'
+  | 'PO_OVERDUE_FIVE_DAYS'
+  | 'PO_OVERDUE_TEN_DAYS';
+
+// Minimal alert record included in the dashboard response so the workspace can
+// surface timed-pressure rows in the Next Site Work queue without a second call.
+// Only PENDING alerts are included; DELIVERED / ACKNOWLEDGED / DISMISSED are
+// excluded so the queue stays actionable.
+export interface ConsignmentPendingAlertEntry {
+  id: string;
+  siteId: string;
+  alertType: ConsignmentOperationalAlertTypeKey;
+  triggeredAt: string;
+  auditId?: string;
+  discrepancyId?: string;
+}
+
 export interface ConsignmentDashboardResponse {
   metrics: ConsignmentDashboardMetrics;
   onboardingPipeline: ConsignmentDashboardOnboardingPipelineEntry[];
   auditDueBuckets: ConsignmentDashboardAuditDueBucket[];
   workQueue: ConsignmentDashboardWorkQueueEntry[];
+  // PENDING operational alerts scoped to the actor's sites. The workspace feeds
+  // these into buildNextSiteWorkRows so PO-clock pressure and specific overdue
+  // labels surface in the ranked queue without additional network calls.
+  pendingAlerts: ConsignmentPendingAlertEntry[];
   generatedAt: string;
 }

@@ -1257,6 +1257,104 @@ test('HTTP includeExited query returns exited consignment sites', SERIAL, async 
   });
 });
 
+// §4A.7.1 item 1: PENDING alerts must surface in the dashboard pendingAlerts
+// array so the workspace can inject them into the Next Site Work queue.
+// Covers: (a) alerts present after scanner run, (b) correct contract shape,
+// (c) actor scoping excludes exited-site alerts.
+test('dashboard pendingAlerts surfaces PENDING operational alerts scoped to actor', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('pending-alerts-surface');
+  const { prisma: prismaModule } = await import('@pulse/db');
+  const { scanConsignmentOperationalAlerts } = await import('../dist/modules/consignment/alerts.js');
+
+  // Empty state: pendingAlerts array present even before any alerts exist.
+  const empty = await service.getConsignmentDashboard(actor);
+  assert.ok(Array.isArray(empty.pendingAlerts), 'pendingAlerts must be an array');
+  assert.equal(empty.pendingAlerts.length, 0, 'no alerts before scan');
+
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Alert surface site',
+  });
+  await prismaModule.consignmentSite.update({
+    where: { id: site.id },
+    data: { status: 'ACTIVE' },
+  });
+
+  const now = new Date();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  // Audit overdue +7: scanner will create AUDIT_OVERDUE_SEVEN_DAYS.
+  const overdueAudit = await prismaModule.consignmentAudit.create({
+    data: {
+      siteId: site.id,
+      scheduledFor: new Date(now.getTime() - 8 * DAY),
+      status: 'SCHEDULED',
+    },
+  });
+
+  // PO overdue +5: scanner will create PO_OVERDUE_FIVE_DAYS.
+  const overdueDisc = await prismaModule.consignmentDiscrepancyCase.create({
+    data: {
+      siteId: site.id,
+      status: 'PO_REQUIRED',
+      poFollowUpStatus: 'REQUIRED',
+      trueUpConfirmedAt: new Date(now.getTime() - 11 * DAY),
+      poDueAt: new Date(now.getTime() - 6 * DAY),
+      sku: 'SURF-OVR',
+      productName: 'Surface overdue PO item',
+      quantity: 2,
+    },
+  });
+
+  await scanConsignmentOperationalAlerts({});
+
+  const dashboard = await service.getConsignmentDashboard(actor);
+  assert.ok(Array.isArray(dashboard.pendingAlerts));
+  assert.ok(dashboard.pendingAlerts.length >= 2, `expected ≥2 pendingAlerts, got ${dashboard.pendingAlerts.length}`);
+
+  // Contract shape: each entry must have required fields.
+  for (const entry of dashboard.pendingAlerts) {
+    assert.equal(typeof entry.id, 'string');
+    assert.equal(typeof entry.siteId, 'string');
+    assert.equal(typeof entry.alertType, 'string');
+    assert.equal(typeof entry.triggeredAt, 'string');
+  }
+
+  // Specific alerts must be linked to the correct entities.
+  const overdue7 = dashboard.pendingAlerts.find((a) => a.alertType === 'AUDIT_OVERDUE_SEVEN_DAYS' && a.auditId === overdueAudit.id);
+  assert.ok(overdue7, 'AUDIT_OVERDUE_SEVEN_DAYS must appear in pendingAlerts');
+  assert.equal(overdue7.siteId, site.id);
+
+  const overduePoFive = dashboard.pendingAlerts.find((a) => a.alertType === 'PO_OVERDUE_FIVE_DAYS' && a.discrepancyId === overdueDisc.id);
+  assert.ok(overduePoFive, 'PO_OVERDUE_FIVE_DAYS must appear in pendingAlerts');
+  assert.equal(overduePoFive.siteId, site.id);
+
+  // Scoping: alerts for exited sites must be excluded by siteScopeWhere.
+  const exitedSite = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'Exited surface site',
+  });
+  await prismaModule.consignmentSite.update({ where: { id: exitedSite.id }, data: { status: 'EXITED' } });
+  // Manually create an alert for the exited site — the scanner already filters
+  // these, but the dashboard query scoping must also exclude them.
+  await prismaModule.consignmentOperationalAlert.create({
+    data: {
+      siteId: exitedSite.id,
+      alertType: 'AUDIT_OVERDUE_SEVEN_DAYS',
+      status: 'PENDING',
+      triggeredAt: now,
+      dedupeKey: `AUDIT_OVERDUE_SEVEN_DAYS:manual-exited-${exitedSite.id}`,
+    },
+  });
+
+  const dashboardAfterExited = await service.getConsignmentDashboard(actor);
+  const exitedSiteAlerts = dashboardAfterExited.pendingAlerts.filter((a) => a.siteId === exitedSite.id);
+  assert.equal(exitedSiteAlerts.length, 0, 'exited-site alerts must not appear in pendingAlerts');
+});
+
 test('Acumatica boundary remains parked and does not fabricate ERP references', SERIAL, async () => {
   const actor = await createAdminActor();
   const fixture = await createConsignmentAccountFixture('acumatica-boundary');

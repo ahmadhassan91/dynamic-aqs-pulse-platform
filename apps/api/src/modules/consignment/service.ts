@@ -12,6 +12,7 @@ import {
   ConsignmentExitStatus,
   ConsignmentFormStatus,
   ConsignmentFormType,
+  ConsignmentOperationalAlertStatus,
   ConsignmentPoFollowUpStatus,
   ConsignmentReconciliationStatus,
   ConsignmentSiteStatus,
@@ -37,6 +38,8 @@ import type {
   ConsignmentDashboardOnboardingPipelineEntry,
   ConsignmentDashboardResponse,
   ConsignmentDashboardWorkQueueEntry,
+  ConsignmentOperationalAlertTypeKey,
+  ConsignmentPendingAlertEntry,
   ConsignmentDiscrepancyCaseSummary,
   ConsignmentExitSummary,
   ConsignmentFieldActivityNoteSummary,
@@ -239,6 +242,7 @@ export async function getConsignmentDashboard(actor: AuthenticatedActor): Promis
     exitTotals,
     exitClosed,
     workQueueSites,
+    pendingAlertsRaw,
   ] = await Promise.all([
     prisma.consignmentSite.count({ where: sitesScope }),
     prisma.consignmentSite.count({ where: { AND: [sitesScope, { status: ConsignmentSiteStatus.ACTIVE }] } }),
@@ -345,6 +349,30 @@ export async function getConsignmentDashboard(actor: AuthenticatedActor): Promis
       orderBy: [{ nextAuditDueAt: 'asc' }, { updatedAt: 'desc' }],
       take: DASHBOARD_WORK_QUEUE_LIMIT,
     }),
+    // 18th: PENDING operational alerts for the actor-scoped, non-exited sites.
+    // These are included in the response so the workspace can surface
+    // PO-clock and overdue-audit pressure rows without a second API call.
+    // Exited sites are explicitly excluded — the scanner already doesn't
+    // create new alerts for exited sites, but old PENDING alerts could linger
+    // if a site is exited before its alerts are acknowledged/expired.
+    prisma.consignmentOperationalAlert.findMany({
+      where: {
+        AND: [
+          { site: { AND: [sitesScope, { status: { not: ConsignmentSiteStatus.EXITED } }] } },
+          { status: ConsignmentOperationalAlertStatus.PENDING },
+        ],
+      },
+      select: {
+        id: true,
+        siteId: true,
+        alertType: true,
+        triggeredAt: true,
+        auditId: true,
+        discrepancyId: true,
+      },
+      orderBy: [{ triggeredAt: 'desc' }],
+      take: 200,
+    }),
   ]);
 
   // Audit compliance rate: completed-on-time / all due (excluding cancelled).
@@ -442,6 +470,20 @@ export async function getConsignmentDashboard(actor: AuthenticatedActor): Promis
 
   const onboardingSites = totalSites - activeSites - exitedSites;
 
+  // Map raw alert records to the contract shape. `alertType` is a Prisma enum
+  // value whose string representation matches `ConsignmentOperationalAlertTypeKey`.
+  const pendingAlerts: ConsignmentPendingAlertEntry[] = pendingAlertsRaw.map((alert) => {
+    const entry: ConsignmentPendingAlertEntry = {
+      id: alert.id,
+      siteId: alert.siteId,
+      alertType: String(alert.alertType) as ConsignmentOperationalAlertTypeKey,
+      triggeredAt: alert.triggeredAt.toISOString(),
+    };
+    if (alert.auditId) entry.auditId = alert.auditId;
+    if (alert.discrepancyId) entry.discrepancyId = alert.discrepancyId;
+    return entry;
+  });
+
   return {
     metrics: {
       totalSites,
@@ -463,6 +505,7 @@ export async function getConsignmentDashboard(actor: AuthenticatedActor): Promis
     onboardingPipeline,
     auditDueBuckets,
     workQueue,
+    pendingAlerts,
     generatedAt: generatedAt.toISOString(),
   };
 }

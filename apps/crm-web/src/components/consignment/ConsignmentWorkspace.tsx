@@ -42,6 +42,7 @@ import {
   fetchConsignmentSites,
   type AccountSummary,
   type ConsignmentDashboardResponse,
+  type ConsignmentPendingAlertEntry,
   type ConsignmentSiteStatus,
   type ConsignmentSiteSummary,
 } from '@/lib/pulse-api';
@@ -856,6 +857,48 @@ function ConsignmentDetailRow({ label, value }: { label: string; value: string }
   );
 }
 
+// Maps a PENDING operational alert to a NextSiteWorkRow using the site record
+// for account name and owner display. Returns null for unrecognized alert types.
+// Audit alerts enrich / replace site-loop rows (same siteId, lower or equal rank).
+// PO-clock alerts are NEW queue entries not otherwise surfaced by the site loop.
+function alertToWorkRow(
+  alert: ConsignmentPendingAlertEntry,
+  site: ConsignmentSiteSummary,
+): NextSiteWorkRow | null {
+  const base: Pick<NextSiteWorkRow, 'accountName' | 'ownerName' | 'siteId' | 'siteName' | 'secondaryCount'> = {
+    accountName: site.accountName,
+    ownerName: site.ownerTmName ?? site.ownerRdName ?? undefined,
+    siteId: site.id,
+    siteName: site.locationName ?? undefined,
+    secondaryCount: 0,
+  };
+
+  switch (alert.alertType) {
+    case 'AUDIT_DUE_FOURTEEN_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 1, workType: 'due_soon_audit', tone: 'blue', statusLabel: 'Audit in 14 days', summary: 'Prepare ROSE audit', detail: 'Scheduled within the next 14 days', dueAt: undefined };
+    case 'AUDIT_DUE_SEVEN_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 1, workType: 'due_soon_audit', tone: 'blue', statusLabel: 'Audit in 7 days', summary: 'Prepare ROSE audit', detail: 'Scheduled within the next 7 days', dueAt: undefined };
+    case 'AUDIT_DUE_TODAY':
+      return { ...base, id: `alert-${alert.id}`, rank: 0, workType: 'overdue_audit', tone: 'orange', statusLabel: 'Audit due today', summary: 'Complete ROSE audit today', detail: 'Scheduled for today — execute in field now', dueAt: alert.triggeredAt };
+    case 'AUDIT_OVERDUE_SEVEN_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 0, workType: 'overdue_audit', tone: 'orange', statusLabel: 'Audit overdue 7d', summary: 'Audit overdue — 7 days', detail: 'ROSE audit is 7 days past its scheduled date', dueAt: alert.triggeredAt };
+    case 'AUDIT_OVERDUE_FOURTEEN_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 0, workType: 'overdue_audit', tone: 'red', statusLabel: 'Audit overdue 14d', summary: 'Audit escalated — 14+ days', detail: 'ROSE audit is 14+ days past due — Sales Leadership notified', dueAt: alert.triggeredAt };
+    case 'PO_CLOCK_START':
+      return { ...base, id: `alert-${alert.id}`, rank: 2, workType: 'follow_up', tone: 'blue', statusLabel: 'PO clock started', summary: 'PO required', detail: 'True-up confirmed — 5-business-day PO clock has started', dueAt: undefined };
+    case 'PO_CLOCK_THREE_DAYS_REMAINING':
+      return { ...base, id: `alert-${alert.id}`, rank: 2, workType: 'follow_up', tone: 'orange', statusLabel: 'PO due in 3 days', summary: 'PO follow-up (3d left)', detail: '3 business days remaining to receive PO before escalation', dueAt: undefined };
+    case 'PO_CLOCK_ONE_DAY_REMAINING':
+      return { ...base, id: `alert-${alert.id}`, rank: 1, workType: 'follow_up', tone: 'red', statusLabel: 'PO due tomorrow', summary: 'PO overdue risk — act now', detail: 'Final business day before PO becomes overdue', dueAt: undefined };
+    case 'PO_OVERDUE_FIVE_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 0, workType: 'follow_up', tone: 'orange', statusLabel: 'PO overdue 5d', summary: 'PO overdue — escalate', detail: 'PO is 5 business days past the clock deadline', dueAt: alert.triggeredAt };
+    case 'PO_OVERDUE_TEN_DAYS':
+      return { ...base, id: `alert-${alert.id}`, rank: 0, workType: 'follow_up', tone: 'red', statusLabel: 'PO escalated 10d', summary: 'PO escalated to leadership', detail: 'PO is 10 business days overdue — Sales Leadership notified', dueAt: alert.triggeredAt };
+    default:
+      return null;
+  }
+}
+
 function buildNextSiteWorkRows({
   dashboard,
   renderedAt,
@@ -964,6 +1007,18 @@ function buildNextSiteWorkRows({
       tone: item.ownerName ? 'blue' : 'yellow',
       workType: 'follow_up',
     });
+  }
+
+  // PENDING operational alert rows — sourced from the scanner engine.
+  // Alert rows for audit types enrich / replace the site-loop rows for the
+  // same site (the `upsert` rank comparison picks the more specific label).
+  // PO-clock alert types are entirely new entries not produced by the site loop.
+  const siteById = new Map(sites.map((s) => [s.id, s]));
+  for (const alert of dashboard?.pendingAlerts ?? []) {
+    const site = siteById.get(alert.siteId);
+    if (!site) continue; // scoped correctly by server; defensive guard only
+    const row = alertToWorkRow(alert, site);
+    if (row) upsert(row);
   }
 
   return Array.from(bySite.values()).sort((left, right) => (

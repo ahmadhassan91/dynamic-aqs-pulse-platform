@@ -10,6 +10,7 @@ import {
   Group,
   List,
   Modal,
+  Paper,
   Select,
   Stack,
   Switch,
@@ -258,7 +259,9 @@ export function CustomerOverview(
           <MetadataRow label="Last Engagement" value={formatDate(account.lastEngagementAt)} />
           <MetadataRow label="Lifecycle Note" value={account.lifecycleReasonNote ?? 'Not recorded'} />
         </Stack>
-        <List spacing="xs" size="sm">
+        {/* UX-A-011: lifecycle audit trail — sourced from existing activityReview.recentEvents */}
+        <LifecycleAuditTrail account={account} />
+        <List spacing="xs" size="sm" mt="md">
           <List.Item>Customer activation now lives in Pulse from lead conversion through first-order confirmation.</List.Item>
           <List.Item>Lifecycle state is tracked separately from archive/inactive record status so churn and operating risk stay visible.</List.Item>
         </List>
@@ -418,4 +421,53 @@ function formatDate(value: string | undefined) {
   }
 
   return new Date(value).toLocaleDateString();
+}
+
+// UX-A-011: lifecycle audit trail
+// Sources status-change events from the existing activityReview.recentEvents
+// (which is already populated by audit entries with workflow: 'account_lifecycle').
+// Full server-side history endpoint is parked — the existing events cover recent changes.
+function LifecycleAuditTrail({ account }: { account: AccountDetail }) {
+  const lifecycleEvents = account.activityReview.recentEvents.filter(
+    (event) =>
+      event.entityType === 'ACCOUNT'
+      && (event.action === 'UPDATE' || event.action === 'CREATE')
+      && (event.detail?.includes('->') || event.detail?.toLowerCase().includes('lifecycle') || event.label?.toLowerCase().includes('account')),
+  );
+
+  if (lifecycleEvents.length === 0) {
+    return (
+      <Stack gap={4} mb="md">
+        <Text fw={600} size="sm">Lifecycle audit trail</Text>
+        <Text size="xs" c="dimmed">
+          No lifecycle changes have been recorded yet. Changes made through Pulse are tracked automatically and will appear here.
+        </Text>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap={6} mb="md">
+      <Text fw={600} size="sm">Lifecycle audit trail</Text>
+      {lifecycleEvents.map((event) => (
+        <Paper key={event.id} withBorder radius="md" p="xs">
+          <Group justify="space-between" align="flex-start" gap="xs">
+            <Stack gap={2} style={{ flex: 1 }}>
+              <Text size="sm" fw={500}>{event.label}</Text>
+              <Text size="xs" c="dimmed">{event.detail}</Text>
+              {event.actorName ? (
+                <Text size="xs" c="dimmed">By {event.actorName}</Text>
+              ) : null}
+            </Stack>
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+              {new Date(event.occurredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </Text>
+          </Group>
+        </Paper>
+      ))}
+      <Text size="xs" c="dimmed">
+        Showing recent lifecycle events from Pulse activity log. Full history persistence is tracked in the Activity &amp; Docs panel.
+      </Text>
+    </Stack>
+  );
 }

@@ -356,10 +356,10 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-A-010 | No pagination on account directory — hard limit: 200 (Q-A-06) | CustomerList.tsx | Yes | Open |
-| UX-A-011 | No lifecycle audit trail on account (who changed status, when, why) | CustomerOverview.tsx | Yes | Open |
-| UX-A-012 | No billing vs shipping location type distinction (BR-A-07) | CustomerLocations.tsx | Yes | Open |
-| UX-A-013 | No "Register vault reference" create form on payment panel | CustomerPaymentMethods.tsx | Yes | Open |
-| UX-A-014 | No deep-link support for secondary panels (tab not preserved in URL) | CustomerDetail.tsx | Yes | Open |
+| UX-A-010 | No pagination on account directory — hard limit: 200 (Q-A-06) | CustomerList.tsx | Yes | Done |
+| UX-A-011 | No lifecycle audit trail on account (who changed status, when, why) | CustomerOverview.tsx | Yes | Done (parked: dedicated history endpoint — surfaces existing activityReview audit entries which already capture lifecycle changes) |
+| UX-A-012 | No billing vs shipping location type distinction (BR-A-07) | CustomerLocations.tsx | Yes | Done (parked: DB column for locationType pending Q-A-02 schema decision — using name-prefix convention in the interim) |
+| UX-A-013 | No "Register vault reference" create form on payment panel | CustomerPaymentMethods.tsx | Yes | Done |
+| UX-A-014 | No deep-link support for secondary panels (tab not preserved in URL) | CustomerDetail.tsx | Yes | Done |
 
 _To be completed during the review meeting._

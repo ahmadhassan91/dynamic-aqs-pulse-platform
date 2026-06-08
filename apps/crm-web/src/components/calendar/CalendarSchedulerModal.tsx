@@ -3,13 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Badge,
   Button,
   Grid,
+  Group,
   Modal,
   NumberInput,
   SegmentedControl,
   Select,
   Stack,
+  Switch,
   Text,
   TextInput,
   Textarea,
@@ -102,6 +105,11 @@ export function CalendarSchedulerModal({
   const [durationMinutes, setDurationMinutes] = useState<number | string>(60);
   const [attendeeCount, setAttendeeCount] = useState<number | string>(0);
   const [note, setNote] = useState('');
+  // UX-C-007: recurring schedule toggle (UI-only — backend recurrence persistence is parked;
+  // the form saves only the first occurrence and stores recurrence intent in the note field)
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
+  const [recurrenceCount, setRecurrenceCount] = useState<number | string>(4);
 
   useEffect(() => {
     if (!opened) {
@@ -126,6 +134,9 @@ export function CalendarSchedulerModal({
     setDurationMinutes(60);
     setAttendeeCount(0);
     setNote('');
+    setIsRecurring(false);
+    setRecurrenceFrequency('weekly');
+    setRecurrenceCount(4);
     setLoadError(null);
 
     let cancelled = false;
@@ -280,17 +291,25 @@ export function CalendarSchedulerModal({
     ? discoveryAvailable && Boolean(leadId && scheduledAt)
     : trainingAvailable && Boolean(accountId && trainingTypeId && trainerUserId && title.trim() && scheduledAt && Number(durationMinutes) > 0);
 
+  function buildRecurrenceNoteSuffix() {
+    if (!isRecurring) return '';
+    const freq = recurrenceFrequency === 'weekly' ? 'weekly' : recurrenceFrequency === 'biweekly' ? 'bi-weekly' : 'monthly';
+    return ` [Recurrence intent: ${freq} for ${Number(recurrenceCount)} occurrence(s). True recurrence expansion is parked — schedule remaining occurrences individually.]`;
+  }
+
   const handleSubmit = async () => {
     if (!canSubmit) {
       return;
     }
 
     setIsSaving(true);
+    const recurrenceSuffix = buildRecurrenceNoteSuffix();
     try {
       if (mode === 'discovery') {
+        const noteWithRecurrence = (note.trim() + recurrenceSuffix).trim();
         await scheduleLeadDiscovery(apiBaseUrl, accessToken, leadId, {
           scheduledAt: fromLocalDateTimeInput(scheduledAt),
-          ...(note.trim() ? { note: note.trim() } : {}),
+          ...(noteWithRecurrence ? { note: noteWithRecurrence } : {}),
         });
 
         notifications.show({
@@ -302,6 +321,7 @@ export function CalendarSchedulerModal({
         const deliveryMode = selectedTrainingType?.deliveryMode ?? 'virtual';
         const activityKind = deliveryMode === 'visit' || deliveryMode === 'on_site' ? 'site_visit' : 'training';
 
+        const trainingNoteWithRecurrence = (note.trim() + recurrenceSuffix).trim();
         await createTrainingSessionRecord(apiBaseUrl, accessToken, accountId, {
           trainingTypeId,
           trainerUserId,
@@ -310,7 +330,7 @@ export function CalendarSchedulerModal({
           scheduledAt: fromLocalDateTimeInput(scheduledAt),
           durationMinutes: Number(durationMinutes),
           attendeeCount: Number(attendeeCount),
-          ...(note.trim() ? { notes: note.trim() } : {}),
+          ...(trainingNoteWithRecurrence ? { notes: trainingNoteWithRecurrence } : {}),
         });
 
         notifications.show({
@@ -398,6 +418,55 @@ export function CalendarSchedulerModal({
           onChange={(event) => setScheduledAt(event.currentTarget.value)}
           disabled={isLoading}
         />
+
+        {/* UX-C-007: recurring schedule toggle */}
+        {(discoveryAvailable || trainingAvailable) ? (
+          <Stack gap="xs">
+            <Group gap="sm" align="center">
+              <Switch
+                checked={isRecurring}
+                onChange={(event) => setIsRecurring(event.currentTarget.checked)}
+                label="Recurring schedule"
+                disabled={isLoading}
+              />
+              <Badge color="gray" variant="light" size="sm">Single-occurrence fallback</Badge>
+            </Group>
+            {isRecurring ? (
+              <>
+                <Alert color="orange" variant="light">
+                  Pulse will save only the first occurrence now. True server-side recurrence expansion is parked pending BR-C-03 implementation. The recurrence intent will be appended to the schedule note so the team has a record.
+                </Alert>
+                <Grid>
+                  <Grid.Col span={6}>
+                    <Select
+                      label="Frequency"
+                      value={recurrenceFrequency}
+                      onChange={(value) => setRecurrenceFrequency((value as 'weekly' | 'biweekly' | 'monthly' | null) ?? 'weekly')}
+                      data={[
+                        { value: 'weekly', label: 'Weekly' },
+                        { value: 'biweekly', label: 'Bi-weekly' },
+                        { value: 'monthly', label: 'Monthly' },
+                      ]}
+                      allowDeselect={false}
+                      disabled={isLoading}
+                    />
+                  </Grid.Col>
+                  <Grid.Col span={6}>
+                    <NumberInput
+                      label="Number of occurrences"
+                      value={recurrenceCount}
+                      min={2}
+                      max={52}
+                      step={1}
+                      onChange={setRecurrenceCount}
+                      disabled={isLoading}
+                    />
+                  </Grid.Col>
+                </Grid>
+              </>
+            ) : null}
+          </Stack>
+        ) : null}
 
         {mode === 'discovery' && discoveryAvailable ? (
           <>

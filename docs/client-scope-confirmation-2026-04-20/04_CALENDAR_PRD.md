@@ -259,13 +259,13 @@ All items with **Can do now = Yes** have no external dependency.
 ### Sprint 2 — Core Workflow (M effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-C-005 | No territory filter in calendar workspace | CalendarWorkspace.tsx | Yes | Open |
-| UX-C-006 | No account/lead filter in calendar workspace | CalendarWorkspace.tsx | Yes | Open |
-| UX-C-007 | Recurring schedule toggle absent in scheduler modal | CalendarSchedulerModal.tsx | Yes | Open |
+| UX-C-005 | No territory filter in calendar workspace | CalendarWorkspace.tsx | Yes | Done |
+| UX-C-006 | No account/lead filter in calendar workspace | CalendarWorkspace.tsx | Yes | Done |
+| UX-C-007 | Recurring schedule toggle absent in scheduler modal | CalendarSchedulerModal.tsx | Yes | Done (parked: true recurrence expansion pending BR-C-03 — UI toggle + single-occurrence fallback with recurrence intent in note) |
 
 ### Sprint 3 — New Surfaces (L effort)
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
-| UX-C-008 | Day/week/month grid views not implemented — list view only (BR-C-05 requires all four) | CalendarWorkspace.tsx | Yes | Open |
+| UX-C-008 | Day/week/month grid views not implemented — list view only (BR-C-05 requires all four) | CalendarWorkspace.tsx | Yes | Done |
 
 _To be completed during the review meeting._

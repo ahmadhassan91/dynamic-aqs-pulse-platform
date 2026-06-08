@@ -108,7 +108,7 @@ export async function listAccounts(actor: AuthenticatedActor, query: ListAccount
         { createdAt: 'asc' },
       ],
       take: limit,
-      skip: offset,
+      ...(offset !== undefined ? { skip: offset } : {}),
       include: ACCOUNT_SUMMARY_INCLUDE,
     }),
     prisma.account.count({ where: scopeWhere ? { AND: [scopeWhere, where] } : where }),

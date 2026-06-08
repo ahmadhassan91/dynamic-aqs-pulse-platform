@@ -368,6 +368,23 @@ export function AdminEntraIntegrationPanel({
           )}
         </Stack>
       </Card>
+
+      {/* UX-AD-006: break-glass recovery documentation */}
+      <Card withBorder radius="md" p="lg">
+        <Title order={4} mb="xs">Break-Glass Recovery Procedure</Title>
+        <Text size="sm" c="dimmed" mb="sm">
+          If Microsoft Entra sign-in is unavailable or all admin accounts are locked, use the following emergency access steps to restore a working admin session.
+        </Text>
+        <Stack gap="xs">
+          <Text size="sm">1. Contact the designated break-glass contact via the out-of-band emergency channel listed in the approved IT runbook.</Text>
+          <Text size="sm">2. Use the local service-account credentials stored in the approved secrets vault — do not attempt to store or retrieve them inside Pulse.</Text>
+          <Text size="sm">3. Access the Pulse API directly via the admin CLI or a direct database connection to promote a new admin user or unlock an existing one.</Text>
+          <Text size="sm">4. Document the recovery action in the incident log, rotate any temporary credentials used, and re-test normal Entra sign-in before closing the incident.</Text>
+        </Stack>
+        <Alert color="orange" variant="light" mt="md">
+          Break-glass actions bypass Entra audit logging. All usage must be manually recorded in the incident log and reviewed during the post-incident review.
+        </Alert>
+      </Card>
     </Stack>
   );
 }

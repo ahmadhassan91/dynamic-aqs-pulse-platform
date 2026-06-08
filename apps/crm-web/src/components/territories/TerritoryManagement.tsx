@@ -137,6 +137,8 @@ export function TerritoryManagement({
   const [territoryRegistryView, setTerritoryRegistryView] = useState<TerritoryRegistryView>('territories');
   // UX-TR-003: search filter for territory list
   const [territorySearch, setTerritorySearch] = useState('');
+  // UX-TR-005: expanded region id in the regions table
+  const [expandedRegionId, setExpandedRegionId] = useState<string | null>(null);
   const [policy, setPolicy] = useState<TerritoryPolicySummary | null>(null);
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [shippingCenters, setShippingCenters] = useState<ShippingCenterSummary[]>([]);
@@ -1019,6 +1021,11 @@ export function TerritoryManagement({
               </Stack>
             </Paper>
 
+            {/* UX-TR-004: state-level coverage context banner */}
+            <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />} radius="xl">
+              Territory coverage is tracked at the state level. County and city-level boundaries are not currently supported in the map view.
+            </Alert>
+
             <Paper withBorder radius="xl" p="md">
               <Stack gap="sm">
                 <Group justify="space-between" align="center">
@@ -1168,6 +1175,7 @@ export function TerritoryManagement({
                   </>
                 ) : null}
 
+                {/* UX-TR-005: region rows expand to show territories belonging to each region */}
                 {territoryRegistryView === 'regions' ? (
                   <Table.ScrollContainer minWidth={520}>
                     <Table striped highlightOnHover>
@@ -1180,25 +1188,62 @@ export function TerritoryManagement({
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
-                        {regions.map((region) => (
-                          <Table.Tr key={region.id}>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text fw={700}>{region.name}</Text>
-                                <Text size="xs" c="dimmed">
-                                  {region.code}
-                                </Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>{region.directorUserName ?? 'Unassigned'}</Table.Td>
-                            <Table.Td>{region.territoryCount}</Table.Td>
-                            <Table.Td>
-                              <Badge color={region.isActive ? 'teal' : 'gray'} variant="light">
-                                {region.isActive ? 'Active' : 'Inactive'}
-                              </Badge>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))}
+                        {regions.map((region) => {
+                          const regionTerritories = territories.filter((t) => t.regionId === region.id);
+                          const isExpanded = expandedRegionId === region.id;
+                          return (
+                            <>
+                              <Table.Tr
+                                key={region.id}
+                                style={{ cursor: regionTerritories.length > 0 ? 'pointer' : undefined }}
+                                onClick={() => {
+                                  if (regionTerritories.length === 0) return;
+                                  setExpandedRegionId(isExpanded ? null : region.id);
+                                }}
+                              >
+                                <Table.Td>
+                                  <Group gap="xs" wrap="nowrap">
+                                    {regionTerritories.length > 0 ? (
+                                      <Text size="xs" c="blue" fw={700}>{isExpanded ? '▾' : '▸'}</Text>
+                                    ) : null}
+                                    <Stack gap={2}>
+                                      <Text fw={700}>{region.name}</Text>
+                                      <Text size="xs" c="dimmed">{region.code}</Text>
+                                    </Stack>
+                                  </Group>
+                                </Table.Td>
+                                <Table.Td>{region.directorUserName ?? 'Unassigned'}</Table.Td>
+                                <Table.Td>{region.territoryCount}</Table.Td>
+                                <Table.Td>
+                                  <Badge color={region.isActive ? 'teal' : 'gray'} variant="light">
+                                    {region.isActive ? 'Active' : 'Inactive'}
+                                  </Badge>
+                                </Table.Td>
+                              </Table.Tr>
+                              {isExpanded ? regionTerritories.map((territory) => (
+                                <Table.Tr key={`${region.id}-${territory.id}`} style={{ background: 'var(--mantine-color-gray-0)' }}>
+                                  <Table.Td pl="xl">
+                                    <Stack gap={2}>
+                                      <Text size="sm" fw={500}>{territory.name}</Text>
+                                      <Text size="xs" c="dimmed">{territory.code}</Text>
+                                    </Stack>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Text size="sm">{territory.managerUserName ?? 'Unassigned'}</Text>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Text size="sm">{territory.coverageStates.join(', ') || '—'}</Text>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Badge color={territory.isActive ? 'teal' : 'gray'} variant="outline" size="sm">
+                                      {territory.isActive ? 'Active' : 'Inactive'}
+                                    </Badge>
+                                  </Table.Td>
+                                </Table.Tr>
+                              )) : null}
+                            </>
+                          );
+                        })}
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>

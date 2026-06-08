@@ -1060,6 +1060,15 @@ export function TrainingWorkspace() {
                                 {formatCertificationOutcome(session.certificationOutcome)}
                               </Badge>
                             ) : null}
+                            {/* UX-T-003: proof required badge — cert-track sessions without a proof attachment and not yet cancelled/no-show */}
+                            {session.isCertificationTrack
+                              && session.proofAttachmentCount === 0
+                              && session.executionState !== 'cancelled'
+                              && session.executionState !== 'no_show' ? (
+                              <Badge color="orange" variant="light" ml={6}>
+                                Proof required
+                              </Badge>
+                            ) : null}
                             {session.openFollowUpTaskCount > 0 || session.fieldActivity.length > 0 ? (
                               <Text size="xs" c="dimmed" mt={4}>
                                 {session.openFollowUpTaskCount} follow-ups · {session.fieldActivity.length} field notes

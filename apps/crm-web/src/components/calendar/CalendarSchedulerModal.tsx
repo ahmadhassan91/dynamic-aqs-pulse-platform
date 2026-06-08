@@ -378,6 +378,13 @@ export function CalendarSchedulerModal({
           </Alert>
         ) : null}
 
+        {/* UX-C-003: in-app reminder hint — Pulse does not currently send push/email reminders */}
+        {(discoveryAvailable || trainingAvailable) ? (
+          <Alert color="gray" variant="light">
+            Pulse does not send push or email reminders for scheduled events. To receive a personal reminder, add this event to your external calendar app after saving.
+          </Alert>
+        ) : null}
+
         {!discoveryAvailable && !trainingAvailable ? (
           <Alert color="yellow">
             Your current Pulse role does not have calendar scheduling permissions for discovery or training workflows.

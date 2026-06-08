@@ -45,6 +45,12 @@ function daysFromNow(days) {
   return date;
 }
 
+function isoDaysFromNow(days, hours = 10, minutes = 0) {
+  const date = daysFromNow(days);
+  date.setUTCHours(hours, minutes, 0, 0);
+  return date.toISOString();
+}
+
 test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   ({ loadAppConfig } = await import('../dist/config.js'));
@@ -393,7 +399,7 @@ test('training sessions reject ineligible trainers and mismatched programs', SER
       createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixtureA.account.id, {
         trainingTypeId: onboardingType.id,
         trainerUserId: executive.id,
-        scheduledAt: '2026-06-01T10:00:00.000Z',
+        scheduledAt: isoDaysFromNow(7, 10),
         durationMinutes: 60,
       }),
     /not eligible/i,
@@ -404,7 +410,7 @@ test('training sessions reject ineligible trainers and mismatched programs', SER
       createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixtureA.account.id, {
         programId: foreignProgram.id,
         trainerUserId: fixtureA.tm.id,
-        scheduledAt: '2026-06-01T10:00:00.000Z',
+        scheduledAt: isoDaysFromNow(7, 10),
         durationMinutes: 60,
       }),
     /does not belong/i,
@@ -433,7 +439,7 @@ test('TM/RD training writes and overview stay scoped to visible accounts and ses
       createTrainingSession(tmActor, hidden.account.id, {
         trainingTypeId: onboardingType.id,
         trainerUserId: visible.tm.id,
-        scheduledAt: '2026-06-01T10:00:00.000Z',
+        scheduledAt: isoDaysFromNow(7, 10),
         durationMinutes: 60,
       }),
     /Account not found/i,
@@ -442,13 +448,13 @@ test('TM/RD training writes and overview stay scoped to visible accounts and ses
   const visibleSession = await createTrainingSession(tmActor, visible.account.id, {
     trainingTypeId: onboardingType.id,
     trainerUserId: visible.tm.id,
-    scheduledAt: '2026-06-02T10:00:00.000Z',
+    scheduledAt: isoDaysFromNow(8, 10),
     durationMinutes: 60,
   });
   const hiddenSession = await createTrainingSession(trainingOps, hidden.account.id, {
     trainingTypeId: onboardingType.id,
     trainerUserId: hidden.tm.id,
-    scheduledAt: '2026-06-03T10:00:00.000Z',
+    scheduledAt: isoDaysFromNow(9, 10),
     durationMinutes: 60,
   });
 
@@ -478,7 +484,7 @@ test('TM/RD training writes and overview stay scoped to visible accounts and ses
   await assert.rejects(
     () =>
       rescheduleTrainingSession(tmActor, hiddenSession.id, {
-        scheduledAt: '2026-06-04T10:00:00.000Z',
+        scheduledAt: isoDaysFromNow(10, 10),
       }),
     /Training session not found/i,
   );

@@ -1185,7 +1185,7 @@ export function LeadWorkspace({
                     searchable
                     w={200}
                   />
-                  <ActionIcon variant="light" size="lg" onClick={() => setRefreshNonce((value) => value + 1)}>
+                  <ActionIcon variant="light" size="lg" aria-label="Refresh leads" onClick={() => setRefreshNonce((value) => value + 1)}>
                     <IconRefresh size={16} />
                   </ActionIcon>
                 </Group>

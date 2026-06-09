@@ -33,6 +33,13 @@ function summarize(route, results) {
     .join(', ');
   // Printed to the run log so the baseline is readable per route.
   console.log(`[a11y] ${route}: ${results.violations.length} violation rule(s)${summary ? ' -> ' + summary : ''}`);
+  // Dump up to 3 offending elements per rule so the source is unambiguous.
+  for (const v of results.violations) {
+    for (const node of v.nodes.slice(0, 3)) {
+      const html = (node.html ?? '').replace(/\s+/g, ' ').slice(0, 160);
+      console.log(`[a11y-node] ${route} ${v.id}: ${html}`);
+    }
+  }
 }
 
 test('public login page — axe WCAG 2.1 AA', async ({ page }) => {

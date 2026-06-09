@@ -1406,6 +1406,7 @@ export function AdminWorkspace({
                     onChange={(page) => setFilters((current) => ({ ...current, page }))}
                     total={totalPages}
                     size="sm"
+                    getControlProps={(control) => ({ 'aria-label': `Go to ${control} page` })}
                   />
                 </Group>
               </Paper>

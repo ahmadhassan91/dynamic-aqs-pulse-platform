@@ -741,10 +741,10 @@ export function CalendarWorkspace({
         <Stack gap="md">
           <Group justify="space-between" align="center" gap="md" wrap="wrap">
             <Group gap="xs">
-              <Button variant="subtle" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, -1))}>
+              <Button variant="subtle" aria-label="Previous period" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, -1))}>
                 <IconChevronLeft size={16} />
               </Button>
-              <Button variant="subtle" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, 1))}>
+              <Button variant="subtle" aria-label="Next period" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, 1))}>
                 <IconChevronRight size={16} />
               </Button>
               <Button variant="light" onClick={() => setAnchorDate(startOfDay(new Date()))}>
@@ -933,6 +933,7 @@ export function CalendarWorkspace({
                                     key={`slot-${dayKey}-${hour}`}
                                     component="div"
                                     data-testid="calendar-open-slot"
+                                    role="button"
                                     aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
                                     tabIndex={0}
                                     onClick={() => openSchedulerForDate(slotDate)}
@@ -1212,6 +1213,7 @@ export function CalendarWorkspace({
                                     key={`week-slot-${dayKey}-${hour}`}
                                     component="div"
                                     data-testid="calendar-open-slot"
+                                    role="button"
                                     aria-label={`Open ${formatTime(slotDate)} slot for ${formatWeekday(day)}`}
                                     tabIndex={0}
                                     onClick={() => openSchedulerForDate(slotDate)}

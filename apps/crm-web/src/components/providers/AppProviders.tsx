@@ -108,9 +108,18 @@ const theme = createTheme({
   },
 });
 
+// WCAG AA: Mantine's default dimmed text (gray.6, ~3.5:1 on white) fails the 4.5:1 body floor.
+// Emit a darker dimmed token via the resolver — applied by Mantine itself, so it is not subject
+// to globals.css build caching/cascade. (Dark value reserved for future dark-mode work.)
+const resolveCssVariables = () => ({
+  variables: {},
+  light: { '--mantine-color-dimmed': '#4b5563' },
+  dark: { '--mantine-color-dimmed': '#9ca3af' },
+});
+
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <MantineProvider theme={theme} defaultColorScheme="light">
+    <MantineProvider theme={theme} defaultColorScheme="light" cssVariablesResolver={resolveCssVariables}>
       <Notifications position="top-right" />
       <PulseSessionProvider>{children}</PulseSessionProvider>
     </MantineProvider>

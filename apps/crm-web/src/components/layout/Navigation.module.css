@@ -48,3 +48,24 @@
 .chevron {
   transition: transform 200ms ease;
 }
+
+/* Dark scheme: the base colors above are tuned for light; flip text/hover/active for dark. */
+[data-mantine-color-scheme='dark'] .control,
+[data-mantine-color-scheme='dark'] .link {
+  color: var(--mantine-color-dark-0);
+}
+[data-mantine-color-scheme='dark'] .link {
+  border-color: var(--mantine-color-dark-4);
+}
+[data-mantine-color-scheme='dark'] .control:hover,
+[data-mantine-color-scheme='dark'] .link:hover {
+  background-color: var(--mantine-color-dark-5);
+}
+[data-mantine-color-scheme='dark'] .control[data-active],
+[data-mantine-color-scheme='dark'] .link[data-active] {
+  background-color: var(--mantine-color-dark-5);
+  color: var(--mantine-color-blue-2);
+}
+[data-mantine-color-scheme='dark'] .link[data-active] {
+  border-color: var(--mantine-color-blue-4);
+}

@@ -60,4 +60,18 @@ test('capture implemented surfaces', async ({ page }) => {
   } catch (err) {
     console.log(`[shot] admin modal skipped: ${err}`);
   }
+
+  // Dark mode — toggle via the header control, then re-capture key routes.
+  try {
+    await page.goto('/leads');
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await page.waitForTimeout(400);
+    for (const [name, route] of ROUTES) {
+      await page.goto(route);
+      await shot(page, `${name}-dark`);
+    }
+  } catch (err) {
+    console.log(`[shot] dark mode skipped: ${err}`);
+  }
 });

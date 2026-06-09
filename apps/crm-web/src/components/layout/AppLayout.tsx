@@ -2,9 +2,9 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { AppShell, Badge, Box, Burger, Button, Group, Menu, Text, ThemeIcon, rem } from '@mantine/core';
+import { ActionIcon, AppShell, Badge, Box, Burger, Button, Group, Menu, Text, ThemeIcon, rem, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconChevronDown, IconLogout, IconUser } from '@tabler/icons-react';
+import { IconChevronDown, IconLogout, IconMoon, IconSun, IconUser } from '@tabler/icons-react';
 import { Navigation } from './Navigation';
 import { Logo } from '@/components/ui/Logo';
 import { usePulseSession } from '@/lib/pulse-session';
@@ -13,6 +13,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
   const { auth, logout } = usePulseSession();
   const currentAuth = auth;
+  const { setColorScheme } = useMantineColorScheme();
+  const computedColorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
+  const toggleColorScheme = () => setColorScheme(computedColorScheme === 'dark' ? 'light' : 'dark');
 
   const displayName =
     currentAuth?.identity.displayName
@@ -35,6 +38,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </Group>
 
           <Group gap="sm">
+            <ActionIcon
+              variant="default"
+              size="lg"
+              onClick={toggleColorScheme}
+              aria-label={computedColorScheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {computedColorScheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+            </ActionIcon>
             {currentAuth ? (
               <Menu width={220} position="bottom-end" transitionProps={{ transition: 'pop-top-right' }} withinPortal>
                 <Menu.Target>

@@ -19,17 +19,8 @@ a {
   box-sizing: border-box;
 }
 
-:root {
-  --pulse-brand-blue: #1d4ed8;
-  --pulse-brand-blue-soft: #dbeafe;
-  --pulse-warning-orange: #f97316;
-  --pulse-warning-orange-soft: #ffedd5;
-  --pulse-blocker-red: #dc2626;
-  --pulse-blocker-red-soft: #fee2e2;
-  --pulse-surface: #ffffff;
-  --pulse-surface-muted: #f8fafc;
-  --pulse-border: #e2e8f0;
-}
+/* --pulse-* design tokens are emitted (light + dark) by the MantineProvider cssVariablesResolver
+   in AppProviders.tsx so they flip with the color scheme. Do not redefine them here. */
 
 body {
   visibility: visible;
@@ -227,4 +218,34 @@ body {
 :focus-visible {
   outline: 3px solid var(--pulse-brand-blue);
   outline-offset: 2px;
+}
+
+/* ---- Dark-mode overrides for values hardcoded to the light scheme ---- */
+[data-mantine-color-scheme='dark'] .premium-action-card:hover {
+  background-color: #20242b;
+}
+[data-mantine-color-scheme='dark'] .premium-tabs-shell .mantine-Tabs-tab[data-active='true'] {
+  box-shadow: inset 0 0 0 1px #2b4365;
+}
+[data-mantine-color-scheme='dark'] .mantine-Button-root[data-variant='filled']:not([data-disabled]) {
+  --button-hover: #74c0fc;
+}
+/* Warning/blocker badge + alert text need light variants on the dark soft backgrounds. */
+[data-mantine-color-scheme='dark'] .mantine-Badge-root[data-color='yellow'],
+[data-mantine-color-scheme='dark'] .mantine-Badge-root[data-color='orange'],
+[data-mantine-color-scheme='dark'] .mantine-Alert-root[data-color='yellow'],
+[data-mantine-color-scheme='dark'] .mantine-Alert-root[data-color='orange'] {
+  --badge-color: #ffc078;
+  --alert-color: #ffc078;
+}
+[data-mantine-color-scheme='dark'] .mantine-Badge-root[data-color='red'],
+[data-mantine-color-scheme='dark'] .mantine-Alert-root[data-color='red'] {
+  --badge-color: #ffa8a8;
+  --alert-color: #ffa8a8;
+}
+[data-mantine-color-scheme='dark'] ::-webkit-scrollbar-track {
+  background: var(--mantine-color-dark-6);
+}
+[data-mantine-color-scheme='dark'] ::-webkit-scrollbar-thumb {
+  background: var(--mantine-color-dark-4);
 }

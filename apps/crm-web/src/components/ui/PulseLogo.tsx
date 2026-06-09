@@ -99,12 +99,12 @@ export function PulseLogo({ compact = false }: { compact?: boolean }) {
       </Box>
 
       <Box>
-        <Text fw={800} size={compact ? 'md' : 'xl'} c="#0F172A" style={{ letterSpacing: compact ? 0.2 : 0.4, lineHeight: 1 }}>
+        <Text fw={800} size={compact ? 'md' : 'xl'} c="var(--mantine-color-text)" style={{ letterSpacing: compact ? 0.2 : 0.4, lineHeight: 1 }}>
           Pulse
         </Text>
         <Text
           fw={700}
-          c="#64748B"
+          c="dimmed"
           size={compact ? '10px' : '12px'}
           style={{ letterSpacing: compact ? 1.1 : 1.3, textTransform: 'uppercase', lineHeight: 1.1 }}
         >

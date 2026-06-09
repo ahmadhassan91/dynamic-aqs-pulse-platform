@@ -872,7 +872,7 @@ export function CalendarWorkspace({
                               p="sm"
                               withBorder
                               style={{
-                                background: isSameDay(day, new Date()) ? 'rgba(239, 246, 255, 0.92)' : '#fff',
+                                background: isSameDay(day, new Date()) ? 'var(--pulse-brand-blue-soft)' : 'var(--mantine-color-body)',
                               }}
                             >
                               <Group justify="space-between" align="center">
@@ -900,7 +900,7 @@ export function CalendarWorkspace({
                                 style={{
                                   height: TIME_GRID_ROW_HEIGHT,
                                   paddingTop: 4,
-                                  borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                  borderTop: '1px solid var(--pulse-border)',
                                 }}
                               >
                                 <Text size="xs" c="dimmed">{formatTime(labelDate)}</Text>
@@ -919,10 +919,10 @@ export function CalendarWorkspace({
                               style={{
                                 position: 'relative',
                                 height: timeGridHeight,
-                                borderLeft: '1px solid rgba(226, 232, 240, 0.95)',
-                                borderRight: '1px solid rgba(226, 232, 240, 0.95)',
-                                borderBottom: '1px solid rgba(226, 232, 240, 0.95)',
-                                background: isSameDay(day, new Date()) ? 'rgba(248, 250, 252, 0.85)' : '#fff',
+                                borderLeft: '1px solid var(--pulse-border)',
+                                borderRight: '1px solid var(--pulse-border)',
+                                borderBottom: '1px solid var(--pulse-border)',
+                                background: isSameDay(day, new Date()) ? 'var(--pulse-surface-muted)' : 'var(--mantine-color-body)',
                               }}
                             >
                               {timeGridHours.map((hour) => {
@@ -948,7 +948,7 @@ export function CalendarWorkspace({
                                       width: '100%',
                                       height: TIME_GRID_ROW_HEIGHT,
                                       border: 0,
-                                      borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                      borderTop: '1px solid var(--pulse-border)',
                                       background: 'transparent',
                                       cursor: 'pointer',
                                     }}
@@ -984,8 +984,8 @@ export function CalendarWorkspace({
                                         borderRadius: 12,
                                         border: selectedEvent?.id === placement.item.id
                                           ? '2px solid rgba(59, 130, 246, 0.95)'
-                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, white)`,
-                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, white)`,
+                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, var(--mantine-color-body))`,
+                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, var(--mantine-color-body))`,
                                         boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
                                         padding: '8px 10px',
                                         textAlign: 'left',
@@ -1053,7 +1053,7 @@ export function CalendarWorkspace({
                           tabIndex={0}
                           style={{
                             minHeight: 140,
-                            background: inCurrentMonth ? undefined : 'rgba(248, 250, 252, 0.7)',
+                            background: inCurrentMonth ? undefined : 'var(--pulse-surface-muted)',
                             cursor: 'pointer',
                             textAlign: 'left',
                           }}
@@ -1090,7 +1090,7 @@ export function CalendarWorkspace({
                                     borderRadius: 10,
                                     padding: '8px 10px',
                                     textAlign: 'left',
-                                    background: selectedEvent?.id === item.id ? 'rgba(239, 246, 255, 0.95)' : '#fff',
+                                    background: selectedEvent?.id === item.id ? 'var(--pulse-brand-blue-soft)' : 'var(--mantine-color-body)',
                                     cursor: 'pointer',
                                   }}
                                 >
@@ -1158,7 +1158,7 @@ export function CalendarWorkspace({
                               p="sm"
                               withBorder
                               style={{
-                                background: isSameDay(day, new Date()) ? 'rgba(239, 246, 255, 0.92)' : '#fff',
+                                background: isSameDay(day, new Date()) ? 'var(--pulse-brand-blue-soft)' : 'var(--mantine-color-body)',
                               }}
                             >
                               <Stack gap={0} align="center">
@@ -1180,7 +1180,7 @@ export function CalendarWorkspace({
                                 style={{
                                   height: TIME_GRID_ROW_HEIGHT,
                                   paddingTop: 4,
-                                  borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                  borderTop: '1px solid var(--pulse-border)',
                                 }}
                               >
                                 <Text size="xs" c="dimmed">{formatTime(labelDate)}</Text>
@@ -1199,10 +1199,10 @@ export function CalendarWorkspace({
                               style={{
                                 position: 'relative',
                                 height: timeGridHeight,
-                                borderLeft: '1px solid rgba(226, 232, 240, 0.95)',
-                                borderRight: '1px solid rgba(226, 232, 240, 0.95)',
-                                borderBottom: '1px solid rgba(226, 232, 240, 0.95)',
-                                background: isSameDay(day, new Date()) ? 'rgba(248, 250, 252, 0.85)' : '#fff',
+                                borderLeft: '1px solid var(--pulse-border)',
+                                borderRight: '1px solid var(--pulse-border)',
+                                borderBottom: '1px solid var(--pulse-border)',
+                                background: isSameDay(day, new Date()) ? 'var(--pulse-surface-muted)' : 'var(--mantine-color-body)',
                               }}
                             >
                               {timeGridHours.map((hour) => {
@@ -1228,7 +1228,7 @@ export function CalendarWorkspace({
                                       width: '100%',
                                       height: TIME_GRID_ROW_HEIGHT,
                                       border: 0,
-                                      borderTop: '1px solid rgba(226, 232, 240, 0.95)',
+                                      borderTop: '1px solid var(--pulse-border)',
                                       background: 'transparent',
                                       cursor: 'pointer',
                                     }}
@@ -1264,8 +1264,8 @@ export function CalendarWorkspace({
                                         borderRadius: 12,
                                         border: selectedEvent?.id === placement.item.id
                                           ? '2px solid rgba(59, 130, 246, 0.95)'
-                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, white)`,
-                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, white)`,
+                                          : `1px solid color-mix(in srgb, var(--mantine-color-${meta.color}-6) 45%, var(--mantine-color-body))`,
+                                        background: `color-mix(in srgb, var(--mantine-color-${meta.color}-1) 85%, var(--mantine-color-body))`,
                                         boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
                                         padding: '8px 10px',
                                         textAlign: 'left',

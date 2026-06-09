@@ -108,13 +108,36 @@ const theme = createTheme({
   },
 });
 
-// WCAG AA: Mantine's default dimmed text (gray.6, ~3.5:1 on white) fails the 4.5:1 body floor.
-// Emit a darker dimmed token via the resolver — applied by Mantine itself, so it is not subject
-// to globals.css build caching/cascade. (Dark value reserved for future dark-mode work.)
+// Scheme-aware design tokens, emitted by Mantine itself (so they flip with the color scheme and
+// are not subject to globals.css cascade/build-cache issues).
+// - --mantine-color-dimmed: darkened in light for WCAG AA body text (~7:1).
+// - --pulse-*: brand/surface/border tokens, with dark-mode equivalents.
 const resolveCssVariables = () => ({
   variables: {},
-  light: { '--mantine-color-dimmed': '#4b5563' },
-  dark: { '--mantine-color-dimmed': '#9ca3af' },
+  light: {
+    '--mantine-color-dimmed': '#4b5563',
+    '--pulse-brand-blue': '#1d4ed8',
+    '--pulse-brand-blue-soft': '#dbeafe',
+    '--pulse-warning-orange': '#f97316',
+    '--pulse-warning-orange-soft': '#ffedd5',
+    '--pulse-blocker-red': '#dc2626',
+    '--pulse-blocker-red-soft': '#fee2e2',
+    '--pulse-surface': '#ffffff',
+    '--pulse-surface-muted': '#f8fafc',
+    '--pulse-border': '#e2e8f0',
+  },
+  dark: {
+    '--mantine-color-dimmed': '#a6adba',
+    '--pulse-brand-blue': '#4dabf7',
+    '--pulse-brand-blue-soft': '#1b2a44',
+    '--pulse-warning-orange': '#ffa94d',
+    '--pulse-warning-orange-soft': '#3a2a17',
+    '--pulse-blocker-red': '#ff8787',
+    '--pulse-blocker-red-soft': '#3a1f22',
+    '--pulse-surface': '#1a1b1e',
+    '--pulse-surface-muted': '#141517',
+    '--pulse-border': '#2c2e33',
+  },
 });
 
 export function AppProviders({ children }: { children: ReactNode }) {

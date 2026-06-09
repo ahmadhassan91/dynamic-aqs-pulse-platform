@@ -324,7 +324,8 @@ function buildTimeGridPlacements(items: CalendarEventSummary[], day: Date): Time
     return {
       item: placement.item,
       top: (startMinutes / 60) * TIME_GRID_ROW_HEIGHT,
-      height: Math.max((durationMinutes / 60) * TIME_GRID_ROW_HEIGHT, 28),
+      // WCAG 2.5.5: keep the clickable event block >= 44px tall even for short slots
+      height: Math.max((durationMinutes / 60) * TIME_GRID_ROW_HEIGHT, 44),
       laneIndex: placement.laneIndex,
       laneCount: placement.laneCount,
     };

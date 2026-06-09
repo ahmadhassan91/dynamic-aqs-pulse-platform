@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Alert, Badge, Box, Button, Card, Grid, Group, Modal, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Box, Button, Card, CopyButton, Grid, Group, Modal, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { DealerPortalAccessRoleKey, DealerPortalDashboardResponse } from '@pulse/contracts';
 import { createCurrentDealerPortalUser, updateCurrentDealerPortalUser } from '@/lib/pulse-api';
@@ -208,8 +208,23 @@ export function DealerAccountCenter({ dashboard }: { dashboard: DealerPortalDash
             </Alert>
           )}
           {lastInvitePath ? (
-            <Alert color="green" variant="light">
-              Invite link created: {lastInvitePath}
+            <Alert color="green" variant="light" title="Invite link created">
+              <Group gap="xs" wrap="nowrap" align="flex-end">
+                <TextInput
+                  readOnly
+                  aria-label="Dealer invite link"
+                  value={typeof window !== 'undefined' ? `${window.location.origin}${lastInvitePath}` : lastInvitePath}
+                  style={{ flex: 1 }}
+                  styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
+                />
+                <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}${lastInvitePath}` : lastInvitePath}>
+                  {({ copied, copy }) => (
+                    <Button color={copied ? 'teal' : 'green'} onClick={copy} style={{ minHeight: 44 }}>
+                      {copied ? 'Copied' : 'Copy link'}
+                    </Button>
+                  )}
+                </CopyButton>
+              </Group>
             </Alert>
           ) : null}
           {currentDashboard.companyUsers.length === 0 ? (

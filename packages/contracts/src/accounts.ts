@@ -51,6 +51,9 @@ export interface AccountSummary {
   consignment?: ConsignmentAccountReadModel;
   lastOrderAt?: string;
   lastEngagementAt?: string;
+  // Server-derived approximate map coordinates (city/state level) for field-map pins.
+  latitude?: number;
+  longitude?: number;
   isActive: boolean;
   contactCount: number;
   locationCount: number;

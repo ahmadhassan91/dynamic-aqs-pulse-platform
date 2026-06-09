@@ -8,7 +8,7 @@ import {
   deriveAccountMapStatus,
   type AccountMapStatus,
 } from '@/lib/account-map-status';
-import { US_CENTER_LNG_LAT, deriveStubCoordinate } from '@/lib/map-stub-coordinates';
+import { US_CENTER_LNG_LAT, deriveStubCoordinate, type LngLat } from '@/lib/map-stub-coordinates';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { colors, radius, softShadow, spacing, typography } from '@/theme';
 
@@ -25,7 +25,10 @@ export default function MapScreen() {
         .map((account) => ({
           account,
           status: deriveAccountMapStatus(account),
-          coordinate: deriveStubCoordinate(account.id),
+          coordinate:
+            typeof account.longitude === 'number' && typeof account.latitude === 'number'
+              ? ([account.longitude, account.latitude] as LngLat)
+              : deriveStubCoordinate(account.id),
         }))
         .filter((marker) => active.has(marker.status)),
     [accounts, active],
@@ -78,8 +81,8 @@ export default function MapScreen() {
           }}
         >
           <Text style={{ ...typography.caption, color: colors.text }}>
-            Demo positions — accounts are shown at placeholder locations until the backend provides
-            account geo data. Colors and filters are real.
+            Approximate positions — accounts are placed by their city/state; any without a saved
+            location fall back to a placeholder. Colors, filters, and ownership are live.
           </Text>
         </View>
         {errorMessage ? (

@@ -3648,7 +3648,7 @@ const STATE_COORDINATES: Record<string, [number, number]> = {
   DC: [-77.0, 38.9],
 };
 
-function deriveApproximateCoordinates(input: {
+export function deriveApproximateCoordinates(input: {
   key: string;
   city?: string;
   state?: string;

@@ -36,7 +36,7 @@ import {
   toGroupAxisSelectionKey,
   toGroupClassificationKey,
 } from '../reference/group-classification.js';
-import { syncAccountTerritoryAssignment } from '../territories/service.js';
+import { deriveApproximateCoordinates, syncAccountTerritoryAssignment } from '../territories/service.js';
 
 const ACCOUNT_ENTITY_TYPE = 'ACCOUNT';
 const LOCATION_ENTITY_TYPE = 'ACCOUNT_LOCATION';
@@ -1601,6 +1601,7 @@ function toAccountSummary(account: {
     locations: number;
     consignmentSites?: number;
   };
+  locations?: Array<{ city: string | null; state: string | null; isPrimary: boolean }>;
 }): AccountSummary {
   const summary: AccountSummary = {
     id: account.id,
@@ -1614,6 +1615,18 @@ function toAccountSummary(account: {
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
   };
+  // Server-derived approximate map coordinates from the primary location's city/state, so the field
+  // map can place account pins without an external geocoder (same logic the territory map uses).
+  const primaryLocation = account.locations?.find((loc) => loc.isPrimary) ?? account.locations?.[0];
+  if (primaryLocation?.state) {
+    const coords = deriveApproximateCoordinates({
+      key: account.id,
+      ...(primaryLocation.city ? { city: primaryLocation.city } : {}),
+      state: primaryLocation.state,
+    });
+    summary.latitude = coords.latitude;
+    summary.longitude = coords.longitude;
+  }
   if (account._count.consignmentSites !== undefined) {
     summary.consignment = {
       accountId: account.id,

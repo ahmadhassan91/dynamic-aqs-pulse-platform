@@ -2,15 +2,17 @@ import { Link } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import type { AccountSummary } from '@pulse/contracts/accounts';
 import { Pill } from '@/components/native-kit';
+import { ACCOUNT_MAP_STATUS_META, deriveAccountMapStatus } from '@/lib/account-map-status';
 import { formatDate, initials } from '@/lib/format';
 import { colors, radius, softShadow, spacing, typography } from '@/theme';
 
 export function AccountCard({ account }: { account: AccountSummary }) {
+  const statusMeta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account)];
   return (
     <Link href={{ pathname: '/account/[id]', params: { id: account.id } }} asChild>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open account: ${account.displayName}`}
+        accessibilityLabel={`Open account: ${account.displayName} — ${statusMeta.label}`}
         style={({ pressed }) => ({
           backgroundColor: colors.surface,
           borderRadius: radius.lg,
@@ -37,6 +39,19 @@ export function AccountCard({ account }: { account: AccountSummary }) {
             }}
           >
             <Text style={{ color: colors.primaryDeep, fontWeight: '800' }}>{initials(account.displayName)}</Text>
+            <View
+              style={{
+                position: 'absolute',
+                right: -2,
+                bottom: -2,
+                width: 14,
+                height: 14,
+                borderRadius: radius.full,
+                backgroundColor: statusMeta.color,
+                borderWidth: 2,
+                borderColor: colors.surface,
+              }}
+            />
           </View>
           <View style={{ flex: 1, gap: 3 }}>
             <Text selectable style={{ ...typography.subtitle, color: colors.text }}>

@@ -18,7 +18,7 @@
 
 .control[data-active] {
   background-color: var(--mantine-color-blue-1, #e7f5ff);
-  color: var(--mantine-color-blue-6, #228be6);
+  color: var(--mantine-color-blue-9, #1864ab);
 }
 
 .link {
@@ -41,7 +41,7 @@
 
 .link[data-active] {
   background-color: var(--mantine-color-blue-1, #e7f5ff);
-  color: var(--mantine-color-blue-6, #228be6);
+  color: var(--mantine-color-blue-9, #1864ab);
   border-color: var(--mantine-color-blue-6, #228be6);
 }
 

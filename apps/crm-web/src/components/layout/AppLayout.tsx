@@ -58,7 +58,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                       <Text fw={500} size="sm" lh={1} mr={3}>
                         {displayName}
                       </Text>
-                      <Badge size="xs" color="grape" variant="light">
+                      <Badge size="xs" color="grape" variant="light" styles={{ label: { color: 'var(--mantine-color-grape-9)' } }}>
                         {currentAuth.identity.role}
                       </Badge>
                       <IconChevronDown style={{ width: rem(12), height: rem(12) }} stroke={1.5} />

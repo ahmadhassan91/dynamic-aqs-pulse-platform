@@ -37,7 +37,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-audio"
+      "expo-audio",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true

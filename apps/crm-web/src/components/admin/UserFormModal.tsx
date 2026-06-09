@@ -6,6 +6,7 @@ import {
   Button,
   Group,
   Modal,
+  PasswordInput,
   Select,
   Stack,
   Switch,
@@ -175,7 +176,7 @@ export function UserFormModal({
           ) : null}
 
           {!user ? (
-            <TextInput
+            <PasswordInput
               label="Temporary Password"
               placeholder="Leave blank to auto-generate"
               value={values.password}

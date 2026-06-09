@@ -379,6 +379,8 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Primary Contact Cell Phone"
                     value={formState.primaryContactCellPhone ?? ''}
                     onChange={(event) => updateField('primaryContactCellPhone', event.currentTarget.value)}
+                    type="tel"
+                    inputMode="tel"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -412,6 +414,8 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Owner / GM Cell Phone"
                     value={formState.ownerManagerCellPhone ?? ''}
                     onChange={(event) => updateField('ownerManagerCellPhone', event.currentTarget.value)}
+                    type="tel"
+                    inputMode="tel"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -439,6 +443,8 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Company Phone"
                     value={formState.companyPhone ?? ''}
                     onChange={(event) => updateField('companyPhone', event.currentTarget.value)}
+                    type="tel"
+                    inputMode="tel"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -473,6 +479,7 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="ZIP"
                     value={formState.physicalZip ?? ''}
                     onChange={(event) => updateField('physicalZip', event.currentTarget.value)}
+                    inputMode="numeric"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -507,6 +514,7 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Billing ZIP"
                     value={formState.billingZip ?? ''}
                     onChange={(event) => updateField('billingZip', event.currentTarget.value)}
+                    inputMode="numeric"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -560,6 +568,8 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Ordering Contact Phone"
                     value={formState.orderingContactCellPhone ?? ''}
                     onChange={(event) => updateField('orderingContactCellPhone', event.currentTarget.value)}
+                    type="tel"
+                    inputMode="tel"
                     disabled={!isEditable}
                   />
                 </Grid.Col>
@@ -585,6 +595,8 @@ export function CisPublicForm({ token }: CisPublicFormProps) {
                     label="Accounts Payable Phone"
                     value={formState.apDirectPhone ?? ''}
                     onChange={(event) => updateField('apDirectPhone', event.currentTarget.value)}
+                    type="tel"
+                    inputMode="tel"
                     disabled={!isEditable}
                   />
                 </Grid.Col>

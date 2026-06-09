@@ -26,6 +26,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       padding={0}
       style={{ minHeight: '100vh' }}
     >
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group>
@@ -93,7 +94,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <Navigation />
       </AppShell.Navbar>
 
-      <AppShell.Main>{children}</AppShell.Main>
+      <AppShell.Main id="main-content" tabIndex={-1}>{children}</AppShell.Main>
     </AppShell>
   );
 }

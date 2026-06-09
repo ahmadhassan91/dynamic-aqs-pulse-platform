@@ -181,7 +181,9 @@ body {
 .mantine-Alert-root[data-color='orange'] {
   --badge-bg: var(--pulse-warning-orange-soft);
   --badge-color: #9a3412;
-  --alert-color: var(--pulse-warning-orange);
+  /* WCAG AA: alert/warning TEXT uses the darker amber (~5.9:1 on white); the bright
+     --pulse-warning-orange is reserved for icons/borders (3:1 non-text rule). */
+  --alert-color: #9a3412;
 }
 
 .mantine-Badge-root[data-color='red'],
@@ -189,4 +191,40 @@ body {
   --badge-bg: var(--pulse-blocker-red-soft);
   --badge-color: #991b1b;
   --alert-color: var(--pulse-blocker-red);
+}
+
+/* Eyebrow kicker — referenced as className="eyebrow" across the dealer surfaces but
+   was previously undefined (rendered as unstyled text). */
+.eyebrow {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pulse-brand-blue);
+}
+
+/* A11y: skip-to-main link, off-screen until keyboard-focused (WCAG 2.4.1). */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -56px;
+  z-index: 2000;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--pulse-brand-blue);
+  color: #ffffff;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: top 120ms ease;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* A11y: visible keyboard focus indicator (>=3:1), keyboard-only via :focus-visible. */
+:focus-visible {
+  outline: 3px solid var(--pulse-brand-blue);
+  outline-offset: 2px;
 }

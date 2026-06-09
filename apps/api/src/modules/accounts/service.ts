@@ -65,6 +65,15 @@ const ACCOUNT_SUMMARY_INCLUDE = {
       displayName: true,
     },
   },
+  // Minimal location fields so list results (used by the mobile field map) can derive map coordinates
+  // in toAccountSummary, not just the location count.
+  locations: {
+    select: {
+      city: true,
+      state: true,
+      isPrimary: true,
+    },
+  },
   _count: {
     select: {
       contacts: true,

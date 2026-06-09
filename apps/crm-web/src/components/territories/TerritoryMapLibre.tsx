@@ -691,7 +691,7 @@ export function TerritoryMapLibre({
           minWidth: isOverlayExpanded ? 300 : 190,
           maxWidth: 300,
           backdropFilter: 'blur(10px)',
-          background: 'rgba(255,255,255,0.94)',
+          background: colorScheme === 'dark' ? 'rgba(26, 27, 30, 0.94)' : 'rgba(255, 255, 255, 0.94)',
           zIndex: 2,
         }}
       >

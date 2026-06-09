@@ -78,7 +78,7 @@ import { TerritoryCalendarFeed } from './TerritoryCalendarFeed';
 import { TerritoryMapLibre } from './TerritoryMapLibre';
 import { TerritoryCommandDashboard, type TerritoryNextWorkItem } from './TerritoryCommandDashboard';
 import { TerritoryOperationsPanel } from './TerritoryOperationsPanel';
-import { EmptyStateMessage, RowActionMenu, WorkbenchMoreMenu } from '@/components/ui/Workbench';
+import { EmptyStateMessage, RowActionMenu, WorkbenchHeader, WorkbenchMoreMenu } from '@/components/ui/Workbench';
 
 type TerritoryTab = 'dashboard' | 'map' | 'list' | 'admin' | 'calendar';
 type TerritoryRegistryView = 'territories' | 'regions' | 'gaps' | 'leads' | 'accounts';
@@ -961,44 +961,34 @@ export function TerritoryManagement({
 
   return (
     <Stack gap="lg">
-      <Paper withBorder radius="xl" p="xl" className="premium-hero-panel">
-        <Group justify="space-between" align="flex-start" gap="xl">
-          <Stack gap="xs" maw={840}>
-            <Title order={1}>Territory Management</Title>
-            <Text c="dimmed" size="sm">
-              {assignableUsers.territoryManagers.length} Territory Managers • {shippingCenters.filter((item) => item.isActive).length} Shipping Hubs • Scoped territory work from account, lead, training, and consignment state.
-            </Text>
-            {policy ? (
-              <Text c="dimmed" size="xs" mt={4}>
-                <Text component="span" fw={600} c="dimmed">Workspace scope:</Text>{' '}
-                {canAdminTerritory
-                  ? 'Coverage, owner, and shipping-center changes apply immediately to the territory map, records, and routing.'
-                  : 'You are seeing the territories, customers, leads, and history available to your role.'}
-              </Text>
-            ) : null}
-          </Stack>
-
-          <Group gap="sm" align="center">
-            <WorkbenchMoreMenu
-              items={[
-                {
-                  id: 'refresh-territory-dashboard',
-                  label: isLoading ? 'Refreshing...' : 'Refresh workspace',
-                  icon: <IconRefresh size={16} />,
-                  disabled: isLoading,
-                  onClick: () => setRefreshNonce((value) => value + 1),
-                },
-                ...((canAdminTerritory || canReassignTerritory) ? [{
-                  id: 'setup-transfers',
-                  label: 'Setup & transfers',
-                  icon: <IconArrowRight size={16} />,
-                  onClick: () => handleTabChange('admin'),
-                }] : []),
-              ]}
-            />
-          </Group>
-        </Group>
-      </Paper>
+      <WorkbenchHeader
+        title="Territory Management"
+        description={`${assignableUsers.territoryManagers.length} Territory Managers • ${shippingCenters.filter((item) => item.isActive).length} Shipping Hubs • Scoped territory work from account, lead, training, and consignment state.`}
+        {...(policy ? {
+          policyText: canAdminTerritory
+            ? 'Workspace scope: Coverage, owner, and shipping-center changes apply immediately to the territory map, records, and routing.'
+            : 'Workspace scope: You are seeing the territories, customers, leads, and history available to your role.',
+        } : {})}
+        actions={(
+          <WorkbenchMoreMenu
+            items={[
+              {
+                id: 'refresh-territory-dashboard',
+                label: isLoading ? 'Refreshing...' : 'Refresh workspace',
+                icon: <IconRefresh size={16} />,
+                disabled: isLoading,
+                onClick: () => setRefreshNonce((value) => value + 1),
+              },
+              ...((canAdminTerritory || canReassignTerritory) ? [{
+                id: 'setup-transfers',
+                label: 'Setup & transfers',
+                icon: <IconArrowRight size={16} />,
+                onClick: () => handleTabChange('admin'),
+              }] : []),
+            ]}
+          />
+        )}
+      />
 
       {errorMessage ? (
         <Alert icon={<IconAlertCircle size={18} />} color="red" radius="xl" variant="light">

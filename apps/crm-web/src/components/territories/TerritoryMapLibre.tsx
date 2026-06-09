@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActionIcon, Box, Collapse, Group, Paper, Stack, Text } from '@mantine/core';
+import { ActionIcon, Box, Collapse, Group, Paper, Stack, Text, useComputedColorScheme } from '@mantine/core';
 import { IconBuildingWarehouse, IconChevronDown, IconChevronUp, IconMapPin, IconUsers } from '@tabler/icons-react';
 import type {
   TerritoryMapCoverageEntrySummary,
@@ -214,6 +214,13 @@ function buildShippingPopupMarkup(center: TerritoryMapShippingCenterSummary) {
   `;
 }
 
+// CARTO raster basemap tiles, scheme-aware: voyager (light) / dark_all (dark) so the basemap matches
+// the app color scheme instead of showing a bright light map inside the dark UI.
+function cartoTileUrls(scheme: 'light' | 'dark'): string[] {
+  const base = scheme === 'dark' ? 'dark_all' : 'voyager';
+  return ['a', 'b', 'c'].map((sub) => `https://${sub}.basemaps.cartocdn.com/rastertiles/${base}/{z}/{x}/{y}@2x.png`);
+}
+
 export function TerritoryMapLibre({
   coverageEntries,
   pins,
@@ -260,6 +267,8 @@ export function TerritoryMapLibre({
   const onPinClickRef = useRef(onPinClick);
   const showBoundariesRef = useRef(showBoundaries);
   const showPinsRef = useRef(showPins);
+  const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
+  const colorSchemeRef = useRef(colorScheme);
 
   useEffect(() => {
     pinsRef.current = pins;
@@ -285,6 +294,15 @@ export function TerritoryMapLibre({
     showPinsRef.current = showPins;
   }, [showPins]);
 
+  // Swap the basemap tiles when the color scheme changes (without re-initializing the map).
+  useEffect(() => {
+    colorSchemeRef.current = colorScheme;
+    const source = (mapRef.current as unknown as {
+      getSource?: (id: string) => { setTiles?: (tiles: string[]) => void } | undefined;
+    } | null)?.getSource?.('carto');
+    source?.setTiles?.(cartoTileUrls(colorScheme));
+  }, [colorScheme]);
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
       return;
@@ -308,11 +326,7 @@ export function TerritoryMapLibre({
             sources: {
               carto: {
                 type: 'raster',
-                tiles: [
-                  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-                  'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-                  'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-                ],
+                tiles: cartoTileUrls(colorSchemeRef.current),
                 tileSize: 256,
                 attribution: '© CARTO · OpenStreetMap contributors',
               },

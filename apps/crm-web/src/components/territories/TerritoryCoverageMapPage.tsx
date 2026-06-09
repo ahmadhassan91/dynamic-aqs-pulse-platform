@@ -774,7 +774,7 @@ export function TerritoryCoverageMapPage() {
                     />
                   </Group>
 
-                  <Paper radius="lg" p="sm" withBorder style={{ background: 'rgba(248, 250, 252, 0.92)' }}>
+                  <Paper radius="lg" p="sm" withBorder style={{ background: 'var(--pulse-surface-muted)' }}>
                     <Group justify="space-between" align="flex-start" wrap="wrap">
                       <Stack gap={2}>
                         <Text size="sm" fw={700}>
@@ -800,7 +800,7 @@ export function TerritoryCoverageMapPage() {
                       height: 680,
                       borderRadius: 20,
                       overflow: 'hidden',
-                      border: '1px solid rgba(15, 23, 42, 0.08)',
+                      border: '1px solid var(--pulse-border)',
                     }}
                   >
                     <TerritoryMapLibre
@@ -813,7 +813,7 @@ export function TerritoryCoverageMapPage() {
                     />
                   </Box>
 
-                  <Paper radius="lg" p="sm" withBorder style={{ background: 'rgba(248, 250, 252, 0.9)' }}>
+                  <Paper radius="lg" p="sm" withBorder style={{ background: 'var(--pulse-surface-muted)' }}>
                     <Group gap="lg" wrap="wrap">
                       <Group gap="xs">
                         <Text fw={700}>Legend</Text>

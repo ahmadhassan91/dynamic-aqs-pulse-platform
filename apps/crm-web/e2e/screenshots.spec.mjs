@@ -71,6 +71,11 @@ test('capture implemented surfaces', async ({ page }) => {
       await page.goto(route);
       await shot(page, `${name}-dark`);
     }
+    // Territory coverage map — verify the basemap tiles + overlay panels are dark-scheme.
+    await page.goto('/territory_map');
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(2200);
+    await shot(page, '11-territory-map-dark');
   } catch (err) {
     console.log(`[shot] dark mode skipped: ${err}`);
   }

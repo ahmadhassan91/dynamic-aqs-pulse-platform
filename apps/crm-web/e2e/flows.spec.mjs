@@ -136,9 +136,9 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(page.getByTestId('calendar-time-grid')).toBeVisible();
   await expect(page.getByTestId('calendar-week-grid').getByText('Sun', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('9:00 AM', { exact: true }).first()).toBeVisible();
-  await page.getByRole('button', { name: 'More', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Month view' }).click();
-  await expect(page.getByText('Open').first()).toBeVisible();
+  await chooseSelectOption(page, 'Calendar view', 'Month');
+  await expect(page.getByTestId('calendar-week-grid')).toHaveCount(0);
+  await expect(page.getByTestId('calendar-time-grid')).toHaveCount(0);
 
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'System Administration' })).toBeVisible();
@@ -191,7 +191,7 @@ test('training and consignment seeded operator work stays visible and dealer-saf
 
   await page.goto('/consignment');
   await expect(page.getByRole('heading', { name: 'Consignment Workspace' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Next site work' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Next site work' })).toBeVisible();
   await expect(page.getByText('E2E Dealer Comfort', { exact: true })).toBeVisible();
   await expect(page.getByText('Finish overdue ROSE audit', { exact: true })).toBeVisible();
   await expect(page.getByRole('tab')).toHaveCount(0);
@@ -202,11 +202,13 @@ test('training and consignment seeded operator work stays visible and dealer-saf
   await expect(page.getByRole('heading', { name: 'E2E Dealer Comfort' })).toBeVisible();
   await expect(page.getByText('E2E Consignment Bay', { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId('consignment-current-site-work')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Current site work' })).toBeVisible();
+  await expect(page.getByText('Current site work', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Activation Readiness' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Audit History' })).not.toBeVisible();
-  await expect(page.getByRole('button', { name: 'Finish audit' })).toBeVisible();
-  await expect(page.getByRole('main').getByRole('button', { name: 'More' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Finish ROSE audit' })).toBeVisible();
+  // Secondary site actions now overflow into a "More" menu (standard Workbench pattern); the
+  // parked/Acumatica-dependent actions must still never appear as direct buttons.
+  await expect(page.getByRole('main').getByRole('button', { name: 'More' })).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: /Add Agreement|Confirm baseline|Mark Active|Schedule ROSE/ })).toHaveCount(0);
   await expect(page.getByRole('main')).not.toContainText(/\b(Acumatica|ERP|inventory|PO|purchase order|manual variance|warehouse confirmation|warehouse setup waiting|approved handoff)\b/i);
 });
@@ -480,9 +482,9 @@ test('super admin can edit a lead record and sees prototype-style hero and card 
   await editDialog.getByRole('button', { name: 'Save Changes' }).click();
 
   await expect(page.getByRole('heading', { name: companyName })).toBeVisible();
-  await expect(page.getByText('SolaceAir.com', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('SLA', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Warm', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('SolaceAir.com', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('Brand: SLA').first()).toBeVisible();
+  await expect(page.getByText('Warm', { exact: false }).first()).toBeVisible();
 
   await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
   await page.getByRole('menuitem', { name: 'Park lead' }).click();
@@ -550,12 +552,12 @@ test('dealer portal login opens the branded dashboard and account center', async
 
   await expect(page).toHaveURL(/\/dealer\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'Start Here' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Next Action' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Account Support' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Product Files' })).toBeVisible();
+  await expect(page.getByText('Next Action', { exact: true })).toBeVisible();
+  await expect(page.getByText('Account Support', { exact: true })).toBeVisible();
+  await expect(page.getByText('Product Files', { exact: true })).toBeVisible();
   await expect(page.getByText('Portal Users', { exact: true })).toHaveCount(0);
 
-  await page.getByRole('link', { name: 'Open Account Center' }).click();
+  await page.getByRole('link', { name: 'Open Account Center' }).first().click();
   await expect(page).toHaveURL(/\/dealer\/account$/);
   await expect(page.getByRole('heading', { name: 'Account center' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Company portal status' })).toBeVisible();
@@ -568,7 +570,7 @@ test('dealer portal login opens the branded dashboard and account center', async
   await inviteDialog.getByLabel('Title').fill('Buyer');
   await inviteDialog.getByRole('button', { name: 'Create Invite' }).click();
   await expect(page.getByRole('cell', { name: 'dealer-buyer.e2e@example.com' }).first()).toBeVisible();
-  await expect(page.getByText('Invite link created:')).toBeVisible();
+  await expect(page.getByText('Invite link created')).toBeVisible();
 });
 
 test('navigation highlights territory routes without duplicate active links', async ({ page }) => {

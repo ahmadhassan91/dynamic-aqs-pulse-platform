@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { colors, liftShadow, radius, softShadow, spacing, statusColor, typography } from '@/theme';
 
 export function Screen({ children }: { children: ReactNode }) {
@@ -13,6 +13,41 @@ export function Screen({ children }: { children: ReactNode }) {
     >
       {children}
     </ScrollView>
+  );
+}
+
+// Virtualized list screen: a FlatList with the same padding/background as Screen, plus a
+// non-virtualized header region. Use this instead of <Screen>{items.map(...)}</Screen> for any
+// data-driven list so large territories/queues don't render every row up-front (P0-3).
+export function ListScreen<T>({
+  data,
+  renderItem,
+  keyExtractor,
+  header,
+  empty,
+}: {
+  data: ReadonlyArray<T>;
+  renderItem: (item: T, index: number) => ReactElement | null;
+  keyExtractor: (item: T, index: number) => string;
+  header?: ReactNode;
+  empty?: ReactNode;
+}) {
+  return (
+    <FlatList
+      data={data as T[]}
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136, gap: spacing.md }}
+      keyboardShouldPersistTaps="handled"
+      keyExtractor={keyExtractor}
+      renderItem={({ item, index }) => renderItem(item, index)}
+      ListHeaderComponent={header ? <View style={{ gap: spacing.lg, marginBottom: spacing.md }}>{header}</View> : null}
+      ListEmptyComponent={empty ? <>{empty}</> : null}
+      removeClippedSubviews
+      initialNumToRender={10}
+      maxToRenderPerBatch={10}
+      windowSize={11}
+    />
   );
 }
 

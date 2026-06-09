@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { AccountCard } from '@/components/account-card';
-import { EmptyState, ErrorState, HeroCard, LoadingState, Screen, SearchField } from '@/components/native-kit';
+import { EmptyState, ErrorState, HeroCard, ListScreen, LoadingState, SearchField } from '@/components/native-kit';
 import { useFieldData } from '@/hooks/use-mobile-data';
-import { spacing, typography } from '@/theme';
+import { typography } from '@/theme';
 
 export default function AccountsScreen() {
   const { accounts, errorMessage, isLoading } = useFieldData(50);
@@ -17,8 +17,8 @@ export default function AccountsScreen() {
       .some((value) => String(value).toLowerCase().includes(needle)));
   }, [accounts, query]);
 
-  return (
-    <Screen>
+  const header = (
+    <>
       <HeroCard title="Accounts" eyebrow="Field book" icon={{ name: 'building.2.fill', fallback: 'A' }}>
         <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
           Field-safe account list for planning visits, training work, consignment checks, and dealer portal support.
@@ -31,12 +31,18 @@ export default function AccountsScreen() {
       />
       {errorMessage ? <ErrorState message={errorMessage} /> : null}
       {isLoading ? <LoadingState label="Loading accounts..." /> : null}
-      <View style={{ gap: spacing.md }}>
-        {filtered.map((account) => <AccountCard key={account.id} account={account} />)}
-      </View>
-      {!filtered.length && !isLoading ? (
-        <EmptyState title="No accounts found" detail="Try another search or confirm customer visibility for this role." />
-      ) : null}
-    </Screen>
+    </>
+  );
+
+  return (
+    <ListScreen
+      data={filtered}
+      keyExtractor={(account) => account.id}
+      renderItem={(account) => <AccountCard account={account} />}
+      header={header}
+      empty={!filtered.length && !isLoading
+        ? <EmptyState title="No accounts found" detail="Try another search or confirm customer visibility for this role." />
+        : null}
+    />
   );
 }

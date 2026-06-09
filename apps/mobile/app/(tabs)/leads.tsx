@@ -3,7 +3,7 @@ import { Link } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import type { LeadWorkflowQueueItem } from '@pulse/contracts/leads';
 import { LeadCard } from '@/components/lead-card';
-import { EmptyState, ErrorState, HeroCard, LoadingState, Screen, SearchField, Pill } from '@/components/native-kit';
+import { EmptyState, ErrorState, HeroCard, ListScreen, LoadingState, SearchField, Pill } from '@/components/native-kit';
 import { formatDate, humanize } from '@/lib/format';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { colors, radius, softShadow, spacing, typography } from '@/theme';
@@ -29,8 +29,8 @@ export default function LeadsScreen() {
   }, [workflowQueueItems, query]);
   const visibleCount = useWorkflowQueue ? filteredQueue.length : filteredLeads.length;
 
-  return (
-    <Screen>
+  const header = (
+    <>
       <HeroCard title="Lead inbox" eyebrow="Follow-up queue" icon={{ name: 'person.crop.circle.badge.plus', fallback: 'L' }}>
         <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
           Mobile-first working list for new field activity, urgent response, and business-card capture.
@@ -50,15 +50,31 @@ export default function LeadsScreen() {
           </Text>
         </View>
       ) : null}
-      <View style={{ gap: spacing.md }}>
-        {useWorkflowQueue
-          ? filteredQueue.map((item) => <WorkflowQueueCard key={`${item.leadId}-${item.actionType}`} item={item} />)
-          : filteredLeads.map((lead) => <LeadCard key={lead.id} lead={lead} />)}
-      </View>
-      {!visibleCount && !isLoading ? (
-        <EmptyState title="No leads found" detail="Try another search or confirm this role has lead visibility." />
-      ) : null}
-    </Screen>
+    </>
+  );
+  const empty = !visibleCount && !isLoading
+    ? <EmptyState title="No leads found" detail="Try another search or confirm this role has lead visibility." />
+    : null;
+
+  if (useWorkflowQueue) {
+    return (
+      <ListScreen
+        data={filteredQueue}
+        keyExtractor={(item) => `${item.leadId}-${item.actionType}`}
+        renderItem={(item) => <WorkflowQueueCard item={item} />}
+        header={header}
+        empty={empty}
+      />
+    );
+  }
+  return (
+    <ListScreen
+      data={filteredLeads}
+      keyExtractor={(lead) => lead.id}
+      renderItem={(lead) => <LeadCard lead={lead} />}
+      header={header}
+      empty={empty}
+    />
   );
 }
 

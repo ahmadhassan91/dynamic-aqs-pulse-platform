@@ -78,6 +78,7 @@ const PAPER_MAP_MANAGER_STYLES: Array<{ tokens: string[]; color: string }> = [
   { tokens: ['doug holcomb'], color: '#7E46AA' },
   { tokens: ['tate lane'], color: '#F0AF62' },
   { tokens: ['don hearn'], color: '#1778B7' },
+  { tokens: ['kyle victor'], color: '#8E94C4' },
   { tokens: ['brett larsen', 'chase gemberling'], color: '#B7D6EA' },
   { tokens: ['john d seipel', 'john d. seipel'], color: '#ECA7B8' },
 ];

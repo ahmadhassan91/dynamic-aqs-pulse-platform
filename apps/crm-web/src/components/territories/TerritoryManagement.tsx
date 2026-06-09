@@ -997,15 +997,17 @@ export function TerritoryManagement({
       ) : null}
 
       <Tabs value={activeTab} onChange={handleTabChange} className="premium-tabs-shell" keepMounted={false}>
-        <Tabs.List>
-          {primaryPrototypeTabs.map((tab) => {
-            const Icon = TERRITORY_TAB_ICONS[tab.value];
-            return (
-              <Tabs.Tab key={tab.value} value={tab.value} leftSection={<Icon size={16} />}>
-                {getTerritoryTabLabel(tab)}
-              </Tabs.Tab>
-            );
-          })}
+        <Group justify="space-between" wrap="nowrap" align="center" gap="sm">
+          <Tabs.List style={{ flex: 1 }}>
+            {primaryPrototypeTabs.map((tab) => {
+              const Icon = TERRITORY_TAB_ICONS[tab.value];
+              return (
+                <Tabs.Tab key={tab.value} value={tab.value} leftSection={<Icon size={16} />}>
+                  {getTerritoryTabLabel(tab)}
+                </Tabs.Tab>
+              );
+            })}
+          </Tabs.List>
           <WorkbenchMoreMenu
             label={activeTab !== 'dashboard'
               ? getTerritoryTabLabel(prototypeTabs.find((tab) => tab.value === activeTab) ?? { value: activeTab, label: 'More' })
@@ -1020,7 +1022,7 @@ export function TerritoryManagement({
               };
             })}
           />
-        </Tabs.List>
+        </Group>
 
         <Tabs.Panel value="dashboard" pt="lg">
           <Stack gap="lg">

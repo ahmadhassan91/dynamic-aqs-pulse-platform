@@ -65,7 +65,7 @@ test('internal workspace auth and core module routes stay backend-wired', async 
   await expect(page.getByRole('tab', { name: 'Territory Registry' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Setup & Transfers' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Calendar' })).toHaveCount(0);
-  await page.getByRole('tablist').getByRole('button', { name: 'More' }).click();
+  await page.locator('.premium-tabs-shell').getByRole('button', { name: 'More' }).first().click();
   await expect(page.getByRole('menuitem', { name: 'Map View' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Territory Registry' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Setup & Transfers' })).toBeVisible();
@@ -648,7 +648,7 @@ test('RD and TM personas can use scoped Dynamic workspaces', async ({ browser })
     await page.goto('/territories');
     await expect(page.getByRole('heading', { name: 'Territory Management' })).toBeVisible();
     await expect(page.getByText('Scoped territory work from account, lead, training, and consignment state.')).toBeVisible();
-    await page.getByRole('tablist').getByRole('button', { name: 'More' }).click();
+    await page.locator('.premium-tabs-shell').getByRole('button', { name: 'More' }).first().click();
     await expect(page.getByRole('menuitem', { name: 'Work Queues' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Setup & Transfers' })).toHaveCount(0);
     await page.keyboard.press('Escape');

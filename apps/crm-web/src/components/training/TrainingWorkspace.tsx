@@ -824,8 +824,10 @@ export function TrainingWorkspace() {
       {overview ? (
         <>
           <Tabs value={activeTab} onChange={setActiveTab}>
-            <Tabs.List>
-              <Tabs.Tab value="ops">Priority Queue</Tabs.Tab>
+            <Group justify="space-between" wrap="nowrap" align="center" gap="sm">
+              <Tabs.List style={{ flex: 1 }}>
+                <Tabs.Tab value="ops">Priority Queue</Tabs.Tab>
+              </Tabs.List>
               <WorkbenchMoreMenu
                 label={activeTab === 'sessions' ? 'Scheduled Sessions' : activeTab === 'accounts' ? 'Account Coverage' : activeTab === 'overview' ? 'Coverage Summary' : activeTab === 'reports' ? 'Compliance Reports' : activeTab === 'admin' ? 'Catalog Setup' : 'More'}
                 items={[
@@ -861,7 +863,7 @@ export function TrainingWorkspace() {
                   },
                 ]}
               />
-            </Tabs.List>
+            </Group>
 
             <Tabs.Panel value="overview" pt="lg" data-testid="training-overview-panel">
               <SimpleGrid cols={{ base: 1, lg: 2 }}>

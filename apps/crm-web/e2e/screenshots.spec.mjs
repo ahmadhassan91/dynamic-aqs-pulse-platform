@@ -75,3 +75,24 @@ test('capture implemented surfaces', async ({ page }) => {
     console.log(`[shot] dark mode skipped: ${err}`);
   }
 });
+
+test('responsive viewports (tablet + mobile)', async ({ page }) => {
+  const fixtures = await readFixtures();
+  await page.goto('/auth/login');
+  await page.getByLabel('Email').fill(fixtures.internalAuth.email);
+  await page.getByLabel('Password').fill(fixtures.internalAuth.password);
+  await Promise.all([
+    page.waitForURL(/\/leads$/),
+    page.getByRole('button', { name: 'Sign in', exact: true }).click(),
+  ]);
+
+  const viewports = [['tablet', 768, 1024], ['mobile', 390, 844]];
+  const routes = [['leads', '/leads'], ['customers', '/customers'], ['territories', '/territories']];
+  for (const [vp, w, h] of viewports) {
+    await page.setViewportSize({ width: w, height: h });
+    for (const [name, route] of routes) {
+      await page.goto(route);
+      await shot(page, `rsp-${vp}-${name}`);
+    }
+  }
+});

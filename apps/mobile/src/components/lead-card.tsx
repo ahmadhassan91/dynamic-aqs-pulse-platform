@@ -9,6 +9,8 @@ export function LeadCard({ lead }: { lead: LeadSummary }) {
   return (
     <Link href={{ pathname: '/lead/[id]', params: { id: lead.id } }} asChild>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open lead: ${lead.companyName}`}
         style={({ pressed }) => ({
           backgroundColor: colors.surface,
           borderRadius: radius.lg,

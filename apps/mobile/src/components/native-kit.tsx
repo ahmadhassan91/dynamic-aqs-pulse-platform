@@ -193,6 +193,9 @@ export function PrimaryButton({ label, onPress, disabled, icon }: { label: strin
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       style={({ pressed }) => ({
         minHeight: 48,
         borderRadius: radius.lg,
@@ -216,6 +219,9 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       style={({ pressed }) => ({
         minHeight: 48,
         borderRadius: radius.lg,
@@ -248,6 +254,7 @@ export function Field({ label, style, ...props }: TextInputProps & { label: stri
         {label}
       </Text>
       <TextInput
+        accessibilityLabel={label}
         {...props}
         placeholderTextColor={colors.subtle}
         style={[{
@@ -322,6 +329,7 @@ export function SearchField(props: TextInputProps) {
     >
       <NativeIcon name="magnifyingglass" fallback="S" color={colors.subtle} />
       <TextInput
+        accessibilityLabel="Search"
         {...props}
         placeholderTextColor={colors.subtle}
         style={{ flex: 1, minHeight: 48, color: colors.text, ...typography.body }}

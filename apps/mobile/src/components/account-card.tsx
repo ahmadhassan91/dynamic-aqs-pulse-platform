@@ -9,6 +9,8 @@ export function AccountCard({ account }: { account: AccountSummary }) {
   return (
     <Link href={{ pathname: '/account/[id]', params: { id: account.id } }} asChild>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open account: ${account.displayName}`}
         style={({ pressed }) => ({
           backgroundColor: colors.surface,
           borderRadius: radius.lg,

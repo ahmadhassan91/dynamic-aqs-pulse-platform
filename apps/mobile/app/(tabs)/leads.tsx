@@ -82,6 +82,8 @@ function WorkflowQueueCard({ item }: { item: LeadWorkflowQueueItem }) {
   return (
     <Link href={{ pathname: '/lead/[id]', params: { id: item.leadId } }} asChild>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open lead: ${item.companyName}`}
         style={({ pressed }) => ({
           backgroundColor: colors.surface,
           borderRadius: radius.lg,

@@ -128,6 +128,7 @@ export interface TerritorySummary {
   shippingCenterName?: string;
   isActive: boolean;
   notes?: string;
+  color?: string;
   coverageStates: string[];
   createdAt: string;
   updatedAt: string;
@@ -141,6 +142,7 @@ export interface CreateTerritoryRequest {
   shippingCenterId?: string;
   isActive?: boolean;
   notes?: string;
+  color?: string | null;
 }
 
 export interface UpdateTerritoryRequest {
@@ -150,6 +152,7 @@ export interface UpdateTerritoryRequest {
   shippingCenterId?: string | null;
   isActive?: boolean;
   notes?: string | null;
+  color?: string | null;
 }
 
 export interface ReplaceTerritoryCoverageRequest {
@@ -305,6 +308,7 @@ export interface TerritoryMapCoverageEntrySummary {
   assignedRdName?: string;
   shippingCenterId?: string;
   shippingCenterName?: string;
+  territoryColor?: string;
 }
 
 export interface TerritoryMapPinSummary {

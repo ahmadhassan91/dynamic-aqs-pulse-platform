@@ -86,6 +86,19 @@ test('non-roster managers get a deterministic palette color (dynamic, not hardco
   );
 });
 
+test('an explicit per-territory color (admin-set) overrides both roster and dynamic colors', () => {
+  // explicit beats the printed-map roster color
+  assert.equal(
+    resolvePaperMapTerritoryStyle({ managerName: 'Don Hearn', explicitColor: '#123456' }).color,
+    '#123456',
+  );
+  // explicit beats the deterministic fallback for non-roster managers
+  assert.equal(
+    resolvePaperMapTerritoryStyle({ managerName: 'New TM', colorKey: 'tm-user-1', explicitColor: '#ABCDEF' }).color,
+    '#ABCDEF',
+  );
+});
+
 test('calendar prototype options keep day week month and list available in the live shell', () => {
   assert.deepEqual(getCalendarPrototypeViewOptions(), [
     { value: 'day', label: 'Day' },

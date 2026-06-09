@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  ColorInput,
   Divider,
   Group,
   Paper,
@@ -156,6 +157,7 @@ export function TerritoryOperationsPanel({
   const [newTerritoryManagerUserId, setNewTerritoryManagerUserId] = useState('');
   const [newTerritoryShippingCenterId, setNewTerritoryShippingCenterId] = useState('');
   const [newTerritoryNotes, setNewTerritoryNotes] = useState('');
+  const [newTerritoryColor, setNewTerritoryColor] = useState('');
   const [newTerritoryCoverage, setNewTerritoryCoverage] = useState<string[]>([]);
   const [newTerritoryIsActive, setNewTerritoryIsActive] = useState(true);
   const [isSavingTerritory, setIsSavingTerritory] = useState(false);
@@ -166,6 +168,7 @@ export function TerritoryOperationsPanel({
   const [editTerritoryManagerUserId, setEditTerritoryManagerUserId] = useState('');
   const [editTerritoryShippingCenterId, setEditTerritoryShippingCenterId] = useState('');
   const [editTerritoryNotes, setEditTerritoryNotes] = useState('');
+  const [editTerritoryColor, setEditTerritoryColor] = useState('');
   const [editTerritoryCoverage, setEditTerritoryCoverage] = useState<string[]>([]);
   const [editTerritoryIsActive, setEditTerritoryIsActive] = useState(true);
   const [isUpdatingTerritory, setIsUpdatingTerritory] = useState(false);
@@ -311,6 +314,7 @@ export function TerritoryOperationsPanel({
     setEditTerritoryManagerUserId(territory.managerUserId ?? '');
     setEditTerritoryShippingCenterId(territory.shippingCenterId ?? '');
     setEditTerritoryNotes(territory.notes ?? '');
+    setEditTerritoryColor(territory.color ?? '');
     setEditTerritoryCoverage(territory.coverageStates);
     setEditTerritoryIsActive(territory.isActive);
   }, [editingTerritoryId, territories]);
@@ -527,6 +531,7 @@ export function TerritoryOperationsPanel({
         ...(newTerritoryManagerUserId ? { managerUserId: newTerritoryManagerUserId } : {}),
         ...(newTerritoryShippingCenterId ? { shippingCenterId: newTerritoryShippingCenterId } : {}),
         ...(newTerritoryNotes.trim() ? { notes: newTerritoryNotes.trim() } : {}),
+        ...(newTerritoryColor.trim() ? { color: newTerritoryColor.trim() } : {}),
         isActive: newTerritoryIsActive,
       });
 
@@ -549,6 +554,7 @@ export function TerritoryOperationsPanel({
       setNewTerritoryManagerUserId('');
       setNewTerritoryShippingCenterId('');
       setNewTerritoryNotes('');
+      setNewTerritoryColor('');
       setNewTerritoryCoverage([]);
       setNewTerritoryIsActive(true);
       onRefresh();
@@ -576,6 +582,7 @@ export function TerritoryOperationsPanel({
         managerUserId: editTerritoryManagerUserId || null,
         shippingCenterId: editTerritoryShippingCenterId || null,
         notes: editTerritoryNotes.trim() || null,
+        color: editTerritoryColor.trim() || null,
         isActive: editTerritoryIsActive,
       });
 
@@ -1214,6 +1221,13 @@ export function TerritoryOperationsPanel({
                     value={newTerritoryNotes}
                     onChange={(event) => setNewTerritoryNotes(event.currentTarget.value)}
                   />
+                  <ColorInput
+                    label="Map color"
+                    description="Optional — overrides the auto-assigned territory color on the coverage map."
+                    format="hex"
+                    value={newTerritoryColor}
+                    onChange={setNewTerritoryColor}
+                  />
                   <Switch
                     checked={newTerritoryIsActive}
                     onChange={(event) => setNewTerritoryIsActive(event.currentTarget.checked)}
@@ -1309,6 +1323,13 @@ export function TerritoryOperationsPanel({
                         minRows={2}
                         value={editTerritoryNotes}
                         onChange={(event) => setEditTerritoryNotes(event.currentTarget.value)}
+                      />
+                      <ColorInput
+                        label="Map color"
+                        description="Optional — overrides the auto-assigned territory color on the coverage map."
+                        format="hex"
+                        value={editTerritoryColor}
+                        onChange={setEditTerritoryColor}
                       />
                       <Switch
                         checked={editTerritoryIsActive}

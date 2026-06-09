@@ -252,6 +252,7 @@ export function TerritoryMapLibre({
         managerName: entry.assignedTmName,
         shippingCenterName: entry.shippingCenterName,
         colorKey: entry.assignedTmUserId ?? entry.territoryId,
+        explicitColor: entry.territoryColor,
       });
       stateMap.set(`${entry.countryCode}:${entry.stateCode}`, {
         ...entry,

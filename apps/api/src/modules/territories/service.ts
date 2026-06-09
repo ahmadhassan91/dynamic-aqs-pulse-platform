@@ -1013,6 +1013,7 @@ export async function createTerritory(actor: AuthenticatedActor, input: CreateTe
   const shippingCenterId = await validateOptionalShippingCenterId(input.shippingCenterId);
   const isActive = input.isActive ?? true;
   const notes = optionalText(input.notes);
+  const color = optionalText(input.color);
 
   const created = await prisma.$transaction(async (tx) => {
     const next = await tx.territory.create({
@@ -1024,6 +1025,7 @@ export async function createTerritory(actor: AuthenticatedActor, input: CreateTe
         ...(shippingCenterId ? { shippingCenterId } : {}),
         isActive,
         ...(notes !== undefined ? { notes } : {}),
+        ...(color !== undefined ? { color } : {}),
       },
       include: TERRITORY_INCLUDE,
     });
@@ -1082,6 +1084,7 @@ export async function updateTerritory(
         ...(shippingCenterId !== undefined ? { shippingCenterId } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         ...(input.notes !== undefined ? { notes: optionalText(input.notes) ?? null } : {}),
+        ...(input.color !== undefined ? { color: optionalText(input.color) ?? null } : {}),
       },
       include: TERRITORY_INCLUDE,
     });
@@ -2625,6 +2628,7 @@ function toTerritorySummary(item: TerritoryWithRefs): TerritorySummary {
     ...(item.shippingCenter?.name ? { shippingCenterName: item.shippingCenter.name } : {}),
     isActive: item.isActive,
     ...(item.notes ? { notes: item.notes } : {}),
+    ...(item.color ? { color: item.color } : {}),
     coverageStates: item.stateCoverage.map((entry) => entry.stateCode),
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
@@ -3263,6 +3267,7 @@ function toTerritoryMapCoverageEntries(item: TerritoryWithRefs): TerritoryMapCov
     ...(item.region.directorUser?.displayName ? { assignedRdName: item.region.directorUser.displayName } : {}),
     ...(item.shippingCenterId ? { shippingCenterId: item.shippingCenterId } : {}),
     ...(item.shippingCenter?.name ? { shippingCenterName: item.shippingCenter.name } : {}),
+    ...(item.color ? { territoryColor: item.color } : {}),
   }));
 }
 

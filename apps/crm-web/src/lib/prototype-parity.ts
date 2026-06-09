@@ -29,6 +29,9 @@ type PaperMapStyleInput = {
   // managers NOT in the printed-map roster — so TMs added from admin ops get a distinct, stable
   // color without hardcoding the person.
   colorKey?: string | null | undefined;
+  // Explicit per-territory color set by an admin — wins over the printed-map roster and the
+  // deterministic fallback when present.
+  explicitColor?: string | null | undefined;
 };
 
 type PaperMapStyleSummary = {
@@ -163,6 +166,7 @@ export function resolvePaperMapTerritoryStyle({
   managerName,
   shippingCenterName,
   colorKey,
+  explicitColor,
 }: PaperMapStyleInput): PaperMapStyleSummary {
   const normalizedManagerName = normalizeLabel(managerName);
   const normalizedShippingCenterName = normalizeLabel(shippingCenterName);
@@ -175,10 +179,11 @@ export function resolvePaperMapTerritoryStyle({
     entry.tokens.some((token) => normalizedShippingCenterName.includes(token)),
   );
 
-  // Printed-map color for the known roster; otherwise a deterministic palette color keyed on the
-  // stable id (or name) so admin-added managers render with distinct, consistent colors.
+  // Admin-set explicit color wins; otherwise the printed-map roster color; otherwise a deterministic
+  // palette color keyed on the stable id (or name) so admin-added managers get distinct colors.
   const fallbackKey = normalizeLabel(colorKey) || normalizedManagerName;
-  const color = managerStyle?.color ?? (fallbackKey ? dynamicTerritoryColor(fallbackKey) : '#2563eb');
+  const explicit = (explicitColor ?? '').trim();
+  const color = explicit || (managerStyle?.color ?? (fallbackKey ? dynamicTerritoryColor(fallbackKey) : '#2563EB'));
 
   return {
     color,

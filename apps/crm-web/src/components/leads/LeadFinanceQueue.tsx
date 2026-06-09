@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Group, Modal, Paper, Select, Stack, Table, Text, Textarea, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, Paper, Select, Stack, Table, Text, Textarea } from '@mantine/core';
 import type { CisFinanceDecisionRequest, CisFinanceDecisionStatusKey, FinanceQueueItem } from '@pulse/contracts';
 import { fetchFinanceQueue } from '@/lib/pulse-api';
 import { recordFinanceQueueDecision } from '@/lib/pulse-api-ext-leads-cis';
 import { usePulseSession } from '@/lib/pulse-session';
+import { WorkbenchHeader } from '@/components/ui/Workbench';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 
 export function LeadFinanceQueue() {
@@ -96,14 +97,10 @@ export function LeadFinanceQueue() {
 
   return (
     <Stack gap="lg">
-      <Paper shadow="sm" p="lg" radius="xl" className="premium-hero-panel">
-        <Stack gap="xs">
-          <Title order={1}>Finance Queue</Title>
-          <Text size="sm" c="dimmed">
-            Review CIS packages that are waiting for finance submission or decision inside the live production workflow.
-          </Text>
-        </Stack>
-      </Paper>
+      <WorkbenchHeader
+        title="Finance Queue"
+        description="Review CIS packages that are waiting for finance submission or decision inside the live production workflow."
+      />
 
       <Paper withBorder p="md" radius="xl" className="premium-subhero-panel">
         <Select

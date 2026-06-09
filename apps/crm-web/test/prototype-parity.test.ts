@@ -74,6 +74,18 @@ test('paper-map territory style resolves known manager colors and shipping hub l
   );
 });
 
+test('non-roster managers get a deterministic palette color (dynamic, not hardcoded by name)', () => {
+  const first = resolvePaperMapTerritoryStyle({ managerName: 'New Field TM', colorKey: 'tm-user-123' });
+  const repeat = resolvePaperMapTerritoryStyle({ managerName: 'New Field TM', colorKey: 'tm-user-123' });
+  assert.match(first.color, /^#[0-9A-Fa-f]{6}$/);
+  assert.equal(first.color, repeat.color); // deterministic for the same stable id -> stable color
+  // the printed-map roster still overrides the dynamic fallback (parity preserved for known TMs)
+  assert.equal(
+    resolvePaperMapTerritoryStyle({ managerName: 'Don Hearn', colorKey: 'tm-user-123' }).color,
+    '#1778B7',
+  );
+});
+
 test('calendar prototype options keep day week month and list available in the live shell', () => {
   assert.deepEqual(getCalendarPrototypeViewOptions(), [
     { value: 'day', label: 'Day' },

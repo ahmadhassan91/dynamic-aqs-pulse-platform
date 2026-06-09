@@ -25,6 +25,10 @@ type TerritoryNavigationLinkSummary = {
 type PaperMapStyleInput = {
   managerName?: string | null | undefined;
   shippingCenterName?: string | null | undefined;
+  // Stable identifier (e.g. TM user id / territory id) used to assign a deterministic color to
+  // managers NOT in the printed-map roster — so TMs added from admin ops get a distinct, stable
+  // color without hardcoding the person.
+  colorKey?: string | null | undefined;
 };
 
 type PaperMapStyleSummary = {
@@ -139,9 +143,26 @@ export function buildTerritoryAssignmentImpactSummary(
   };
 }
 
+// Distinct, stable colors for managers/territories NOT in the printed-map roster above. Keyed on a
+// stable id so the map stays dynamic: any TM added from admin ops gets a consistent, distinguishable
+// color without hardcoding the person. (Future: let admin set an explicit per-territory color.)
+const DYNAMIC_TERRITORY_PALETTE = [
+  '#2563EB', '#0EA5E9', '#0D9488', '#16A34A', '#65A30D', '#CA8A04',
+  '#D97706', '#EA580C', '#DC2626', '#DB2777', '#9333EA', '#4F46E5',
+];
+
+function dynamicTerritoryColor(key: string): string {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) | 0;
+  }
+  return DYNAMIC_TERRITORY_PALETTE[Math.abs(hash) % DYNAMIC_TERRITORY_PALETTE.length] ?? '#2563EB';
+}
+
 export function resolvePaperMapTerritoryStyle({
   managerName,
   shippingCenterName,
+  colorKey,
 }: PaperMapStyleInput): PaperMapStyleSummary {
   const normalizedManagerName = normalizeLabel(managerName);
   const normalizedShippingCenterName = normalizeLabel(shippingCenterName);
@@ -154,8 +175,13 @@ export function resolvePaperMapTerritoryStyle({
     entry.tokens.some((token) => normalizedShippingCenterName.includes(token)),
   );
 
+  // Printed-map color for the known roster; otherwise a deterministic palette color keyed on the
+  // stable id (or name) so admin-added managers render with distinct, consistent colors.
+  const fallbackKey = normalizeLabel(colorKey) || normalizedManagerName;
+  const color = managerStyle?.color ?? (fallbackKey ? dynamicTerritoryColor(fallbackKey) : '#2563eb');
+
   return {
-    color: managerStyle?.color ?? '#2563eb',
+    color,
     ...(shippingStyle?.hubLabel ? { hubLabel: shippingStyle.hubLabel } : {}),
     ...(shippingStyle?.shippingLabel ? { shippingLabel: shippingStyle.shippingLabel } : {}),
   };

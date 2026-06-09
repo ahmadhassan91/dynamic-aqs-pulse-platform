@@ -251,6 +251,7 @@ export function TerritoryMapLibre({
       const style = resolvePaperMapTerritoryStyle({
         managerName: entry.assignedTmName,
         shippingCenterName: entry.shippingCenterName,
+        colorKey: entry.assignedTmUserId ?? entry.territoryId,
       });
       stateMap.set(`${entry.countryCode}:${entry.stateCode}`, {
         ...entry,

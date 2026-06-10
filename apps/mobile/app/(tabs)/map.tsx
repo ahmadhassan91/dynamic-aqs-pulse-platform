@@ -12,8 +12,9 @@ import { US_CENTER_LNG_LAT, deriveStubCoordinate, type LngLat } from '@/lib/map-
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { colors, radius, softShadow, spacing, typography } from '@/theme';
 
-// Free, no-key demo tiles for the scaffold. Production: MapTiler/own tiles (style URL + key).
-const MAP_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
+// CARTO Voyager GL — free, no API key, and the same basemap family the web territory map uses,
+// so field reps see one consistent map across Pulse. (Alternatives: OpenFreeMap Liberty, MapTiler.)
+const MAP_STYLE_URL = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
 export default function MapScreen() {
   const { accounts, errorMessage, isLoading } = useFieldData(200);

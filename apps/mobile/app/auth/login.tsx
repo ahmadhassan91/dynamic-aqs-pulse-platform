@@ -67,7 +67,7 @@ export default function LoginScreen() {
               <SecondaryButton label="Production" icon={{ name: 'checkmark.seal.fill', fallback: 'P' }} onPress={() => setApiBaseUrl('https://pulse-crm.theclustox.com')} />
             </View>
             <View style={{ flex: 1 }}>
-              <SecondaryButton label="Local QA" icon={{ name: 'desktopcomputer', fallback: 'Q' }} onPress={() => setApiBaseUrl('http://127.0.0.1:8111')} />
+              <SecondaryButton label="Local QA" icon={{ name: 'desktopcomputer', fallback: 'Q' }} onPress={() => setApiBaseUrl('http://127.0.0.1:4100')} />
             </View>
           </View>
         </Card>

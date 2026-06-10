@@ -50,6 +50,7 @@ const routeInventory = [
   visual('/product-management', 'Product publish-readiness default workbench'),
   waived('/product-management/products/:productId', 'detail-route', 'Product detail is covered by depth checks; visual waiver remains for dense file, readiness, and dealer visibility detail rail work.', 'Product + Marketing', '2026-07-15', ['visual-captured-waived', 'depth-e2e']),
   waived('/public/cis/:token', 'token-public', 'Public CIS package flow is a token route, not an internal workbench.', 'CIS Owner', '2026-06-30', ['functional-e2e']),
+  waived('/reports', 'report-route', 'Reports workspace is a saved-report surface; visual-budget promotion follows reporting UAT.', 'Reports', '2026-07-15', ['report-waiver']),
   waived('/settings/lead-capture', 'redirect', 'Legacy settings route redirects to the admin lead-capture surface.', 'Platform', '2026-06-30', ['redirect']),
   visual('/territories', 'Territory default workbench'),
   visual('/territory_map', 'Territory map default workbench'),

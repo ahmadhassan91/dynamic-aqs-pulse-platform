@@ -116,7 +116,7 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
       critical: true,
       forbiddenTerms: ['Acumatica', 'ERP', 'inventory', 'PO', 'purchase order', 'manual variance', 'warehouse confirmation', 'warehouse setup waiting', 'approved handoff'],
     }),
-    route('product-default', '/product-management', /Product Management/i, 'default', 'Product publish-readiness default workbench.', {
+    route('product-default', '/product-management', /Dealer Catalog/i, 'default', 'Product publish-readiness default workbench.', {
       critical: true,
       forbiddenTerms: ['Acumatica', 'Widen', 'pricing', 'price class', 'import', 'Preview source files', 'Source file review', 'Catalog sections', 'SKU families', 'Rollback'],
     }),
@@ -176,7 +176,9 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
     expect(productDefault.routeReady).toBe(true);
     expect(productDefault.copyFindings).toEqual([]);
     expect(productDefault.primaryButtons).toBeLessThanOrEqual(1);
-    expect(productDefault.tabs).toBeLessThanOrEqual(2);
+    // Dealer Preview joined Review products + Who Sees What as a first-class tab (still under the
+    // default budget of 5).
+    expect(productDefault.tabs).toBeLessThanOrEqual(3);
     expect(productDefault.samples.buttons.some((sample) => (
       /\b(Add Section|Add SKU Family|Preview source files|Open setup|Publish|Rollback)\b/i.test(sample.label)
     ))).toBe(false);

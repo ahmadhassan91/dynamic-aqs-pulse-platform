@@ -821,7 +821,7 @@ async function assertInternalDefaultRoutes(page, routeKeys) {
     customers: ['/customers', /Account Management/i],
     training: ['/training', /Training Workbench/i],
     consignment: ['/consignment', /Consignment Workspace/i],
-    'product-management': ['/product-management', /Product Management/i],
+    'product-management': ['/product-management', /Dealer Catalog/i],
     'digital-assets': ['/digital-assets', /Digital Assets/i],
     admin: ['/admin', /System Administration/i],
     calendar: ['/calendar', /CRM Calendar/i],
@@ -837,7 +837,7 @@ async function assertInternalDefaultRoutes(page, routeKeys) {
       await expect(page.getByText('Need info')).toBeVisible();
       await expect(page.getByText('Need files')).toBeVisible();
       await expect(page.getByText('Need dealer group')).toBeVisible();
-      await expect(page.getByText('Ready to publish')).toBeVisible();
+      await expect(page.getByText('Ready to publish', { exact: true })).toBeVisible();
       await expect(page.getByText('Products become eligible here; live catalog versions are published from Who Sees What after review.')).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Catalog section / SKU family' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Publish readiness' })).toBeVisible();

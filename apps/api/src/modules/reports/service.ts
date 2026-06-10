@@ -239,6 +239,9 @@ async function runLeadFunnel(config: ReportConfig): Promise<ReportRunResult> {
   const leads = await prisma.lead.findMany({
     where,
     select: { stage: true, sourceSiteName: true, sourceDetail: true, initialContactDueAt: true, initialContactedAt: true },
+    // Safety cap for attacker-controlled date windows; far above Dynamic's lead volume. Moving the
+    // aggregation into groupBy queries is the follow-up if volumes ever approach this.
+    take: 25_000,
   });
   const byStage = new Map<string, { count: number; slaBreaches: number; sources: Map<string, number> }>();
   const now = new Date();
@@ -500,7 +503,12 @@ export async function deleteReportSchedule(actor: AuthenticatedActor, scheduleId
 export async function listReportDeliveries(actor: AuthenticatedActor, scheduleId: string): Promise<ListReportDeliveriesResponse> {
   assertModuleAccess(actor.role, 'reports');
   const schedule = await prisma.reportSchedule.findUnique({ where: { id: scheduleId }, include: { reportDefinition: true } });
-  if (!schedule) {
+  // Deliveries are only visible when the actor can see the parent definition — without this,
+  // any reports user could enumerate another user's PRIVATE schedule history by id.
+  if (
+    !schedule
+    || (schedule.reportDefinition.visibility === 'PRIVATE' && !canManage(actor, schedule.reportDefinition.ownerUserId))
+  ) {
     throw new Error('Report schedule not found');
   }
   const items = await prisma.reportDeliveryRecord.findMany({

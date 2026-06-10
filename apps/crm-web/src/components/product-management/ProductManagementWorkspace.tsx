@@ -691,7 +691,7 @@ export function ProductManagementWorkspace() {
       <WorkbenchHeader
         eyebrow="Catalog & presentation"
         title="Dealer Catalog"
-        description="Acumatica owns the products and prices — this workspace decides which branded version, files, and assortment each dealer group sees in the Dealer Portal."
+        description="The system of record owns the products and prices — this workspace decides which branded version, files, and assortment each dealer group sees in the Dealer Portal."
         policyText="Products become eligible here; live catalog versions are published from Who Sees What after review."
       />
 

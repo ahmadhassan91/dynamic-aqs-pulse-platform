@@ -24,8 +24,34 @@ import type {
   ReportKey,
   ReportRunResult,
   ReportScheduleSummary,
-} from '@pulse/contracts';
-import { REPORT_KEYS, REPORT_KEY_LABELS } from '@pulse/contracts';
+} from '@pulse/contracts/reports';
+
+// crm-web imports @pulse/contracts as types only (Turbopack SSR compiles its value bindings to
+// `void 0`, which broke /reports prerendering). Runtime label data lives here, typed
+// Record<ReportKey, ...> so a new contract key is a compile error until labeled.
+const REPORT_KEY_LABELS: Record<ReportKey, { label: string; description: string }> = {
+  lead_funnel: {
+    label: 'Lead funnel',
+    description: 'Lead counts by stage and source with SLA-breach visibility.',
+  },
+  training_compliance: {
+    label: 'Training compliance',
+    description: 'Per-account training recency: last session, next due, and overdue flags.',
+  },
+  consignment_audit_status: {
+    label: 'Consignment audit status',
+    description: 'Consignment sites with ROSE audit due dates, overdue states, and open work items.',
+  },
+  territory_coverage: {
+    label: 'Territory coverage',
+    description: 'Territories with state coverage, account counts, and assigned TMs.',
+  },
+  field_activity: {
+    label: 'Field activity',
+    description: 'Training sessions and voice notes logged per user in a date range.',
+  },
+};
+const REPORT_KEYS = Object.keys(REPORT_KEY_LABELS) as ReportKey[];
 import { usePulseSession } from '@/lib/pulse-session';
 import {
   createReportDefinitionApi,
@@ -159,6 +185,10 @@ export function ReportsWorkspace() {
   );
 
   async function openSchedules(definition: ReportDefinitionSummary) {
+    // Clear the previous report's rows before the modal opens so stale schedules/deliveries
+    // never flash under the new report's title.
+    setSchedules([]);
+    setDeliveries([]);
     setScheduleTarget(definition);
     setScheduleError(null);
     setScheduleRecipients([]);

@@ -101,7 +101,7 @@ test('UX-03 slice C advanced tables stay sampled, passive, and row-action based'
   await loginWithCredentials(page, fixtures.internalAuth.email, fixtures.internalAuth.password);
 
   await page.goto('/product-management?tab=admin');
-  await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dealer Catalog' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Source file review' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Blocking Gaps' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Preview source files' }).click();
@@ -215,7 +215,7 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByText('Mailbox')).toHaveCount(0);
 
   await page.goto('/product-management');
-  await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dealer Catalog' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Review products' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Setup' })).toHaveCount(0);
   await expect(page.getByText('Need info')).toBeVisible();

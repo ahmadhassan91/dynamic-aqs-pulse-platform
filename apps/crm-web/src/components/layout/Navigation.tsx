@@ -172,6 +172,7 @@ export function Navigation() {
   const canSeeDigitalAssets = Boolean(role && canAccessModule(role, 'digital_assets'));
   const productsAndFilesLinks: NavLink[] = [
     ...(canSeeProductManagement ? [
+      { label: 'Dealer Preview', link: '/product-management?tab=preview' },
       { label: 'Products', link: '/product-management?tab=products' },
       { label: 'Who Sees What', link: '/product-management?tab=visibility' },
     ] : []),

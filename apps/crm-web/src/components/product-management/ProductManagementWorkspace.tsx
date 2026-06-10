@@ -11,7 +11,7 @@ import {
   type ProductPublishStatusKey,
   type ProductReferenceImportPreviewResponse,
 } from '@pulse/contracts/product-management';
-import { IconAlertTriangle, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
+import { IconAlertTriangle, IconEye, IconPackage, IconSearch, IconShieldCheck } from '@tabler/icons-react';
 import {
   createDealerCatalogView,
   createProductManagementCategory,
@@ -44,8 +44,9 @@ import {
   WorkbenchTable,
 } from '@/components/ui/Workbench';
 import { canPerformAction } from '@/lib/access';
+import { DealerCatalogPreview } from './DealerCatalogPreview';
 
-type ProductTab = 'categories' | 'families' | 'products' | 'visibility' | 'admin';
+type ProductTab = 'preview' | 'categories' | 'families' | 'products' | 'visibility' | 'admin';
 type CatalogViewWizardStep = 'audience' | 'scope' | 'review';
 type ImportPreviewProductRow = ProductReferenceImportPreviewResponse['sampleProducts'][number];
 type CatalogViewRow = {
@@ -123,7 +124,7 @@ const emptyFamilyForm: FamilyFormState = {
 };
 
 const PRODUCT_PUBLISH_STATUS_OPTIONS: ProductPublishStatusKey[] = ['draft', 'ready_for_review', 'approved', 'published', 'blocked', 'archived'];
-const PRODUCT_TABS: ProductTab[] = ['categories', 'families', 'products', 'visibility', 'admin'];
+const PRODUCT_TABS: ProductTab[] = ['preview', 'categories', 'families', 'products', 'visibility', 'admin'];
 const CATALOG_VIEW_KIND_OPTIONS: Array<{ value: DealerCatalogViewSummary['kind']; label: string; helper: string; precedence: number }> = [
   { value: 'standard', label: 'Standard dealers', helper: 'Default eligible dealer group', precedence: 100 },
   { value: 'affinity', label: 'Approved relationship dealers', helper: 'Known dealer network or buying-group relationship', precedence: 50 },
@@ -688,8 +689,9 @@ export function ProductManagementWorkspace() {
   return (
     <Stack gap="lg">
       <WorkbenchHeader
-        title="Product Management"
-        description="Decide which approved products, copy, and files each dealer group sees in the Dealer Portal."
+        eyebrow="Catalog & presentation"
+        title="Dealer Catalog"
+        description="Acumatica owns the products and prices — this workspace decides which branded version, files, and assortment each dealer group sees in the Dealer Portal."
         policyText="Products become eligible here; live catalog versions are published from Who Sees What after review."
       />
 
@@ -716,6 +718,7 @@ export function ProductManagementWorkspace() {
         }}
       >
         <Tabs.List>
+          <Tabs.Tab value="preview" leftSection={<IconEye size={16} />}>Dealer Preview</Tabs.Tab>
           <Tabs.Tab value="products" leftSection={<IconPackage size={16} />}>Review products</Tabs.Tab>
           <Tabs.Tab value="visibility" leftSection={<IconShieldCheck size={16} />}>Who Sees What</Tabs.Tab>
           <WorkbenchMoreMenu
@@ -742,6 +745,10 @@ export function ProductManagementWorkspace() {
             ]}
           />
         </Tabs.List>
+
+        <Tabs.Panel value="preview" pt="md">
+          <DealerCatalogPreview />
+        </Tabs.Panel>
 
         <Tabs.Panel value="categories" pt="md">
           {setupAreaHeader}

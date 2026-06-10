@@ -6,6 +6,7 @@ import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
 import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { createMobileVoiceNote, fetchAccountDetail, fetchAccountTrainingHistory } from '@/lib/api';
 import { formatDate, initials } from '@/lib/format';
+import { formatGroupClassification } from '@/lib/account-map-status';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -187,7 +188,7 @@ export default function AccountDetailScreen() {
             <Card>
               <Row label="Affinity" value={account.affinityGroupName ?? 'None'} />
               <Row label="Ownership / PE" value={account.ownershipGroupName ?? 'None'} />
-              <Row label="Classification" value={account.groupClassification ?? 'Independent/none'} />
+              <Row label="Classification" value={formatGroupClassification(account.groupClassification) ?? 'Independent/none'} />
               <Row label="Last engagement" value={formatDate(account.lastEngagementAt)} />
             </Card>
 

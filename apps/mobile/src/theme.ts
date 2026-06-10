@@ -47,20 +47,36 @@ export const radius = {
 };
 
 export const typography = {
-  largeTitle: { fontSize: 32, lineHeight: 38, fontWeight: '800' as const },
-  title: { fontSize: 24, lineHeight: 30, fontWeight: '800' as const },
-  subtitle: { fontSize: 17, lineHeight: 24, fontWeight: '700' as const },
-  body: { fontSize: 16, lineHeight: 23, fontWeight: '400' as const },
-  callout: { fontSize: 15, lineHeight: 21, fontWeight: '500' as const },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: '600' as const },
+  // Negative tracking on display sizes reads as premium/native; positive tracking on the uppercase
+  // caption gives eyebrows an engineered look.
+  largeTitle: { fontSize: 32, lineHeight: 38, fontWeight: '800' as const, letterSpacing: -0.6, fontFamily: 'Inter_800ExtraBold' },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: '800' as const, letterSpacing: -0.4, fontFamily: 'Inter_800ExtraBold' },
+  subtitle: { fontSize: 17, lineHeight: 24, fontWeight: '700' as const, letterSpacing: -0.2, fontFamily: 'Inter_700Bold' },
+  body: { fontSize: 16, lineHeight: 23, fontWeight: '400' as const, fontFamily: 'Inter_400Regular' },
+  callout: { fontSize: 15, lineHeight: 21, fontWeight: '500' as const, fontFamily: 'Inter_500Medium' },
+  caption: { fontSize: 12, lineHeight: 16, fontWeight: '600' as const, letterSpacing: 0.4, fontFamily: 'Inter_600SemiBold' },
 };
 
+// Brand gradients (RN 0.81 experimental_backgroundImage — no native dep). Diagonal navy→blue→aqua
+// hero, vertical blue for the primary CTA.
+export const gradients = {
+  hero: 'linear-gradient(145deg, #1E3A8A 0%, #1D4ED8 46%, #0E7490 100%)',
+  primary: 'linear-gradient(180deg, #3B82F6 0%, #2563EB 58%, #1D4ED8 100%)',
+  surface: 'linear-gradient(180deg, #FFFFFF 0%, #F7FAFF 100%)',
+};
+
+// Layered shadows (tight contact + soft ambient) read as real elevation, not a flat drop shadow.
 export const softShadow = {
-  boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08)',
+  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 26px rgba(15, 23, 42, 0.08)',
 };
 
 export const liftShadow = {
-  boxShadow: '0 18px 44px rgba(15, 23, 42, 0.12)',
+  boxShadow: '0 2px 6px rgba(15, 23, 42, 0.10), 0 22px 48px rgba(15, 23, 42, 0.18)',
+};
+
+// Coloured glow under the primary CTA so it feels lit, not painted.
+export const glowShadow = {
+  boxShadow: '0 8px 20px rgba(37, 99, 235, 0.38)',
 };
 
 export function statusColor(status?: string) {

@@ -2,7 +2,7 @@ import { Tabs, router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { NativeIcon } from '@/components/native-kit';
 import { useMobileNextActions } from '@/hooks/use-mobile-next-actions';
-import { colors } from '@/theme';
+import { colors, softShadow } from '@/theme';
 
 const icons: Record<string, { name: string; fallback: string }> = {
   index: { name: 'house.fill', fallback: 'H' },
@@ -72,32 +72,39 @@ function HeaderBellButton({ count }: { count: number }) {
       accessibilityLabel={count > 0 ? `${count} field notification${count === 1 ? '' : 's'}` : 'Open notifications'}
       onPress={() => router.push('/notifications')}
       style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        marginRight: 12,
-        borderRadius: 22,
+        width: 40,
+        height: 40,
+        marginRight: 14,
+        borderRadius: 20,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: pressed ? 0.78 : 1,
+        borderCurve: 'continuous',
+        ...softShadow,
+        transform: [{ scale: pressed ? 0.92 : 1 }],
       })}
     >
-      <NativeIcon name={count > 0 ? 'bell.badge.fill' : 'bell.fill'} fallback="!" color={count > 0 ? colors.danger : colors.primary} size={18} />
+      <NativeIcon name="bell.fill" fallback="!" color={colors.ink} size={17} />
       {count > 0 ? (
         <View
           style={{
             position: 'absolute',
-            right: 3,
-            top: 5,
-            minWidth: 18,
-            height: 18,
-            borderRadius: 9,
+            right: -3,
+            top: -3,
+            minWidth: 19,
+            height: 19,
+            borderRadius: 10,
             backgroundColor: colors.danger,
+            borderWidth: 2,
+            borderColor: colors.background,
             alignItems: 'center',
             justifyContent: 'center',
-            paddingHorizontal: 4,
+            paddingHorizontal: 3,
           }}
         >
-          <Text style={{ color: colors.white, fontSize: 10, lineHeight: 12, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+          <Text style={{ color: colors.white, fontSize: 10, lineHeight: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
             {count > 9 ? '9+' : count}
           </Text>
         </View>

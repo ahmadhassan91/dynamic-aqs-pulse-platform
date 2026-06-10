@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
-import { Image } from 'expo-image';
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
-import { colors, liftShadow, radius, softShadow, spacing, statusColor, typography } from '@/theme';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { colors, glowShadow, gradients, liftShadow, radius, softShadow, spacing, statusColor, typography } from '@/theme';
 
 export function Screen({ children }: { children: ReactNode }) {
   return (
@@ -122,23 +122,73 @@ export function MetricCard({ label, value, detail, badge }: { label: string; val
 export function Pill({ label, tone }: { label: string; tone?: string }) {
   const palette = statusColor(tone ?? label);
   return (
-    <View style={{ alignSelf: 'flex-start', borderRadius: radius.full, backgroundColor: palette.bg, paddingHorizontal: 10, paddingVertical: 5 }}>
-      <Text selectable style={{ ...typography.caption, color: palette.fg }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderRadius: radius.full, backgroundColor: palette.bg, paddingLeft: 8, paddingRight: 11, paddingVertical: 5 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: palette.fg }} />
+      <Text selectable style={{ ...typography.caption, color: palette.fg, textTransform: 'capitalize' }}>
         {label.replace(/_/g, ' ')}
       </Text>
     </View>
   );
 }
 
-export function NativeIcon({ fallback, name, size = 18, color = colors.text }: { fallback: string; name: string; size?: number; color?: string }) {
-  if (Platform.OS === 'ios') {
-    return <Image source={`sf:${name}`} style={{ width: size, height: size, tintColor: color }} contentFit="contain" />;
-  }
-  return (
-    <Text selectable={false} style={{ color, fontSize: Math.max(13, size - 1), lineHeight: size + 2, fontWeight: '800' }}>
-      {fallback}
-    </Text>
-  );
+// Map the app's SF-Symbol-style names to Ionicons (expo-image has no SF-symbol support, so the
+// previous `sf:` source rendered nothing). Ionicons is the closest match to the iOS look.
+const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  'house.fill': 'home',
+  'person.crop.circle.badge.plus': 'person-add',
+  'building.2.fill': 'business',
+  'map.fill': 'map',
+  'mappin.and.ellipse': 'location',
+  'mic.circle.fill': 'mic-circle',
+  'mic.fill': 'mic',
+  'shippingbox.fill': 'cube',
+  'ellipsis.circle.fill': 'ellipsis-horizontal-circle',
+  'graduationcap.fill': 'school',
+  'bell.fill': 'notifications',
+  'arrow.clockwise': 'reload',
+  'arrow.clockwise.circle.fill': 'refresh-circle',
+  'arrow.right.circle.fill': 'arrow-forward-circle',
+  'arrow.triangle.2.circlepath': 'sync',
+  'arrow.triangle.2.circlepath.circle.fill': 'sync-circle',
+  'arrow.up.arrow.down.circle.fill': 'swap-vertical',
+  'arrow.up.doc.fill': 'cloud-upload',
+  'arrow.up.right.square.fill': 'open',
+  'bolt.horizontal.circle.fill': 'flash',
+  calendar: 'calendar',
+  'camera.fill': 'camera',
+  'camera.viewfinder': 'scan',
+  checkmark: 'checkmark',
+  desktopcomputer: 'desktop',
+  checklist: 'checkmark-done-circle',
+  'checkmark.circle.fill': 'checkmark-circle',
+  'checkmark.seal.fill': 'ribbon',
+  'chevron.left': 'chevron-back',
+  'chevron.right': 'chevron-forward',
+  'doc.text.magnifyingglass': 'document-text',
+  'doc.text.viewfinder': 'scan',
+  'iphone.gen3': 'phone-portrait',
+  'location.fill': 'location',
+  magnifyingglass: 'search',
+  'magnifyingglass.circle.fill': 'search-circle',
+  'paperplane.fill': 'paper-plane',
+  'pencil.and.list.clipboard': 'clipboard',
+  'person.3.fill': 'people',
+  'phone.fill': 'call',
+  'photo.on.rectangle.angled': 'images',
+  'plus.circle.fill': 'add-circle',
+  'rectangle.portrait.and.arrow.right': 'log-out',
+  'square.and.arrow.up': 'share-outline',
+  'square.and.arrow.up.fill': 'share',
+  'stop.fill': 'stop',
+  'text.viewfinder': 'scan',
+  'trash.fill': 'trash',
+  'xmark.circle': 'close-circle-outline',
+  'xmark.circle.fill': 'close-circle',
+};
+
+export function NativeIcon({ name, size = 18, color = colors.text }: { fallback?: string; name: string; size?: number; color?: string }) {
+  const ionName = SF_TO_IONICON[name] ?? 'ellipse-outline';
+  return <Ionicons name={ionName} size={size + 2} color={color} />;
 }
 
 export function HeroCard({
@@ -156,6 +206,7 @@ export function HeroCard({
     <View
       style={{
         backgroundColor: colors.ink,
+        experimental_backgroundImage: gradients.hero,
         borderRadius: radius.xxl,
         padding: spacing.xl,
         gap: spacing.lg,
@@ -164,8 +215,9 @@ export function HeroCard({
         ...liftShadow,
       }}
     >
-      <View style={{ position: 'absolute', right: -42, top: -38, width: 154, height: 154, borderRadius: radius.full, backgroundColor: 'rgba(37, 99, 235, 0.3)' }} />
-      <View style={{ position: 'absolute', left: -38, bottom: -58, width: 132, height: 132, borderRadius: radius.full, backgroundColor: 'rgba(8, 145, 178, 0.24)' }} />
+      <View style={{ position: 'absolute', right: -42, top: -38, width: 154, height: 154, borderRadius: radius.full, backgroundColor: 'rgba(96, 165, 250, 0.34)' }} />
+      <View style={{ position: 'absolute', left: -38, bottom: -58, width: 132, height: 132, borderRadius: radius.full, backgroundColor: 'rgba(34, 211, 238, 0.20)' }} />
+      <View style={{ position: 'absolute', right: 28, bottom: -20, width: 70, height: 70, borderRadius: radius.full, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
       <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
         {icon ? (
           <View style={{ width: 44, height: 44, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.13)', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' }}>
@@ -197,19 +249,22 @@ export function PrimaryButton({ label, onPress, disabled, icon }: { label: strin
       accessibilityLabel={label}
       accessibilityState={{ disabled: Boolean(disabled) }}
       style={({ pressed }) => ({
-        minHeight: 48,
+        minHeight: 50,
         borderRadius: radius.lg,
         backgroundColor: disabled ? colors.border : colors.primary,
+        ...(disabled ? null : { experimental_backgroundImage: gradients.primary, ...glowShadow }),
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
         gap: spacing.sm,
+        paddingHorizontal: spacing.xl,
         borderCurve: 'continuous',
-        opacity: pressed ? 0.86 : 1,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+        opacity: pressed ? 0.96 : 1,
       })}
     >
       {icon ? <NativeIcon name={icon.name} fallback={icon.fallback} color={disabled ? colors.subtle : colors.white} /> : null}
-      <Text style={{ ...typography.callout, color: disabled ? colors.subtle : colors.white, fontWeight: '800' }}>{label}</Text>
+      <Text style={{ ...typography.callout, color: disabled ? colors.subtle : colors.white, fontFamily: 'Inter_700Bold' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -233,13 +288,16 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
         justifyContent: 'center',
         flexDirection: 'row',
         gap: spacing.sm,
-        opacity: pressed ? 0.8 : 1,
+        paddingHorizontal: spacing.xl,
+        ...softShadow,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+        opacity: pressed ? 0.9 : 1,
       })}
     >
       {icon ? <NativeIcon name={icon.name} fallback={icon.fallback} color={disabled ? colors.subtle : colors.primary} /> : null}
       <Text
         onPress={disabled ? undefined : onPress}
-        style={{ ...typography.callout, color: disabled ? colors.subtle : colors.primary, fontWeight: '800', textAlign: 'center' }}
+        style={{ ...typography.callout, color: disabled ? colors.subtle : colors.primary, fontFamily: 'Inter_700Bold', textAlign: 'center' }}
       >
         {label}
       </Text>

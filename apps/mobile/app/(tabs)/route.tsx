@@ -7,6 +7,7 @@ import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
+import { formatGroupClassification } from '@/lib/account-map-status';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
@@ -469,7 +470,7 @@ function RouteStopCard({
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           <FieldChip label="TM" value={account.assignedTmName ?? 'Unassigned'} />
           <FieldChip label="Last touch" value={formatDate(account.lastEngagementAt)} />
-          <FieldChip label="Group" value={account.affinityGroupName ?? account.ownershipGroupName ?? account.groupClassification ?? 'Independent'} />
+          <FieldChip label="Group" value={account.affinityGroupName ?? account.ownershipGroupName ?? formatGroupClassification(account.groupClassification) ?? 'Independent'} />
         </View>
       </View>
 

@@ -230,7 +230,7 @@ function RoseAuditCard({
                   Expected count source
                 </Text>
                 <Text selectable style={{ ...typography.callout, color: colors.text }}>
-                  {audit.expectedSource} · {audit.sourceFreshnessLabel}
+                  {humanize(audit.expectedSource)} · {audit.sourceFreshnessLabel}
                 </Text>
                 <Text selectable style={{ ...typography.caption, color: colors.warning }}>
                   Verify manually when the office source is parked or stale.
@@ -467,8 +467,8 @@ function RoseLineCountSection({
                 </Text>
                 <TextInput
                   value={line.actualQuantity}
-                  onChangeText={(value) => onActualQuantityChange(line.lineId, value)}
-                  keyboardType="numeric"
+                  onChangeText={(value) => onActualQuantityChange(line.lineId, value.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
                   placeholder="Required"
                   placeholderTextColor={colors.subtle}
                   style={{

@@ -39,10 +39,26 @@ export function accountMapColor(account: DerivableAccount): string {
   return ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account)].color;
 }
 
-// A geocodable address. NOTE: AccountSummary (the mobile account list) does NOT currently carry
-// city/state/postalCode — that lives on AccountDetail/locations — so the field map needs a
-// backend/contract change to expose account address (ideally pre-geocoded lat/lng) on the list.
-// This type keeps the key derivation reusable for when that data is available.
+const GROUP_CLASSIFICATION_LABELS: Record<string, string> = {
+  independent: 'Independent',
+  affinity_only: 'Affinity only',
+  ownership_only: 'Ownership only',
+  hybrid: 'Hybrid',
+};
+
+// Humanize the dealer-group classification key (e.g. 'affinity_only' -> 'Affinity only') so the
+// field UI never surfaces raw enum keys. Returns undefined for empty input so callers can ?? a default.
+export function formatGroupClassification(value?: string | null): string | undefined {
+  if (!value) return undefined;
+  return (
+    GROUP_CLASSIFICATION_LABELS[value] ??
+    value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+  );
+}
+
+// A geocodable address. AccountSummary now carries server-derived latitude/longitude (city/state
+// level) which the field map uses directly; this address-key helper remains for an optional
+// client-side geocoding fallback (e.g. exact street-level positioning later).
 export type MappableAddress = { city?: string | null; state?: string | null; postalCode?: string | null };
 
 // Address string used as the geocoding key (kept here, free of native imports, so it is unit-testable).

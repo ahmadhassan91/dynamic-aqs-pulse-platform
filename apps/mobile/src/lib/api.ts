@@ -47,6 +47,7 @@ import type {
   UploadTrainingSessionProofRequest,
   UploadTrainingSessionProofResponse,
 } from '@pulse/contracts/training';
+import type { TerritoryMapWorkspaceResponse } from '@pulse/contracts/territories';
 import { defaultApiBaseUrl, normalizeApiBaseUrl } from './api-base-url';
 export { defaultApiBaseUrl, normalizeApiBaseUrl } from './api-base-url';
 
@@ -146,6 +147,10 @@ export async function fetchCalendarWorkspace(apiBaseUrl: string, accessToken: st
   searchParams.set('startDate', query.startDate);
   searchParams.set('endDate', query.endDate);
   return requestJson<CalendarWorkspaceResponse>(apiBaseUrl, `/api/v1/calendar/workspace?${searchParams.toString()}`, { accessToken });
+}
+
+export async function fetchTerritoryMapWorkspace(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TerritoryMapWorkspaceResponse>(apiBaseUrl, '/api/v1/territories/map', { accessToken });
 }
 
 export async function fetchAccounts(apiBaseUrl: string, accessToken: string, query: { search?: string; limit?: number } = {}) {

@@ -25,6 +25,8 @@ import { handleMobileVoiceNoteRoutes } from './modules/mobile-voice-notes/http.j
 import { handleProductManagementRoutes } from './modules/product-management/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
+import { handleReportRoutes } from './modules/reports/http.js';
+import { processDueReportSchedules } from './modules/reports/service.js';
 import { handleTerritoryRoutes } from './modules/territories/http.js';
 import { ensureTerritoryPolicySeeded } from './modules/territories/service.js';
 import { handleTrainingRoutes } from './modules/training/http.js';
@@ -33,6 +35,7 @@ import {
   CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE,
   LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE,
   LEAD_OPERATIONAL_ALERT_SCAN_QUEUE,
+  REPORT_SCHEDULE_SCAN_QUEUE,
   SYSTEM_HEALTH_CHECK_QUEUE,
 } from './queue/definitions.js';
 import { createPgBossQueueManager } from './queue/queue-manager.js';
@@ -102,6 +105,7 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
   workers.register(CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE, async (job) => (
     processConsignmentOperationalAlertScanJob(job, { logger })
   ));
+  workers.register(REPORT_SCHEDULE_SCAN_QUEUE, async () => processDueReportSchedules());
 
   await prisma.$connect();
   await ensureReferenceDataSeeded();
@@ -179,6 +183,31 @@ export async function createPulseServer(config: AppConfig): Promise<PulseServerR
       }, config.leads.operationalAlertScanIntervalMinutes * 60 * 1000)
     : undefined;
   consignmentOperationalAlertTimer?.unref();
+
+  // Report schedule scanner — shares the operational-alert cadence so one ops
+  // policy governs all background scans; reporting-specific cadence can split
+  // out later if delivery SLAs require it.
+  const reportScheduleTimer = config.leads.operationalAlertScanIntervalMinutes > 0
+    ? setInterval(() => {
+        void queue.enqueue(REPORT_SCHEDULE_SCAN_QUEUE, {
+          jobType: REPORT_SCHEDULE_SCAN_QUEUE.name,
+          triggeredBy: 'system',
+          triggerSource: 'scheduler',
+          correlationId: `reports-schedule-scan-${Date.now()}`,
+          metadata: {
+            singletonKey: 'reports-schedule-scan',
+            expireInSeconds: 60 * 10,
+          },
+          data: {},
+        }).catch((error) => {
+          logger.warn('queue.enqueue_failed', {
+            type: REPORT_SCHEDULE_SCAN_QUEUE.name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, config.leads.operationalAlertScanIntervalMinutes * 60 * 1000)
+    : undefined;
+  reportScheduleTimer?.unref();
 
   return {
     logger,
@@ -369,6 +398,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const mobileVoiceNoteRouteHandled = await handleMobileVoiceNoteRoutes(req, res, url, ctx.config);
   if (mobileVoiceNoteRouteHandled !== false) {
+    return;
+  }
+
+  const reportRouteHandled = await handleReportRoutes(req, res, url);
+  if (reportRouteHandled !== false) {
     return;
   }
 

@@ -23,6 +23,7 @@
     "./mobile-voice-notes": "./dist/mobile-voice-notes.js",
     "./product-management": "./dist/product-management.js",
     "./reference": "./dist/reference.js",
+    "./reports": "./dist/reports.js",
     "./territories": "./dist/territories.js",
     "./training": "./dist/training.js"
   },

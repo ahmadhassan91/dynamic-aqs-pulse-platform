@@ -118,3 +118,16 @@ export const CONSIGNMENT_OPERATIONAL_ALERT_SCAN_QUEUE: QueueDefinition = {
     retryLimit: 3,
   },
 };
+
+// CRM-layer reporting scheduler — runs due ReportSchedules and records preview
+// deliveries (ReportDeliveryRecord). Real mailbox delivery shares the parked
+// Microsoft Graph dependency with the lead-alert dispatcher.
+export const REPORT_SCHEDULE_SCAN_QUEUE: QueueDefinition = {
+  name: 'reports.schedule-scan',
+  tier: 'STANDARD',
+  description: 'Runs due report schedules and records preview delivery records',
+  queueOptions: {
+    expireInSeconds: 60 * 10,
+    retryLimit: 3,
+  },
+};

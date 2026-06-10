@@ -1,0 +1,151 @@
+// CRM-layer reporting contracts — saved definitions, on-demand runs, and scheduled email delivery.
+// Scope is deliberately CRM-native data only: revenue/order reporting stays parked with Acumatica.
+
+export const REPORT_KEYS = [
+  'lead_funnel',
+  'training_compliance',
+  'consignment_audit_status',
+  'territory_coverage',
+  'field_activity',
+] as const;
+
+export type ReportKey = (typeof REPORT_KEYS)[number];
+
+export const REPORT_VISIBILITIES = ['private', 'team', 'org'] as const;
+export type ReportVisibilityKey = (typeof REPORT_VISIBILITIES)[number];
+
+export const REPORT_SCHEDULE_CADENCES = ['daily', 'weekly', 'monthly'] as const;
+export type ReportScheduleCadenceKey = (typeof REPORT_SCHEDULE_CADENCES)[number];
+
+export const REPORT_DELIVERY_STATUSES = ['sent', 'failed'] as const;
+export type ReportDeliveryStatusKey = (typeof REPORT_DELIVERY_STATUSES)[number];
+
+// Per-key configuration. All fields optional — a report with an empty config runs with defaults.
+export interface ReportConfig {
+  // ISO dates bounding the report window (defaults: last 30 days where a window applies).
+  startDate?: string;
+  endDate?: string;
+  territoryId?: string;
+  // lead_funnel: restrict to a lead source code.
+  leadSourceCode?: string;
+  // field_activity: restrict to a single user.
+  userId?: string;
+}
+
+export interface ReportColumnSummary {
+  key: string;
+  label: string;
+  kind: 'text' | 'number' | 'date';
+}
+
+export interface ReportRunResult {
+  reportKey: ReportKey;
+  generatedAt: string;
+  columns: ReportColumnSummary[];
+  rows: Array<Record<string, string | number | null>>;
+  rowCount: number;
+}
+
+export interface ReportDefinitionSummary {
+  id: string;
+  name: string;
+  description?: string;
+  reportKey: ReportKey;
+  config: ReportConfig;
+  visibility: ReportVisibilityKey;
+  ownerUserId: string;
+  ownerName?: string;
+  isActive: boolean;
+  scheduleCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateReportDefinitionRequest {
+  name: string;
+  description?: string;
+  reportKey: ReportKey;
+  config?: ReportConfig;
+  visibility?: ReportVisibilityKey;
+}
+
+export interface UpdateReportDefinitionRequest {
+  name?: string;
+  description?: string | null;
+  config?: ReportConfig;
+  visibility?: ReportVisibilityKey;
+  isActive?: boolean;
+}
+
+export interface ListReportDefinitionsResponse {
+  items: ReportDefinitionSummary[];
+  total: number;
+}
+
+export interface ReportScheduleSummary {
+  id: string;
+  reportDefinitionId: string;
+  reportName?: string;
+  cadence: ReportScheduleCadenceKey;
+  hourUtc: number;
+  recipients: string[];
+  isActive: boolean;
+  lastRunAt?: string;
+  nextRunAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateReportScheduleRequest {
+  cadence: ReportScheduleCadenceKey;
+  // 0-23; the scheduler runs the report in the first scan after this hour (UTC).
+  hourUtc: number;
+  recipients: string[];
+}
+
+export interface UpdateReportScheduleRequest {
+  cadence?: ReportScheduleCadenceKey;
+  hourUtc?: number;
+  recipients?: string[];
+  isActive?: boolean;
+}
+
+export interface ListReportSchedulesResponse {
+  items: ReportScheduleSummary[];
+}
+
+export interface ReportDeliveryRecordSummary {
+  id: string;
+  scheduleId: string;
+  runAt: string;
+  status: ReportDeliveryStatusKey;
+  detail?: string;
+  rowCount: number;
+}
+
+export interface ListReportDeliveriesResponse {
+  items: ReportDeliveryRecordSummary[];
+}
+
+export const REPORT_KEY_LABELS: Record<ReportKey, { label: string; description: string }> = {
+  lead_funnel: {
+    label: 'Lead funnel',
+    description: 'Lead counts by stage and source with SLA-breach visibility.',
+  },
+  training_compliance: {
+    label: 'Training compliance',
+    description: 'Per-account training recency: last session, next due, and overdue flags.',
+  },
+  consignment_audit_status: {
+    label: 'Consignment audit status',
+    description: 'Consignment sites with ROSE audit due dates, overdue states, and open work items.',
+  },
+  territory_coverage: {
+    label: 'Territory coverage',
+    description: 'Territories with state coverage, account counts, and assigned TMs.',
+  },
+  field_activity: {
+    label: 'Field activity',
+    description: 'Training sessions and voice notes logged per user in a date range.',
+  },
+};

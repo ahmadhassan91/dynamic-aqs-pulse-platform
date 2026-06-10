@@ -11,5 +11,6 @@ export * from './lead-options.js';
 export * from './mobile-voice-notes.js';
 export * from './product-management.js';
 export * from './reference.js';
+export * from './reports.js';
 export * from './territories.js';
 export * from './training.js';

@@ -929,6 +929,7 @@ model User {
   consignmentWorkItemsAssigned       ConsignmentWorkItem[]         @relation("ConsignmentWorkItemAssignedTo")
   mobileVoiceNotesCreated            MobileVoiceNote[]             @relation("MobileVoiceNoteCreatedBy")
   mobileVoiceNotesReviewed           MobileVoiceNote[]             @relation("MobileVoiceNoteReviewedBy")
+  reportDefinitionsOwned             ReportDefinition[]            @relation("ReportDefinitionOwner")
 
   @@index([roleCode])
   @@index([userType])
@@ -3860,4 +3861,75 @@ model ClassificationException {
   @@index([status])
   @@index([reasonCode])
   @@index([openedAt])
+}
+
+enum ReportVisibility {
+  PRIVATE
+  TEAM
+  ORG
+}
+
+enum ReportScheduleCadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ReportDeliveryStatus {
+  SENT
+  FAILED
+}
+
+model ReportDefinition {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  reportKey   String
+  config      Json             @default("{}")
+  visibility  ReportVisibility @default(PRIVATE)
+  ownerUserId String           @db.Uuid
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  ownerUser User             @relation("ReportDefinitionOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  schedules ReportSchedule[]
+
+  @@index([ownerUserId])
+  @@index([reportKey])
+  @@index([visibility])
+  @@index([isActive])
+}
+
+model ReportSchedule {
+  id                 String                @id @default(uuid()) @db.Uuid
+  reportDefinitionId String                @db.Uuid
+  cadence            ReportScheduleCadence
+  hourUtc            Int
+  recipients         String[]
+  isActive           Boolean               @default(true)
+  lastRunAt          DateTime?
+  nextRunAt          DateTime
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  reportDefinition ReportDefinition       @relation(fields: [reportDefinitionId], references: [id], onDelete: Cascade)
+  deliveries       ReportDeliveryRecord[]
+
+  @@index([reportDefinitionId])
+  @@index([isActive, nextRunAt])
+}
+
+model ReportDeliveryRecord {
+  id         String               @id @default(uuid()) @db.Uuid
+  scheduleId String               @db.Uuid
+  runAt      DateTime             @default(now())
+  status     ReportDeliveryStatus
+  detail     String?
+  rowCount   Int                  @default(0)
+
+  schedule ReportSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@index([runAt])
 }

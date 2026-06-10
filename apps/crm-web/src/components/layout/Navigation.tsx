@@ -7,6 +7,7 @@ import { Box, Collapse, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } fro
 import {
   IconBuildingStore,
   IconCalendar,
+  IconChartBar,
   IconChevronRight,
   IconClipboardList,
   IconMapPin,
@@ -161,6 +162,10 @@ export function Navigation() {
   // into a direct link, so users reach it in one click.
   if (role && canAccessModule(role, 'consignment')) {
     navItems.push({ label: 'Consignment', icon: IconClipboardList, link: '/consignment' });
+  }
+
+  if (role && canAccessModule(role, 'reports')) {
+    navItems.push({ label: 'Reports', icon: IconChartBar, link: '/reports' });
   }
 
   const canSeeProductManagement = Boolean(role && canAccessModule(role, 'product_management'));

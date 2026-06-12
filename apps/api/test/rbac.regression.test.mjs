@@ -20,6 +20,12 @@ let listAccountContacts;
 let createAccountLocation;
 let createAdminUser;
 let updateAdminUser;
+let createLead;
+let getLeadReadiness;
+let listLeadContacts;
+let convertLeadOnFirstOrder;
+let previewWidenManifestImport;
+let ensureLeadRoutingPolicySeeded;
 
 const SERIAL = { concurrency: false };
 
@@ -36,6 +42,9 @@ test.before(async () => {
     createAccountLocation,
   } = await import('../dist/modules/accounts/service.js'));
   ({ createAdminUser, updateAdminUser } = await import('../dist/modules/admin/service.js'));
+  ({ createLead, ensureLeadRoutingPolicySeeded } = await import('../dist/modules/leads/service.js'));
+  ({ getLeadReadiness, listLeadContacts, convertLeadOnFirstOrder } = await import('../dist/modules/leads/readiness.js'));
+  ({ previewWidenManifestImport } = await import('../dist/modules/digital-assets/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -51,9 +60,19 @@ test.after(async () => {
 test.beforeEach(async () => {
   await resetDatabase(prisma);
   await ensureReferenceDataSeeded();
+  await ensureLeadRoutingPolicySeeded();
   await ensureTerritoryPolicySeeded();
   await ensureBootstrapAdminSeeded(config);
 });
+
+// createLead requires explicit group classification; default both to 'none' for these fixtures.
+function leadInput(overrides) {
+  return {
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+    ...overrides,
+  };
+}
 
 async function superAdminActor() {
   const auth = await loginWithPassword(
@@ -207,5 +226,61 @@ test('non-super-admin cannot modify an existing privileged user', SERIAL, async 
   await assert.rejects(
     () => updateAdminUser(ops, exec.user.id, { firstName: 'Tampered' }),
     /super admin/i,
+  );
+});
+
+test('TM cannot read readiness, contacts, or convert a lead outside their territory', SERIAL, async () => {
+  const admin = await superAdminActor();
+  const tm = await scopedActor('TERRITORY_MANAGER', 'tm.foreign@rbac.test', 'TM Foreign');
+
+  // Admin-created lead routes to a seeded territory; the fresh TM owns no territory or leads.
+  const lead = await createLead(admin, leadInput({
+    companyName: 'Foreign Territory Pools',
+    contactDisplayName: 'Pat Foreign',
+    email: 'pat@foreign.test',
+    phone: '555-700-0001',
+    state: 'TX',
+    serviceTechCount: 4,
+  }));
+
+  assert.equal(await getLeadReadiness(tm, lead.id), null, 'readiness must 404 for an out-of-scope lead');
+  assert.equal(await listLeadContacts(tm, lead.id), null, 'contact PII must not leak cross-territory');
+  await assert.rejects(() => convertLeadOnFirstOrder(tm, lead.id, {}), /not found/i);
+});
+
+test('TM can read readiness for a lead assigned to them', SERIAL, async () => {
+  const admin = await superAdminActor();
+  const tm = await scopedActor('TERRITORY_MANAGER', 'tm.owner@rbac.test', 'TM Owner');
+
+  const lead = await createLead(admin, leadInput({
+    companyName: 'Owned Pools',
+    contactDisplayName: 'Owen Owner',
+    email: 'owen@owned.test',
+    phone: '555-700-0002',
+    state: 'TX',
+    serviceTechCount: 6,
+  }));
+
+  // Assign the lead to the TM and satisfy the TM visibility gate (CUSTOMER_ACTIVE stage).
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: { assignedTmUserId: tm.userId, stage: 'CUSTOMER_ACTIVE' },
+  });
+
+  const readiness = await getLeadReadiness(tm, lead.id);
+  assert.ok(readiness, 'TM should see readiness for their own assigned lead');
+});
+
+test('Widen manifest import rejects path traversal outside the manifest root', SERIAL, async () => {
+  const admin = await superAdminActor();
+
+  // Absolute path and ../ traversal must both be contained, not read off-root.
+  await assert.rejects(
+    () => previewWidenManifestImport(admin, { manifestPath: '../../../../etc/passwd' }),
+    /outside the configured manifest directory/i,
+  );
+  await assert.rejects(
+    () => previewWidenManifestImport(admin, { manifestPath: '/etc/passwd' }),
+    /outside the configured manifest directory|ENOENT/i,
   );
 });

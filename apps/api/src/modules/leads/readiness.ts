@@ -33,6 +33,7 @@ import type {
   UpdateLeadReadinessItemRequest,
 } from '@pulse/contracts';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { resolveLeadRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 
 const LEAD_ENTITY_TYPE = 'LEAD';
@@ -116,9 +117,28 @@ const CHECKLIST_TEMPLATE: readonly ChecklistTemplateItem[] = [
   { code: 'consignment_interest_captured', label: 'Consignment interest captured', ownerRoleCode: 'SALES_BD_REP', required: false, sortOrder: 120 },
 ] as const;
 
+// Scoped roles (TM/RD) may only touch leads inside their book; global-visibility roles match all.
+// Returns false when the lead exists but is outside the actor's record scope, so per-lead readers
+// can 404 instead of leaking another territory's contacts, addresses, and CIS/finance state.
+async function isLeadVisibleToActor(actor: AuthenticatedActor, leadId: string): Promise<boolean> {
+  const scopeWhere = await resolveLeadRecordScope(actor);
+  if (!scopeWhere) {
+    return true;
+  }
+  const visible = await prisma.lead.findFirst({
+    where: { AND: [scopeWhere, { id: leadId }] },
+    select: { id: true },
+  });
+  return visible !== null;
+}
+
 export async function getLeadReadiness(actor: AuthenticatedActor, leadId: string): Promise<LeadReadinessDetail | null> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
+
+  if (!(await isLeadVisibleToActor(actor, leadId))) {
+    return null;
+  }
 
   const lead = await loadReadinessContext(prisma, leadId);
   if (!lead) {
@@ -307,6 +327,10 @@ export async function updateLeadReadinessItem(
 export async function listLeadContacts(actor: AuthenticatedActor, leadId: string): Promise<LeadContactSummary[] | null> {
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
+
+  if (!(await isLeadVisibleToActor(actor, leadId))) {
+    return null;
+  }
 
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -580,6 +604,10 @@ export async function getLeadConversionPreparation(
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
 
+  if (!(await isLeadVisibleToActor(actor, leadId))) {
+    return null;
+  }
+
   const record = await prisma.$transaction(async (tx) => {
     const lead = await loadReadinessContext(tx, leadId);
     if (!lead) {
@@ -681,6 +709,10 @@ export async function validateLeadConversionPreparation(
   assertModuleAccess(actor.role, 'leads');
   assertActionAccess(actor.role, 'lead.view');
 
+  if (!(await isLeadVisibleToActor(actor, leadId))) {
+    throw new Error(`Lead not found: ${leadId}`);
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const lead = await loadReadinessContext(tx, leadId);
     if (!lead) {
@@ -712,6 +744,12 @@ export async function convertLeadOnFirstOrder(
 ): Promise<ConvertLeadOnFirstOrderResponse> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.create');
+
+  // customer.create is held by TERRITORY_MANAGER (a scoped role), so a TM could otherwise convert
+  // any ready lead in the system. Gate the conversion on the actor's lead scope.
+  if (!(await isLeadVisibleToActor(actor, leadId))) {
+    throw new Error(`Lead not found: ${leadId}`);
+  }
 
   const converted = await prisma.$transaction(async (tx) => {
     const lead = await loadReadinessContext(tx, leadId);

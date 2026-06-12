@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { isIP } from 'node:net';
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import {
@@ -1083,6 +1084,24 @@ type WidenSourceIngestionTarget = {
   rawRow: Record<string, unknown>;
 };
 
+// Confine caller-supplied manifest paths to a dedicated subdirectory of the configured storage
+// root. Without this an admin-tier actor could pass an absolute path or `../` traversal and read
+// any file the API process can reach (env files, secrets, /etc/passwd). Mirrors the containment
+// check in storage.ts.
+const WIDEN_MANIFEST_SUBDIR = 'widen-manifests';
+
+function resolveManifestPathWithinRoot(manifestPath: string): string {
+  const config = loadAppConfig();
+  const baseDir = path.resolve(config.storage.rootDir, WIDEN_MANIFEST_SUBDIR);
+  // Strip any leading separators so an absolute input is treated as relative to the base.
+  const relative = manifestPath.replace(/^[/\\]+/, '');
+  const targetPath = path.resolve(baseDir, relative);
+  if (targetPath !== baseDir && !targetPath.startsWith(baseDir + path.sep)) {
+    throw new Error('Widen manifest path resolved outside the configured manifest directory');
+  }
+  return targetPath;
+}
+
 async function loadWidenManifestRows(input: WidenManifestImportRequest): Promise<WidenManifestContext> {
   const limit = clampManifestLimit(input.limit);
   const warnings: string[] = [];
@@ -1091,9 +1110,10 @@ async function loadWidenManifestRows(input: WidenManifestImportRequest): Promise
 
   if (!rows && cleanNullable(input.manifestPath)) {
     const manifestPath = cleanNullable(input.manifestPath) as string;
-    const manifest = await readFile(manifestPath, 'utf8');
+    const safePath = resolveManifestPathWithinRoot(manifestPath);
+    const manifest = await readFile(safePath, 'utf8');
     rows = parseManifestContent(manifest);
-    sourceExportName = sourceExportName ?? manifestPath.split('/').pop() ?? null;
+    sourceExportName = sourceExportName ?? safePath.split(path.sep).pop() ?? null;
   }
 
   if (!rows) {

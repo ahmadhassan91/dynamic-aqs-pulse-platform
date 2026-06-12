@@ -610,7 +610,10 @@ export async function listWebsiteLeadSubmissions(
   query: ListWebsiteLeadSubmissionsRequest = {},
 ): Promise<ListWebsiteLeadSubmissionsResponse> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.view');
+  // Raw inbound submissions carry unfiltered contact PII and are a triage surface, not a
+  // per-territory CRM view. Match the sibling resolve endpoint (lead.intake_manage) so view-only
+  // roles (TM/RD/FINANCE) can't enumerate every submission platform-wide.
+  assertActionAccess(actor.role, 'lead.intake_manage');
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
@@ -1037,6 +1040,9 @@ export async function listLeadHistoryFeed(
 
   const limit = normalizeLimit(query.limit);
   const search = optionalTrimmed(query.search);
+  // Scoped roles (TM/RD) only see history for leads in their book; entries whose lead falls
+  // outside scope are dropped below because the lead never lands in leadById.
+  const scopeWhere = await resolveLeadRecordScope(actor);
 
   const entries = await prisma.auditEntry.findMany({
     where: {
@@ -1060,9 +1066,9 @@ export async function listLeadHistoryFeed(
   const leads = leadIds.length === 0
     ? []
     : await prisma.lead.findMany({
-        where: {
-          id: { in: leadIds },
-        },
+        where: scopeWhere
+          ? { AND: [scopeWhere, { id: { in: leadIds } }] }
+          : { id: { in: leadIds } },
         include: LEAD_SUMMARY_INCLUDE,
       });
   const leadById = new Map(leads.map((lead) => [lead.id, lead] as const));
@@ -2036,7 +2042,10 @@ export async function previewLeadDuplicateCandidates(
   input: PreviewLeadDuplicateCandidatesRequest,
 ): Promise<PreviewLeadDuplicateCandidatesResponse> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.view');
+  // Intake-only: this probes the entire lead/account table by name/email/phone and is invoked
+  // solely from the create-lead flow (itself lead.intake_manage). Gating it as a read action let
+  // scoped roles enumerate cross-territory candidates.
+  assertActionAccess(actor.role, 'lead.intake_manage');
 
   const normalized = normalizeLeadInput(input, {
     defaultBusinessSegmentCode: DEFAULT_BUSINESS_SEGMENT_CODE,

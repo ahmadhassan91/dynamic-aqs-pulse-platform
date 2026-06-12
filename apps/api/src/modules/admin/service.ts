@@ -129,12 +129,23 @@ export async function listAdminUsers(input: ListAdminUsersRequest = {}): Promise
   };
 }
 
+// Privileged roles can read/manage everything; granting them is reserved for SUPER_ADMIN so an
+// admin.user_manage holder (e.g. ADMIN_CSR_OPS) cannot mint or self-escalate into them.
+const PRIVILEGED_ROLES: ReadonlySet<string> = new Set(['SUPER_ADMIN', 'EXECUTIVE']);
+
+function assertCanAssignRole(actor: AuthenticatedActor, targetRole: string): void {
+  if (PRIVILEGED_ROLES.has(targetRole) && actor.role !== 'SUPER_ADMIN') {
+    throw new Error('Only a super admin can assign the SUPER_ADMIN or EXECUTIVE role.');
+  }
+}
+
 export async function createAdminUser(
   actor: AuthenticatedActor,
   input: CreateAdminUserRequest,
 ): Promise<CreateAdminUserResponse> {
   const email = normalizeEmail(input.email);
   const role = normalizeRole(input.role);
+  assertCanAssignRole(actor, role);
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
 
@@ -216,6 +227,14 @@ export async function updateAdminUser(
   const nextLastName = input.lastName?.trim() || splitDisplayName(existing.displayName).lastName;
   const nextDisplayName = `${nextFirstName} ${nextLastName}`.trim();
   const nextRole = input.role ? normalizeRole(input.role) : normalizeRole(existing.roleCode);
+  // Block escalation: changing a user INTO a privileged role (or editing an existing privileged
+  // user) requires SUPER_ADMIN. Re-saving an unchanged non-privileged role stays open.
+  if (input.role && nextRole !== normalizeRole(existing.roleCode)) {
+    assertCanAssignRole(actor, nextRole);
+  }
+  if (PRIVILEGED_ROLES.has(normalizeRole(existing.roleCode)) && actor.role !== 'SUPER_ADMIN') {
+    throw new Error('Only a super admin can modify a SUPER_ADMIN or EXECUTIVE user.');
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const user = await tx.user.update({

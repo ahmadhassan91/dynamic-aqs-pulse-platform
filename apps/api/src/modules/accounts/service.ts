@@ -204,6 +204,7 @@ export async function updateAccount(
 ): Promise<AccountSummary> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.edit');
+  await assertAccountMutationInScope(actor, accountId);
 
   const account = await prisma.account.findUnique({
     where: { id: accountId },
@@ -347,6 +348,7 @@ export async function updateAccountLifecycle(
 ): Promise<AccountSummary> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.edit');
+  await assertAccountMutationInScope(actor, accountId);
 
   const account = await prisma.account.findUnique({
     where: { id: accountId },
@@ -824,10 +826,7 @@ export async function listAccountContacts(actor: AuthenticatedActor, accountId: 
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'contact.view');
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    select: { id: true },
-  });
+  const account = await findScopedAccount(actor, accountId, { id: true });
 
   if (!account) {
     return null;
@@ -850,10 +849,7 @@ export async function listAccountLocations(actor: AuthenticatedActor, accountId:
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'location.view');
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    select: { id: true },
-  });
+  const account = await findScopedAccount(actor, accountId, { id: true });
 
   if (!account) {
     return null;
@@ -879,6 +875,7 @@ export async function createAccountLocation(
 ): Promise<AccountLocationSummary> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'location.create');
+  await assertAccountMutationInScope(actor, accountId);
 
   const account = await prisma.account.findUnique({
     where: { id: accountId },
@@ -986,6 +983,7 @@ export async function updateAccountLocation(
 ): Promise<AccountLocationSummary> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.edit');
+  await assertAccountMutationInScope(actor, accountId);
 
   const location = await prisma.accountLocation.findFirst({
     where: {
@@ -1120,6 +1118,8 @@ export async function createAccountContact(
     throw new Error('firstName and lastName are required');
   }
 
+  await assertAccountMutationInScope(actor, accountId);
+
   const account = await prisma.account.findUnique({
     where: { id: accountId },
     select: {
@@ -1221,6 +1221,7 @@ export async function updateAccountContact(
 ): Promise<ContactSummary> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.edit');
+  await assertAccountMutationInScope(actor, accountId);
 
   const contact = await prisma.contact.findFirst({
     where: {
@@ -1360,6 +1361,15 @@ async function findScopedAccount<TSelect extends Prisma.AccountSelect>(
     where: scopeWhere ? { AND: [scopeWhere, { id: accountId }] } : { id: accountId },
     select,
   });
+}
+
+// Mutations follow the same record scope as reads: TMs/RDs only touch accounts in their own
+// book, and out-of-scope ids read as not-found so they cannot be probed.
+async function assertAccountMutationInScope(actor: AuthenticatedActor, accountId: string): Promise<void> {
+  const account = await findScopedAccount(actor, accountId, { id: true });
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
 }
 
 async function clearDefaultAccountPaymentMethods(

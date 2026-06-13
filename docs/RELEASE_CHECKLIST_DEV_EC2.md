@@ -5,14 +5,15 @@ manual (no automatic deploy-on-merge), every release must produce the **same** e
 
 Deploy pipeline: `.github/workflows/deploy-dev-ec2.yml` (trigger: push to `dev`, or
 `workflow_dispatch`). It builds `@pulse/{contracts,config,db,api,crm-web}` and rsync+SSH
-deploys to the dev EC2 instance. Host: `https://pulse-crm.theclustox.com`.
+deploys to the dev EC2 instance. `apps/mobile` is intentionally excluded from the release copy
+because the EC2 host serves only the API + crm-web stack. Host: `https://pulse-crm.theclustox.com`.
 
 ---
 
 ## 0. When to deploy (decision gate)
 
 Deploy to EC2 **only** when at least one is true:
-- Runtime **app/API behavior** changed (anything under `apps/api/src`, `apps/crm-web/src`, `apps/mobile`, or `packages/*/src` that ships at runtime).
+- Runtime **app/API behavior** changed for the EC2-served stack (anything under `apps/api/src`, `apps/crm-web/src`, or `packages/*/src` that ships at runtime).
 - **Deploy scripts / env / runtime config** changed (`.github/workflows/deploy-dev-ec2.yml`, server env, infra).
 - A **public smoke proof** is explicitly needed.
 
@@ -26,11 +27,10 @@ config, CI workflows, this checklist). For those: commit + push + prove via CI/l
 Run from repo root.
 
 ```bash
-# Type safety across the workspace
+# Type safety across the deployed web/API workspace
 node_modules/.bin/tsc --noEmit -p packages/contracts/tsconfig.json
 node_modules/.bin/tsc --noEmit -p apps/api/tsconfig.json
 node_modules/.bin/tsc --noEmit -p apps/crm-web/tsconfig.json
-node_modules/.bin/tsc --noEmit -p apps/mobile/tsconfig.json
 
 # API regression suite + coverage ratchet (the authoritative gate; mirrors CI test-pr.yml)
 pnpm --filter @pulse/api test          # 306+ tests, must be 0 fail; coverage >= 70/55/80
@@ -47,6 +47,10 @@ pnpm --filter @pulse/crm-web test:e2e             # primary flows
 pnpm --filter @pulse/crm-web test:ux-clutter:quick
 # pnpm --filter @pulse/crm-web test:ux-depth      # depth budgets (optional)
 # pnpm --filter @pulse/crm-web test:ux-visual     # visual budgets (optional)
+
+# Mobile-only changes use a separate gate and do not require a dev-EC2 release:
+# pnpm --filter @pulse/mobile typecheck
+# pnpm --filter @pulse/mobile test
 ```
 
 CI mirror: opening/updating a PR runs `.github/workflows/test-pr.yml` (API suite + Postgres +

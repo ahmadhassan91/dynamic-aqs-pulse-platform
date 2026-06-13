@@ -52,6 +52,7 @@ jobs:
           rsync -az --delete \
             --exclude '.git' \
             --exclude 'node_modules' \
+            --exclude 'apps/mobile' \
             --exclude '.next' \
             --exclude '.turbo' \
             --exclude '.terraform' \

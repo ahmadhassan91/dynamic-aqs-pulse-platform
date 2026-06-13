@@ -25,6 +25,7 @@ let getLeadReadiness;
 let listLeadContacts;
 let convertLeadOnFirstOrder;
 let previewWidenManifestImport;
+let revokeDigitalAssetShareLink;
 let ensureLeadRoutingPolicySeeded;
 
 const SERIAL = { concurrency: false };
@@ -44,7 +45,7 @@ test.before(async () => {
   ({ createAdminUser, updateAdminUser } = await import('../dist/modules/admin/service.js'));
   ({ createLead, ensureLeadRoutingPolicySeeded } = await import('../dist/modules/leads/service.js'));
   ({ getLeadReadiness, listLeadContacts, convertLeadOnFirstOrder } = await import('../dist/modules/leads/readiness.js'));
-  ({ previewWidenManifestImport } = await import('../dist/modules/digital-assets/service.js'));
+  ({ previewWidenManifestImport, revokeDigitalAssetShareLink } = await import('../dist/modules/digital-assets/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -283,4 +284,45 @@ test('Widen manifest import rejects path traversal outside the manifest root', S
     () => previewWidenManifestImport(admin, { manifestPath: '/etc/passwd' }),
     /outside the configured manifest directory|ENOENT/i,
   );
+});
+
+// Seed a share-link row directly: revokeDigitalAssetShareLink only reads the row + ownership, so we
+// skip the heavier create-share path (which needs an approved, dealer-visible asset version + URL).
+async function seedShareLink({ createdByUserId, token }) {
+  const asset = await prisma.digitalAsset.create({
+    data: { stableSlug: `rbac-${token}`, title: `Asset ${token}`, kind: 'DOCUMENT', visibility: 'DEALER_PORTAL', reviewStatus: 'APPROVED' },
+  });
+  return prisma.digitalAssetShareLink.create({
+    data: {
+      assetId: asset.id,
+      tokenHash: `hash-${token}`,
+      shareUrl: `https://share.test/${token}`,
+      recipientType: 'prospect',
+      recipientName: 'Prospect Pat',
+      recipientEmail: 'pat@prospect.test',
+      createdByUserId,
+    },
+  });
+}
+
+test('a share-only role cannot revoke another user\'s share link but can revoke its own', SERIAL, async () => {
+  const repA = await scopedActor('SALES_BD_REP', 'rep.a@rbac.test', 'Rep Alpha');
+  const repB = await scopedActor('SALES_BD_REP', 'rep.b@rbac.test', 'Rep Beta');
+
+  const linkB = await seedShareLink({ createdByUserId: repB.userId, token: 'beta' });
+  // repA holds digital_asset.share but not digital_asset.edit — revoking repB's link is not-found.
+  await assert.rejects(() => revokeDigitalAssetShareLink(repA, linkB.id), /not found/i);
+
+  const linkA = await seedShareLink({ createdByUserId: repA.userId, token: 'alpha' });
+  const revoked = await revokeDigitalAssetShareLink(repA, linkA.id);
+  assert.equal(revoked.revoked, true, 'a share holder may revoke its own link');
+});
+
+test('an edit-capable role can revoke any share link', SERIAL, async () => {
+  const repB = await scopedActor('SALES_BD_REP', 'rep.b@rbac.test', 'Rep Beta');
+  const ops = await scopedActor('ADMIN_CSR_OPS', 'ops@rbac.test', 'Ops Manager'); // holds digital_asset.edit
+
+  const linkB = await seedShareLink({ createdByUserId: repB.userId, token: 'beta' });
+  const revoked = await revokeDigitalAssetShareLink(ops, linkB.id);
+  assert.equal(revoked.revoked, true, 'an edit-capable role may revoke another user\'s link');
 });

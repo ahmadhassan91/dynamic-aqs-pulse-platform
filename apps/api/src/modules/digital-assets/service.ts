@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isIP } from 'node:net';
-import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
+import { assertActionAccess, assertModuleAccess, canPerformAction } from '@pulse/auth';
 import {
   AuditAction,
   DigitalAssetKind,
@@ -102,11 +102,14 @@ export async function getDigitalAssetDetail(actor: AuthenticatedActor, assetId: 
       _count: { select: { versions: true } },
     },
   });
+  // Share links carry prospect PII (recipient name/email). Only surface them to roles that can
+  // manage shares; a plain digital_asset.view grant sees an empty list.
+  const canSeeShareLinks = canPerformAction(actor.role, 'digital_asset.share');
   return asset ? {
     ...mapAsset(asset),
     versions: asset.versions.map(mapVersion),
     productUsages: asset.productAssignments.map(mapProductUsage),
-    shareLinks: asset.shareLinks.map(mapShareLink),
+    shareLinks: canSeeShareLinks ? asset.shareLinks.map(mapShareLink) : [],
     legacyMetadataFields: asset.legacyMetadataFields.map(mapLegacyMetadata),
     migrationIssues: asset.migrationIssues.map(mapMigrationIssue),
   } : null;
@@ -174,6 +177,25 @@ export async function updateDigitalAsset(actor: AuthenticatedActor, assetId: str
   const before = await prisma.digitalAsset.findUnique({ where: { id: assetId } });
   if (!before) throw new Error('Digital asset not found');
   const nextReviewStatus = input.reviewStatus !== undefined ? toReviewStatus(input.reviewStatus) : undefined;
+  const nextVisibility = input.visibility !== undefined ? toAssetVisibility(input.visibility) : undefined;
+  const nextStatus = input.status !== undefined ? toAssetStatus(input.status) : undefined;
+
+  // digital_asset.edit covers metadata. Pushing an asset to a dealer-facing/public audience,
+  // approving it for publication, or archiving it are distinct governance acts — gate each on its
+  // own action so an edit-only grant can't publish, approve, or retire assets.
+  if (
+    (nextVisibility === DigitalAssetVisibility.DEALER_PORTAL || nextVisibility === DigitalAssetVisibility.PUBLIC)
+    && nextVisibility !== before.visibility
+  ) {
+    assertActionAccess(actor.role, 'digital_asset.publish');
+  }
+  if (nextReviewStatus === DigitalAssetReviewStatus.APPROVED && nextReviewStatus !== before.reviewStatus) {
+    assertActionAccess(actor.role, 'digital_asset.publish');
+  }
+  if (nextStatus === DigitalAssetStatus.ARCHIVED && nextStatus !== before.status) {
+    assertActionAccess(actor.role, 'digital_asset.archive');
+  }
+
   const reviewData = nextReviewStatus === DigitalAssetReviewStatus.APPROVED
     ? { approvedByUserId: actor.userId, approvedAt: before.approvedAt ?? new Date() }
     : nextReviewStatus !== undefined
@@ -184,8 +206,8 @@ export async function updateDigitalAsset(actor: AuthenticatedActor, assetId: str
     data: {
       ...(input.title !== undefined ? { title: input.title.trim() || before.title } : {}),
       ...(input.description !== undefined ? { description: cleanNullable(input.description) } : {}),
-      ...(input.status !== undefined ? { status: toAssetStatus(input.status) } : {}),
-      ...(input.visibility !== undefined ? { visibility: toAssetVisibility(input.visibility) } : {}),
+      ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+      ...(nextVisibility !== undefined ? { visibility: nextVisibility } : {}),
       ...(nextReviewStatus !== undefined ? { reviewStatus: nextReviewStatus } : {}),
       ...(input.audience !== undefined ? { audience: input.audience.trim() || before.audience } : {}),
       ...(input.brandScope !== undefined ? { brandScope: cleanNullable(input.brandScope) } : {}),
@@ -423,6 +445,11 @@ export async function revokeDigitalAssetShareLink(
   assertActionAccess(actor.role, 'digital_asset.share');
   const before = await prisma.digitalAssetShareLink.findUnique({ where: { id: shareLinkId } });
   if (!before) throw new Error('Digital asset share link not found');
+  // A share-only grant may revoke just its own links; revoking someone else's link requires the
+  // manage-level digital_asset.edit grant. Report as not-found so others' links aren't enumerable.
+  if (before.createdByUserId !== actor.userId && !canPerformAction(actor.role, 'digital_asset.edit')) {
+    throw new Error('Digital asset share link not found');
+  }
   const revokedAt = before.revokedAt ?? new Date();
   const updated = await prisma.digitalAssetShareLink.update({
     where: { id: shareLinkId },

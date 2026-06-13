@@ -1815,6 +1815,11 @@ function assertDealerPortalCanManageFavorites(accessRole: DealerPortalAccessRole
   throw new AuthorizationError('This dealer portal role cannot save catalog favorites');
 }
 
+// Authoritative gate for dealer self-service user management (POST/PATCH /me/users). The
+// admin-vs-regular distinction is the per-user DealerPortalAccessRole, not the platform role —
+// every dealer is DEALER_PORTAL_USER — so this cannot be expressed as a role-keyed
+// WORKSPACE_ACTIONS grant (that would apply to all dealer users). This per-user check, paired with
+// the module guard and the no-dealer-creates-admin rule, is the correct enforcement for this model.
 function assertDealerPortalSelfAdmin(accessRole: DealerPortalAccessRole) {
   if (accessRole === DealerPortalAccessRole.ADMIN) {
     return;

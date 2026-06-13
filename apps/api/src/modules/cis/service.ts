@@ -215,9 +215,12 @@ export async function issueCisLink(
   const now = new Date();
   const expiresAt = addDays(now, DEFAULT_LINK_EXPIRY_DAYS);
 
+  // Scope the lead lookup so TM/RD can only issue/resend a CIS link for leads in their book;
+  // out-of-scope reads as not-found.
+  const leadScope = await resolveLeadRecordScope(actor);
   const cisPackage: CisPackageWithRelations = await prisma.$transaction(async (tx) => {
-    const lead = await tx.lead.findUnique({
-      where: { id: leadId },
+    const lead = await tx.lead.findFirst({
+      where: leadScope ? { AND: [leadScope, { id: leadId }] } : { id: leadId },
       include: {
         affinityGroup: true,
         ownershipGroup: true,
@@ -814,8 +817,10 @@ export async function reviewAndSignOffCis(
   const financeCoverNotes = optionalTrimmed(input.financeCoverNotes);
 
   const cisPackage = await prisma.$transaction(async (tx) => {
-    const existing = await tx.cisPackage.findUnique({
-      where: { id: cisPackageId },
+    // Scope the lookup to the actor's lead visibility so TM/RD can't sign off packages outside
+    // their book; out-of-scope reads as not-found. Matches the sibling mutations.
+    const existing = await tx.cisPackage.findFirst({
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -930,8 +935,9 @@ export async function submitCisToFinance(
   const submissionNotes = optionalTrimmed(input.submissionNotes);
 
   const cisPackage = await prisma.$transaction(async (tx) => {
-    const existing = await tx.cisPackage.findUnique({
-      where: { id: cisPackageId },
+    // Scope to the actor's lead visibility; out-of-scope reads as not-found.
+    const existing = await tx.cisPackage.findFirst({
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {
@@ -1075,8 +1081,9 @@ export async function recordFinanceDecision(
   assertActionAccess(actor.role, 'lead.finance_decide');
 
   const cisPackage = await prisma.$transaction(async (tx) => {
-    const existing = await tx.cisPackage.findUnique({
-      where: { id: cisPackageId },
+    // Scope to the actor's lead visibility; out-of-scope reads as not-found.
+    const existing = await tx.cisPackage.findFirst({
+      where: await buildScopedCisPackageWhere(actor, cisPackageId),
       include: CIS_PACKAGE_INCLUDE,
     });
     if (!existing) {

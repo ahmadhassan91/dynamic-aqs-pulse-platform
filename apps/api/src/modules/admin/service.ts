@@ -301,6 +301,7 @@ export async function resetAdminUserPassword(
     select: {
       id: true,
       email: true,
+      roleCode: true,
       identities: {
         where: {
           provider: IdentityProvider.LOCAL,
@@ -315,6 +316,10 @@ export async function resetAdminUserPassword(
 
   if (!existing) {
     throw new Error('User not found');
+  }
+
+  if (PRIVILEGED_ROLES.has(normalizeRole(existing.roleCode)) && actor.role !== 'SUPER_ADMIN') {
+    throw new Error('Only a super admin can reset the password of a SUPER_ADMIN or EXECUTIVE user.');
   }
 
   const localIdentity = existing.identities[0];

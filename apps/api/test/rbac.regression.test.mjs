@@ -20,6 +20,7 @@ let listAccountContacts;
 let createAccountLocation;
 let createAdminUser;
 let updateAdminUser;
+let resetAdminUserPassword;
 let createLead;
 let getLeadReadiness;
 let listLeadContacts;
@@ -42,7 +43,7 @@ test.before(async () => {
     listAccountContacts,
     createAccountLocation,
   } = await import('../dist/modules/accounts/service.js'));
-  ({ createAdminUser, updateAdminUser } = await import('../dist/modules/admin/service.js'));
+  ({ createAdminUser, updateAdminUser, resetAdminUserPassword } = await import('../dist/modules/admin/service.js'));
   ({ createLead, ensureLeadRoutingPolicySeeded } = await import('../dist/modules/leads/service.js'));
   ({ getLeadReadiness, listLeadContacts, convertLeadOnFirstOrder } = await import('../dist/modules/leads/readiness.js'));
   ({ previewWidenManifestImport, revokeDigitalAssetShareLink } = await import('../dist/modules/digital-assets/service.js'));
@@ -228,6 +229,26 @@ test('non-super-admin cannot modify an existing privileged user', SERIAL, async 
     () => updateAdminUser(ops, exec.user.id, { firstName: 'Tampered' }),
     /super admin/i,
   );
+});
+
+test('non-super-admin cannot reset the password of an existing privileged user', SERIAL, async () => {
+  const superAdmin = await superAdminActor();
+  const ops = await scopedActor('ADMIN_CSR_OPS', 'ops.reset@rbac.test', 'Ops Reset');
+
+  const exec = await createAdminUser(superAdmin, {
+    email: 'exec.reset@rbac.test',
+    firstName: 'Eve',
+    lastName: 'Reset',
+    role: 'EXECUTIVE',
+  });
+
+  await assert.rejects(
+    () => resetAdminUserPassword(ops, exec.user.id, {}),
+    /super admin/i,
+  );
+
+  const reset = await resetAdminUserPassword(superAdmin, exec.user.id, {});
+  assert.ok(reset.temporaryPassword);
 });
 
 test('TM cannot read readiness, contacts, or convert a lead outside their territory', SERIAL, async () => {

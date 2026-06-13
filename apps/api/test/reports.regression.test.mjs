@@ -196,6 +196,7 @@ test('lead_funnel and territory_coverage reports run over CRM data', SERIAL, asy
 
 test('schedules validate input, compute next runs, and deliver when due', SERIAL, async () => {
   const admin = await createAdminActor();
+  const tm = await createScopedActor('TERRITORY_MANAGER', 'tm.schedule.viewer@pulse.local', 'Schedule Viewer');
   const definition = await createReportDefinition(admin, {
     name: 'Scheduled funnel',
     reportKey: 'lead_funnel',
@@ -238,6 +239,8 @@ test('schedules validate input, compute next runs, and deliver when due', SERIAL
   assert.equal(deliveries.items.length, 1);
   assert.equal(deliveries.items[0].status, 'sent');
   assert.match(deliveries.items[0].detail, /currie@dynamicaqs\.com/);
+  const sameOrgDeliveries = await listReportDeliveries(tm, schedule.id);
+  assert.equal(sameOrgDeliveries.items.length, 1);
 
   const after = await prisma.reportSchedule.findUnique({ where: { id: schedule.id } });
   assert.ok(after.nextRunAt > new Date());
@@ -249,4 +252,18 @@ test('schedules validate input, compute next runs, and deliver when due', SERIAL
 
   const paused = await updateReportSchedule(admin, schedule.id, { isActive: false });
   assert.equal(paused.isActive, false);
+
+  const privateDefinition = await createReportDefinition(admin, {
+    name: 'Private scheduled funnel',
+    reportKey: 'lead_funnel',
+  });
+  const privateSchedule = await createReportSchedule(admin, privateDefinition.id, {
+    cadence: 'daily',
+    hourUtc: 9,
+    recipients: ['private@dynamicaqs.com'],
+  });
+  await assert.rejects(() => listReportDeliveries(tm, privateSchedule.id), /report schedule not found/i);
+
+  await updateReportDefinition(admin, definition.id, { isActive: false });
+  await assert.rejects(() => listReportDeliveries(admin, schedule.id), /report schedule not found/i);
 });

@@ -502,13 +502,15 @@ export async function deleteReportSchedule(actor: AuthenticatedActor, scheduleId
 
 export async function listReportDeliveries(actor: AuthenticatedActor, scheduleId: string): Promise<ListReportDeliveriesResponse> {
   assertModuleAccess(actor.role, 'reports');
-  const schedule = await prisma.reportSchedule.findUnique({ where: { id: scheduleId }, include: { reportDefinition: true } });
-  // Deliveries are only visible when the actor can see the parent definition — without this,
-  // any reports user could enumerate another user's PRIVATE schedule history by id.
-  if (
-    !schedule
-    || (schedule.reportDefinition.visibility === 'PRIVATE' && !canManage(actor, schedule.reportDefinition.ownerUserId))
-  ) {
+  const schedule = await prisma.reportSchedule.findFirst({
+    where: {
+      id: scheduleId,
+      reportDefinition: { is: visibleWhere(actor) },
+    },
+  });
+  // Deliveries are only visible when the actor can see the same active parent definition surface
+  // as the rest of the reports module.
+  if (!schedule) {
     throw new Error('Report schedule not found');
   }
   const items = await prisma.reportDeliveryRecord.findMany({

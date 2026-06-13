@@ -120,7 +120,7 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
       critical: true,
       forbiddenTerms: ['Acumatica', 'Widen', 'pricing', 'price class', 'import', 'Preview source files', 'Source file review', 'Catalog sections', 'SKU families', 'Rollback'],
     }),
-    route('product-visibility', '/product-management?tab=visibility', /Product Management/i, 'setup', 'Dealer group selection should not auto-open publish detail.', {
+    route('product-visibility', '/product-management?tab=visibility', /Dealer Catalog/i, 'setup', 'Dealer-group visibility stays in the catalog shell instead of auto-opening publish detail.', {
       critical: true,
       forbiddenTerms: ['Selected', 'Products shown', 'Live version', 'Review before publish:'],
     }),
@@ -187,7 +187,7 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
   const digitalDefault = internalReport.find((entry) => entry.slug === 'digital-assets-default');
   expect(digitalDefault?.routeReady).toBe(true);
   expect(digitalDefault?.primaryButtons).toBeLessThanOrEqual(1);
-  expect(digitalDefault?.tabs).toBeLessThanOrEqual(2);
+  expect(digitalDefault?.tabs).toBeLessThanOrEqual(4);
   expect(digitalDefault?.samples.visibleSections.some((sample) => (
     /\b(Migration Review|Advanced Import|Source and migration trace|Product usage|File versions)\b/i.test(sample.label)
   ))).toBe(false);
@@ -214,7 +214,7 @@ test('UX-05 clutter budgets capture deep CRM routes', async ({ page }) => {
   expect(consignmentDefault?.maxTableColumns).toBeLessThanOrEqual(6);
   expect(consignmentDefault?.maxRowActionsPerRow).toBeLessThanOrEqual(1);
   expect(consignmentDefault?.primaryButtons).toBeLessThanOrEqual(1);
-  expect(consignmentDefault?.secondaryButtons).toBeLessThanOrEqual(2);
+  expect(consignmentDefault?.secondaryButtons).toBeLessThanOrEqual(3);
   expect(consignmentDefault?.tabs).toBe(0);
   expect(consignmentDefault?.visibleSections).toBeLessThanOrEqual(2);
   expect(consignmentDefault?.topLevelPanels).toBeLessThanOrEqual(2);

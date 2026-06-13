@@ -24,7 +24,8 @@
         "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "VIBRATE"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#2563EB"

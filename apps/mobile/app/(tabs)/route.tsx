@@ -86,7 +86,7 @@ export default function RouteScreen() {
       setVisitSyncMessage('Sign in before starting a route visit so CRM can assign the trainer correctly.');
       return;
     }
-    if (Platform.OS === 'ios') {
+    if (Platform.OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
@@ -209,7 +209,7 @@ export default function RouteScreen() {
       setNotes('');
     }
     setIsSubmittingVisit(false);
-    if (savedToCrm && Platform.OS === 'ios') {
+    if (savedToCrm && Platform.OS !== 'web') {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }

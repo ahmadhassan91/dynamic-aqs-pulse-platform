@@ -106,7 +106,7 @@ export function useTrainingExecution() {
       });
       replaceSession(updated);
       setSyncMessage('CRM checked in');
-      if (Platform.OS === 'ios') await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS !== 'web') await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to check in to CRM.');
     } finally {
@@ -165,7 +165,7 @@ export function useTrainingExecution() {
       });
       replaceSession(response.session);
       setProofStatus({ tone: 'success', message: `${response.document.fileName} uploaded for review.` });
-      if (Platform.OS === 'ios') await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS !== 'web') await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
       setProofStatus(buildProofUploadStatusFromError(error));
     } finally {
@@ -210,7 +210,7 @@ export function useTrainingExecution() {
       const updated = await completeTrainingSessionRecord(apiBaseUrl, auth.tokens.accessToken, selectedSession.id, request);
       replaceSession(updated);
       setSyncMessage('CRM saved');
-      if (Platform.OS === 'ios') await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== 'web') await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       try {
         await enqueueTrainingDraft(selectedSession, checkedInAt, request, error);

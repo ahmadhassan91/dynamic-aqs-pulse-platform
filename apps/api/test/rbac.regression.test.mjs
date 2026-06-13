@@ -22,6 +22,7 @@ let createAdminUser;
 let updateAdminUser;
 let resetAdminUserPassword;
 let createLead;
+let createWebsiteLeadSite;
 let getLeadReadiness;
 let listLeadContacts;
 let convertLeadOnFirstOrder;
@@ -44,7 +45,7 @@ test.before(async () => {
     createAccountLocation,
   } = await import('../dist/modules/accounts/service.js'));
   ({ createAdminUser, updateAdminUser, resetAdminUserPassword } = await import('../dist/modules/admin/service.js'));
-  ({ createLead, ensureLeadRoutingPolicySeeded } = await import('../dist/modules/leads/service.js'));
+  ({ createLead, createWebsiteLeadSite, ensureLeadRoutingPolicySeeded } = await import('../dist/modules/leads/service.js'));
   ({ getLeadReadiness, listLeadContacts, convertLeadOnFirstOrder } = await import('../dist/modules/leads/readiness.js'));
   ({ previewWidenManifestImport, revokeDigitalAssetShareLink } = await import('../dist/modules/digital-assets/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
@@ -346,4 +347,15 @@ test('an edit-capable role can revoke any share link', SERIAL, async () => {
   const linkB = await seedShareLink({ createdByUserId: repB.userId, token: 'beta' });
   const revoked = await revokeDigitalAssetShareLink(ops, linkB.id);
   assert.equal(revoked.revoked, true, 'an edit-capable role may revoke another user\'s link');
+});
+
+test('an intake_manage-only role cannot configure public website capture sites', SERIAL, async () => {
+  // SALES_BD_REP holds lead.intake_manage but not reference.manage; website-site config sets public
+  // CORS origins and is reference.manage (matching the UI). The action guard rejects before any input
+  // processing, so a minimal payload is fine.
+  const rep = await scopedActor('SALES_BD_REP', 'rep.site@rbac.test', 'Rep Site');
+  await assert.rejects(
+    () => createWebsiteLeadSite(rep, { siteId: 'rbac-test', siteName: 'RBAC Test', formType: 'residential' }),
+    (error) => error?.name === 'AuthorizationError',
+  );
 });

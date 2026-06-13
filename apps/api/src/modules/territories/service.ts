@@ -278,8 +278,11 @@ export async function updateShippingCenter(
   assertModuleAccess(actor.role, 'territories');
   assertActionAccess(actor.role, 'territory.admin');
 
-  const current = await prisma.shippingCenter.findUnique({
-    where: { id: shippingCenterId },
+  // Confine RD writes to shipping centers serving territories/records in their scope; global roles
+  // are unaffected. Out-of-scope reads as not-found (404).
+  const shippingCenterScope = await buildShippingCenterReadScope(actor);
+  const current = await prisma.shippingCenter.findFirst({
+    where: shippingCenterScope ? { AND: [shippingCenterScope, { id: shippingCenterId }] } : { id: shippingCenterId },
   });
   if (!current) {
     return null;
@@ -470,8 +473,12 @@ export async function updateRegion(
   assertModuleAccess(actor.role, 'territories');
   assertActionAccess(actor.role, 'territory.admin');
 
-  const current = await prisma.region.findUnique({
-    where: { id: regionId },
+  // territory.admin is also held by REGIONAL_DIRECTOR (a scoped role); confine RD writes to regions
+  // they direct. Global roles get scope === undefined and are unaffected. Out-of-scope reads as
+  // not-found (404), matching the missing-record path and avoiding cross-region enumeration.
+  const regionScope = await buildRegionReadScope(actor);
+  const current = await prisma.region.findFirst({
+    where: regionScope ? { AND: [regionScope, { id: regionId }] } : { id: regionId },
     include: {
       directorUser: {
         select: {
@@ -1009,6 +1016,8 @@ export async function createTerritory(actor: AuthenticatedActor, input: CreateTe
   const code = normalizeCode(input.code, 'code');
   const name = requireText(input.name, 'name');
   await requireRegion(input.regionId);
+  // RD may only create territories inside a region they direct; global roles unaffected.
+  await assertRegionInScope(actor, input.regionId);
   const managerUserId = await validateOptionalUserId(input.managerUserId);
   const shippingCenterId = await validateOptionalShippingCenterId(input.shippingCenterId);
   const isActive = input.isActive ?? true;
@@ -1055,8 +1064,11 @@ export async function updateTerritory(
   assertModuleAccess(actor.role, 'territories');
   assertActionAccess(actor.role, 'territory.admin');
 
-  const current = await prisma.territory.findUnique({
-    where: { id: territoryId },
+  // Confine RD writes to territories in their region; global roles unaffected. Out-of-scope reads
+  // as not-found (404).
+  const territoryScope = await buildTerritoryReadScope(actor);
+  const current = await prisma.territory.findFirst({
+    where: territoryScope ? { AND: [territoryScope, { id: territoryId }] } : { id: territoryId },
     include: TERRITORY_INCLUDE,
   });
   if (!current) {
@@ -1065,6 +1077,8 @@ export async function updateTerritory(
 
   if (input.regionId !== undefined) {
     await requireRegion(input.regionId);
+    // Prevent moving a territory into a region the actor doesn't control.
+    await assertRegionInScope(actor, input.regionId);
   }
 
   const managerUserId =
@@ -1133,8 +1147,10 @@ export async function replaceTerritoryCoverage(
   assertModuleAccess(actor.role, 'territories');
   assertActionAccess(actor.role, 'territory.admin');
 
-  const current = await prisma.territory.findUnique({
-    where: { id: territoryId },
+  // Confine RD coverage writes to territories in their region; global roles unaffected.
+  const coverageScope = await buildTerritoryReadScope(actor);
+  const current = await prisma.territory.findFirst({
+    where: coverageScope ? { AND: [coverageScope, { id: territoryId }] } : { id: territoryId },
     include: TERRITORY_INCLUDE,
   });
   if (!current) {
@@ -1289,6 +1305,9 @@ export async function listTerritoryAssignmentHistory(
 
 export async function listTerritoryAssignableUsers(actor: AuthenticatedActor): Promise<ListTerritoryAssignableUsersResponse> {
   assertModuleAccess(actor.role, 'territories');
+  // This list exists to populate reassignment pickers and exposes the internal TM/RD roster; gate
+  // it on the same action that authorizes reassignment rather than module access alone.
+  assertActionAccess(actor.role, 'territory.reassign');
 
   const users = await prisma.user.findMany({
     where: {
@@ -2457,6 +2476,23 @@ async function requireRegion(regionId: string) {
 
   if (!region || !region.isActive) {
     throw new Error('Unknown or inactive region');
+  }
+}
+
+// Throwing scope guard for create/move paths (which return a value, not null). Global roles get
+// scope === undefined and pass; an RD targeting a region outside their scope is rejected. Mirrors
+// requireVisibleTargetTerritory used by the reassign path.
+async function assertRegionInScope(actor: AuthenticatedActor, regionId: string): Promise<void> {
+  const scope = await buildRegionReadScope(actor);
+  if (!scope) {
+    return;
+  }
+  const visible = await prisma.region.findFirst({
+    where: { AND: [scope, { id: regionId }] },
+    select: { id: true },
+  });
+  if (!visible) {
+    throw new Error('Unknown or inaccessible region');
   }
 }
 

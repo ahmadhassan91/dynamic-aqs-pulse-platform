@@ -2370,3 +2370,35 @@ test('territory permissions allow RD admin actions, TM reassign actions, and den
     );
   }
 });
+
+test('RD territory writes are confined to their own region', SERIAL, async () => {
+  const { actor: adminActor } = await createAdminSession();
+  const own = await seedTerritoryFixture(adminActor, { suffix: 'rd-own', stateCode: 'OR' });
+  const other = await seedTerritoryFixture(adminActor, { suffix: 'rd-other', stateCode: 'WA' });
+
+  // An RD actor who directs own.region (territory.admin holder, but a scoped role).
+  const rd = actorForUser(own.director);
+
+  // In-region: RD may rename and set coverage on a territory in their own region.
+  const updated = await updateTerritory(rd, own.territory.id, { name: 'RD Renamed Territory' });
+  assert.ok(updated, 'RD should update a territory in their own region');
+  assert.equal(updated.name, 'RD Renamed Territory');
+  const covered = await replaceTerritoryCoverage(rd, own.territory.id, { coverage: [{ stateCode: 'OR' }] });
+  assert.ok(covered, 'RD should set coverage on their own territory');
+
+  // Cross-region: a territory in another director's region reads as not-found (404), not editable.
+  assert.equal(await updateTerritory(rd, other.territory.id, { name: 'Hijacked' }), null);
+  assert.equal(await replaceTerritoryCoverage(rd, other.territory.id, { coverage: [{ stateCode: 'WA' }] }), null);
+
+  // RD cannot create a territory inside a region they do not direct.
+  await assert.rejects(
+    () => createTerritory(rd, {
+      code: 'rd_cross_region',
+      name: 'RD Cross Region',
+      regionId: other.region.id,
+      managerUserId: other.manager.id,
+      shippingCenterId: other.shippingCenter.id,
+    }),
+    /inaccessible region/i,
+  );
+});

@@ -319,7 +319,10 @@ export async function createWebsiteLeadSite(
   input: CreateWebsiteLeadSiteRequest,
 ): Promise<WebsiteLeadSiteSummary> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.intake_manage');
+  // Website-site config sets public CORS allowed origins — admin reference config, not frontline
+  // intake. Gate on reference.manage to match the UI (LeadWebsiteFormsWorkspace) and keep
+  // intake_manage-only roles (SALES_BD_REP/LEADERSHIP) from reconfiguring public capture via API.
+  assertActionAccess(actor.role, 'reference.manage');
 
   const siteId = requiredTrimmed(input.siteId, 'siteId');
   const siteName = requiredTrimmed(input.siteName, 'siteName');
@@ -375,7 +378,8 @@ export async function updateWebsiteLeadSite(
   input: UpdateWebsiteLeadSiteRequest,
 ): Promise<WebsiteLeadSiteSummary> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.intake_manage');
+  // See createWebsiteLeadSite: public CORS/site config is reference.manage, not frontline intake.
+  assertActionAccess(actor.role, 'reference.manage');
 
   const existing = await prisma.websiteLeadSite.findUnique({
     where: {
@@ -487,7 +491,8 @@ export async function createWebsiteLeadNotificationRecipient(
   input: CreateWebsiteLeadNotificationRecipientRequest,
 ): Promise<WebsiteLeadNotificationRecipientSummary> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.intake_manage');
+  // Notification routing is admin reference config; gate on reference.manage to match the UI.
+  assertActionAccess(actor.role, 'reference.manage');
 
   const roleTitle = optionalTrimmed(input.roleTitle);
 
@@ -538,7 +543,8 @@ export async function updateWebsiteLeadNotificationRecipient(
   input: UpdateWebsiteLeadNotificationRecipientRequest,
 ): Promise<WebsiteLeadNotificationRecipientSummary> {
   assertModuleAccess(actor.role, 'leads');
-  assertActionAccess(actor.role, 'lead.intake_manage');
+  // Notification routing is admin reference config; gate on reference.manage to match the UI.
+  assertActionAccess(actor.role, 'reference.manage');
 
   const existing = await prisma.websiteLeadNotificationRecipient.findUnique({
     where: {

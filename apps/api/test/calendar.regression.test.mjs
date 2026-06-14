@@ -208,6 +208,14 @@ async function createTrainingAccountFixture(suffix = 'calendar') {
 test('calendar workspace returns centralized discovery and training events', SERIAL, async () => {
   const { actor } = await createAdminSession();
 
+  // Relative dates so the scenario never rots: discovery before training, both in the future
+  // (createTrainingSession rejects past scheduledAt), and a query window that spans both.
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const discoveryAt = new Date(Date.now() + 7 * DAY_MS);
+  const trainingAt = new Date(Date.now() + 9 * DAY_MS);
+  const windowStart = new Date(Date.now() + 1 * DAY_MS).toISOString();
+  const windowEnd = new Date(Date.now() + 20 * DAY_MS).toISOString();
+
   const lead = await createLead(actor, {
     companyName: 'Calendar Discovery HVAC',
     serviceTechCount: 4,
@@ -218,7 +226,7 @@ test('calendar workspace returns centralized discovery and training events', SER
     where: { id: lead.id },
     data: {
       stage: 'DISCOVERY_SCHEDULED',
-      discoveryScheduledAt: new Date('2026-06-10T15:00:00.000Z'),
+      discoveryScheduledAt: discoveryAt,
       discoverySummary: 'Discovery scheduled from centralized calendar suite.',
     },
   });
@@ -233,15 +241,15 @@ test('calendar workspace returns centralized discovery and training events', SER
   await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: onboardingType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-06-12T16:00:00.000Z',
+    scheduledAt: trainingAt.toISOString(),
     durationMinutes: 90,
     attendeeCount: 5,
     title: 'Onboarding Web Session',
   });
 
   const payload = await getCalendarWorkspace(actor, {
-    startDate: '2026-06-01T00:00:00.000Z',
-    endDate: '2026-06-30T23:59:59.999Z',
+    startDate: windowStart,
+    endDate: windowEnd,
   }, config);
 
   assert.equal(payload.summary.totalEvents, 2);

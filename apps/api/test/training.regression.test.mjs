@@ -545,20 +545,20 @@ test('completing a training session advances cadence and creates follow-up tasks
     programId: program.id,
     trainingTypeId: onboardingType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-06-15T15:00:00.000Z',
+    scheduledAt: isoDaysFromNow(7, 15),
     durationMinutes: 90,
     attendeeCount: 3,
   });
 
   const completed = await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    completedAt: '2026-06-15T16:30:00.000Z',
+    completedAt: isoDaysFromNow(7, 16),
     durationMinutes: 105,
     attendeeCount: 4,
     checkoutNotes: 'Dealer trainer wrapped up the field session and captured next steps.',
     completionSummary: 'Account completed onboarding certification.',
     createFollowUpTask: {
       title: 'Send post-training recap',
-      dueAt: '2026-06-20T12:00:00.000Z',
+      dueAt: isoDaysFromNow(12, 12),
       ownerUserId: fixture.rd.id,
     },
   });
@@ -728,7 +728,7 @@ test('cancelled and no-show sessions remain out of completed program flow', SERI
     programId: program.id,
     trainingTypeId: onboardingType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-06-10T15:00:00.000Z',
+    scheduledAt: isoDaysFromNow(7, 15),
     durationMinutes: 60,
   });
 

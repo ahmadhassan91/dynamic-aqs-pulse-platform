@@ -585,16 +585,17 @@ test('training check-in is idempotent and supports the checked-in session filter
   const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: onboardingType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-07-01T13:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 13),
     durationMinutes: 60,
   });
 
+  const firstCheckInAt = isoDaysFromNow(30, 13, 5);
   const checkedIn = await checkInTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    checkedInAt: '2026-07-01T13:05:00.000Z',
+    checkedInAt: firstCheckInAt,
     notes: 'Trainer arrived on site.',
   });
   const idempotent = await checkInTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    checkedInAt: '2026-07-01T13:10:00.000Z',
+    checkedInAt: isoDaysFromNow(30, 13, 10),
   });
   const checkedInOnly = await listTrainingSessions(actor, {
     accountId: fixture.account.id,
@@ -602,8 +603,8 @@ test('training check-in is idempotent and supports the checked-in session filter
   });
 
   assert.equal(checkedIn.executionState, 'checked_in');
-  assert.equal(checkedIn.checkedInAt, '2026-07-01T13:05:00.000Z');
-  assert.equal(idempotent.checkedInAt, '2026-07-01T13:05:00.000Z');
+  assert.equal(checkedIn.checkedInAt, firstCheckInAt);
+  assert.equal(idempotent.checkedInAt, firstCheckInAt);
   assert.equal(checkedInOnly.total, 1);
   assert.equal(checkedInOnly.items[0]?.id, scheduled.id);
 });
@@ -618,13 +619,13 @@ test('certification-track completion can award a certification and persists proo
   const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: certificationType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-07-10T15:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 15),
     durationMinutes: 90,
   });
 
   const completed = await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    completedAt: '2026-07-10T16:45:00.000Z',
-    checkedOutAt: '2026-07-10T16:45:00.000Z',
+    completedAt: isoDaysFromNow(30, 16, 45),
+    checkedOutAt: isoDaysFromNow(30, 16, 45),
     attendeeCount: 3,
     durationMinutes: 105,
     checkoutNotes: 'Certification delivery finished and proof captured.',
@@ -656,21 +657,21 @@ test('training completion enforces checkout notes and surfaces pending certifica
   const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: certificationType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-08-10T15:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 15),
     durationMinutes: 90,
   });
 
   await assert.rejects(
     () =>
       completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-        completedAt: '2026-08-10T16:45:00.000Z',
+        completedAt: isoDaysFromNow(30, 16, 45),
         durationMinutes: 105,
       }),
     /checkoutNotes/i,
   );
 
   await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    completedAt: '2026-08-10T16:45:00.000Z',
+    completedAt: isoDaysFromNow(30, 16, 45),
     durationMinutes: 105,
     checkoutNotes: 'Awaiting trainer review before certification decision.',
   });
@@ -698,14 +699,14 @@ test('site visits cannot award certifications even for certification-track train
     trainingTypeId: certificationType.id,
     trainerUserId: fixture.tm.id,
     activityKind: 'site_visit',
-    scheduledAt: '2026-09-01T09:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 9),
     durationMinutes: 60,
   });
 
   await assert.rejects(
     () =>
       completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-        completedAt: '2026-09-01T10:00:00.000Z',
+        completedAt: isoDaysFromNow(30, 10),
         checkoutNotes: 'Visit completed.',
         certificationOutcome: 'awarded',
       }),
@@ -757,7 +758,7 @@ test('training follow-up tasks can be created independently and completed', SERI
   const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: onboardingType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-07-01T13:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 13),
     durationMinutes: 60,
   });
 
@@ -995,14 +996,14 @@ test('training certification ops can resolve pending certification decisions and
   const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
     trainingTypeId: certificationType.id,
     trainerUserId: fixture.tm.id,
-    scheduledAt: '2026-07-08T10:00:00.000Z',
+    scheduledAt: isoDaysFromNow(30, 10),
     durationMinutes: 60,
     attendeeCount: 4,
   });
 
   await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
-    completedAt: '2026-07-08T11:00:00.000Z',
-    checkedOutAt: '2026-07-08T11:00:00.000Z',
+    completedAt: isoDaysFromNow(30, 11),
+    checkedOutAt: isoDaysFromNow(30, 11),
     checkoutNotes: 'Completed with pending exam review.',
     certificationOutcome: 'pending_decision',
   });

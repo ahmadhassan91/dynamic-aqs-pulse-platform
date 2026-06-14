@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
-| Date | 2026-06-09 |
-| Status | Enriched — traceability closure pass complete |
+| Version | 2.1 |
+| Date | 2026-06-14 |
+| Status | Build-status reconciliation pass — corrected stale "Not-built" rows against the actual build (map, month calendar, iPad, contacts, OCR) and added previously-uncaptured field-UX scope (voice-in-lead-capture, click-to-call, dark/high-contrast theme, accessibility) following the 2026-06-14 scope-coverage audit |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS field leadership, Territory Managers, Regional Directors, operations lead |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `02_TRAINING_PRD.md`, `03_TERRITORY_PRD.md`, `04_CALENDAR_PRD.md`, `05_CONSIGNMENT_PRD.md` |
@@ -46,6 +46,9 @@
 | SRC-MOB-017 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/src/lib/today-metrics.ts` | Built overdue ROSE site count helper |
 | SRC-MOB-018 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/(tabs)/more.tsx` | Built More screen: Voice Notes primary, OCR and Sync Status secondary, queue shortcuts |
 | SRC-MOB-019 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/training.tsx` | Built training execution: 5-step flow, attendee count, proof photos, follow-up task, draft fallback |
+| SRC-MOB-020 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/MOBILE_UX_DISCOVERY_AND_GAP_ANALYSIS.md` | Field-UX gap analysis: dark/high-contrast outdoor theme, accessibility labels + Dynamic Type, offline conflict-resolution UI, optimistic submit, thumb-zone ergonomics, skeleton states |
+| SRC-MOB-021 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/(tabs)/map.tsx` | Built MapLibre map view: status-derived colour-coded account markers, account-type filter toggles, territory overlay (precise marker geo stubbed via deterministic hash pending server lat/lng) |
+| SRC-MOB-022 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/(tabs)/calendar.tsx` | Built calendar view: real custom month-matrix grid with month navigation and per-day work, beyond the Today day-agenda strip |
 
 ---
 
@@ -193,14 +196,14 @@ These items are part of the broader Pulse field vision but require a separate si
 |---|---|---|---|---|---|
 | FR-MOB-007 | The app shall implement one explicit bottom-tab navigation contract: Today, Route, Consignment, and a More launcher as visible first-class tabs; Training, Leads, Accounts, Voice Notes accessible from More | Tab bar shows Today / Route / Consign / More labels; core daily queues reachable within 2 taps | P0 | Partial (Leads/Training hidden behind More; open question Q-M-02 unresolved) | SRC-MOB-005, SRC-MOB-018 |
 | FR-MOB-008 | The app shall show a persistent header bell across all surfaces that badges the count of phone-saved drafts and opens the notifications center on tap | Bell visible on every screen header; badge reflects unsynced draft count | P0 | Built | SRC-MOB-005, SRC-MOB-006 |
-| FR-MOB-009 | The app shall support both smartphone and tablet (iPad) form factors | Layout adapts to iPad screen; confirmed by CG Session 10 | P1 | Not-built (inferred; tablet-responsive layout not confirmed in code review) | SRC-MOB-002 |
+| FR-MOB-009 | The app shall support both smartphone and tablet (iPad) form factors | Layout adapts to iPad screen; confirmed by CG Session 10 | P1 | Partial (runs on iPad — `supportsTablet: true` set in app.json; tablet-responsive / split-view layout not yet optimized or device-confirmed). Reconciles with NFR-MOB-013 and ASM-MOB-09, which previously stated iPad support differently | SRC-MOB-002 |
 
 ### 7.3 ROSE Consignment Audit
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |---|---|---|---|---|---|
 | FR-MOB-010 | Pulse Mobile shall load due/active ROSE consignment sites and the scheduled audit from CRM | Consignment tab shows ROSE sites sorted by due date; no manual refresh required on open | P0 | Built | SRC-MOB-007, SRC-MOB-002 |
-| FR-MOB-011 | Pulse Mobile shall show the expected-count source and freshness, and require manual verification when the source is parked or stale | Stale/parked source warning visible before counting begins (UX-M-003 open) | P0 | Partial (UX-M-003 open: stale Acumatica warning not yet surfaced) | SRC-MOB-007, SRC-MOB-002 |
+| FR-MOB-011 | Pulse Mobile shall show the expected-count source and freshness, and require manual verification when the source is parked or stale | Stale/parked source warning visible before counting begins (UX-M-003 open) | P0 | Built — partial (an Acumatica availability / expected-count-source notice is surfaced in consignment.tsx; explicit "stale" vs "parked" source labeling still to confirm — UX-M-003) | SRC-MOB-007, SRC-MOB-002 |
 | FR-MOB-012 | Pulse Mobile shall present a 5-step gated ROSE workflow: counts → notes → evidence → attest → submit, where each step gate must be satisfied to advance | Each step requires completion before advance; skipping blocked in UI | P0 | Built | SRC-MOB-007 |
 | FR-MOB-013 | Pulse Mobile shall support line-item counts with per-line and total variance preview before any counting begins | Variance preview renders per line and as total; displayed before submission | P0 | Built | SRC-MOB-007, SRC-MOB-002 |
 | FR-MOB-014 | A variance in the ROSE audit shall require at least one discrepancy-purpose evidence photo before the user can attest and submit | Submit is gated until variance evidence photo is attached | P0 | Built (BR-M-03) | SRC-MOB-007 |
@@ -227,14 +230,14 @@ These items are part of the broader Pulse field vision but require a separate si
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |---|---|---|---|---|---|
 | FR-MOB-027 | Pulse Mobile shall order nearby accounts by oldest last-touch as an interim stop list | Route screen shows accounts sorted by ascending `lastEngagementAt` | P0 | Built | SRC-MOB-008, SRC-MOB-001 |
-| FR-MOB-028 | Pulse Mobile shall present colour-coded account pins on the map view filtered by account type (active, inactive, onboarding, members list, consignment overdue, prospect) and shall not change existing Map My Customer colour assignments | Map pins match agreed colour scheme; filter toggles available per type | P0 | Not-built (map view and pin colour configuration not in current build) | SRC-MOB-002 |
-| FR-MOB-029 | Pulse Mobile shall allow the field user to filter the map/list view to show only specific account types | Filter/toggle dropdown available; supports multi-select | P1 | Not-built | SRC-MOB-002 |
+| FR-MOB-028 | Pulse Mobile shall present colour-coded account pins on the map view filtered by account type (active, inactive, onboarding, members list, consignment overdue, prospect) and shall not change existing Map My Customer colour assignments | Map pins match agreed colour scheme; filter toggles available per type | P0 | Built — partial (a MapLibre map with status-derived colour-coded markers ships in `app/(tabs)/map.tsx`; remaining gap is precise marker geo — server lat/lng with a deterministic-hash fallback today — and confirming the colour map against the agreed ASM-MOB-08 scheme) | SRC-MOB-002, SRC-MOB-021 |
+| FR-MOB-029 | Pulse Mobile shall allow the field user to filter the map/list view to show only specific account types | Filter/toggle dropdown available; supports multi-select | P1 | Built (multi-select account-type status filter implemented on the map in `app/(tabs)/map.tsx`) | SRC-MOB-002, SRC-MOB-021 |
 | FR-MOB-030 | Pulse Mobile shall start a visit immediately on the phone and create/check-in through the CRM site-visit model | CRM receives check-in event; visit record created at tap | P0 | Built | SRC-MOB-008 |
 | FR-MOB-031 | Pulse Mobile shall capture foreground GPS when location permission is granted; when permission is unavailable the visit shall be timed-only and shall not block | GPS latitude/longitude stored on visit; timed-only visit completes without GPS | P0 | Built (BR-M-05) | SRC-MOB-008, SRC-MOB-001 |
 | FR-MOB-032 | Checkout shall require the user to enter notes before the visit can be completed; the app shall not allow a new check-in or route progress until checkout is complete | Submit is blocked until checkout notes are present | P0 | Built (CG/Don: "you can't leave without putting notes"; CG: "can't check out successfully and therefore can't check in anywhere else") | SRC-MOB-008, SRC-MOB-002 |
 | FR-MOB-033 | A completed visit shall sync to CRM or be saved as a retryable route phone draft on failure; a completed-today review list shall be shown | Draft persists; completed visits appear in review list | P0 | Built | SRC-MOB-008, SRC-MOB-012 |
 | FR-MOB-034 | Route navigation shall offer a choice of Google Maps, Apple Maps, or Waze for turn-by-turn handoff | Navigation handoff button opens the chosen provider | P1 | Not-built (navigation handoff not wired; parked pending route optimization decision) | SRC-MOB-002 |
-| FR-MOB-035 | The account detail view shall show contacts associated with that account so the TM can call or email the right person directly | Account detail includes contacts list with call/email actions | P1 | Partial (account detail built; contact list population flagged as "not yet" in Session 10 demo) | SRC-MOB-002, SRC-MOB-016 |
+| FR-MOB-035 | The account detail view shall show contacts associated with that account so the TM can call or email the right person directly | Account detail includes contacts list with call/email actions | P1 | Partial (account detail now shows contacts read-only; per-contact call/email actions not yet wired. The Session-10 "not yet populated" note is obsolete) | SRC-MOB-002, SRC-MOB-016 |
 | FR-MOB-036 | The account detail view shall show a sales activity tab (current year-to-date, last year YTD) alongside consignment and history tabs; the consignment tab shall be greyed out / hidden for accounts not on consignment | Four-tab account detail: Overview / Sales / Consignment / History | P1 | Partial (account detail has training history; YTD sales tab and Consignment tab not confirmed built) | SRC-MOB-002, SRC-MOB-016 |
 
 ### 7.6 Field Capture — Voice Note And Business Card
@@ -244,7 +247,7 @@ These items are part of the broader Pulse field vision but require a separate si
 | FR-MOB-037 | Pulse Mobile shall capture a voice note (editable transcript text), scope it to general CRM or a specific account, and sync it for office review | Voice note with title and transcript syncs; context selection persists | P0 | Built | SRC-MOB-009, SRC-MOB-001, SRC-MOB-002 |
 | FR-MOB-038 | Pulse Mobile shall support voice-to-text dictation for field notes so TMs can log activity while on site without typing | Voice recording captured and transcribed; transcript editable before submit | P0 | Built (transcript editing confirmed; live speech-to-text provider TBD) | SRC-MOB-001, SRC-MOB-002 |
 | FR-MOB-039 | Pulse Mobile shall capture a business card via camera, gallery, or pasted text and preview extracted lead fields with per-field confidence scores and review reasons | OCR preview shows extracted fields + confidence; pasted text fallback works | P0 | Built (capture + preview) | SRC-MOB-010 |
-| FR-MOB-040 | Business-card candidates shall be routed into the governed CRM lead review workflow, never silently creating a lead on the device | "Create lead" path submits through governed lead API; no silent device-side creation | P0 | Not-built (UX-M-008: "Create lead" button disabled; commit path not built; parked pending Q-M-01 decision) | SRC-MOB-010 |
+| FR-MOB-040 | Business-card candidates shall be routed into the governed CRM lead review workflow, never silently creating a lead on the device | "Create lead" path submits through governed lead API; no silent device-side creation | P0 | Not-built — commit path (ocr-capture.tsx ships a working "Send to CRM review queue" share-handoff for preview-and-review; the governed device-side commit endpoint is not built — there is no disabled "Create lead" button, contrary to the earlier note — UX-M-008 / Q-M-01) | SRC-MOB-010 |
 | FR-MOB-041 | Business-card capture shall enforce: images only, 4 MB size cap, and capped pasted text | Files >4 MB rejected with user-facing error; non-image files rejected | P0 | Built | SRC-MOB-010 |
 
 ### 7.7 Lead And Account Field Activity
@@ -289,6 +292,13 @@ These items are part of the broader Pulse field vision but require a separate si
 |---|---|---|---|---|---|
 | FR-MOB-058 | Regional Directors shall be able to access high-level dashboards on mobile to monitor pipeline health, training compliance, and consignment exceptions | RD role sees regional rollup metrics in Today/dashboards; TM cannot see other TMs' data | P1 | Partial (role-based field data scoped; dedicated RD dashboard view not confirmed in build) | SRC-MOB-002 |
 
+### 7.12 Field-Capture And Calling Requirements Added From The 2026-06-14 Scope Audit
+
+| ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
+|---|---|---|---|---|---|
+| FR-MOB-059 | Pulse Mobile shall make voice-to-text input available in the lead-capture / lead-create flow (not only in standalone Voice Notes), so a field user can dictate into lead fields | Voice-to-text input available on the lead capture/create surface; transcript editable before save | P1 | Not-built (voice-to-text exists for Voice Notes per FR-MOB-037/038; not yet wired into lead capture) | SRC-MOB-001, SRC-MOB-004 (Michelle: "voice text option could be available in the lead area as well … everywhere") |
+| FR-MOB-060 | Pulse Mobile shall support tap-to-call a lead/account contact from within the app, with optional per-call auto-logging of the call as a disposition | Tap-to-call initiates a device call; user can opt to auto-log the call (note + timestamp) to CRM | P1 | Not-built (lead detail exposes only passive `tel:`/`mailto:` links today; no in-app call initiation or auto-log) | SRC-MOB-002 (CG/Don, Session 10 — device click-to-call, distinct from the parked desk/VoIP calling) |
+
 ---
 
 ## 8. Non-Functional Requirements
@@ -310,6 +320,8 @@ These items are part of the broader Pulse field vision but require a separate si
 | NFR-MOB-013 | The app shall support iOS and Android; tablet (iPad) form-factor support shall be confirmed by Dynamic AQS | Platform coverage | SRC-MOB-002 (CG: "will the app work on mobile phones and iPads?"; Ahmad: "yeah") |
 | NFR-MOB-014 | The canonical draft vocabulary shall use plain-English field-facing labels (Saved on phone / Sending / CRM saved / Needs retry / Sign in again / Needs review); no legacy technical strings ("local_only", "CRM pending", "Will retry") shall appear in user-facing copy | Accessibility / Usability | SRC-MOB-012 |
 | NFR-MOB-015 | The live-CRM-data status panel vocabulary shall match the canonical draft vocabulary so the field user learns one language | Consistency / Usability | SRC-MOB-006 |
+| NFR-MOB-016 | Pulse Mobile shall provide an outdoor-readable theme (dark mode and/or high-contrast) suitable for sunlight field use; for a field app this is treated as functional, not cosmetic | Usability / Field readability | SRC-MOB-020 (app is `userInterfaceStyle: light` only today) |
+| NFR-MOB-017 | Interactive controls shall carry accessibility labels and the app shall honour Dynamic Type / OS font scaling, targeting WCAG AA | Accessibility | SRC-MOB-020 (only the notification bell has an `accessibilityLabel` today; type sizes are fixed px) |
 
 ---
 
@@ -372,7 +384,7 @@ At business level, this module will depend on and feed the following:
 | OQ-MOB-01 | What is the approved mobile path for committing a captured business card into a lead? | review queue in CRM web / mobile-side review commit / desk re-entry | Card capture currently dead-ends on a disabled button (UX-M-008); the commit contract must be confirmed |
 | OQ-MOB-02 | Where should the lead inbox live in the navigation contract? | first-class bottom tab / surfaced via Today + bell / launcher item | The lead queue is core daily work and must not be buried as it is today |
 | OQ-MOB-03 | What mobile lead activity should a field user be able to log on the spot? | call disposition only / disposition + next step / disposition + next step + stage change | Lead detail has call disposition and stage change (UX-M-005); confirm whether next-step capture is also required |
-| OQ-MOB-04 | Does the field user need a full on-device month-view calendar, or is the day-agenda strip sufficient? | full month-view / week-view / day-agenda strip only | Don requested month-view in Session 10 for scheduling six weeks ahead; day-agenda strip is built; month/week not yet built |
+| OQ-MOB-04 | Does the field user need additional calendar depth (week-view, six-weeks-ahead scheduling) beyond what is built? | week-view / deeper scheduling / current month-grid + day-agenda is sufficient | Don requested month-view in Session 10 for scheduling six weeks ahead. Both the Today day-agenda strip AND a full month-matrix grid with month navigation are now built (`app/(tabs)/calendar.tsx`, SRC-MOB-022); the remaining decision is only whether week-view or deeper scheduling depth is also required |
 | OQ-MOB-05 | What is the canonical draft/sync vocabulary to adopt platform-wide? | the proposed 6-state set in Section 7.8 / an amended set / align to a web-side term set | Three inconsistent vocabularies exist today and must converge |
 | OQ-MOB-06 | What push provider and notification governance should mobile use? | Expo Push / FCM+APNs / deferred until a later gate | Determines whether field alerts are real-time and which infrastructure dependency is taken |
 | OQ-MOB-07 | When are offline photo bytes and background sync needed for launch? | required at launch / fast-follow / later phase | Both are parked today; confirming priority sets the storage/security and background-work roadmap |
@@ -396,6 +408,14 @@ These items may still belong in the broader Pulse mobile roadmap, but will not b
 - Android emulator/device QA hardening and French-language support for Canada
 - Outlook 365 calendar bi-directional sync (Microsoft Graph dependency; discussed in Sessions 1 and 10 as desirable)
 - Daily order notification digest for TMs (discussed in Session 10 by Don/CG — "an end-of-day email of your orders"; Acumatica-side; not a mobile build item but a field concern)
+- Store/customer recognition photos (storefront, owner, customer trucks) attached to an account for in-person recognition (Michelle/Don, Session 10) — distinct from ROSE/training/OCR images
+- Name-tag / show-badge photo capture for lead creation (OCR beyond business cards) at trade shows (CG)
+- Map / location visibility surfaced inside the web CRM for office/BD personas (not only the mobile app) — likely belongs to a web PRD; cross-referenced here for completeness
+- In-app SMS / marketing messaging capability (raised as an open question by the client; governance + provider undecided)
+- Optimistic-UI / non-blocking submit on check-in and ROSE submit for slow networks (SRC-MOB-020)
+- Thumb-zone ergonomics for one-handed in-car use — bottom-sheet forms + FAB (SRC-MOB-020; refines ASM-MOB-01)
+- Field-facing offline conflict-resolution UI (merge / keep-mine / keep-server / discard) layered on the parked conflict-merge policy (SRC-MOB-020)
+- Empty / loading / error skeleton-state polish across field surfaces (SRC-MOB-020)
 
 ---
 
@@ -516,5 +536,31 @@ All items with **Can do now = Yes** have no external dependency.
 | ID | Requirement | Component | Can do now? | Status |
 |----|-------------|-----------|-------------|--------|
 | UX-M-008 | Business-card OCR commit path — create lead from mobile via web-side intake pre-fill (Q-M-01) | Mobile app | Yes | Open (parked: the "create lead" commit endpoint POST /api/v1/leads belongs to the leads backend module owned by another agent; mobile share/preview path is already complete in ocr-capture.tsx; full commit path requires a new leads-module endpoint or a governed Q-M-01 decision from Dynamic AQS) |
+
+_To be completed during the review meeting._
+
+---
+
+## §UX-GAPS — Audit 2026-06-14 (Build-Status Reconciliation + Newly-Captured Scope)
+
+A scope-coverage audit on 2026-06-14 cross-checked this PRD against the source meetings, the supporting field-UX gap analysis (SRC-MOB-020), and the as-built mobile code (16 findings confirmed, 1 refuted). The corrections and additions are folded into the sections above; this log records them.
+
+**Build-status corrections (PRD previously understated delivered scope):**
+- **FR-MOB-028 / FR-MOB-029** — the colour-coded, filterable MapLibre map IS built (`app/(tabs)/map.tsx`, SRC-MOB-021); only precise marker geo is stubbed. Was "Not-built".
+- **OQ-MOB-04** — a full month-matrix calendar grid IS built (`app/(tabs)/calendar.tsx`, SRC-MOB-022); only week-view depth remains a question. Was "month/week not yet built".
+- **FR-MOB-009 / NFR-MOB-013 / ASM-MOB-09** — iPad reconciled to a single status: runs on iPad (`supportsTablet: true`), responsive layout not yet optimized. Previously stated three different ways.
+- **FR-MOB-035** — account contacts are now shown read-only; the Session-10 "not yet populated" note is obsolete.
+- **FR-MOB-040** — OCR ships a working "Send to CRM review queue" share-handoff; there is no disabled "Create lead" button. Governed commit endpoint still not built (Q-M-01).
+- **FR-MOB-011** — an Acumatica availability notice is surfaced; explicit stale/parked-source labeling still to confirm.
+
+**Newly-captured scope (client-requested or field-functional, previously absent from every section):**
+- **FR-MOB-059** — voice-to-text in lead capture ("everywhere", Michelle).
+- **FR-MOB-060** — tap-to-call with optional per-call auto-log (CG/Don).
+- **NFR-MOB-016** — dark / high-contrast outdoor theme.
+- **NFR-MOB-017** — accessibility labels + Dynamic Type (WCAG AA).
+- **Section 13 later-phase** — store/customer recognition photos, name-tag/badge OCR, web-CRM map for office/BD personas, in-app SMS, optimistic submit, thumb-zone ergonomics, offline conflict-resolution UI, skeleton states.
+
+**Raised but refuted (not added):**
+- List virtualization for large lists — flagged as a P0 gap, but on verification its supporting evidence was inaccurate, so it is not added here pending a fresh confirmation.
 
 _To be completed during the review meeting._

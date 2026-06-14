@@ -267,3 +267,137 @@ test('schedules validate input, compute next runs, and deliver when due', SERIAL
   await updateReportDefinition(admin, definition.id, { isActive: false });
   await assert.rejects(() => listReportDeliveries(admin, schedule.id), /report schedule not found/i);
 });
+
+test('training_compliance reports overdue programs and last completed training', SERIAL, async () => {
+  const admin = await createAdminActor();
+
+  const overdueAccount = await prisma.account.create({
+    data: { displayName: 'Overdue Training Dealer', accountType: 'Dealer', isActive: true },
+  });
+  const currentAccount = await prisma.account.create({
+    data: { displayName: 'Current Training Dealer', accountType: 'Dealer', isActive: true },
+  });
+  const archivedAccount = await prisma.account.create({
+    data: { displayName: 'Archived Training Dealer', accountType: 'Dealer', isActive: true },
+  });
+
+  const pastDue = new Date(Date.now() - 14 * 86400000);
+  const future = new Date(Date.now() + 30 * 86400000);
+
+  await prisma.accountTrainingProgram.create({
+    data: { accountId: overdueAccount.id, title: 'Overdue Onboarding', status: 'ACTIVE', nextDueAt: pastDue },
+  });
+  await prisma.accountTrainingProgram.create({
+    data: { accountId: currentAccount.id, title: 'Current Onboarding', status: 'ACTIVE', nextDueAt: future },
+  });
+  // ARCHIVED (non-ACTIVE) programs must be excluded even though this one is overdue.
+  await prisma.accountTrainingProgram.create({
+    data: { accountId: archivedAccount.id, title: 'Archived Onboarding', status: 'ARCHIVED', nextDueAt: pastDue },
+  });
+
+  // Most-recent completed session drives lastCompletedAt for the overdue account.
+  await prisma.trainingSession.createMany({
+    data: [
+      { accountId: overdueAccount.id, activityKind: 'TRAINING', status: 'COMPLETED', title: 'Earlier session', completedAt: new Date('2026-02-01T10:00:00.000Z') },
+      { accountId: overdueAccount.id, activityKind: 'TRAINING', status: 'COMPLETED', title: 'Latest session', completedAt: new Date('2026-03-15T10:00:00.000Z') },
+      // Incomplete sessions (no completedAt) are ignored by the last-completed rollup.
+      { accountId: overdueAccount.id, activityKind: 'TRAINING', status: 'SCHEDULED', title: 'Upcoming session' },
+    ],
+  });
+
+  const report = await runAdHocReport(admin, 'training_compliance', {});
+  assert.equal(report.reportKey, 'training_compliance');
+  assert.deepEqual(report.columns.map((column) => column.key), ['account', 'lastCompletedAt', 'nextDueAt', 'overdue']);
+
+  const overdueRow = report.rows.find((row) => row.account === 'Overdue Training Dealer');
+  assert.ok(overdueRow);
+  assert.equal(overdueRow.overdue, 'Yes');
+  assert.equal(overdueRow.lastCompletedAt, '2026-03-15');
+  assert.equal(overdueRow.nextDueAt, pastDue.toISOString().slice(0, 10));
+
+  const currentRow = report.rows.find((row) => row.account === 'Current Training Dealer');
+  assert.ok(currentRow);
+  assert.equal(currentRow.overdue, 'No');
+  assert.equal(currentRow.lastCompletedAt, null);
+
+  assert.equal(report.rows.find((row) => row.account === 'Archived Training Dealer'), undefined);
+});
+
+test('consignment_audit_status reports overdue ROSE audits and open work items', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const account = await prisma.account.create({
+    data: { displayName: 'Consignment Report Dealer', accountType: 'Dealer', isActive: true },
+  });
+
+  const pastDue = new Date(Date.now() - 7 * 86400000);
+  const site = await prisma.consignmentSite.create({
+    data: { accountId: account.id, name: 'Houston ROSE site', status: 'ACTIVE', nextAuditDueAt: pastDue },
+  });
+
+  // Only OPEN/IN_PROGRESS/BLOCKED work items count; COMPLETED/CANCELLED are excluded.
+  await prisma.consignmentWorkItem.createMany({
+    data: [
+      { siteId: site.id, type: 'VARIANCE_REVIEW', status: 'OPEN', title: 'Open variance' },
+      { siteId: site.id, type: 'PO_FOLLOW_UP', status: 'IN_PROGRESS', title: 'PO chase' },
+      { siteId: site.id, type: 'EXIT_REVIEW', status: 'COMPLETED', title: 'Closed item' },
+    ],
+  });
+
+  const report = await runAdHocReport(admin, 'consignment_audit_status', {});
+  assert.equal(report.reportKey, 'consignment_audit_status');
+  const row = report.rows.find((item) => item.site === 'Houston ROSE site');
+  assert.ok(row);
+  assert.equal(row.account, 'Consignment Report Dealer');
+  assert.equal(row.status, 'ACTIVE');
+  assert.equal(row.overdue, 'Yes');
+  assert.equal(row.openWorkItems, 2);
+  assert.equal(row.nextAuditDueAt, pastDue.toISOString().slice(0, 10));
+});
+
+test('field_activity counts training sessions and voice notes per field user', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const account = await prisma.account.create({
+    data: { displayName: 'Field Activity Dealer', accountType: 'Dealer', isActive: true },
+  });
+  const trainer = await prisma.user.create({
+    data: { email: 'field.trainer@pulse.local', displayName: 'Field Trainer', roleCode: 'TERRITORY_MANAGER', userType: 'INTERNAL', isActive: true },
+  });
+  const noteOnly = await prisma.user.create({
+    data: { email: 'field.note@pulse.local', displayName: 'Note Only User', roleCode: 'TERRITORY_MANAGER', userType: 'INTERNAL', isActive: true },
+  });
+
+  await prisma.trainingSession.createMany({
+    data: [
+      { accountId: account.id, trainerUserId: trainer.id, activityKind: 'TRAINING', status: 'COMPLETED', title: 'Field session 1' },
+      { accountId: account.id, trainerUserId: trainer.id, activityKind: 'TRAINING', status: 'COMPLETED', title: 'Field session 2' },
+    ],
+  });
+  await prisma.mobileVoiceNote.createMany({
+    data: [
+      { createdByUserId: trainer.id, title: 'Trainer voice note' },
+      { createdByUserId: noteOnly.id, title: 'Note-only voice note' },
+    ],
+  });
+
+  const report = await runAdHocReport(admin, 'field_activity', {});
+  assert.equal(report.reportKey, 'field_activity');
+
+  const trainerRow = report.rows.find((row) => row.user === 'Field Trainer');
+  assert.ok(trainerRow);
+  assert.equal(trainerRow.trainingSessions, 2);
+  assert.equal(trainerRow.voiceNotes, 1);
+
+  // A user with only a voice note still appears, with zero sessions.
+  const noteRow = report.rows.find((row) => row.user === 'Note Only User');
+  assert.ok(noteRow);
+  assert.equal(noteRow.trainingSessions, 0);
+  assert.equal(noteRow.voiceNotes, 1);
+
+  // The userId filter narrows both session and voice-note counts to a single field user.
+  const filtered = await runAdHocReport(admin, 'field_activity', { userId: trainer.id });
+  assert.equal(filtered.rows.find((row) => row.user === 'Note Only User'), undefined);
+  const filteredTrainer = filtered.rows.find((row) => row.user === 'Field Trainer');
+  assert.ok(filteredTrainer);
+  assert.equal(filteredTrainer.trainingSessions, 2);
+  assert.equal(filteredTrainer.voiceNotes, 1);
+});

@@ -46,8 +46,10 @@ test('capture CRM and dealer default UX budgets', async ({ page, browser }) => {
     // Nested tablists: top workbench tab + 5-way priority-queue segmented control (per-tablist counting would be the
     // deeper fix). Header carries Schedule Training + More + Filters as the operator's three core actions.
     { slug: 'training', path: '/training', heading: /Training Workbench/i, assertVisualBudget: true, budgetOverride: { maxVisibleTabs: 6, maxVisibleSecondaryButtons: 3 } },
-    // Create site primary + Next work/All sites view-switcher; a SegmentedControl/toolbar would exempt the switcher (tracked UX debt).
-    { slug: 'consignment', path: '/consignment', heading: /Consignment Workspace/i, assertVisualBudget: true, budgetOverride: { maxPrimaryButtons: 2, maxVisibleSecondaryButtons: 4 } },
+    // OVERRIDE RETIRED: the Next work/All sites view-switcher is now a SegmentedControl (radiogroup, not buttons), so
+    // Create site is the lone primary and the only secondary controls are the More overflow + per-row action — within
+    // the global budget. Enforced at the default budget now.
+    { slug: 'consignment', path: '/consignment', heading: /Consignment Workspace/i, assertVisualBudget: true },
     // Empty readiness panels ("no products in this state yet") are a sparse-UAT-seed artifact and populate with real catalog data.
     { slug: 'product-catalog-readiness', path: '/product-management', heading: /Dealer Catalog/i, assertVisualBudget: true, budgetOverride: { maxEmptyPanels: 3 } },
     { slug: 'product-dealer-visibility', path: '/product-management?tab=visibility', heading: /Dealer Catalog/i, assertVisualBudget: true },

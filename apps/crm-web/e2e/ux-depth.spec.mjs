@@ -354,8 +354,8 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   // 'Overdue audits' is now an intended at-a-glance metric label, not the legacy prototype section; keep it out of the forbidden set.
   await expect(main.getByText(/Today's Priorities|Ready For Setup|Active Sites|Onboarding Report|ROSE Audit Report/i)).toHaveCount(0);
   await expect(main.getByText(/\b(Acumatica|ERP|inventory|PO|purchase order|manual variance)\b/i)).toHaveCount(0);
-  // 'All sites' is now a top-level view-toggle button (promoted out of the More menu).
-  await page.getByRole('main').getByRole('button', { name: 'All sites' }).click();
+  // 'All sites' is a segment in the consignment view SegmentedControl (radiogroup); select it by clicking its label.
+  await page.getByRole('main').getByText('All sites', { exact: true }).click();
   const allSites = page.getByRole('table', { name: 'Consignment sites' });
   await expect(allSites).toBeVisible();
   await expect(allSites.getByRole('columnheader')).toHaveCount(6);

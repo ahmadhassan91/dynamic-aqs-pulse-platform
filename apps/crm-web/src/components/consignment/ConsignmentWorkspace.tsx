@@ -11,6 +11,7 @@ import {
   Loader,
   Modal,
   Paper,
+  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -287,22 +288,18 @@ export function ConsignmentWorkspace() {
         ) : null}
         secondaryActions={(
           <Group gap="xs" wrap="nowrap">
-            <Button
-              variant={activeView === 'next' ? 'filled' : 'default'}
+            {/* View switcher is a SegmentedControl (radiogroup), not filled buttons — keeps Create site as the lone
+                primary action and a single navigation widget (no per-button secondary-action clutter). */}
+            <SegmentedControl
               size="sm"
-              leftSection={<IconArrowRight size={14} />}
-              onClick={() => setActiveView('next')}
-            >
-              Next work
-            </Button>
-            <Button
-              variant={activeView === 'allSites' ? 'filled' : 'default'}
-              size="sm"
-              leftSection={<IconSearch size={14} />}
-              onClick={() => setActiveView('allSites')}
-            >
-              All sites
-            </Button>
+              aria-label="Consignment view"
+              value={activeView}
+              onChange={(value) => setActiveView(value as ConsignmentView)}
+              data={[
+                { value: 'next', label: 'Next work' },
+                { value: 'allSites', label: 'All sites' },
+              ]}
+            />
             <WorkbenchMoreMenu
               items={[
                 {

@@ -214,7 +214,11 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByRole('table', { name: 'Next site work' })).toBeVisible();
   await expect(page.getByRole('tab', { name: /Follow-up Queue|ROSE & Readiness/ })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Reports' })).toHaveCount(0);
-  await expect(page.getByText('Mailbox')).toHaveCount(0);
+  // Forbid a Mailbox inbox SURFACE (heading/tab), not the 'Open shared-mailbox work items' metric caption, which is
+  // an intended Follow-ups KPI. The bare getByText('Mailbox') matched that dimmed caption and was flaky (the metric
+  // tile renders after dashboard data loads).
+  await expect(page.getByRole('heading', { name: /Mailbox/i })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /Mailbox/i })).toHaveCount(0);
 
   await page.goto('/product-management');
   await expect(page.getByRole('heading', { name: 'Dealer Catalog' })).toBeVisible();
@@ -270,9 +274,11 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
   await expect(page.getByRole('main').getByRole('button', { name: /Copy customer link|Create share link/i }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Find and share approved files' })).toBeVisible();
   await page.getByRole('button', { name: 'More' }).click();
+  // Header More menu now holds the asset write actions; Needs Attention -> Delivery Health and Migration Review ->
+  // Migration were promoted to top-level operational tabs (asserted absent from setup/advanced above at line 272).
   await expect(page.getByRole('menuitem', { name: 'Upload Files' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Needs Attention' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Migration Review' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Add File Link' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Create Share Set' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.goto('/admin');
@@ -372,12 +378,14 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
     name: /Documents|Audit History|Reviewed Field Notes|Agreement Forms|Next ROSE Audit/i,
   })).toHaveCount(0);
   await expect(detailMain.getByText('Site details and evidence')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Finish audit' })).toBeVisible();
-  await expect(page.getByRole('main').getByRole('button', { name: 'More' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Finish audit' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Finish audit' });
+  // Primary workflow action renamed 'Finish audit' -> 'Finish ROSE audit'. Secondary workflow actions (Record PURPLE /
+  // SAND exit / Edit setup) legitimately live behind a More overflow — the operator-first one-primary-plus-overflow
+  // pattern — so a More trigger is expected here and no longer asserted absent.
+  await expect(page.getByRole('button', { name: 'Finish ROSE audit' })).toBeVisible();
+  await page.getByRole('button', { name: 'Finish ROSE audit' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish ROSE audit' });
   await expect(dialog.getByRole('button', { name: 'No issue' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Log site issue' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Needs true-up' })).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: /Add Agreement|Confirm baseline|Mark Active|Schedule ROSE/ })).toHaveCount(0);
 });
 

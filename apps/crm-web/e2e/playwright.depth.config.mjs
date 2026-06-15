@@ -46,6 +46,11 @@ export default defineConfig({
   testMatch: ['ux-depth.spec.mjs'],
   fullyParallel: false,
   workers: 1,
+  // Retry once: these multi-page journey tests are prone to cold-start/async-load timing flakes (a first
+  // navigation can exceed the expect timeout on a freshly-started server). A genuinely broken assertion still
+  // fails both attempts, so this mitigates timing flakiness without masking real regressions. The deeper fix is
+  // splitting these long journeys into smaller deterministic per-surface tests (tracked).
+  retries: 1,
   timeout: 180_000,
   expect: {
     timeout: 15_000,

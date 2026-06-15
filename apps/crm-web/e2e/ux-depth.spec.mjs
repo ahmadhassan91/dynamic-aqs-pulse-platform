@@ -471,7 +471,8 @@ test('UX-06 Slice B Accounts and Calendar stay operator-first', async ({ page })
   await expect(page.getByText('Event detail', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open linked record' })).toHaveCount(0);
   // Calendar view switching is a Select (aria-label 'Calendar view'), not a More menu; options are 'Month'/'List'.
-  await page.getByLabel('Calendar view').first().click();
+  // Target the Select input specifically — the open listbox also carries aria-label 'Calendar view'.
+  await page.locator('input[aria-label="Calendar view"]').click();
   await expect(page.getByRole('option', { name: 'Month' })).toBeVisible();
   await expect(page.getByRole('option', { name: 'List' })).toBeVisible();
 });

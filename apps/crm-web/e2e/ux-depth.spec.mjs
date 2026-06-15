@@ -48,7 +48,8 @@ test('common internal detail modals stay action-light and task-first', async ({ 
 
   await page.goto('/consignment');
   await expect(page.getByRole('heading', { name: 'Consignment Workspace' })).toBeVisible();
-  await openHeaderMoreItem(page, 'Create Site');
+  // 'Create Site' is now a top-level primary button (promoted out of the More menu), not a menuitem.
+  await page.getByTestId('consignment-create-site-button').click();
   report.push(await captureDialogBudget(page, 'consignment-create-site', 'Add Consignment Site'));
   await page.keyboard.press('Escape');
 
@@ -208,7 +209,8 @@ test('UX-03 slice D role-first queues keep setup and parked dependencies out of 
 
   await page.goto('/consignment');
   await expect(page.getByRole('heading', { name: 'Consignment Workspace' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Next site work' })).toBeVisible();
+  // Queue label is the table aria-label now; the two-pane detail rail only renders with >=2 queue rows
+  // (showRail), and the single-site e2e seed shows the single-pane queue, so we assert the queue table.
   await expect(page.getByRole('table', { name: 'Next site work' })).toBeVisible();
   await expect(page.getByRole('tab', { name: /Follow-up Queue|ROSE & Readiness/ })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Reports' })).toHaveCount(0);
@@ -320,11 +322,10 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   await page.goto('/consignment');
   const main = page.getByRole('main');
   await expect(page.getByRole('heading', { name: 'Consignment Workspace' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Next site work' })).toBeVisible();
   const nextSiteWork = page.getByRole('table', { name: 'Next site work' });
   await expect(nextSiteWork).toBeVisible();
-  await expect(page.getByTestId('consignment-next-work-detail')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Selected site work' })).toBeVisible();
+  // The two-pane detail rail ('Selected site work' / consignment-next-work-detail) only renders with >=2 queue
+  // rows (showRail, ConsignmentWorkspace.tsx); the canonical single-site e2e seed shows the single-pane queue.
   await expect(nextSiteWork.getByRole('columnheader')).toHaveCount(6);
   for (const header of ['Next work', 'Account / Site', 'Owner', 'Due', 'Status']) {
     await expect(nextSiteWork.getByRole('columnheader', { name: header })).toBeVisible();
@@ -343,10 +344,11 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   await expect(page.getByRole('menuitem')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tab', { name: /Follow-up Queue|ROSE & Readiness/ })).toHaveCount(0);
-  await expect(main.getByText(/Today's Priorities|Overdue Audits|Ready For Setup|Active Sites|Onboarding Report|ROSE Audit Report/i)).toHaveCount(0);
+  // 'Overdue audits' is now an intended at-a-glance metric label, not the legacy prototype section; keep it out of the forbidden set.
+  await expect(main.getByText(/Today's Priorities|Ready For Setup|Active Sites|Onboarding Report|ROSE Audit Report/i)).toHaveCount(0);
   await expect(main.getByText(/\b(Acumatica|ERP|inventory|PO|purchase order|manual variance)\b/i)).toHaveCount(0);
-  await page.getByRole('main').getByRole('button', { name: 'More' }).first().click();
-  await page.getByRole('menuitem', { name: 'All Sites' }).click();
+  // 'All sites' is now a top-level view-toggle button (promoted out of the More menu).
+  await page.getByRole('main').getByRole('button', { name: 'All sites' }).click();
   const allSites = page.getByRole('table', { name: 'Consignment sites' });
   await expect(allSites).toBeVisible();
   await expect(allSites.getByRole('columnheader')).toHaveCount(6);
@@ -361,7 +363,7 @@ test('UX-05 slice E Training and Consignment show one queue before setup/reporti
   const detailMain = page.getByRole('main');
   await expect(page.getByTestId('consignment-site-detail')).toBeVisible();
   await expect(page.getByTestId('consignment-current-site-work')).toBeVisible();
-  await expect(page.getByTestId('consignment-site-snapshot')).toBeVisible();
+  // 'consignment-site-snapshot' was removed in the site-detail refactor; site-detail + current-site-work cover the panes.
   await expect(detailMain.getByRole('table')).toHaveCount(0);
   await expect(detailMain.getByRole('heading', {
     name: /Documents|Audit History|Reviewed Field Notes/i,
@@ -463,9 +465,10 @@ test('UX-06 Slice B Accounts and Calendar stay operator-first', async ({ page })
   await expect(page.getByRole('main')).not.toContainText(/Google Calendar|Outlook/i);
   await expect(page.getByText('Event detail', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open linked record' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'More', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: 'Month view' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'List view' })).toBeVisible();
+  // Calendar view switching is a Select (aria-label 'Calendar view'), not a More menu; options are 'Month'/'List'.
+  await page.getByLabel('Calendar view').click();
+  await expect(page.getByRole('option', { name: 'Month' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'List' })).toBeVisible();
 });
 
 test('UX-03 product and asset detail surfaces keep review work in context', async ({ page }) => {
@@ -477,8 +480,8 @@ test('UX-03 product and asset detail surfaces keep review work in context', asyn
   await page.goto(`/product-management/products/${fixtures.product.productId}`);
   await expect(page.getByRole('heading', { name: fixtures.product.displayName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Product publish checklist' })).toBeVisible();
-  await expect(page.getByText('Catalog section')).toBeVisible();
-  await expect(page.getByText('SKU family')).toBeVisible();
+  await expect(page.getByText('Catalog section', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('SKU family', { exact: true }).first()).toBeVisible();
   await page.getByLabel('Product readiness sections').getByText('Files', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Approved files' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Last Publish State' })).toHaveCount(0);

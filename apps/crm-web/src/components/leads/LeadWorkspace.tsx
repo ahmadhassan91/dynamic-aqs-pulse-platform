@@ -1438,7 +1438,9 @@ export function LeadWorkspace({
                                     {lead.workflowTask.reason}
                                   </Text>
                                 ) : null}
-                                <Group gap="xs" wrap="wrap">
+                                {/* Row-action chrome: the per-row Open lead + reassign menu are the table's row actions,
+                                    exempt from the workbench secondary-button budget like every other table's RowActionMenu. */}
+                                <Group gap="xs" wrap="wrap" data-ux-row-action="true">
                                   <Button
                                     component={Link}
                                     href={`/leads/${lead.id}`}

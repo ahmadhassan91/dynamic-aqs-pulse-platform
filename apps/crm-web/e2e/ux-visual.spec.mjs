@@ -28,19 +28,11 @@ test('capture CRM and dealer default UX budgets', async ({ page, browser }) => {
   await loginWithCredentials(page, fixtures.internalAuth.email, fixtures.internalAuth.password);
 
   const internalRoutes = [
-    {
-      slug: 'leads-work-queue',
-      path: '/leads',
-      heading: /Lead Work Queue/i,
-      // The per-row 'Open lead' action is counted as a secondary button because it does not adopt the shared
-      // [data-ux-row-action] exemption the other workbench tables use, so the count scales with row count and
-      // cannot be bounded by a numeric budget. Tracked as UX debt: route the lead row action through RowActionMenu.
-      visualBudgetWaiver: {
-        owner: 'Leads',
-        reason: 'Per-row Open lead action should adopt the shared data-ux-row-action row-action exemption.',
-        expires: '2026-07-15',
-      },
-    },
+    // WAIVER RETIRED: the per-row Open lead action now adopts the shared [data-ux-row-action] exemption (LeadWorkspace.tsx),
+    // so the secondary count no longer scales with row count. The remaining 3 secondary controls are the header More menu,
+    // the attention-lane Open action, and Refresh leads — legitimate operator affordances (Refresh could fold into More as
+    // a future tightening). Now enforced with a bounded override instead of skipping the budget entirely.
+    { slug: 'leads-work-queue', path: '/leads', heading: /Lead Work Queue/i, assertVisualBudget: true, budgetOverride: { maxVisibleSecondaryButtons: 3 } },
     // Manager analytics surface is intentionally metric-dense (4-tile strip + 7-stage pipeline + KPIs).
     { slug: 'leads-insights', path: '/leads/analytics', heading: /Lead Work Queue/i, assertVisualBudget: true, budgetOverride: { maxTopMetrics: 16 } },
     // The day grid renders a clickable "Open slot" button per time slot (8AM-9PM) plus period nav (Prev/Next/Today)

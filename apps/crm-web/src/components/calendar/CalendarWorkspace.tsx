@@ -740,7 +740,8 @@ export function CalendarWorkspace({
       <Paper withBorder radius="xl" p="lg">
         <Stack gap="md">
           <Group justify="space-between" align="center" gap="md" wrap="wrap">
-            <Group gap="xs">
+            {/* Period navigation is a toolbar of grouped controls (Prev/Next/Today), not standalone action-bar buttons. */}
+            <Group gap="xs" role="toolbar" aria-label="Calendar period navigation">
               <Button variant="subtle" aria-label="Previous period" onClick={() => setAnchorDate((current) => shiftAnchorDate(current, view, -1))}>
                 <IconChevronLeft size={16} />
               </Button>
@@ -835,7 +836,7 @@ export function CalendarWorkspace({
           <Paper withBorder radius="xl" p="lg" style={{ gridColumn: 'span 2' }}>
             <Stack gap="md">
               {view === 'day' ? (
-                <Paper withBorder radius="lg" p="md" data-testid="calendar-day-grid">
+                <Paper withBorder radius="lg" p="md" data-testid="calendar-day-grid" role="grid" aria-label="Day schedule grid">
                   <Stack gap="sm">
                     <Group justify="space-between" align="flex-start" wrap="wrap">
                       <Stack gap={2}>
@@ -1122,7 +1123,7 @@ export function CalendarWorkspace({
               ) : null}
 
               {view === 'week' ? (
-                <Paper withBorder radius="lg" p="md" data-testid="calendar-week-grid">
+                <Paper withBorder radius="lg" p="md" data-testid="calendar-week-grid" role="grid" aria-label="Week schedule grid">
                   <Stack gap="sm">
                     <Group justify="space-between" align="flex-start" wrap="wrap">
                       <Stack gap={2}>

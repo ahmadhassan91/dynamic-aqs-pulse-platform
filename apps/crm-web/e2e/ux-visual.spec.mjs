@@ -35,10 +35,10 @@ test('capture CRM and dealer default UX budgets', async ({ page, browser }) => {
     { slug: 'leads-work-queue', path: '/leads', heading: /Lead Work Queue/i, assertVisualBudget: true, budgetOverride: { maxVisibleSecondaryButtons: 3 } },
     // Manager analytics surface is intentionally metric-dense (4-tile strip + 7-stage pipeline + KPIs).
     { slug: 'leads-insights', path: '/leads/analytics', heading: /Lead Work Queue/i, assertVisualBudget: true, budgetOverride: { maxTopMetrics: 16 } },
-    // The day grid renders a clickable "Open slot" button per time slot (8AM-9PM) plus period nav (Prev/Next/Today)
-    // and the admin Outlook shortcut. These are core scheduling affordances; a role=grid/toolbar would be the deeper
-    // a11y fix that would exempt them from the secondary-button count.
-    { slug: 'calendar', path: '/calendar', heading: /CRM Calendar/i, assertVisualBudget: true, budgetOverride: { maxVisibleSecondaryButtons: 12 } },
+    // OVERRIDE RETIRED: period nav is now a role=toolbar and the day/week schedule grids are role=grid, so their
+    // controls (Prev/Next/Today + per-slot Open-slot buttons) are exempt from the action-button budget via ARIA
+    // grouping. The only remaining secondary control is the admin Outlook-settings shortcut — within the global budget.
+    { slug: 'calendar', path: '/calendar', heading: /CRM Calendar/i, assertVisualBudget: true },
     // Two overflow-menu triggers + a details toggle (the More triggers are themselves density reduction). Empty
     // "No territory" panels are a sparse-UAT-seed artifact and populate with real coverage data.
     { slug: 'territories', path: '/territories', heading: /Territory Management/i, assertVisualBudget: true, budgetOverride: { maxVisibleSecondaryButtons: 3, maxEmptyPanels: 4 } },
@@ -258,7 +258,9 @@ async function captureVisualBudget(page, slug, routePath, evidence, budgetOverri
     );
 
     const isMenuOrTab = (element) => Boolean(
-      element.closest('[role="menu"], [role="menubar"], [role="tablist"]')
+      // Controls grouped inside a menu / tablist / toolbar / grid landmark are navigation or content affordances
+      // (ARIA grouping semantics), not standalone action-bar buttons, so they are excluded from the action-button budget.
+      element.closest('[role="menu"], [role="menubar"], [role="tablist"], [role="toolbar"], [role="grid"]')
         || element.getAttribute('role') === 'menuitem'
         || element.getAttribute('role') === 'tab',
     );

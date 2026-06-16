@@ -1,6 +1,8 @@
 import { Text, View } from 'react-native';
 import type { MobileNextAction } from '@/lib/mobile-next-action';
-import { colors, radius, spacing, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import type { Palette } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 import { Card, NativeIcon, Pill, PrimaryButton } from './native-kit';
 
 export function MobileNextActionCard({
@@ -12,7 +14,8 @@ export function MobileNextActionCard({
   eyebrow?: string;
   onPress: (action: MobileNextAction) => void;
 }) {
-  const palette = actionPalette(action.tone);
+  const { palette: colors } = useTheme();
+  const palette = actionPalette(action.tone, colors);
   return (
     <Card style={{ borderColor: palette.border, backgroundColor: palette.surface }}>
       <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -59,7 +62,7 @@ function actionIcon(kind: MobileNextAction['kind']) {
   return 'checkmark.circle.fill';
 }
 
-function actionPalette(tone: MobileNextAction['tone']) {
+function actionPalette(tone: MobileNextAction['tone'], colors: Palette) {
   if (tone === 'danger') {
     return { border: '#FCA5A5', iconBg: colors.dangerSoft, iconFg: colors.danger, surface: '#FFF7F7' };
   }

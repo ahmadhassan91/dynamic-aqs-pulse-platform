@@ -18,7 +18,8 @@ import {
 } from '@/components/native-kit';
 import { useMobileVoiceNoteContexts, useMobileVoiceNotes, type VoiceNoteContextOption } from '@/hooks/use-mobile-voice-notes';
 import { describeVoiceNoteReview, parseVoiceNotePresetContext } from '@/lib/voice-note-policy';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 const fallbackContextOption: VoiceNoteContextOption = {
   key: 'general',
@@ -27,6 +28,7 @@ const fallbackContextOption: VoiceNoteContextOption = {
 };
 
 export default function VoiceNotesScreen() {
+  const { palette: colors } = useTheme();
   // FR-MOB-059: when opened from a lead (deep link), pre-scope the capture to that lead.
   const params = useLocalSearchParams<{ presetContextType?: string; presetContextId?: string; presetContextLabel?: string }>();
   const presetContext = useMemo(
@@ -182,6 +184,7 @@ export default function VoiceNotesScreen() {
 }
 
 function ContextChip({ label, onPress, selected }: { label: string; onPress: () => void; selected: boolean }) {
+  const { palette: colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
@@ -207,6 +210,7 @@ function ContextChip({ label, onPress, selected }: { label: string; onPress: () 
 }
 
 function SavedNoteCard({ note }: { note: MobileVoiceNoteSummary }) {
+  const { palette: colors } = useTheme();
   const review = describeVoiceNoteReview(note);
   return (
     <Card style={{ borderColor: colors.success, backgroundColor: '#F0FDF4' }}>
@@ -239,6 +243,7 @@ function SavedNoteCard({ note }: { note: MobileVoiceNoteSummary }) {
 }
 
 function VoiceNoteCard({ note }: { note: MobileVoiceNoteSummary }) {
+  const { palette: colors } = useTheme();
   const review = describeVoiceNoteReview(note);
   return (
     <Card>

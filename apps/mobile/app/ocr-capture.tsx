@@ -7,9 +7,11 @@ import { Card, ErrorState, HeroCard, LoadingState, Pill, PrimaryButton, Screen, 
 import { mimeTypeFromFileName, uriToBase64 } from '@/lib/media';
 import { previewLeadOcrCapture } from '@/lib/api';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 export default function OcrCaptureScreen() {
+  const { palette: colors } = useTheme();
   const { apiBaseUrl, auth } = useSession();
   const [manualText, setManualText] = useState('');
   const [result, setResult] = useState<PreviewLeadOcrCaptureResponse | null>(null);
@@ -170,6 +172,7 @@ function buildShareText(result: PreviewLeadOcrCaptureResponse): string {
 }
 
 function OcrResult({ result }: { result: PreviewLeadOcrCaptureResponse }) {
+  const { palette: colors } = useTheme();
   const fields = result.fields;
   return (
     <>
@@ -226,6 +229,7 @@ function FieldRow({
   label: string;
   value: string | number | undefined;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>

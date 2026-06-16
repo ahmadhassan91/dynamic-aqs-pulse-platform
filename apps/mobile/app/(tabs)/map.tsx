@@ -14,7 +14,8 @@ import { buildTerritoryStateCollection, summarizeMyTerritory } from '@/lib/terri
 import { fetchTerritoryMapWorkspace } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, softShadow, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 // CARTO Voyager GL — free, no API key, and the same basemap family the web territory map uses,
 // so field reps see one consistent map across Pulse. (Alternatives: OpenFreeMap Liberty, MapTiler.)
@@ -26,6 +27,7 @@ const US_STATES = require('@/assets/us-states.json') as {
 };
 
 export default function MapScreen() {
+  const { palette: colors, softShadow } = useTheme();
   const { apiBaseUrl, auth } = useSession();
   const { accounts, errorMessage, isLoading } = useFieldData(200);
   const [active, setActive] = useState<Set<AccountMapStatus>>(() => new Set(ACCOUNT_MAP_STATUS_ORDER));

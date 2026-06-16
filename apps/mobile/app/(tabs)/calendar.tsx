@@ -7,7 +7,8 @@ import { createTrainingSessionRecord, fetchCalendarWorkspace } from '@/lib/api';
 import { humanize } from '@/lib/format';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, softShadow, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 const WEEKDAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const TIME_SLOTS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
@@ -50,6 +51,7 @@ function formatSelectedDay(key: string) {
 }
 
 export default function CalendarScreen() {
+  const { palette: colors } = useTheme();
   const { apiBaseUrl, auth } = useSession();
   const { accounts } = useFieldData(100);
   const now = new Date();
@@ -413,6 +415,7 @@ export default function CalendarScreen() {
 }
 
 function EventCard({ event }: { event: CalendarEventSummary }) {
+  const { palette: colors } = useTheme();
   return (
     <Card>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>

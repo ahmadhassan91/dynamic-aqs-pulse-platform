@@ -9,9 +9,11 @@ import { formatDateTime, humanize } from '@/lib/format';
 import { MOBILE_ADVANCEABLE_STAGES } from '@/lib/lead-stage-policy';
 import { buildCallDispositionPrompt, shouldOfferCallLog } from '@/lib/call-disposition-policy';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 export default function LeadDetailScreen() {
+  const { palette: colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { apiBaseUrl, auth } = useSession();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -324,6 +326,7 @@ export default function LeadDetailScreen() {
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>
@@ -337,6 +340,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 function Action({ disabled, label, onPress }: { disabled?: boolean; label: string; onPress: () => void }) {
+  const { palette: colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"

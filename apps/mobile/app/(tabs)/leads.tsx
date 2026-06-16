@@ -6,9 +6,11 @@ import { LeadCard } from '@/components/lead-card';
 import { EmptyState, ErrorState, HeroCard, ListScreen, LoadingState, SearchField, Pill } from '@/components/native-kit';
 import { formatDate, humanize } from '@/lib/format';
 import { useFieldData } from '@/hooks/use-mobile-data';
-import { colors, radius, softShadow, spacing, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 export default function LeadsScreen() {
+  const { palette: colors } = useTheme();
   const { errorMessage, isLoading, leads, workflowQueueItems } = useFieldData(50);
   const [query, setQuery] = useState('');
   const useWorkflowQueue = leads.length === 0 && workflowQueueItems.length > 0;
@@ -79,6 +81,7 @@ export default function LeadsScreen() {
 }
 
 function WorkflowQueueCard({ item }: { item: LeadWorkflowQueueItem }) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <Link href={{ pathname: '/lead/[id]', params: { id: item.leadId } }} asChild>
       <Pressable
@@ -124,6 +127,7 @@ function WorkflowQueueCard({ item }: { item: LeadWorkflowQueueItem }) {
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ minWidth: 98, gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>

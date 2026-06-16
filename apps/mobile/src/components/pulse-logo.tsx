@@ -1,7 +1,8 @@
 import { Text, View } from 'react-native';
-import { colors } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 export function PulseLogo({ compact = false }: { compact?: boolean }) {
+  const { palette: colors } = useTheme();
   const size = compact ? 34 : 48;
 
   return (

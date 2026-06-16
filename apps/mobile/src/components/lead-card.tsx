@@ -3,9 +3,11 @@ import { Pressable, Text, View } from 'react-native';
 import type { LeadSummary } from '@pulse/contracts/leads';
 import { Pill } from '@/components/native-kit';
 import { formatDate, humanize } from '@/lib/format';
-import { colors, radius, softShadow, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 export function LeadCard({ lead }: { lead: LeadSummary }) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <Link href={{ pathname: '/lead/[id]', params: { id: lead.id } }} asChild>
       <Pressable
@@ -45,6 +47,7 @@ export function LeadCard({ lead }: { lead: LeadSummary }) {
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ minWidth: 98, gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>

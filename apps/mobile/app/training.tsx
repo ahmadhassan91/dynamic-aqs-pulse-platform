@@ -6,11 +6,15 @@ import type { TrainingSessionSummary } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDateTime, humanize } from '@/lib/format';
 import { isTrainingSessionCompleted, maxMobileProofFiles, useTrainingExecution } from '@/hooks/use-training-execution';
-import { colors, radius, spacing, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import type { Palette } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 type TrainingExecutionStep = 'check_in' | 'details' | 'proof' | 'follow_up' | 'submit';
 
 export default function TrainingExecutionScreen() {
+  const { palette: colors } = useTheme();
+  const inputStyle = makeInputStyle(colors);
   const training = useTrainingExecution();
   const {
     attendeeCount,
@@ -271,6 +275,7 @@ function TrainingStepPills({ currentStep }: { currentStep: TrainingExecutionStep
 }
 
 function StepPanel({ children, detail, title }: { children: ReactNode; detail: string; title: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
       <View style={{ gap: spacing.xs }}>
@@ -297,6 +302,7 @@ function StepNav({
   nextDisabled?: boolean | undefined;
   nextHelp?: string | undefined;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: spacing.sm }}>
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -317,6 +323,7 @@ function StepNav({
 }
 
 function TrainingSessionCard({ isSelected, onPress, session }: { isSelected: boolean; onPress: () => void; session: TrainingSessionSummary }) {
+  const { palette: colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
@@ -368,6 +375,7 @@ function FollowUpPanel({
   onTitleChange: (value: string) => void;
   title: string;
 }) {
+  const { palette: colors } = useTheme();
   if (!enabled) {
     return (
       <SecondaryButton
@@ -423,6 +431,8 @@ function LabeledTextArea({
   placeholder: string;
   value: string;
 }) {
+  const { palette: colors } = useTheme();
+  const inputStyle = makeInputStyle(colors);
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
@@ -446,6 +456,7 @@ function LabeledTextArea({
 }
 
 function StatusCard({ message, tone }: { message: string; tone: 'success' | 'warning' }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ borderColor: tone === 'success' ? '#B7E4C7' : '#FACC15', backgroundColor: tone === 'success' ? '#F3FFF7' : colors.warningSoft }}>
       <Text selectable style={{ ...typography.subtitle, color: tone === 'success' ? colors.success : colors.warning }}>
@@ -456,6 +467,7 @@ function StatusCard({ message, tone }: { message: string; tone: 'success' | 'war
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ borderRadius: radius.full, backgroundColor: colors.surfaceMuted, paddingHorizontal: 10, paddingVertical: 7 }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
@@ -466,6 +478,7 @@ function FieldChip({ label, value }: { label: string; value: string }) {
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ flex: 1, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.12)', padding: spacing.md, gap: 2, borderCurve: 'continuous' }}>
       <Text selectable style={{ ...typography.caption, color: '#BFDBFE', textTransform: 'uppercase' }}>
@@ -478,14 +491,16 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-const inputStyle = {
-  minHeight: 48,
-  borderRadius: radius.lg,
-  borderWidth: 1,
-  borderColor: colors.border,
-  backgroundColor: colors.surface,
-  paddingHorizontal: spacing.md,
-  color: colors.text,
-  borderCurve: 'continuous' as const,
-  ...typography.body,
-};
+function makeInputStyle(colors: Palette) {
+  return {
+    minHeight: 48,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    color: colors.text,
+    borderCurve: 'continuous' as const,
+    ...typography.body,
+  };
+}

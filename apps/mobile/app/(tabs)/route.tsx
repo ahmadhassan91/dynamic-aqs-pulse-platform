@@ -12,7 +12,8 @@ import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRoute
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 type RouteVisitAccount = Pick<AccountSummary, 'id' | 'displayName'> & Partial<AccountSummary>;
 
@@ -35,6 +36,7 @@ type CompletedVisit = ActiveVisit & {
 };
 
 export default function RouteScreen() {
+  const { palette: colors } = useTheme();
   const { apiBaseUrl, auth } = useSession();
   const { accounts, errorMessage, isLoading, reload } = useFieldData(30);
   const [activeVisit, setActiveVisit] = useState<ActiveVisit | null>(null);
@@ -423,6 +425,7 @@ function RouteStopCard({
   isDone: boolean;
   onStart: () => void;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ padding: 0, overflow: 'hidden' }}>
       <View style={{ padding: spacing.lg, gap: spacing.md }}>
@@ -515,6 +518,7 @@ function RouteStopCard({
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ borderRadius: radius.full, backgroundColor: colors.surfaceMuted, paddingHorizontal: 10, paddingVertical: 7 }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
@@ -525,6 +529,7 @@ function FieldChip({ label, value }: { label: string; value: string }) {
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ flex: 1, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.12)', padding: spacing.md, gap: 2, borderCurve: 'continuous' }}>
       <Text selectable style={{ ...typography.caption, color: '#BFDBFE', textTransform: 'uppercase' }}>
@@ -538,6 +543,7 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 }
 
 function SuccessNotice({ message }: { message: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ borderColor: '#B7E4C7', backgroundColor: '#F3FFF7' }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.success }}>

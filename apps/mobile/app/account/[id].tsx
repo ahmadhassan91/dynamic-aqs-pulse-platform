@@ -8,9 +8,11 @@ import { createMobileVoiceNote, fetchAccountDetail, fetchAccountTrainingHistory 
 import { formatDate, initials } from '@/lib/format';
 import { formatGroupClassification } from '@/lib/account-map-status';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 export default function AccountDetailScreen() {
+  const { palette: colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { apiBaseUrl, auth } = useSession();
   const [account, setAccount] = useState<AccountDetail | null>(null);
@@ -236,6 +238,7 @@ export default function AccountDetailScreen() {
 }
 
 function MiniStat({ label, tone = 'normal', value }: { label: string; tone?: 'normal' | 'warning'; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ flex: 1, minWidth: 95, borderRadius: radius.lg, backgroundColor: tone === 'warning' ? colors.warningSoft : colors.surfaceMuted, padding: spacing.md, gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: tone === 'warning' ? colors.warning : colors.muted, textTransform: 'uppercase' }}>
@@ -249,6 +252,7 @@ function MiniStat({ label, tone = 'normal', value }: { label: string; tone?: 'no
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>

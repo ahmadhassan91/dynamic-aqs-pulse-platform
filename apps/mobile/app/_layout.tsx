@@ -5,12 +5,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { MobileNextActionProvider } from '@/hooks/use-mobile-next-actions';
 import { SessionProvider, useSession } from '@/providers/session-provider';
+import { ThemeProvider, useTheme } from '@/providers/theme-provider';
 import { colors } from '@/theme';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
 
   if (!fontsLoaded) {
+    // Pre-provider splash: static light palette (the ThemeProvider is not mounted yet).
     return (
       <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={colors.primary} />
@@ -20,16 +22,24 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <SessionProvider>
-        <SessionGate />
-        <StatusBar style="dark" />
-      </SessionProvider>
+      <ThemeProvider>
+        <SessionProvider>
+          <SessionGate />
+          <ThemedStatusBar />
+        </SessionProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
 
+function ThemedStatusBar() {
+  const { scheme } = useTheme();
+  return <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />;
+}
+
 function SessionGate() {
   const { auth, isHydrated } = useSession();
+  const { palette: colors } = useTheme();
   const segments = useSegments();
 
   if (!isHydrated) {

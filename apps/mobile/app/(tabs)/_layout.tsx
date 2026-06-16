@@ -2,7 +2,7 @@ import { Tabs, router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { NativeIcon } from '@/components/native-kit';
 import { useMobileNextActions } from '@/hooks/use-mobile-next-actions';
-import { colors, softShadow } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 const icons: Record<string, { name: string; fallback: string }> = {
   index: { name: 'house.fill', fallback: 'H' },
@@ -18,6 +18,7 @@ const icons: Record<string, { name: string; fallback: string }> = {
 };
 
 export default function TabsLayout() {
+  const { palette: colors } = useTheme();
   const { nextActions } = useMobileNextActions();
   const notificationCount = nextActions.badgeCount;
 
@@ -68,6 +69,7 @@ export default function TabsLayout() {
 }
 
 function HeaderBellButton({ count }: { count: number }) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"

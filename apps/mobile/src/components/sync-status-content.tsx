@@ -7,9 +7,11 @@ import { useMobileNextActions } from '@/hooks/use-mobile-next-actions';
 import { clearDraft, clearSyncedDrafts, getMobileDraftReviewState, retryDraft, retryPendingDrafts, summarizeMobileDraftStatus, type MobileDraft } from '@/lib/mobile-draft-queue';
 import type { MobileNextAction } from '@/lib/mobile-next-action';
 import { useSession } from '@/providers/session-provider';
-import { colors, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { spacing, typography } from '@/theme';
 
 export function SyncStatusContent() {
+  const { palette: colors } = useTheme();
   const { apiBaseUrl, auth, refresh } = useSession();
   const { drafts, draftSummary: summary, nextActions } = useMobileNextActions();
   const pendingDrafts = drafts.filter((draft) => draft.status !== 'synced');
@@ -209,6 +211,7 @@ function openNextAction(action: MobileNextAction) {
 }
 
 function ConflictGuidance({ message }: { message?: string }) {
+  const { palette: colors } = useTheme();
   const conflict = isConflictLike(message);
   return (
     <Card style={{ backgroundColor: conflict ? colors.warningSoft : colors.surfaceMuted, borderColor: conflict ? '#F8D37A' : colors.border }}>
@@ -228,6 +231,7 @@ function ConflictGuidance({ message }: { message?: string }) {
 }
 
 function SignInGuidance() {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.warningSoft, borderColor: '#F8D37A' }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.warning }}>
@@ -241,6 +245,7 @@ function SignInGuidance() {
 }
 
 function RoseDraftSummary({ draft }: { draft: MobileDraft }) {
+  const { palette: colors } = useTheme();
   const lines = draft.payload.kind === 'consignment_rose_audit' ? draft.payload.request.lines ?? [] : [];
   const summary = summarizeRoseDraftLines(lines);
   return (
@@ -276,6 +281,7 @@ function RoseDraftSummary({ draft }: { draft: MobileDraft }) {
 }
 
 function RouteDraftSummary({ draft }: { draft: MobileDraft }) {
+  const { palette: colors } = useTheme();
   if (draft.payload.kind !== 'route_visit') return null;
   return (
     <View style={{ gap: spacing.sm }}>
@@ -297,6 +303,7 @@ function RouteDraftSummary({ draft }: { draft: MobileDraft }) {
 }
 
 function TrainingDraftSummary({ draft }: { draft: MobileDraft }) {
+  const { palette: colors } = useTheme();
   if (draft.payload.kind !== 'training_session') return null;
   return (
     <View style={{ gap: spacing.sm }}>
@@ -319,6 +326,7 @@ function TrainingDraftSummary({ draft }: { draft: MobileDraft }) {
 }
 
 function DraftMetric({ label, tone = 'normal', value }: { label: string; tone?: 'normal' | 'warning'; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ borderRadius: 12, backgroundColor: tone === 'warning' ? colors.warningSoft : colors.surfaceMuted, paddingHorizontal: 10, paddingVertical: 7 }}>
       <Text selectable style={{ ...typography.caption, color: tone === 'warning' ? colors.warning : colors.muted }}>

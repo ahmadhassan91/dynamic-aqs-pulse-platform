@@ -4,9 +4,11 @@ import type { AccountSummary } from '@pulse/contracts/accounts';
 import { Pill } from '@/components/native-kit';
 import { ACCOUNT_MAP_STATUS_META, deriveAccountMapStatus, formatGroupClassification } from '@/lib/account-map-status';
 import { formatDate, initials } from '@/lib/format';
-import { colors, radius, softShadow, spacing, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 export function AccountCard({ account }: { account: AccountSummary }) {
+  const { palette: colors, softShadow } = useTheme();
   const statusMeta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account)];
   return (
     <Link href={{ pathname: '/account/[id]', params: { id: account.id } }} asChild>
@@ -74,6 +76,7 @@ export function AccountCard({ account }: { account: AccountSummary }) {
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ minWidth: 98, gap: 2 }}>
       <Text selectable style={{ ...typography.caption, color: colors.subtle, textTransform: 'uppercase' }}>

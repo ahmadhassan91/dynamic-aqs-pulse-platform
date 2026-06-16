@@ -5,9 +5,11 @@ import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import { Card, ErrorState, Field, HeroCard, PrimaryButton, Screen, SecondaryButton } from '@/components/native-kit';
 import { PulseLogo } from '@/components/pulse-logo';
 import { useSession } from '@/providers/session-provider';
-import { colors, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { spacing, typography } from '@/theme';
 
 export default function LoginScreen() {
+  const { palette: colors } = useTheme();
   const router = useRouter();
   const { apiBaseUrl, errorMessage, isSigningIn, setApiBaseUrl, signIn } = useSession();
   const [email, setEmail] = useState('');

@@ -14,7 +14,8 @@ import type { MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import type { MobileNextAction } from '@/lib/mobile-next-action';
 import { countOverdueRoseSites } from '@/lib/today-metrics';
 import { useSession } from '@/providers/session-provider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 export default function FieldHomeScreen() {
   const { auth, signOut, apiBaseUrl } = useSession();
@@ -122,6 +123,7 @@ function openNextAction(action: MobileNextAction) {
 
 // UX-M-004 — Day agenda strip component
 function DayAgendaStrip({ events, isLoading }: { events: CalendarEventSummary[]; isLoading: boolean }) {
+  const { palette: colors } = useTheme();
   const today = new Date();
   const label = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' }).format(today);
 
@@ -171,6 +173,7 @@ function DayAgendaStrip({ events, isLoading }: { events: CalendarEventSummary[];
 }
 
 function AgendaEventRow({ event }: { event: CalendarEventSummary }) {
+  const { palette: colors } = useTheme();
   const toneMap: Record<string, string> = {
     scheduled: 'pending',
     completed: 'active',
@@ -206,6 +209,7 @@ function AgendaEventRow({ event }: { event: CalendarEventSummary }) {
 }
 
 function LiveApiStatusCard({ status }: { status: MobileLiveApiStatus }) {
+  const { palette: colors } = useTheme();
   const tone = status.overall === 'ready' ? 'active' : status.overall === 'partial' ? 'review' : 'pending';
   return (
     <Card>

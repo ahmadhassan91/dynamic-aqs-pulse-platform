@@ -1,11 +1,13 @@
 import { router } from 'expo-router';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Switch, Text, View } from 'react-native';
 import type { DigitalAssetSummary } from '@pulse/contracts/digital-assets';
 import { Card, EmptyState, ErrorState, Field, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { useMobileAssets } from '@/hooks/use-mobile-assets';
-import { colors, radius, spacing, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 export default function AssetsScreen() {
+  const { palette: colors, isHighContrast, setHighContrast, scheme } = useTheme();
   const { assets, cache, clearSearch, createShareForSelectedAsset, errorMessage, isLoading, isSharing, loadAssets, search, selectedAsset, selectAsset, setSearch, shareUrl, submitSearch } = useMobileAssets();
 
   return (
@@ -15,6 +17,25 @@ export default function AssetsScreen() {
           Capture a note, check phone-saved work, or open a full queue without crowding Today.
         </Text>
       </HeroCard>
+
+      <SectionTitle title="Display" detail="The app follows your device light/dark setting. Turn on High contrast for bright outdoor/sunlight readability." />
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
+          <View style={{ flex: 1, gap: spacing.xs }}>
+            <Text selectable style={{ ...typography.subtitle, color: colors.text }}>High contrast</Text>
+            <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+              Maximises contrast for bright light. The theme currently follows {scheme} mode.
+            </Text>
+          </View>
+          <Switch
+            value={isHighContrast}
+            onValueChange={setHighContrast}
+            accessibilityRole="switch"
+            accessibilityLabel="High contrast theme"
+            trackColor={{ true: colors.primary, false: colors.border }}
+          />
+        </View>
+      </Card>
 
       <SectionTitle title="Capture next" detail="Use Voice notes for the fastest field update. OCR and sync review stay one tap away when needed." />
       <View style={{ gap: spacing.md }}>
@@ -98,6 +119,7 @@ export default function AssetsScreen() {
 }
 
 function MoreAction({ detail, icon, label, onPress }: { detail: string; icon: { name: string; fallback: string }; label: string; onPress: () => void }) {
+  const { palette: colors } = useTheme();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.84 : 1 })}>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -138,6 +160,7 @@ function QueueButton({ icon, label, onPress }: { icon: { name: string; fallback:
 }
 
 function AssetCard({ asset, onPress, selected }: { asset: DigitalAssetSummary; onPress: () => void; selected: boolean }) {
+  const { palette: colors } = useTheme();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.86 : 1 })}>
       <Card {...(selected ? { style: { borderColor: colors.primary, backgroundColor: colors.primarySoft } } : {})}>

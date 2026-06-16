@@ -16,11 +16,13 @@ import {
   type RoseLineCount,
   type RoseVarianceSummary,
 } from '@/hooks/use-consignment-rose-audit';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
+import { radius, spacing, typography } from '@/theme';
 
 type RoseAuditStep = 'counts' | 'notes' | 'evidence' | 'attest' | 'submit';
 
 export default function ConsignmentScreen() {
+  const { palette: colors } = useTheme();
   const {
     activeAudit,
     addRoseEvidence,
@@ -123,6 +125,7 @@ export default function ConsignmentScreen() {
 }
 
 function ConsignmentSiteCard({ onOpen, site }: { onOpen: () => void; site: ConsignmentSiteSummary }) {
+  const { palette: colors } = useTheme();
   const acumaticaTone = site.acumaticaStatus === 'available' ? 'active' : 'review';
   return (
     <Card>
@@ -191,6 +194,7 @@ function RoseAuditCard({
   onSubmit: () => void;
   site: ConsignmentSiteSummary;
 }) {
+  const { palette: colors } = useTheme();
   const [currentStep, setCurrentStep] = useState<RoseAuditStep>('counts');
   const varianceSummary = summarizeVariance(lineCounts);
   const submitBlocker = getRoseSubmitBlocker({ attestedByName, evidenceItems, isAttested, isSubmitting, lineCounts, notes, varianceSummary });
@@ -357,6 +361,7 @@ function RoseStepPills({ currentStep }: { currentStep: RoseAuditStep }) {
 }
 
 function RoseStepPanel({ children, detail, title }: { children: ReactNode; detail: string; title: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
       <View style={{ gap: spacing.xs }}>
@@ -383,6 +388,7 @@ function RoseStepNav({
   nextDisabled?: boolean | undefined;
   nextHelp?: string | undefined;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: spacing.sm }}>
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -415,6 +421,7 @@ function RoseLineCountSection({
   onNotesChange: (lineId: string, value: string) => void;
   varianceSummary: RoseVarianceSummary;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -527,6 +534,7 @@ function EvidenceCaptureSection({
   onRemoveEvidence: (id: string) => void;
   onToggleEvidencePurpose: (id: string) => void;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -586,6 +594,7 @@ function AttestationSection({
   onAttestedByNameChange: (value: string) => void;
   onToggleAttestation: () => void;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
@@ -642,6 +651,7 @@ function hasDiscrepancyEvidence(items: RoseEvidenceItem[]) {
 }
 
 function FieldChip({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ borderRadius: radius.full, backgroundColor: colors.surfaceMuted, paddingHorizontal: 10, paddingVertical: 7 }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
@@ -652,6 +662,7 @@ function FieldChip({ label, value }: { label: string; value: string }) {
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ flex: 1, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.12)', padding: spacing.md, gap: 2, borderCurve: 'continuous' }}>
       <Text selectable style={{ ...typography.caption, color: '#BFDBFE', textTransform: 'uppercase' }}>

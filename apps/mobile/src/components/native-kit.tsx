@@ -1,9 +1,11 @@
 import type { ReactElement, ReactNode } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
-import { colors, glowShadow, gradients, liftShadow, radius, softShadow, spacing, statusColor, typography } from '@/theme';
+import { radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/theme-provider';
 
 export function Screen({ children }: { children: ReactNode }) {
+  const { palette: colors } = useTheme();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -32,6 +34,7 @@ export function ListScreen<T>({
   header?: ReactNode;
   empty?: ReactNode;
 }) {
+  const { palette: colors } = useTheme();
   return (
     <FlatList
       data={data as T[]}
@@ -52,6 +55,7 @@ export function ListScreen<T>({
 }
 
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <View
       style={{
@@ -72,6 +76,7 @@ export function Card({ children, style }: { children: ReactNode; style?: ViewSty
 }
 
 export function SectionTitle({ title, detail }: { title: string; detail?: string }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: 4 }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
@@ -87,6 +92,7 @@ export function SectionTitle({ title, detail }: { title: string; detail?: string
 }
 
 export function MetricCard({ label, value, detail, badge }: { label: string; value: string; detail?: string; badge?: 'warning' | 'danger' }) {
+  const { palette: colors, softShadow } = useTheme();
   const badgeBg = badge === 'danger' ? colors.dangerSoft : badge === 'warning' ? colors.warningSoft : undefined;
   const badgeBorder = badge === 'danger' ? colors.danger : badge === 'warning' ? colors.warning : colors.border;
   return (
@@ -120,6 +126,7 @@ export function MetricCard({ label, value, detail, badge }: { label: string; val
 }
 
 export function Pill({ label, tone }: { label: string; tone?: string }) {
+  const { statusColor } = useTheme();
   const palette = statusColor(tone ?? label);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderRadius: radius.full, backgroundColor: palette.bg, paddingLeft: 8, paddingRight: 11, paddingVertical: 5 }}>
@@ -189,10 +196,12 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
 export function NativeIcon({
   name,
   size = 18,
-  color = colors.text,
+  color,
   decorative = true,
   label,
 }: { fallback?: string; name: string; size?: number; color?: string; decorative?: boolean; label?: string }) {
+  const { palette: colors } = useTheme();
+  const resolvedColor = color ?? colors.text;
   const ionName = SF_TO_IONICON[name] ?? 'ellipse-outline';
   const announced = Boolean(label);
   // NFR-MOB-017: icons are decorative by default so the underlying glyph name (e.g. 'mic') is not announced by
@@ -202,7 +211,7 @@ export function NativeIcon({
     <Ionicons
       name={ionName}
       size={size + 2}
-      color={color}
+      color={resolvedColor}
       accessibilityElementsHidden={decorative && !announced}
       importantForAccessibility={decorative && !announced ? 'no-hide-descendants' : 'auto'}
       {...(announced ? { accessibilityRole: 'image' as const, accessibilityLabel: label } : {})}
@@ -221,6 +230,7 @@ export function HeroCard({
   icon?: { name: string; fallback: string };
   title: string;
 }) {
+  const { palette: colors, gradients, liftShadow } = useTheme();
   return (
     <View
       style={{
@@ -260,6 +270,7 @@ export function HeroCard({
 }
 
 export function PrimaryButton({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: { name: string; fallback: string } }) {
+  const { palette: colors, gradients, glowShadow } = useTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -289,6 +300,7 @@ export function PrimaryButton({ label, onPress, disabled, icon }: { label: strin
 }
 
 export function SecondaryButton({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: { name: string; fallback: string } }) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -325,6 +337,7 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
 }
 
 export function Field({ label, style, ...props }: TextInputProps & { label: string; style?: TextStyle }) {
+  const { palette: colors } = useTheme();
   return (
     <View style={{ gap: spacing.sm }}>
       <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
@@ -351,6 +364,7 @@ export function Field({ label, style, ...props }: TextInputProps & { label: stri
 }
 
 export function LoadingState({ label = 'Loading...' }: { label?: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card>
       <ActivityIndicator color={colors.primary} />
@@ -362,6 +376,7 @@ export function LoadingState({ label = 'Loading...' }: { label?: string }) {
 }
 
 export function EmptyState({ title, detail }: { title: string; detail: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ alignItems: 'center' }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.text, textAlign: 'center' }}>
@@ -375,6 +390,7 @@ export function EmptyState({ title, detail }: { title: string; detail: string })
 }
 
 export function ErrorState({ message }: { message: string }) {
+  const { palette: colors } = useTheme();
   return (
     <Card style={{ borderColor: colors.dangerSoft, backgroundColor: '#FFF7F7' }}>
       <Text selectable style={{ ...typography.subtitle, color: colors.danger }}>
@@ -388,6 +404,7 @@ export function ErrorState({ message }: { message: string }) {
 }
 
 export function SearchField(props: TextInputProps) {
+  const { palette: colors, softShadow } = useTheme();
   return (
     <View
       style={{

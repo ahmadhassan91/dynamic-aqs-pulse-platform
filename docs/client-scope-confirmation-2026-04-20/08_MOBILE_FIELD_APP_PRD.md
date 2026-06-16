@@ -296,8 +296,8 @@ These items are part of the broader Pulse field vision but require a separate si
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |---|---|---|---|---|---|
-| FR-MOB-059 | Pulse Mobile shall make voice-to-text input available in the lead-capture / lead-create flow (not only in standalone Voice Notes), so a field user can dictate into lead fields | Voice-to-text input available on the lead capture/create surface; transcript editable before save | P1 | Not-built (voice-to-text exists for Voice Notes per FR-MOB-037/038; not yet wired into lead capture) | SRC-MOB-001, SRC-MOB-004 (Michelle: "voice text option could be available in the lead area as well … everywhere") |
-| FR-MOB-060 | Pulse Mobile shall support tap-to-call a lead/account contact from within the app, with optional per-call auto-logging of the call as a disposition | Tap-to-call initiates a device call; user can opt to auto-log the call (note + timestamp) to CRM | P1 | Not-built (lead detail exposes only passive `tel:`/`mailto:` links today; no in-app call initiation or auto-log) | SRC-MOB-002 (CG/Don, Session 10 — device click-to-call, distinct from the parked desk/VoIP calling) |
+| FR-MOB-059 | Pulse Mobile shall make voice-to-text input available in the lead-capture / lead-create flow (not only in standalone Voice Notes), so a field user can dictate into lead fields | Voice-to-text input available on the lead capture/create surface; transcript editable before save | P1 | Built (lead detail has a 'Voice note' action deep-linking to the capture pre-scoped to that lead via `parseVoiceNotePresetContext`; reuses the Voice Notes recorder/transcript) | SRC-MOB-001, SRC-MOB-004 (Michelle: "voice text option could be available in the lead area as well … everywhere") |
+| FR-MOB-060 | Pulse Mobile shall support tap-to-call a lead/account contact from within the app, with optional per-call auto-logging of the call as a disposition | Tap-to-call initiates a device call; user can opt to auto-log the call (note + timestamp) to CRM | P1 | Built (lead detail Call opens the dialer and offers an optional 'Log call placed' disposition via the existing log-initial-contact path, gated by `shouldOfferCallLog`) | SRC-MOB-002 (CG/Don, Session 10 — device click-to-call, distinct from the parked desk/VoIP calling) |
 
 ---
 
@@ -562,5 +562,7 @@ A scope-coverage audit on 2026-06-14 cross-checked this PRD against the source m
 
 **Raised but refuted (not added):**
 - List virtualization for large lists — flagged as a P0 gap, but on verification its supporting evidence was inaccurate, so it is not added here pending a fresh confirmation.
+
+**Build update (2026-06-16):** all four P1 gaps above are now IMPLEMENTED (mobile typecheck + unit suite green): FR-MOB-060 click-to-call auto-log and FR-MOB-059 voice-in-lead-capture (commit d1fd933), NFR-MOB-017 accessibility labels + Dynamic Type (294c3b8), and NFR-MOB-016 dark + high-contrast theme — built as both OS-automatic dark and an opt-in high-contrast toggle (02f8a23). On-device visual QA of the dark/high-contrast palettes remains hardware-gated. The Section 13 later-phase items remain deferred.
 
 _To be completed during the review meeting._

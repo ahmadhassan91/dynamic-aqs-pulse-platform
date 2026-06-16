@@ -6,6 +6,7 @@ import type { TerritoryMapCoverageEntrySummary } from '@pulse/contracts/territor
 import {
   ACCOUNT_MAP_STATUS_META,
   ACCOUNT_MAP_STATUS_ORDER,
+  buildConsignmentSignalMap,
   deriveAccountMapStatus,
   type AccountMapStatus,
 } from '@/lib/account-map-status';
@@ -29,7 +30,7 @@ const US_STATES = require('@/assets/us-states.json') as {
 export default function MapScreen() {
   const { palette: colors, softShadow } = useTheme();
   const { apiBaseUrl, auth } = useSession();
-  const { accounts, errorMessage, isLoading } = useFieldData(200);
+  const { accounts, consignmentSites, errorMessage, isLoading } = useFieldData(200);
   const [active, setActive] = useState<Set<AccountMapStatus>>(() => new Set(ACCOUNT_MAP_STATUS_ORDER));
   const [coverageEntries, setCoverageEntries] = useState<TerritoryMapCoverageEntrySummary[]>([]);
 
@@ -55,19 +56,24 @@ export default function MapScreen() {
   );
   const myTerritory = useMemo(() => summarizeMyTerritory(coverageEntries, myUserId), [coverageEntries, myUserId]);
 
+  // Join the already-fetched consignment sites onto accounts so the marker colour can reflect
+  // consignment / consignment-overdue without a second API call. (account.consignment carries no
+  // overdue count, so the overdue signal must come from the per-site data.)
+  const consignmentSignals = useMemo(() => buildConsignmentSignalMap(consignmentSites, new Date()), [consignmentSites]);
+
   const markers = useMemo(
     () =>
       accounts
         .map((account) => ({
           account,
-          status: deriveAccountMapStatus(account),
+          status: deriveAccountMapStatus(account, consignmentSignals.get(account.id)),
           coordinate:
             typeof account.longitude === 'number' && typeof account.latitude === 'number'
               ? ([account.longitude, account.latitude] as LngLat)
               : deriveStubCoordinate(account.id),
         }))
         .filter((marker) => active.has(marker.status)),
-    [accounts, active],
+    [accounts, active, consignmentSignals],
   );
 
   function toggle(status: AccountMapStatus) {

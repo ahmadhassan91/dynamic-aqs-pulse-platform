@@ -7,7 +7,7 @@ import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
-import { formatGroupClassification } from '@/lib/account-map-status';
+import { ACCOUNT_MAP_STATUS_META, buildConsignmentSignalMap, deriveAccountMapStatus, formatGroupClassification } from '@/lib/account-map-status';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
@@ -38,7 +38,7 @@ type CompletedVisit = ActiveVisit & {
 export default function RouteScreen() {
   const { palette: colors } = useTheme();
   const { apiBaseUrl, auth } = useSession();
-  const { accounts, errorMessage, isLoading, reload } = useFieldData(30);
+  const { accounts, consignmentSites, errorMessage, isLoading, reload } = useFieldData(30);
   const [activeVisit, setActiveVisit] = useState<ActiveVisit | null>(null);
   const [completedVisits, setCompletedVisits] = useState<CompletedVisit[]>([]);
   const [notes, setNotes] = useState('');
@@ -56,6 +56,10 @@ export default function RouteScreen() {
       })
       .slice(0, 8);
   }, [accounts]);
+
+  // Preserve the map's colour-coding into the route list so a stop's status (sold / consignment /
+  // consignment-overdue / ...) stays visible while building the route — Don's MMC pain point.
+  const consignmentSignals = useMemo(() => buildConsignmentSignalMap(consignmentSites, new Date()), [consignmentSites]);
 
   useEffect(() => {
     if (activeVisit) return;
@@ -283,16 +287,21 @@ export default function RouteScreen() {
 
       <SectionTitle title="Suggested stops" detail="Provider-neutral ordering uses stale engagement first; optimization stays parked until the map provider decision." />
       <View style={{ gap: spacing.md }}>
-        {stops.map((account, index) => (
-          <RouteStopCard
-            key={account.id}
-            account={account}
-            disabled={Boolean(activeVisit)}
-            index={index + 1}
-            isDone={completedVisits.some((visit) => visit.account.id === account.id)}
-            onStart={() => void startVisit(account)}
-          />
-        ))}
+        {stops.map((account, index) => {
+          const meta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account, consignmentSignals.get(account.id))];
+          return (
+            <RouteStopCard
+              key={account.id}
+              account={account}
+              disabled={Boolean(activeVisit)}
+              index={index + 1}
+              isDone={completedVisits.some((visit) => visit.account.id === account.id)}
+              onStart={() => void startVisit(account)}
+              statusColor={meta.color}
+              statusLabel={meta.label}
+            />
+          );
+        })}
       </View>
 
       {!stops.length && !isLoading ? (
@@ -418,12 +427,16 @@ function RouteStopCard({
   index,
   isDone,
   onStart,
+  statusColor,
+  statusLabel,
 }: {
   account: AccountSummary;
   disabled: boolean;
   index: number;
   isDone: boolean;
   onStart: () => void;
+  statusColor: string;
+  statusLabel: string;
 }) {
   const { palette: colors } = useTheme();
   return (
@@ -447,9 +460,16 @@ function RouteStopCard({
             </Text>
           </View>
           <View style={{ flex: 1, gap: 3 }}>
-            <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
-              {account.displayName}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View
+                accessible
+                accessibilityLabel={`Map status: ${statusLabel}`}
+                style={{ width: 10, height: 10, borderRadius: radius.full, backgroundColor: statusColor }}
+              />
+              <Text selectable style={{ ...typography.subtitle, color: colors.text, flexShrink: 1 }}>
+                {account.displayName}
+              </Text>
+            </View>
             <Text selectable style={{ ...typography.callout, color: colors.muted }}>
               {account.territoryName ?? account.regionName ?? 'No territory assigned'}
             </Text>

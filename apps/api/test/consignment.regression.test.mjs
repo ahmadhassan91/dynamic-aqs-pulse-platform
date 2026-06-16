@@ -11,6 +11,7 @@ ensureTestDatabaseReady();
 let prisma;
 let config;
 let service;
+let accountsService;
 let handleConsignmentRoutes;
 let ensureReferenceDataSeeded;
 let ensureLeadRoutingPolicySeeded;
@@ -30,6 +31,7 @@ test.before(async () => {
   ({ ensureTerritoryPolicySeeded } = await import('../dist/modules/territories/service.js'));
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   service = await import('../dist/modules/consignment/service.js');
+  accountsService = await import('../dist/modules/accounts/service.js');
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
 });
@@ -410,6 +412,21 @@ test('account consignment read model counts statuses without page-limit truncati
   assert.equal(readModel.onboardingSiteCount, 1);
   assert.equal(readModel.exitedSiteCount, 1);
   assert.equal(readModel.participatesInConsignment, true);
+
+  // Under global visibility (admin) the account-list summary reports the SAME per-status counts as the
+  // detail read model — guarding the bug where listAccounts dumped the TOTAL site count into
+  // onboardingSiteCount (and hardcoded active=0), which mis-coloured every consignment account as
+  // "onboarding" (purple) on the field map. (The list counts ALL sites on the account, owner-agnostic;
+  // for a scoped TM/RD it can exceed the owner-scoped detail counts — intended account-level
+  // behaviour, see OQ-MOB-09.)
+  const listed = await accountsService.listAccounts(actor, { includeInactive: true, limit: 200 });
+  const summary = listed.items.find((item) => item.id === fixture.account.id);
+  assert.ok(summary, 'fixture account should appear in the account list');
+  assert.ok(summary.consignment, 'list summary should carry the consignment read model');
+  assert.equal(summary.consignment.activeSiteCount, 1);
+  assert.equal(summary.consignment.onboardingSiteCount, 1);
+  assert.equal(summary.consignment.exitedSiteCount, 1);
+  assert.equal(summary.consignment.participatesInConsignment, true);
 });
 
 test('ROSE audit scheduler resets due date and gates PO follow-up behind true-up review', SERIAL, async () => {
@@ -1007,9 +1024,14 @@ test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metr
     name: 'Dashboard KPI site',
   });
   const { prisma: prismaModule } = await import('@pulse/db');
-  const createdAt = new Date('2026-01-01T00:00:00.000Z');
-  const baselineAt = new Date('2026-01-10T00:00:00.000Z'); // 9 days after creation → on-time
-  const overdueDueAt = new Date('2026-04-01T00:00:00.000Z'); // long past now (test runs in future)
+  // Anchor the seeded events relative to "now" so they stay inside the dashboard's 90-day lookback
+  // windows (audit compliance + PO cycle) as wall-clock time advances. Hardcoded 2026-Q1 dates were a
+  // time-bomb: once "now" passed ~90 days after them the PO-received case fell out of the window and
+  // meanPoCycleDays went null (and audit compliance silently went vacuous).
+  const daysAgo = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+  const createdAt = daysAgo(70);
+  const baselineAt = daysAgo(61); // 9 days after creation → on-time (≤30d)
+  const overdueDueAt = daysAgo(20); // audit due 20d ago → overdue
   await prismaModule.consignmentSite.update({
     where: { id: site.id },
     data: {
@@ -1023,8 +1045,8 @@ test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metr
 
   // Create an overdue PO-required discrepancy linked to a completed audit so
   // overduePoCount and meanPoCycleDays both populate.
-  const auditScheduledFor = new Date('2026-03-15T10:00:00.000Z');
-  const auditCompletedAt = new Date('2026-03-15T18:00:00.000Z'); // on-time (= scheduled)
+  const auditScheduledFor = daysAgo(50); // inside the 90d compliance window
+  const auditCompletedAt = new Date(auditScheduledFor.getTime() + 8 * 60 * 60 * 1000); // +8h → within 24h grace → on-time
   const audit = await prismaModule.consignmentAudit.create({
     data: {
       siteId: site.id,
@@ -1034,8 +1056,8 @@ test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metr
       reconciliationStatus: 'OPEN',
     },
   });
-  const trueUpAt = new Date('2026-03-16T12:00:00.000Z');
-  const overduePoDueAt = new Date('2026-03-23T12:00:00.000Z');
+  const trueUpAt = daysAgo(49);
+  const overduePoDueAt = daysAgo(42); // PO due in the past → overdue
   await prismaModule.consignmentDiscrepancyCase.create({
     data: {
       siteId: site.id,
@@ -1051,13 +1073,13 @@ test('server-owned dashboard computes 14 KPIs including 5 new non-Acumatica metr
   });
 
   // A separately-RECEIVED case populates meanPoCycleDays: 2 days from true-up to received.
-  const cycleReceivedAt = new Date('2026-03-18T12:00:00.000Z');
+  const cycleReceivedAt = daysAgo(47); // 2 days after its true-up, inside the 90d PO-cycle window
   await prismaModule.consignmentDiscrepancyCase.create({
     data: {
       siteId: site.id,
       status: 'PO_RECEIVED',
       poFollowUpStatus: 'RECEIVED',
-      trueUpConfirmedAt: new Date('2026-03-16T12:00:00.000Z'),
+      trueUpConfirmedAt: daysAgo(49),
       updatedAt: cycleReceivedAt,
       sku: 'KPI-2',
       productName: 'KPI cycle item',

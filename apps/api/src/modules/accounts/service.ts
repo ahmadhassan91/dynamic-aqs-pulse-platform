@@ -1,5 +1,5 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, MobileVoiceNoteReviewStatus, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
+import { AccountLifecycleStatus, AuditAction, CisPaymentVaultProvider, ConsignmentSiteStatus, MobileVoiceNoteReviewStatus, Prisma, TerritoryAssignmentMethod, prisma } from '@pulse/db';
 import type {
   AccountDetail,
   AccountActivityReviewEvent,
@@ -74,11 +74,19 @@ const ACCOUNT_SUMMARY_INCLUDE = {
       isPrimary: true,
     },
   },
+  // Consignment site statuses (not just a total count) so toAccountSummary can report accurate
+  // participates / onboarding / active counts for the field-map colour-coding. The previous
+  // _count-only shape dumped the TOTAL into onboardingSiteCount (and hardcoded active/exited to 0),
+  // which mis-coloured every consignment account as "onboarding" on the map.
+  consignmentSites: {
+    select: {
+      status: true,
+    },
+  },
   _count: {
     select: {
       contacts: true,
       locations: true,
-      consignmentSites: true,
     },
   },
 } satisfies Prisma.AccountInclude;
@@ -1618,8 +1626,8 @@ function toAccountSummary(account: {
   _count: {
     contacts: number;
     locations: number;
-    consignmentSites?: number;
   };
+  consignmentSites?: Array<{ status: ConsignmentSiteStatus }>;
   locations?: Array<{ city: string | null; state: string | null; isPrimary: boolean }>;
 }): AccountSummary {
   const summary: AccountSummary = {
@@ -1646,13 +1654,28 @@ function toAccountSummary(account: {
     summary.latitude = coords.latitude;
     summary.longitude = coords.longitude;
   }
-  if (account._count.consignmentSites !== undefined) {
+  if (account.consignmentSites !== undefined) {
+    // Per-status counts for the field-map colour-coding, using getAccountConsignmentReadModel's
+    // bucketing (active = ACTIVE, exited = EXITED, onboarding = anything else) so the count SEMANTICS
+    // match the detail endpoint. NOTE: this counts ALL of the account's consignment sites
+    // (owner-agnostic, like the account list itself), whereas the per-actor detail read model scopes
+    // sites by ownerTmUserId/ownerRdUserId — so for a scoped TM/RD the two can differ when sites on
+    // their account are owned by another rep. Account-level participation is the intended map signal;
+    // whether the map should instead scope to owned sites is part of the OQ-MOB-09 product decision.
+    let activeSiteCount = 0;
+    let onboardingSiteCount = 0;
+    let exitedSiteCount = 0;
+    for (const site of account.consignmentSites) {
+      if (site.status === ConsignmentSiteStatus.EXITED) exitedSiteCount += 1;
+      else if (site.status === ConsignmentSiteStatus.ACTIVE) activeSiteCount += 1;
+      else onboardingSiteCount += 1;
+    }
     summary.consignment = {
       accountId: account.id,
-      participatesInConsignment: account._count.consignmentSites > 0,
-      activeSiteCount: 0,
-      onboardingSiteCount: account._count.consignmentSites,
-      exitedSiteCount: 0,
+      participatesInConsignment: account.consignmentSites.length > 0,
+      activeSiteCount,
+      onboardingSiteCount,
+      exitedSiteCount,
       sites: [],
     };
   }

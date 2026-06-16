@@ -476,16 +476,21 @@ function RouteStopCard({
 
       <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border }}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`View ${account.displayName}`}
           onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })}
           style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.72 : 1 })}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
             <NativeIcon name="doc.text.magnifyingglass" fallback="i" color={colors.primary} size={16} />
-            <Text onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })} style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>View</Text>
+            <Text style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>View</Text>
           </View>
         </Pressable>
         <View style={{ width: 1, backgroundColor: colors.border }} />
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isDone ? `Visit complete for ${account.displayName}` : `Check in at ${account.displayName}`}
+          accessibilityState={{ disabled: disabled || isDone }}
           disabled={disabled || isDone}
           onPress={onStart}
           style={({ pressed }) => ({
@@ -499,7 +504,7 @@ function RouteStopCard({
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <NativeIcon name="location.fill" fallback=">" color={disabled || isDone ? colors.subtle : colors.white} size={16} />
-            <Text onPress={disabled || isDone ? undefined : onStart} style={{ ...typography.callout, color: disabled || isDone ? colors.subtle : colors.white, fontWeight: '800' }}>
+            <Text style={{ ...typography.callout, color: disabled || isDone ? colors.subtle : colors.white, fontWeight: '800' }}>
               {isDone ? 'Complete' : 'Check in'}
             </Text>
           </View>

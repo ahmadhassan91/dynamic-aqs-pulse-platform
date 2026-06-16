@@ -186,9 +186,28 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   'xmark.circle.fill': 'close-circle',
 };
 
-export function NativeIcon({ name, size = 18, color = colors.text }: { fallback?: string; name: string; size?: number; color?: string }) {
+export function NativeIcon({
+  name,
+  size = 18,
+  color = colors.text,
+  decorative = true,
+  label,
+}: { fallback?: string; name: string; size?: number; color?: string; decorative?: boolean; label?: string }) {
   const ionName = SF_TO_IONICON[name] ?? 'ellipse-outline';
-  return <Ionicons name={ionName} size={size + 2} color={color} />;
+  const announced = Boolean(label);
+  // NFR-MOB-017: icons are decorative by default so the underlying glyph name (e.g. 'mic') is not announced by
+  // screen readers; the parent control carries the accessible name. Pass `label` only for an icon that must be
+  // announced on its own (then it is exposed as an image with that label).
+  return (
+    <Ionicons
+      name={ionName}
+      size={size + 2}
+      color={color}
+      accessibilityElementsHidden={decorative && !announced}
+      importantForAccessibility={decorative && !announced ? 'no-hide-descendants' : 'auto'}
+      {...(announced ? { accessibilityRole: 'image' as const, accessibilityLabel: label } : {})}
+    />
+  );
 }
 
 export function HeroCard({

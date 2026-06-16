@@ -319,6 +319,9 @@ function StepNav({
 function TrainingSessionCard({ isSelected, onPress, session }: { isSelected: boolean; onPress: () => void; session: TrainingSessionSummary }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={session.title}
+      accessibilityState={{ selected: isSelected }}
       onPress={onPress}
       style={({ pressed }) => ({
         opacity: pressed ? 0.76 : 1,
@@ -386,7 +389,7 @@ function FollowUpPanel({
             Optional. Add this only when someone needs to do something after the session.
           </Text>
         </View>
-        <Pressable onPress={onClear} style={{ paddingHorizontal: 10, paddingVertical: 8 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Clear follow-up task" onPress={onClear} style={{ paddingHorizontal: 10, paddingVertical: 8 }}>
           <Text style={{ ...typography.caption, color: colors.primary, fontWeight: '800' }}>Clear</Text>
         </Pressable>
       </View>

@@ -248,6 +248,9 @@ export default function LeadDetailScreen() {
                   {MOBILE_ADVANCEABLE_STAGES.filter((stage) => stage !== lead.stage).map((stage) => (
                     <Pressable
                       key={stage}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Set stage to ${humanize(stage)}`}
+                      accessibilityState={{ selected: selectedStage === stage }}
                       onPress={() => setSelectedStage((prev) => (prev === stage ? null : stage))}
                       style={({ pressed }) => ({
                         borderRadius: radius.md,
@@ -336,6 +339,9 @@ function Row({ label, value }: { label: string; value: string }) {
 function Action({ disabled, label, onPress }: { disabled?: boolean; label: string; onPress: () => void }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({

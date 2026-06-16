@@ -6,6 +6,33 @@ export type VoiceNoteContextSelection =
   | { type: 'general'; label?: string }
   | { type: VoiceNoteEntityContextType; id: string; label?: string };
 
+export interface VoiceNotePresetParams {
+  presetContextType?: string | undefined;
+  presetContextId?: string | undefined;
+  presetContextLabel?: string | undefined;
+}
+
+/**
+ * FR-MOB-059 — deep-link the Voice Notes capture pre-scoped to a lead from the lead flow.
+ * Parses optional route params into a ready-to-select lead context option (or undefined when no
+ * valid lead preset was passed). Mirrors the `lead:${id}` key + `Lead: <name>` label the context
+ * hook produces, so the chip resolves/highlights even when the lead is not in the hook's capped list.
+ */
+export function parseVoiceNotePresetContext(
+  params: VoiceNotePresetParams,
+): (VoiceNoteContextSelection & { key: string; label: string }) | undefined {
+  if (params.presetContextType !== 'lead') return undefined;
+  const id = params.presetContextId?.trim();
+  if (!id) return undefined;
+  const name = params.presetContextLabel?.trim();
+  return {
+    type: 'lead',
+    id,
+    key: `lead:${id}`,
+    label: name ? `Lead: ${name}` : 'Lead',
+  };
+}
+
 export type VoiceNoteDraftInput = {
   title?: string;
   transcriptText?: string;

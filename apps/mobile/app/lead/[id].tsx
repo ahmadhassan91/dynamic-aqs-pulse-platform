@@ -1,12 +1,13 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, Text, TextInput, View } from 'react-native';
 import type { LeadDetail } from '@pulse/contracts/leads';
 import { LEAD_STAGES } from '@pulse/contracts/leads';
 import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { fetchLeadDetail, logLeadInitialContact, transitionLeadStage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
 import { MOBILE_ADVANCEABLE_STAGES } from '@/lib/lead-stage-policy';
+import { buildCallDispositionPrompt, shouldOfferCallLog } from '@/lib/call-disposition-policy';
 import { useSession } from '@/providers/session-provider';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -60,6 +61,19 @@ export default function LeadDetailScreen() {
     } finally {
       setIsLoggingCall(false);
     }
+  }
+
+  function handleCallPress() {
+    if (!lead?.phone) return;
+    void Linking.openURL(`tel:${lead.phone}`);
+    // FR-MOB-060: optional per-call auto-log — only offered when the call would record a
+    // not-yet-logged initial contact; the dialer opens regardless of the choice.
+    if (!shouldOfferCallLog(lead)) return;
+    const prompt = buildCallDispositionPrompt(lead.contactDisplayName);
+    Alert.alert(prompt.title, prompt.message, [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Log call placed', onPress: () => void handleLogCall() },
+    ]);
   }
 
   async function handleStageChange() {
@@ -121,7 +135,7 @@ export default function LeadDetailScreen() {
 
             <SectionTitle title="Contact" />
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <Action label="Call" disabled={!lead.phone} onPress={() => void Linking.openURL(`tel:${lead.phone}`)} />
+              <Action label="Call" disabled={!lead.phone} onPress={handleCallPress} />
               <Action label="Email" disabled={!lead.email} onPress={() => void Linking.openURL(`mailto:${lead.email}`)} />
             </View>
 
@@ -164,6 +178,20 @@ export default function LeadDetailScreen() {
                     setShowDisposition(false);
                     setStageError(null);
                   }}
+                />
+              </View>
+            </View>
+
+            {/* FR-MOB-059: capture a voice note pre-scoped to this lead (reuses the Voice Notes screen). */}
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <SecondaryButton
+                  label="Voice note"
+                  icon={{ name: 'mic.fill', fallback: 'V' }}
+                  onPress={() => router.push({
+                    pathname: '/voice-notes',
+                    params: { presetContextType: 'lead', presetContextId: id, presetContextLabel: lead.companyName },
+                  })}
                 />
               </View>
             </View>

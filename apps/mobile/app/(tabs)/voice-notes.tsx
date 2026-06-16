@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { MobileVoiceNoteSummary } from '@pulse/contracts/mobile-voice-notes';
 import {
@@ -16,7 +17,7 @@ import {
   SectionTitle,
 } from '@/components/native-kit';
 import { useMobileVoiceNoteContexts, useMobileVoiceNotes, type VoiceNoteContextOption } from '@/hooks/use-mobile-voice-notes';
-import { describeVoiceNoteReview } from '@/lib/voice-note-policy';
+import { describeVoiceNoteReview, parseVoiceNotePresetContext } from '@/lib/voice-note-policy';
 import { colors, radius, spacing, typography } from '@/theme';
 
 const fallbackContextOption: VoiceNoteContextOption = {
@@ -26,23 +27,41 @@ const fallbackContextOption: VoiceNoteContextOption = {
 };
 
 export default function VoiceNotesScreen() {
+  // FR-MOB-059: when opened from a lead (deep link), pre-scope the capture to that lead.
+  const params = useLocalSearchParams<{ presetContextType?: string; presetContextId?: string; presetContextLabel?: string }>();
+  const presetContext = useMemo(
+    () => parseVoiceNotePresetContext({
+      presetContextType: params.presetContextType,
+      presetContextId: params.presetContextId,
+      presetContextLabel: params.presetContextLabel,
+    }),
+    [params.presetContextType, params.presetContextId, params.presetContextLabel],
+  );
   const { contextOptions, errorMessage: contextError, isLoading: isLoadingContexts } = useMobileVoiceNoteContexts(12);
-  const [selectedContextKey, setSelectedContextKey] = useState('general');
+  const [selectedContextKey, setSelectedContextKey] = useState(() => presetContext?.key ?? 'general');
   const [title, setTitle] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
   const voiceNotes = useMobileVoiceNotes();
   const screenError = voiceNotes.errorMessage ?? contextError;
+
+  // Surface the deep-linked lead context even when it isn't in the hook's capped list.
+  const resolvedOptions = useMemo<VoiceNoteContextOption[]>(
+    () => (presetContext && !contextOptions.some((option) => option.key === presetContext.key)
+      ? [presetContext, ...contextOptions]
+      : contextOptions),
+    [presetContext, contextOptions],
+  );
 
   useEffect(() => {
     void voiceNotes.loadNotes();
   }, [voiceNotes.loadNotes]);
 
   useEffect(() => {
-    if (contextOptions.some((option) => option.key === selectedContextKey)) return;
+    if (resolvedOptions.some((option) => option.key === selectedContextKey)) return;
     setSelectedContextKey('general');
-  }, [contextOptions, selectedContextKey]);
+  }, [resolvedOptions, selectedContextKey]);
 
-  const selectedContext = contextOptions.find((option) => option.key === selectedContextKey) ?? contextOptions[0] ?? fallbackContextOption;
+  const selectedContext = resolvedOptions.find((option) => option.key === selectedContextKey) ?? resolvedOptions[0] ?? fallbackContextOption;
 
   const submit = async () => {
     const saved = await voiceNotes.submitVoiceNote({
@@ -119,7 +138,7 @@ export default function VoiceNotesScreen() {
       <SectionTitle title="CRM context" detail="Choose the record the office team should review first. Leave General only when the note is not tied to a customer or visit." />
       {isLoadingContexts ? <LoadingState label="Loading CRM contexts..." /> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        {contextOptions.map((option) => (
+        {resolvedOptions.map((option) => (
           <ContextChip
             key={option.key}
             label={option.label}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { Camera, GeoJSONSource, Layer, Map, Marker } from '@maplibre/maplibre-react-native';
+import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { TerritoryMapCoverageEntrySummary } from '@pulse/contracts/territories';
 import {
   ACCOUNT_MAP_STATUS_META,
@@ -11,7 +12,9 @@ import {
   type AccountMapStatus,
 } from '@/lib/account-map-status';
 import { NavigateSheet } from '@/components/navigate-sheet';
+import { MarkerActionSheet } from '@/components/marker-action-sheet';
 import type { NavTarget } from '@/lib/external-nav';
+import { toggleRouteStop, useRouteSelection } from '@/lib/route-selection-store';
 import { US_CENTER_LNG_LAT, deriveStubCoordinate, type LngLat } from '@/lib/map-stub-coordinates';
 import { buildTerritoryStateCollection, summarizeMyTerritory } from '@/lib/territory-coverage';
 import { fetchTerritoryMapWorkspace } from '@/lib/api';
@@ -36,6 +39,9 @@ export default function MapScreen() {
   const [active, setActive] = useState<Set<AccountMapStatus>>(() => new Set(ACCOUNT_MAP_STATUS_ORDER));
   const [coverageEntries, setCoverageEntries] = useState<TerritoryMapCoverageEntrySummary[]>([]);
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
+  const [markerActionAccount, setMarkerActionAccount] = useState<AccountSummary | null>(null);
+  const routeSelection = useRouteSelection();
+  const routeSet = useMemo(() => new Set(routeSelection ?? []), [routeSelection]);
 
   useEffect(() => {
     if (!auth) return;
@@ -127,27 +133,31 @@ export default function MapScreen() {
             typeof account.latitude === 'number' && typeof account.longitude === 'number'
               ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
               : null;
+          const inRoute = routeSet.has(account.id);
           return (
           <Marker key={account.id} lngLat={coordinate}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${account.displayName} — ${ACCOUNT_MAP_STATUS_META[status].label}`}
-              accessibilityHint={stopNavTarget ? 'Opens account. Long press to navigate here.' : undefined}
-              accessibilityActions={stopNavTarget ? [{ name: 'navigate', label: 'Navigate here' }] : undefined}
+              accessibilityLabel={`${account.displayName} — ${ACCOUNT_MAP_STATUS_META[status].label}${inRoute ? ' — on route' : ''}`}
+              accessibilityHint="Opens account. Long press for route and navigation actions."
+              accessibilityActions={[
+                { name: 'toggleRoute', label: inRoute ? 'Remove from route' : 'Add to route' },
+                ...(stopNavTarget ? [{ name: 'navigate', label: 'Navigate here' }] : []),
+              ]}
               onAccessibilityAction={(event) => {
-                if (event.nativeEvent.actionName === 'navigate' && stopNavTarget) setNavTarget(stopNavTarget);
+                const action = event.nativeEvent.actionName;
+                if (action === 'toggleRoute') toggleRouteStop(account.id);
+                else if (action === 'navigate' && stopNavTarget) setNavTarget(stopNavTarget);
               }}
               onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })}
-              onLongPress={() => {
-                if (stopNavTarget) setNavTarget(stopNavTarget);
-              }}
+              onLongPress={() => setMarkerActionAccount(account)}
               style={{
                 width: 20,
                 height: 20,
                 borderRadius: radius.full,
                 backgroundColor: ACCOUNT_MAP_STATUS_META[status].color,
-                borderWidth: 2,
-                borderColor: '#FFFFFF',
+                borderWidth: inRoute ? 3 : 2,
+                borderColor: inRoute ? colors.primaryDeep : '#FFFFFF',
                 ...softShadow,
               }}
             />
@@ -201,7 +211,7 @@ export default function MapScreen() {
           </View>
         ) : null}
         <Text style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
-          {isLoading ? 'Loading accounts...' : `${markers.length} shown · tap a status to filter`}
+          {isLoading ? 'Loading accounts...' : `${markers.length} shown${routeSelection && routeSelection.length ? ` · ${routeSelection.length} on route` : ''} · tap a status to filter`}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           {ACCOUNT_MAP_STATUS_ORDER.map((status) => {
@@ -236,6 +246,26 @@ export default function MapScreen() {
         </View>
       </View>
 
+      <MarkerActionSheet
+        account={markerActionAccount}
+        inRoute={markerActionAccount ? routeSet.has(markerActionAccount.id) : false}
+        canNavigate={typeof markerActionAccount?.latitude === 'number' && typeof markerActionAccount?.longitude === 'number'}
+        onOpen={() => {
+          if (markerActionAccount) router.push({ pathname: '/account/[id]', params: { id: markerActionAccount.id } });
+          setMarkerActionAccount(null);
+        }}
+        onToggleRoute={() => {
+          if (markerActionAccount) toggleRouteStop(markerActionAccount.id);
+          setMarkerActionAccount(null);
+        }}
+        onNavigate={() => {
+          if (typeof markerActionAccount?.latitude === 'number' && typeof markerActionAccount?.longitude === 'number') {
+            setNavTarget({ latitude: markerActionAccount.latitude, longitude: markerActionAccount.longitude, label: markerActionAccount.displayName });
+          }
+          setMarkerActionAccount(null);
+        }}
+        onClose={() => setMarkerActionAccount(null)}
+      />
       <NavigateSheet target={navTarget} onClose={() => setNavTarget(null)} />
     </View>
   );

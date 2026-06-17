@@ -14,6 +14,7 @@ import { SavedRoutesSheet } from '@/components/saved-routes-sheet';
 import type { NavTarget } from '@/lib/external-nav';
 import type { SavedRoute } from '@/lib/saved-routes';
 import { deleteRoute, duplicateRoute, saveRoute, useSavedRoutes } from '@/lib/saved-routes-store';
+import { addRouteStop, moveRouteStop, removeRouteStop, setRouteSelection, useRouteSelection } from '@/lib/route-selection-store';
 import { DEFAULT_DWELL_MINUTES, MAX_DWELL_MINUTES, MIN_DWELL_MINUTES, computeRouteSchedule, formatMinutesOfDay, optimizeRouteOrder, roundMiles, routeLegMiles, routeTotalMiles, suggestedAccountIdsFromRoutePlans } from '@/lib/route-planning';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, fetchTerritoryMapWorkspace } from '@/lib/api';
@@ -45,7 +46,10 @@ type CompletedVisit = ActiveVisit & {
 export default function RouteScreen() {
   const { palette: colors } = useTheme();
   const { apiBaseUrl, auth } = useSession();
-  const { accounts, consignmentSites, errorMessage, isLoading, reload } = useFieldData(30);
+  // Load the same query as the map (200) so a stop added from the map normally resolves here and isn't
+  // dropped by the prune effect — both tabs fetch independently and rely on the deterministic server
+  // ordering, so the sets match in practice (RTE-P7 shares the selection across both tabs).
+  const { accounts, consignmentSites, errorMessage, isLoading, reload } = useFieldData(200);
   const [activeVisit, setActiveVisit] = useState<ActiveVisit | null>(null);
   const [completedVisits, setCompletedVisits] = useState<CompletedVisit[]>([]);
   const [notes, setNotes] = useState('');
@@ -55,7 +59,7 @@ export default function RouteScreen() {
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const isVisitSyncSuccess = visitSyncMessage === 'CRM saved';
 
-  const [selectedIds, setSelectedIds] = useState<string[] | null>(null);
+  const selectedIds = useRouteSelection();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [isLoadingSuggested, setIsLoadingSuggested] = useState(false);
@@ -70,18 +74,35 @@ export default function RouteScreen() {
   useEffect(() => {
     if (selectedIds !== null || accounts.length === 0) return;
     const seeded = [...accounts].sort((left, right) => routeSeedRank(left) - routeSeedRank(right)).slice(0, 8).map((account) => account.id);
-    setSelectedIds(seeded);
+    setRouteSelection(seeded);
   }, [accounts, selectedIds]);
 
   // Keep the selection aligned with the loaded accounts so route positions match selectedIds positions
   // (a refresh can drop a previously-selected account from the loaded set). Without this, index-based
   // reorder would act on the wrong entry, and a dropped id would linger as a ghost selection.
   useEffect(() => {
-    if (selectedIds === null) return;
+    // Guard on accounts.length so a freshly-mounted Route tab (selection persisted in the shared store,
+    // own accounts still loading) can't prune the selection to [] before its accounts arrive — which
+    // would also permanently block re-seed. Mirrors the seed effect's guard.
+    if (selectedIds === null || accounts.length === 0) return;
     const loaded = new Set(accounts.map((account) => account.id));
     const pruned = selectedIds.filter((id) => loaded.has(id));
-    if (pruned.length !== selectedIds.length) setSelectedIds(pruned);
+    if (pruned.length !== selectedIds.length) setRouteSelection(pruned);
   }, [accounts, selectedIds]);
+
+  // Keep dwell entries in sync with the selection — covers stops removed from the Map tab, which mutate
+  // the shared store directly and never run removeStop here.
+  useEffect(() => {
+    if (selectedIds === null) return;
+    const ids = new Set(selectedIds);
+    setDwellByStopId((current) => {
+      const keys = Object.keys(current);
+      if (keys.every((key) => ids.has(key))) return current;
+      const next: Record<string, number> = {};
+      for (const key of keys) if (ids.has(key)) next[key] = current[key]!;
+      return next;
+    });
+  }, [selectedIds]);
 
   const routeAccounts = useMemo(
     () => (selectedIds ?? []).map((id) => accountsById.get(id)).filter((account): account is AccountSummary => Boolean(account)),
@@ -144,7 +165,7 @@ export default function RouteScreen() {
       setPlanMessage(`None of "${route.name}"'s ${route.stopIds.length} stop${route.stopIds.length === 1 ? '' : 's'} are in your loaded accounts — current route kept.`);
       return;
     }
-    setSelectedIds(usable);
+    setRouteSelection(usable);
     setDwellByStopId(Object.fromEntries(usable.map((id) => [id, route.dwellByStopId[id] ?? DEFAULT_DWELL_MINUTES])));
     setStartMinutes(roundToFiveMinutes(route.startMinutes));
     const dropped = route.stopIds.length - usable.length;
@@ -159,27 +180,15 @@ export default function RouteScreen() {
 
   function addStop(id: string) {
     setPlanMessage(null); // the order provenance no longer describes the current arrangement
-    setSelectedIds((current) => ((current ?? []).includes(id) ? current : [...(current ?? []), id]));
+    addRouteStop(id);
   }
   function removeStop(id: string) {
     setPlanMessage(null);
-    setSelectedIds((current) => (current ?? []).filter((value) => value !== id));
-    setDwellByStopId((current) => {
-      if (!(id in current)) return current;
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
+    removeRouteStop(id); // the dwell-sync effect drops its dwell entry
   }
   function moveStop(index: number, direction: -1 | 1) {
     setPlanMessage(null);
-    setSelectedIds((current) => {
-      const next = [...(current ?? [])];
-      const target = index + direction;
-      if (target < 0 || target >= next.length) return current;
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return next;
-    });
+    moveRouteStop(index, direction);
   }
   function optimizeOrder() {
     const located = routeAccounts.filter(hasCoords);
@@ -189,7 +198,7 @@ export default function RouteScreen() {
     }
     const without = routeAccounts.filter((account) => !hasCoords(account)).map((account) => account.id);
     const ordered = optimizeRouteOrder(located.map((account) => ({ id: account.id, latitude: account.latitude, longitude: account.longitude })));
-    setSelectedIds([...ordered.map((stop) => stop.id), ...without]);
+    setRouteSelection([...ordered.map((stop) => stop.id), ...without]);
     setPlanMessage(`Optimized ${located.length} stop${located.length === 1 ? '' : 's'} by nearest-neighbour (straight-line).`);
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
@@ -212,7 +221,7 @@ export default function RouteScreen() {
         setPlanMessage('No server route plan covers your loaded accounts yet — build the route manually.');
         return;
       }
-      setSelectedIds(ordered);
+      setRouteSelection(ordered);
       const dropped = suggested.length - ordered.length;
       setPlanMessage(
         `Loaded ${ordered.length} stop${ordered.length === 1 ? '' : 's'} in the server's suggested order${dropped > 0 ? ` (${dropped} more aren't in your loaded accounts)` : ''}.`,

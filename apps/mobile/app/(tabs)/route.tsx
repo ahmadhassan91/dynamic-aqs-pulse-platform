@@ -9,9 +9,11 @@ import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill,
 import { formatDate, formatDateTime, initials } from '@/lib/format';
 import { ACCOUNT_MAP_STATUS_META, buildConsignmentSignalMap, deriveAccountMapStatus, formatGroupClassification } from '@/lib/account-map-status';
 import { NavigateSheet } from '@/components/navigate-sheet';
+import { RouteStopPicker } from '@/components/route-stop-picker';
 import type { NavTarget } from '@/lib/external-nav';
+import { optimizeRouteOrder, roundMiles, routeLegMiles, routeTotalMiles, suggestedAccountIdsFromRoutePlans } from '@/lib/route-planning';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
-import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
+import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, fetchTerritoryMapWorkspace } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
 import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
@@ -50,15 +52,108 @@ export default function RouteScreen() {
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const isVisitSyncSuccess = visitSyncMessage === 'CRM saved';
 
-  const stops = useMemo(() => {
-    return [...accounts]
-      .sort((left, right) => {
-        const leftTouch = left.lastEngagementAt ? new Date(left.lastEngagementAt).getTime() : 0;
-        const rightTouch = right.lastEngagementAt ? new Date(right.lastEngagementAt).getTime() : 0;
-        return leftTouch - rightTouch;
-      })
-      .slice(0, 8);
-  }, [accounts]);
+  const [selectedIds, setSelectedIds] = useState<string[] | null>(null);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [planMessage, setPlanMessage] = useState<string | null>(null);
+  const [isLoadingSuggested, setIsLoadingSuggested] = useState(false);
+
+  const accountsById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
+
+  // Seed the route once (oldest last-touch first) so the screen isn't empty; fully editable after.
+  useEffect(() => {
+    if (selectedIds !== null || accounts.length === 0) return;
+    const seeded = [...accounts].sort((left, right) => routeSeedRank(left) - routeSeedRank(right)).slice(0, 8).map((account) => account.id);
+    setSelectedIds(seeded);
+  }, [accounts, selectedIds]);
+
+  // Keep the selection aligned with the loaded accounts so route positions match selectedIds positions
+  // (a refresh can drop a previously-selected account from the loaded set). Without this, index-based
+  // reorder would act on the wrong entry, and a dropped id would linger as a ghost selection.
+  useEffect(() => {
+    if (selectedIds === null) return;
+    const loaded = new Set(accounts.map((account) => account.id));
+    const pruned = selectedIds.filter((id) => loaded.has(id));
+    if (pruned.length !== selectedIds.length) setSelectedIds(pruned);
+  }, [accounts, selectedIds]);
+
+  const routeAccounts = useMemo(
+    () => (selectedIds ?? []).map((id) => accountsById.get(id)).filter((account): account is AccountSummary => Boolean(account)),
+    [selectedIds, accountsById],
+  );
+
+  const availableAccounts = useMemo(() => {
+    const selected = new Set(selectedIds ?? []);
+    return accounts.filter((account) => !selected.has(account.id));
+  }, [accounts, selectedIds]);
+
+  const routePoints = useMemo(
+    () => routeAccounts.map((account) => (hasCoords(account) ? { latitude: account.latitude, longitude: account.longitude } : null)),
+    [routeAccounts],
+  );
+  const legMiles = useMemo(() => routeLegMiles(routePoints), [routePoints]);
+  const totalMiles = useMemo(() => routeTotalMiles(routePoints), [routePoints]);
+  const locatedStopCount = useMemo(() => routeAccounts.filter(hasCoords).length, [routeAccounts]);
+
+  function addStop(id: string) {
+    setPlanMessage(null); // the order provenance no longer describes the current arrangement
+    setSelectedIds((current) => ((current ?? []).includes(id) ? current : [...(current ?? []), id]));
+  }
+  function removeStop(id: string) {
+    setPlanMessage(null);
+    setSelectedIds((current) => (current ?? []).filter((value) => value !== id));
+  }
+  function moveStop(index: number, direction: -1 | 1) {
+    setPlanMessage(null);
+    setSelectedIds((current) => {
+      const next = [...(current ?? [])];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  }
+  function optimizeOrder() {
+    const located = routeAccounts.filter(hasCoords);
+    if (located.length < 2) {
+      setPlanMessage('Add at least 2 located stops to optimize the order.');
+      return;
+    }
+    const without = routeAccounts.filter((account) => !hasCoords(account)).map((account) => account.id);
+    const ordered = optimizeRouteOrder(located.map((account) => ({ id: account.id, latitude: account.latitude, longitude: account.longitude })));
+    setSelectedIds([...ordered.map((stop) => stop.id), ...without]);
+    setPlanMessage(`Optimized ${located.length} stop${located.length === 1 ? '' : 's'} by nearest-neighbour (straight-line).`);
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+  async function loadSuggestedRoute() {
+    if (!auth) {
+      setPlanMessage('Sign in to load the server route plan.');
+      return;
+    }
+    setIsLoadingSuggested(true);
+    setPlanMessage(null);
+    try {
+      const workspace = await fetchTerritoryMapWorkspace(apiBaseUrl, auth.tokens.accessToken);
+      const suggested = suggestedAccountIdsFromRoutePlans(workspace.routePlans);
+      const rank = new Map(suggested.map((id, index) => [id, index] as const));
+      const ordered = accounts
+        .filter((account) => rank.has(account.id))
+        .sort((left, right) => rank.get(left.id)! - rank.get(right.id)!)
+        .map((account) => account.id);
+      if (ordered.length === 0) {
+        setPlanMessage('No server route plan covers your loaded accounts yet — build the route manually.');
+        return;
+      }
+      setSelectedIds(ordered);
+      const dropped = suggested.length - ordered.length;
+      setPlanMessage(
+        `Loaded ${ordered.length} stop${ordered.length === 1 ? '' : 's'} in the server's suggested order${dropped > 0 ? ` (${dropped} more aren't in your loaded accounts)` : ''}.`,
+      );
+    } catch {
+      setPlanMessage('Could not load the server route plan. Build or optimize the route manually.');
+    } finally {
+      setIsLoadingSuggested(false);
+    }
+  }
 
   // Preserve the map's colour-coding into the route list so a stop's status (sold / consignment /
   // consignment-overdue / ...) stays visible while building the route — Don's MMC pain point.
@@ -227,10 +322,10 @@ export default function RouteScreen() {
     <Screen>
       <HeroCard title="Route plan" eyebrow="Field execution" icon={{ name: 'map.fill', fallback: 'R' }}>
         <Text selectable style={{ ...typography.callout, color: '#D7E7FF' }}>
-          Order nearby work, check in on site, and keep the visit trail clean before provider-backed optimization is approved.
+          Build and optimize your route, check in on site, and hand off to navigation. Road/traffic optimization stays parked until the maps decision.
         </Text>
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <MiniMetric label="Stops" value={String(stops.length)} />
+          <MiniMetric label="Stops" value={String(routeAccounts.length)} />
           <MiniMetric label="Done" value={String(completedVisits.length)} />
         </View>
       </HeroCard>
@@ -288,14 +383,34 @@ export default function RouteScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle title="Suggested stops" detail="Provider-neutral ordering uses stale engagement first; optimization stays parked until the map provider decision." />
+      <SectionTitle title="Route builder" detail="Select stops, optimize the order (nearest-neighbour, straight-line), and hand off to navigation. Provider-backed road/traffic optimization stays parked until the maps decision." />
+
+      {planMessage ? <Text selectable style={{ ...typography.caption, color: colors.muted }}>{planMessage}</Text> : null}
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <View style={{ flexBasis: '47%', flexGrow: 1 }}>
+          <SecondaryButton label="Add stops" icon={{ name: 'plus.circle.fill', fallback: 'Add' }} onPress={() => setIsPickerOpen(true)} />
+        </View>
+        <View style={{ flexBasis: '47%', flexGrow: 1 }}>
+          <SecondaryButton label="Optimize order" icon={{ name: 'arrow.up.arrow.down.circle.fill', fallback: 'Opt' }} disabled={locatedStopCount < 2} onPress={optimizeOrder} />
+        </View>
+        <View style={{ flexBasis: '47%', flexGrow: 1 }}>
+          <SecondaryButton label={isLoadingSuggested ? 'Loading...' : 'Load suggested'} icon={{ name: 'map.fill', fallback: 'Plan' }} disabled={isLoadingSuggested} onPress={() => void loadSuggestedRoute()} />
+        </View>
+      </View>
+
+      {locatedStopCount >= 2 ? (
+        <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
+          ~{roundMiles(totalMiles)} mi straight-line · {locatedStopCount === routeAccounts.length ? `${routeAccounts.length} stops` : `${locatedStopCount} of ${routeAccounts.length} located`}
+        </Text>
+      ) : null}
+
       <View style={{ gap: spacing.md }}>
-        {stops.map((account, index) => {
+        {routeAccounts.map((account, index) => {
           const meta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account, consignmentSignals.get(account.id))];
-          const stopNavTarget: NavTarget | null =
-            typeof account.latitude === 'number' && typeof account.longitude === 'number'
-              ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
-              : null;
+          const stopNavTarget: NavTarget | null = hasCoords(account)
+            ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
+            : null;
           return (
             <RouteStopCard
               key={account.id}
@@ -308,16 +423,22 @@ export default function RouteScreen() {
               statusLabel={meta.label}
               canNavigate={stopNavTarget !== null}
               onNavigate={() => stopNavTarget && setNavTarget(stopNavTarget)}
+              legMiles={legMiles[index] ?? null}
+              onRemove={() => removeStop(account.id)}
+              onMoveUp={() => moveStop(index, -1)}
+              onMoveDown={() => moveStop(index, 1)}
+              canMoveUp={index > 0}
+              canMoveDown={index < routeAccounts.length - 1}
             />
           );
         })}
       </View>
 
-      {!stops.length && !isLoading ? (
-        <EmptyState title="No route stops yet" detail="Refresh when accounts are available for this role, then start with the oldest last-touch account." />
+      {routeAccounts.length === 0 && !isLoading ? (
+        <EmptyState title="No stops on the route yet" detail="Tap Add stops to build a route, or Load suggested to start from the server's nearest-neighbour plan." />
       ) : null}
 
-      <SecondaryButton label="Refresh route" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
+      <SecondaryButton label="Refresh accounts" icon={{ name: 'arrow.clockwise', fallback: 'R' }} onPress={() => void reload()} />
 
       {completedVisits.length ? (
         <>
@@ -340,6 +461,7 @@ export default function RouteScreen() {
         </>
       ) : null}
 
+      <RouteStopPicker visible={isPickerOpen} accounts={availableAccounts} onAdd={addStop} onClose={() => setIsPickerOpen(false)} />
       <NavigateSheet target={navTarget} onClose={() => setNavTarget(null)} />
     </Screen>
   );
@@ -347,6 +469,32 @@ export default function RouteScreen() {
 
 function roundCoordinate(value: number) {
   return Math.round(value * 1000) / 1000;
+}
+
+function hasCoords(account: AccountSummary): account is AccountSummary & { latitude: number; longitude: number } {
+  return typeof account.latitude === 'number' && typeof account.longitude === 'number';
+}
+
+function routeSeedRank(account: AccountSummary): number {
+  return account.lastEngagementAt ? new Date(account.lastEngagementAt).getTime() : 0;
+}
+
+function RouteIconButton({ icon, label, onPress, disabled, tone }: { icon: string; label: string; onPress?: (() => void) | undefined; disabled?: boolean | undefined; tone?: 'danger' }) {
+  const { palette: colors } = useTheme();
+  const color = disabled ? colors.subtle : tone === 'danger' ? colors.danger : colors.primary;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => ({ width: 40, height: 40, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted, opacity: pressed ? 0.6 : 1 })}
+    >
+      <NativeIcon name={icon} fallback={label} color={color} size={18} />
+    </Pressable>
+  );
 }
 
 function buildRouteVisitCreateRequest(account: RouteVisitAccount, trainerUserId: string, checkedInAt: string): CreateTrainingSessionRequest {
@@ -434,21 +582,33 @@ async function saveCheckedInRouteVisitDraft(activeVisit: ActiveVisit) {
 
 function RouteStopCard({
   account,
+  canMoveDown,
+  canMoveUp,
   canNavigate,
   disabled,
   index,
   isDone,
+  legMiles,
+  onMoveDown,
+  onMoveUp,
   onNavigate,
+  onRemove,
   onStart,
   statusColor,
   statusLabel,
 }: {
   account: AccountSummary;
+  canMoveDown?: boolean;
+  canMoveUp?: boolean;
   canNavigate: boolean;
   disabled: boolean;
   index: number;
   isDone: boolean;
+  legMiles?: number | null;
+  onMoveDown?: () => void;
+  onMoveUp?: () => void;
   onNavigate: () => void;
+  onRemove?: () => void;
   onStart: () => void;
   statusColor: string;
   statusLabel: string;
@@ -510,6 +670,19 @@ function RouteStopCard({
           <FieldChip label="Last touch" value={formatDate(account.lastEngagementAt)} />
           <FieldChip label="Group" value={account.affinityGroupName ?? account.ownershipGroupName ?? formatGroupClassification(account.groupClassification) ?? 'Independent'} />
         </View>
+
+        {onRemove ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+            <Text selectable style={{ ...typography.caption, color: colors.muted, flexShrink: 1 }}>
+              {typeof legMiles === 'number' ? `${roundMiles(legMiles)} mi from previous` : index === 1 ? 'Start of route' : 'Distance unavailable'}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <RouteIconButton icon="chevron.up" label={`Move ${account.displayName} up`} disabled={!canMoveUp} onPress={onMoveUp} />
+              <RouteIconButton icon="chevron.down" label={`Move ${account.displayName} down`} disabled={!canMoveDown} onPress={onMoveDown} />
+              <RouteIconButton icon="xmark.circle.fill" label={`Remove ${account.displayName} from route`} tone="danger" onPress={onRemove} />
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border }}>

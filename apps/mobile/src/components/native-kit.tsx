@@ -172,6 +172,8 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   'checkmark.seal.fill': 'ribbon',
   'chevron.left': 'chevron-back',
   'chevron.right': 'chevron-forward',
+  'chevron.up': 'chevron-up',
+  'chevron.down': 'chevron-down',
   'doc.text.magnifyingglass': 'document-text',
   'doc.text.viewfinder': 'scan',
   'iphone.gen3': 'phone-portrait',

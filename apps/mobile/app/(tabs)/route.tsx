@@ -8,6 +8,8 @@ import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, Cre
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
 import { ACCOUNT_MAP_STATUS_META, buildConsignmentSignalMap, deriveAccountMapStatus, formatGroupClassification } from '@/lib/account-map-status';
+import { NavigateSheet } from '@/components/navigate-sheet';
+import type { NavTarget } from '@/lib/external-nav';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
@@ -45,6 +47,7 @@ export default function RouteScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [visitSyncMessage, setVisitSyncMessage] = useState<string | null>(null);
   const [isSubmittingVisit, setIsSubmittingVisit] = useState(false);
+  const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const isVisitSyncSuccess = visitSyncMessage === 'CRM saved';
 
   const stops = useMemo(() => {
@@ -289,6 +292,10 @@ export default function RouteScreen() {
       <View style={{ gap: spacing.md }}>
         {stops.map((account, index) => {
           const meta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account, consignmentSignals.get(account.id))];
+          const stopNavTarget: NavTarget | null =
+            typeof account.latitude === 'number' && typeof account.longitude === 'number'
+              ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
+              : null;
           return (
             <RouteStopCard
               key={account.id}
@@ -299,6 +306,8 @@ export default function RouteScreen() {
               onStart={() => void startVisit(account)}
               statusColor={meta.color}
               statusLabel={meta.label}
+              canNavigate={stopNavTarget !== null}
+              onNavigate={() => stopNavTarget && setNavTarget(stopNavTarget)}
             />
           );
         })}
@@ -330,6 +339,8 @@ export default function RouteScreen() {
           </View>
         </>
       ) : null}
+
+      <NavigateSheet target={navTarget} onClose={() => setNavTarget(null)} />
     </Screen>
   );
 }
@@ -423,17 +434,21 @@ async function saveCheckedInRouteVisitDraft(activeVisit: ActiveVisit) {
 
 function RouteStopCard({
   account,
+  canNavigate,
   disabled,
   index,
   isDone,
+  onNavigate,
   onStart,
   statusColor,
   statusLabel,
 }: {
   account: AccountSummary;
+  canNavigate: boolean;
   disabled: boolean;
   index: number;
   isDone: boolean;
+  onNavigate: () => void;
   onStart: () => void;
   statusColor: string;
   statusLabel: string;
@@ -510,6 +525,22 @@ function RouteStopCard({
           </View>
         </Pressable>
         <View style={{ width: 1, backgroundColor: colors.border }} />
+        {canNavigate ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Navigate to ${account.displayName}`}
+              onPress={onNavigate}
+              style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.72 : 1 })}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+                <NativeIcon name="location.north.fill" fallback="Nav" color={colors.primary} size={16} />
+                <Text style={{ ...typography.callout, color: colors.primary, fontWeight: '800' }}>Navigate</Text>
+              </View>
+            </Pressable>
+            <View style={{ width: 1, backgroundColor: colors.border }} />
+          </>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={isDone ? `Visit complete for ${account.displayName}` : `Check in at ${account.displayName}`}

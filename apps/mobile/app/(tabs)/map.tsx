@@ -10,6 +10,8 @@ import {
   deriveAccountMapStatus,
   type AccountMapStatus,
 } from '@/lib/account-map-status';
+import { NavigateSheet } from '@/components/navigate-sheet';
+import type { NavTarget } from '@/lib/external-nav';
 import { US_CENTER_LNG_LAT, deriveStubCoordinate, type LngLat } from '@/lib/map-stub-coordinates';
 import { buildTerritoryStateCollection, summarizeMyTerritory } from '@/lib/territory-coverage';
 import { fetchTerritoryMapWorkspace } from '@/lib/api';
@@ -33,6 +35,7 @@ export default function MapScreen() {
   const { accounts, consignmentSites, errorMessage, isLoading } = useFieldData(200);
   const [active, setActive] = useState<Set<AccountMapStatus>>(() => new Set(ACCOUNT_MAP_STATUS_ORDER));
   const [coverageEntries, setCoverageEntries] = useState<TerritoryMapCoverageEntrySummary[]>([]);
+  const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
 
   useEffect(() => {
     if (!auth) return;
@@ -118,12 +121,26 @@ export default function MapScreen() {
             />
           </GeoJSONSource>
         ) : null}
-        {markers.map(({ account, status, coordinate }) => (
+        {markers.map(({ account, status, coordinate }) => {
+          // Navigate only to a real (non-stub) location; the marker may sit on a deriveStubCoordinate.
+          const stopNavTarget: NavTarget | null =
+            typeof account.latitude === 'number' && typeof account.longitude === 'number'
+              ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
+              : null;
+          return (
           <Marker key={account.id} lngLat={coordinate}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${account.displayName} — ${ACCOUNT_MAP_STATUS_META[status].label}`}
+              accessibilityHint={stopNavTarget ? 'Opens account. Long press to navigate here.' : undefined}
+              accessibilityActions={stopNavTarget ? [{ name: 'navigate', label: 'Navigate here' }] : undefined}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'navigate' && stopNavTarget) setNavTarget(stopNavTarget);
+              }}
               onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })}
+              onLongPress={() => {
+                if (stopNavTarget) setNavTarget(stopNavTarget);
+              }}
               style={{
                 width: 20,
                 height: 20,
@@ -135,7 +152,8 @@ export default function MapScreen() {
               }}
             />
           </Marker>
-        ))}
+          );
+        })}
       </Map>
 
       <View style={{ position: 'absolute', top: spacing.md, left: spacing.md, right: spacing.md }}>
@@ -217,6 +235,8 @@ export default function MapScreen() {
           })}
         </View>
       </View>
+
+      <NavigateSheet target={navTarget} onClose={() => setNavTarget(null)} />
     </View>
   );
 }

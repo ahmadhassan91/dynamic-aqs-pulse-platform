@@ -14,7 +14,8 @@
         "NSCameraUsageDescription": "Pulse Field uses the camera to scan business cards and capture ROSE audit evidence.",
         "NSPhotoLibraryUsageDescription": "Pulse Field uses selected photos for business-card OCR and ROSE audit evidence previews.",
         "NSLocationWhenInUseUsageDescription": "Pulse Field uses your location only when you check in to a route visit.",
-        "NSMicrophoneUsageDescription": "Pulse Field uses the microphone when you record voice notes for CRM follow-up."
+        "NSMicrophoneUsageDescription": "Pulse Field uses the microphone when you record voice notes for CRM follow-up.",
+        "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"]
       }
     },
     "android": {

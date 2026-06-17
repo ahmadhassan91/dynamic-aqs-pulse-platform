@@ -187,6 +187,7 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   'phone.fill': 'call',
   'photo.on.rectangle.angled': 'images',
   'plus.circle.fill': 'add-circle',
+  'minus.circle.fill': 'remove-circle',
   'rectangle.portrait.and.arrow.right': 'log-out',
   'square.and.arrow.up': 'share-outline',
   'square.and.arrow.up.fill': 'share',

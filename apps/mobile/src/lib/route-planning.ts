@@ -99,3 +99,55 @@ export function suggestedAccountIdsFromRoutePlans(
   }
   return ids;
 }
+
+// ---- RTE-P5: dwell + end-of-day ETA (provider-free estimate) ----
+
+export const ROUTE_AVG_MPH = 40;
+// Road distance is longer than straight-line; this multiplier approximates that without any maps API
+// (a well-established "circuity" rule of thumb). Swap for real road distance when RTE-K2 lands.
+export const ROUTE_CIRCUITY_FACTOR = 1.3;
+export const DEFAULT_DWELL_MINUTES = 30;
+export const MIN_DWELL_MINUTES = 15;
+export const MAX_DWELL_MINUTES = 60;
+
+// Rough driving minutes from a straight-line distance: apply the circuity factor to approximate road
+// miles, then divide by a flat average speed. An estimate only — no traffic, no road network.
+export function estimateDriveMinutes(straightLineMiles: number, options?: { avgMph?: number; circuity?: number }): number {
+  const avgMph = options?.avgMph ?? ROUTE_AVG_MPH;
+  const circuity = options?.circuity ?? ROUTE_CIRCUITY_FACTOR;
+  if (avgMph <= 0) return 0;
+  return ((straightLineMiles * circuity) / avgMph) * 60;
+}
+
+export type ScheduledStop = { driveMinutes: number | null; arrivalOffsetMinutes: number; departOffsetMinutes: number };
+
+// Cumulative schedule in minutes from the route start. legMiles[i] is the straight-line distance into
+// stop i (null for the first stop or an unlocated leg — adds no drive estimate); dwellMinutes[i] is the
+// time spent at stop i. arrival = previous depart + estimated drive; depart = arrival + dwell. The UI
+// converts offsets to clock time against the chosen start, so this stays pure/Date-free and testable.
+export function computeRouteSchedule(
+  legMiles: (number | null)[],
+  dwellMinutes: number[],
+  options?: { avgMph?: number; circuity?: number },
+): { stops: ScheduledStop[]; totalMinutes: number } {
+  const stops: ScheduledStop[] = [];
+  let previousDepart = 0;
+  legMiles.forEach((leg, index) => {
+    const driveMinutes = leg === null ? null : estimateDriveMinutes(leg, options);
+    const arrivalOffsetMinutes = index === 0 ? 0 : previousDepart + (driveMinutes ?? 0);
+    const departOffsetMinutes = arrivalOffsetMinutes + (dwellMinutes[index] ?? 0);
+    stops.push({ driveMinutes, arrivalOffsetMinutes, departOffsetMinutes });
+    previousDepart = departOffsetMinutes;
+  });
+  return { stops, totalMinutes: stops.length ? stops[stops.length - 1]!.departOffsetMinutes : 0 };
+}
+
+// Format minutes-since-midnight as a 12-hour clock label (e.g. 480 -> "8:00 AM"), wrapping past 24h.
+export function formatMinutesOfDay(minutes: number): string {
+  const normalized = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  const rawHours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  const period = rawHours < 12 ? 'AM' : 'PM';
+  const hours = rawHours % 12 === 0 ? 12 : rawHours % 12;
+  return `${hours}:${String(mins).padStart(2, '0')} ${period}`;
+}

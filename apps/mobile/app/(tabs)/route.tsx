@@ -11,7 +11,7 @@ import { ACCOUNT_MAP_STATUS_META, buildConsignmentSignalMap, deriveAccountMapSta
 import { NavigateSheet } from '@/components/navigate-sheet';
 import { RouteStopPicker } from '@/components/route-stop-picker';
 import type { NavTarget } from '@/lib/external-nav';
-import { optimizeRouteOrder, roundMiles, routeLegMiles, routeTotalMiles, suggestedAccountIdsFromRoutePlans } from '@/lib/route-planning';
+import { DEFAULT_DWELL_MINUTES, MAX_DWELL_MINUTES, MIN_DWELL_MINUTES, computeRouteSchedule, formatMinutesOfDay, optimizeRouteOrder, roundMiles, routeLegMiles, routeTotalMiles, suggestedAccountIdsFromRoutePlans } from '@/lib/route-planning';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, fetchTerritoryMapWorkspace } from '@/lib/api';
 import { useFieldData } from '@/hooks/use-mobile-data';
@@ -56,6 +56,8 @@ export default function RouteScreen() {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [isLoadingSuggested, setIsLoadingSuggested] = useState(false);
+  const [startMinutes, setStartMinutes] = useState(() => roundToFiveMinutes(currentMinutesOfDay()));
+  const [dwellByStopId, setDwellByStopId] = useState<Record<string, number>>({});
 
   const accountsById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
 
@@ -94,6 +96,31 @@ export default function RouteScreen() {
   const totalMiles = useMemo(() => routeTotalMiles(routePoints), [routePoints]);
   const locatedStopCount = useMemo(() => routeAccounts.filter(hasCoords).length, [routeAccounts]);
 
+  // RTE-P5: per-stop dwell + cumulative arrival / end-of-day ETA (straight-line + circuity estimate).
+  const schedule = useMemo(
+    () => computeRouteSchedule(legMiles, routeAccounts.map((account) => dwellByStopId[account.id] ?? DEFAULT_DWELL_MINUTES)),
+    [legMiles, routeAccounts, dwellByStopId],
+  );
+  const finishMinutes = startMinutes + (schedule.stops[schedule.stops.length - 1]?.arrivalOffsetMinutes ?? 0);
+
+  // Arrival times stay trustworthy only until the first unmeasurable (coordless) leg; past that the
+  // estimate silently assumes zero travel, so downstream arrivals are suppressed rather than shown as fact.
+  const arrivalReliable = useMemo(() => {
+    let reliable = true;
+    return legMiles.map((leg, index) => {
+      if (index > 0 && leg === null) reliable = false;
+      return reliable;
+    });
+  }, [legMiles]);
+
+  function cycleDwell(id: string) {
+    setPlanMessage(null);
+    setDwellByStopId((current) => {
+      const next = (current[id] ?? DEFAULT_DWELL_MINUTES) + MIN_DWELL_MINUTES;
+      return { ...current, [id]: next > MAX_DWELL_MINUTES ? MIN_DWELL_MINUTES : next };
+    });
+  }
+
   function addStop(id: string) {
     setPlanMessage(null); // the order provenance no longer describes the current arrangement
     setSelectedIds((current) => ((current ?? []).includes(id) ? current : [...(current ?? []), id]));
@@ -101,6 +128,12 @@ export default function RouteScreen() {
   function removeStop(id: string) {
     setPlanMessage(null);
     setSelectedIds((current) => (current ?? []).filter((value) => value !== id));
+    setDwellByStopId((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   }
   function moveStop(index: number, direction: -1 | 1) {
     setPlanMessage(null);
@@ -405,6 +438,29 @@ export default function RouteScreen() {
         </Text>
       ) : null}
 
+      {routeAccounts.length >= 1 ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }}>
+          <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>Start</Text>
+          <RouteIconButton icon="minus.circle.fill" label="Earlier start time" disabled={startMinutes <= 0} onPress={() => setStartMinutes((value) => Math.max(0, value - 15))} />
+          <Text selectable style={{ ...typography.subtitle, color: colors.text, fontVariant: ['tabular-nums'] }}>{formatMinutesOfDay(startMinutes)}</Text>
+          <RouteIconButton icon="plus.circle.fill" label="Later start time" disabled={startMinutes >= 1435} onPress={() => setStartMinutes((value) => Math.min(1435, value + 15))} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Set start time to now"
+            onPress={() => setStartMinutes(roundToFiveMinutes(currentMinutesOfDay()))}
+            hitSlop={6}
+            style={({ pressed }) => ({ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.surfaceMuted, opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text style={{ ...typography.caption, color: colors.primary, fontWeight: '800' }}>Now</Text>
+          </Pressable>
+          {routeAccounts.length >= 2 ? (
+            <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+              → finish ~{formatMinutesOfDay(finishMinutes)}{finishMinutes >= 1440 ? ' (+1d)' : ''} ({locatedStopCount === routeAccounts.length ? 'est.' : 'est., excludes unlocated stops'})
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={{ gap: spacing.md }}>
         {routeAccounts.map((account, index) => {
           const meta = ACCOUNT_MAP_STATUS_META[deriveAccountMapStatus(account, consignmentSignals.get(account.id))];
@@ -424,6 +480,9 @@ export default function RouteScreen() {
               canNavigate={stopNavTarget !== null}
               onNavigate={() => stopNavTarget && setNavTarget(stopNavTarget)}
               legMiles={legMiles[index] ?? null}
+              arrivalLabel={index > 0 && arrivalReliable[index] ? formatMinutesOfDay(startMinutes + (schedule.stops[index]?.arrivalOffsetMinutes ?? 0)) : undefined}
+              dwellMinutes={dwellByStopId[account.id] ?? DEFAULT_DWELL_MINUTES}
+              onCycleDwell={() => cycleDwell(account.id)}
               onRemove={() => removeStop(account.id)}
               onMoveUp={() => moveStop(index, -1)}
               onMoveDown={() => moveStop(index, 1)}
@@ -477,6 +536,15 @@ function hasCoords(account: AccountSummary): account is AccountSummary & { latit
 
 function routeSeedRank(account: AccountSummary): number {
   return account.lastEngagementAt ? new Date(account.lastEngagementAt).getTime() : 0;
+}
+
+function currentMinutesOfDay(): number {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function roundToFiveMinutes(minutes: number): number {
+  return Math.min(1435, Math.max(0, Math.round(minutes / 5) * 5));
 }
 
 function RouteIconButton({ icon, label, onPress, disabled, tone }: { icon: string; label: string; onPress?: (() => void) | undefined; disabled?: boolean | undefined; tone?: 'danger' }) {
@@ -582,13 +650,16 @@ async function saveCheckedInRouteVisitDraft(activeVisit: ActiveVisit) {
 
 function RouteStopCard({
   account,
+  arrivalLabel,
   canMoveDown,
   canMoveUp,
   canNavigate,
   disabled,
+  dwellMinutes,
   index,
   isDone,
   legMiles,
+  onCycleDwell,
   onMoveDown,
   onMoveUp,
   onNavigate,
@@ -598,13 +669,16 @@ function RouteStopCard({
   statusLabel,
 }: {
   account: AccountSummary;
+  arrivalLabel?: string | undefined;
   canMoveDown?: boolean;
   canMoveUp?: boolean;
   canNavigate: boolean;
   disabled: boolean;
+  dwellMinutes?: number;
   index: number;
   isDone: boolean;
   legMiles?: number | null;
+  onCycleDwell?: () => void;
   onMoveDown?: () => void;
   onMoveUp?: () => void;
   onNavigate: () => void;
@@ -672,15 +746,31 @@ function RouteStopCard({
         </View>
 
         {onRemove ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
-            <Text selectable style={{ ...typography.caption, color: colors.muted, flexShrink: 1 }}>
-              {typeof legMiles === 'number' ? `${roundMiles(legMiles)} mi from previous` : index === 1 ? 'Start of route' : 'Distance unavailable'}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-              <RouteIconButton icon="chevron.up" label={`Move ${account.displayName} up`} disabled={!canMoveUp} onPress={onMoveUp} />
-              <RouteIconButton icon="chevron.down" label={`Move ${account.displayName} down`} disabled={!canMoveDown} onPress={onMoveDown} />
-              <RouteIconButton icon="xmark.circle.fill" label={`Remove ${account.displayName} from route`} tone="danger" onPress={onRemove} />
+          <View style={{ gap: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+              <Text selectable style={{ ...typography.caption, color: colors.muted, flexShrink: 1 }}>
+                {arrivalLabel ? `Arrive ~${arrivalLabel} · ` : ''}
+                {typeof legMiles === 'number' ? `${roundMiles(legMiles)} mi from previous` : index === 1 ? 'start of route' : 'distance n/a'}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                <RouteIconButton icon="chevron.up" label={`Move ${account.displayName} up`} disabled={!canMoveUp} onPress={onMoveUp} />
+                <RouteIconButton icon="chevron.down" label={`Move ${account.displayName} down`} disabled={!canMoveDown} onPress={onMoveDown} />
+                <RouteIconButton icon="xmark.circle.fill" label={`Remove ${account.displayName} from route`} tone="danger" onPress={onRemove} />
+              </View>
             </View>
+            {onCycleDwell ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Dwell ${dwellMinutes ?? DEFAULT_DWELL_MINUTES} minutes at ${account.displayName}, tap to change`}
+                onPress={onCycleDwell}
+                hitSlop={4}
+                style={({ pressed }) => ({ alignSelf: 'flex-start', paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.surfaceMuted, opacity: pressed ? 0.6 : 1 })}
+              >
+                <Text selectable={false} style={{ ...typography.caption, color: colors.primaryDeep, fontWeight: '800' }}>
+                  Dwell: {dwellMinutes ?? DEFAULT_DWELL_MINUTES} min
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
       </View>

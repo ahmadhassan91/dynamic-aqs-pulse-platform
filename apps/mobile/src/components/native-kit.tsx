@@ -194,6 +194,9 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   'stop.fill': 'stop',
   'text.viewfinder': 'scan',
   'trash.fill': 'trash',
+  'list.bullet': 'list',
+  'doc.on.doc.fill': 'copy',
+  'arrow.down.circle.fill': 'arrow-down-circle',
   'xmark.circle': 'close-circle-outline',
   'xmark.circle.fill': 'close-circle',
 };

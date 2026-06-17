@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountSummary } from '@pulse/contracts/accounts';
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
@@ -10,7 +10,10 @@ import { formatDate, formatDateTime, initials } from '@/lib/format';
 import { ACCOUNT_MAP_STATUS_META, buildConsignmentSignalMap, deriveAccountMapStatus, formatGroupClassification } from '@/lib/account-map-status';
 import { NavigateSheet } from '@/components/navigate-sheet';
 import { RouteStopPicker } from '@/components/route-stop-picker';
+import { SavedRoutesSheet } from '@/components/saved-routes-sheet';
 import type { NavTarget } from '@/lib/external-nav';
+import type { SavedRoute } from '@/lib/saved-routes';
+import { deleteRoute, duplicateRoute, saveRoute, useSavedRoutes } from '@/lib/saved-routes-store';
 import { DEFAULT_DWELL_MINUTES, MAX_DWELL_MINUTES, MIN_DWELL_MINUTES, computeRouteSchedule, formatMinutesOfDay, optimizeRouteOrder, roundMiles, routeLegMiles, routeTotalMiles, suggestedAccountIdsFromRoutePlans } from '@/lib/route-planning';
 import { clearRouteVisitDraft, describeDraftSaveFailure, getLatestCheckedInRouteVisitDraft, upsertRouteVisitDraftDurably } from '@/lib/mobile-draft-queue';
 import { checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, fetchTerritoryMapWorkspace } from '@/lib/api';
@@ -58,6 +61,8 @@ export default function RouteScreen() {
   const [isLoadingSuggested, setIsLoadingSuggested] = useState(false);
   const [startMinutes, setStartMinutes] = useState(() => roundToFiveMinutes(currentMinutesOfDay()));
   const [dwellByStopId, setDwellByStopId] = useState<Record<string, number>>({});
+  const savedRoutes = useSavedRoutes();
+  const [isRoutesSheetOpen, setIsRoutesSheetOpen] = useState(false);
 
   const accountsById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
 
@@ -119,6 +124,37 @@ export default function RouteScreen() {
       const next = (current[id] ?? DEFAULT_DWELL_MINUTES) + MIN_DWELL_MINUTES;
       return { ...current, [id]: next > MAX_DWELL_MINUTES ? MIN_DWELL_MINUTES : next };
     });
+  }
+
+  async function handleSaveCurrentRoute(name: string) {
+    // Re-saving the same name replaces that route rather than minting a silent duplicate.
+    const existing = savedRoutes.find((route) => route.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const { persisted } = await saveRoute({ ...(existing ? { id: existing.id } : {}), name, stopIds: selectedIds ?? [], dwellByStopId, startMinutes });
+    setPlanMessage(
+      persisted
+        ? `${existing ? 'Updated' : 'Saved'} route "${name}".`
+        : `Couldn't persist "${name}" (device storage issue) — kept for this session only.`,
+    );
+  }
+  function handleLoadRoute(route: SavedRoute) {
+    const loaded = new Set(accounts.map((account) => account.id));
+    const usable = route.stopIds.filter((id) => loaded.has(id));
+    setIsRoutesSheetOpen(false);
+    if (usable.length === 0) {
+      setPlanMessage(`None of "${route.name}"'s ${route.stopIds.length} stop${route.stopIds.length === 1 ? '' : 's'} are in your loaded accounts — current route kept.`);
+      return;
+    }
+    setSelectedIds(usable);
+    setDwellByStopId(Object.fromEntries(usable.map((id) => [id, route.dwellByStopId[id] ?? DEFAULT_DWELL_MINUTES])));
+    setStartMinutes(roundToFiveMinutes(route.startMinutes));
+    const dropped = route.stopIds.length - usable.length;
+    setPlanMessage(`Loaded "${route.name}" — ${usable.length} stop${usable.length === 1 ? '' : 's'}${dropped > 0 ? ` (${dropped} not in your loaded accounts)` : ''}.`);
+  }
+  function confirmDeleteRoute(route: SavedRoute) {
+    Alert.alert('Delete route', `Delete "${route.name}"? This can't be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void deleteRoute(route.id) },
+    ]);
   }
 
   function addStop(id: string) {
@@ -430,6 +466,9 @@ export default function RouteScreen() {
         <View style={{ flexBasis: '47%', flexGrow: 1 }}>
           <SecondaryButton label={isLoadingSuggested ? 'Loading...' : 'Load suggested'} icon={{ name: 'map.fill', fallback: 'Plan' }} disabled={isLoadingSuggested} onPress={() => void loadSuggestedRoute()} />
         </View>
+        <View style={{ flexBasis: '47%', flexGrow: 1 }}>
+          <SecondaryButton label={savedRoutes.length ? `Routes (${savedRoutes.length})` : 'Save / load'} icon={{ name: 'list.bullet', fallback: 'Routes' }} onPress={() => setIsRoutesSheetOpen(true)} />
+        </View>
       </View>
 
       {locatedStopCount >= 2 ? (
@@ -521,6 +560,16 @@ export default function RouteScreen() {
       ) : null}
 
       <RouteStopPicker visible={isPickerOpen} accounts={availableAccounts} onAdd={addStop} onClose={() => setIsPickerOpen(false)} />
+      <SavedRoutesSheet
+        visible={isRoutesSheetOpen}
+        savedRoutes={savedRoutes}
+        canSaveCurrent={routeAccounts.length > 0}
+        onSaveCurrent={handleSaveCurrentRoute}
+        onLoad={handleLoadRoute}
+        onDuplicate={(route) => void duplicateRoute(route.id, `${route.name} copy`)}
+        onDelete={confirmDeleteRoute}
+        onClose={() => setIsRoutesSheetOpen(false)}
+      />
       <NavigateSheet target={navTarget} onClose={() => setNavTarget(null)} />
     </Screen>
   );

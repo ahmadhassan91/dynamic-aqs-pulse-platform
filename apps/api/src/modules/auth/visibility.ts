@@ -134,6 +134,23 @@ export function buildAccountRecordScope(actor: AuthenticatedActor): Prisma.Accou
   };
 }
 
+export function buildOrderDraftRecordScope(actor: AuthenticatedActor): Prisma.OrderDraftWhereInput | undefined {
+  if (hasGlobalRecordVisibility(actor.role)) {
+    return undefined;
+  }
+
+  // Scoped roles (TM/RD) see order drafts for accounts in their book, plus any
+  // draft they personally captured (so a creator never loses sight of their own
+  // intent even if the account is later reassigned out of their book).
+  const accountScope = buildAccountRecordScope(actor);
+  return {
+    OR: [
+      ...(accountScope ? [{ account: { is: accountScope } }] : []),
+      { createdByUserId: actor.userId },
+    ],
+  };
+}
+
 export function buildTrainingSessionRecordScope(actor: AuthenticatedActor): Prisma.TrainingSessionWhereInput | undefined {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;

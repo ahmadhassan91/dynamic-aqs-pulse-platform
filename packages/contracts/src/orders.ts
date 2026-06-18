@@ -1,0 +1,114 @@
+// Order-on-behalf (FR-MOB-047): a CRM-owned "order intent" captured by a TM/CSR
+// for an account. Pulse owns the DRAFT/SUBMITTED authoring + back-office triage;
+// authoritative pricing and ERP order placement remain with Acumatica. Money is
+// integer cents and `subtotalCents` is a best-effort estimate (BaseProduct carries
+// no price) — never treat it as the authoritative order total.
+
+export const ORDER_DRAFT_STATUSES = [
+  'draft',
+  'submitted',
+  'fulfilled',
+  'cancelled',
+] as const;
+
+export type OrderDraftStatusKey = (typeof ORDER_DRAFT_STATUSES)[number];
+
+export interface OrderDraftLineSummary {
+  id: string;
+  baseProductId?: string;
+  sku?: string;
+  productName: string;
+  unitOfMeasure?: string;
+  quantity: number;
+  /** Optional TM estimate; authoritative price comes from Acumatica. */
+  unitPriceCents?: number;
+  /** quantity × unitPriceCents when a unit price is known. */
+  lineSubtotalCents?: number;
+  lineNote?: string;
+  position: number;
+}
+
+export interface OrderDraftSummary {
+  id: string;
+  accountId: string;
+  accountName?: string;
+  shipToLocationId?: string;
+  status: OrderDraftStatusKey;
+  referenceCode?: string;
+  customerPoNumber?: string;
+  notes?: string;
+  currencyCode: string;
+  /** Best-effort estimate from line snapshots; not authoritative (Acumatica prices). */
+  subtotalCents: number;
+  lineCount: number;
+  /** True when at least one line carried an estimated unit price. */
+  pricingEstimated: boolean;
+  createdByUserId?: string;
+  createdByName?: string;
+  submittedAt?: string;
+  submittedByUserId?: string;
+  submittedByName?: string;
+  fulfilledAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderDraftDetail extends OrderDraftSummary {
+  lines: OrderDraftLineSummary[];
+}
+
+export interface OrderDraftLineInput {
+  baseProductId?: string;
+  sku?: string;
+  /** Required when baseProductId is omitted (free-text line). */
+  productName?: string;
+  unitOfMeasure?: string;
+  quantity: number;
+  unitPriceCents?: number;
+  lineNote?: string;
+}
+
+export interface ListOrderDraftsRequest {
+  accountId?: string;
+  status?: OrderDraftStatusKey;
+  /** Matches referenceCode / customerPoNumber / account display name. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListOrderDraftsResponse {
+  items: OrderDraftSummary[];
+  total: number;
+}
+
+export interface CreateOrderDraftRequest {
+  accountId: string;
+  shipToLocationId?: string;
+  notes?: string;
+  customerPoNumber?: string;
+  referenceCode?: string;
+  currencyCode?: string;
+  lines?: OrderDraftLineInput[];
+}
+
+export interface UpdateOrderDraftRequest {
+  shipToLocationId?: string | null;
+  notes?: string | null;
+  customerPoNumber?: string | null;
+  referenceCode?: string | null;
+  currencyCode?: string;
+  /** When provided, replaces the full set of lines. */
+  lines?: OrderDraftLineInput[];
+}
+
+export interface SubmitOrderDraftRequest {
+  referenceCode?: string;
+  notes?: string;
+}
+
+export interface CancelOrderDraftRequest {
+  cancelReason?: string;
+}

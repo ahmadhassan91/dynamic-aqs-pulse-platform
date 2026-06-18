@@ -12,6 +12,7 @@ import { handleConsignmentRoutes } from './modules/consignment/http.js';
 import { handleDealerPortalRoutes } from './modules/dealer-portal/http.js';
 import { handleDigitalAssetRoutes } from './modules/digital-assets/http.js';
 import { handleLeadRoutes } from './modules/leads/http.js';
+import { handleOrderRoutes } from './modules/orders/http.js';
 import { processConsignmentOperationalAlertScanJob } from './modules/consignment/alerts.js';
 import {
   ensureLeadOperationalAlertRecipientsSeeded,
@@ -341,6 +342,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const accountRouteHandled = await handleAccountRoutes(req, res, url);
   if (accountRouteHandled !== false) {
+    return;
+  }
+
+  const orderRouteHandled = await handleOrderRoutes(req, res, url);
+  if (orderRouteHandled !== false) {
     return;
   }
 

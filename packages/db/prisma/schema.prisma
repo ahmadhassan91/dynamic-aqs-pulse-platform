@@ -70,6 +70,17 @@ enum AuditAction {
   REJECT
 }
 
+// Lifecycle for a CRM-owned order intent captured on behalf of an account.
+// Pulse owns DRAFT/SUBMITTED authoring + back-office triage; authoritative order
+// placement and pricing remain with Acumatica (FULFILLED is the manual stand-in
+// until the Acumatica order boundary is wired — see convertLeadOnFirstOrder seam).
+enum OrderDraftStatus {
+  DRAFT
+  SUBMITTED
+  FULFILLED
+  CANCELLED
+}
+
 enum MobileVoiceNoteContextType {
   GENERAL
   LEAD
@@ -930,6 +941,8 @@ model User {
   mobileVoiceNotesCreated            MobileVoiceNote[]             @relation("MobileVoiceNoteCreatedBy")
   mobileVoiceNotesReviewed           MobileVoiceNote[]             @relation("MobileVoiceNoteReviewedBy")
   reportDefinitionsOwned             ReportDefinition[]            @relation("ReportDefinitionOwner")
+  orderDraftsCreated                 OrderDraft[]                  @relation("OrderDraftCreatedBy")
+  orderDraftsSubmitted               OrderDraft[]                  @relation("OrderDraftSubmittedBy")
 
   @@index([roleCode])
   @@index([userType])
@@ -1378,6 +1391,7 @@ model BaseProduct {
   presentations         ProductPresentation[]
   dealerPortalFavorites DealerPortalFavoriteProduct[]
   catalogSnapshotItems  DealerCatalogSnapshotItem[]
+  orderDraftLines       OrderDraftLine[]
 
   @@index([acumaticaInventoryId])
   @@index([acumaticaItemClass])
@@ -3018,6 +3032,7 @@ model Account {
   paymentVaultReferences   AccountPaymentVaultReference[]
   consignmentSites         ConsignmentSite[]
   mobileVoiceNotes         MobileVoiceNote[]
+  orderDrafts              OrderDraft[]
 
   @@index([sourceLeadId])
   @@index([businessSegmentId])
@@ -3086,6 +3101,7 @@ model AccountLocation {
   extension        AccountLocationExtension?
   trainingSessions TrainingSession[]
   consignmentSites ConsignmentSite[]
+  orderDrafts      OrderDraft[]
 
   @@index([accountId])
   @@index([isPrimary])
@@ -3932,4 +3948,66 @@ model ReportDeliveryRecord {
 
   @@index([scheduleId])
   @@index([runAt])
+}
+
+// CRM-owned "order intent" captured by a TM/CSR on behalf of an account
+// (FR-MOB-047). This is NOT an Acumatica order — Pulse records the intent
+// (account, ship-to, product lines, quantities, optional price estimate) and
+// hands it to back-office triage. Authoritative pricing + ERP placement remain
+// with Acumatica; subtotalCents is a best-effort estimate from line snapshots,
+// never authoritative (BaseProduct carries no price).
+model OrderDraft {
+  id                String           @id @default(uuid()) @db.Uuid
+  accountId         String           @db.Uuid
+  shipToLocationId  String?          @db.Uuid
+  status            OrderDraftStatus @default(DRAFT)
+  referenceCode     String?
+  customerPoNumber  String?
+  notes             String?
+  currencyCode      String           @default("USD")
+  subtotalCents     Int              @default(0)
+  lineCount         Int              @default(0)
+  pricingEstimated  Boolean          @default(false)
+  createdByUserId   String?          @db.Uuid
+  submittedAt       DateTime?
+  submittedByUserId String?          @db.Uuid
+  fulfilledAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  shipToLocation AccountLocation? @relation(fields: [shipToLocationId], references: [id], onDelete: SetNull)
+  createdBy      User?            @relation("OrderDraftCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    User?            @relation("OrderDraftSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  lines          OrderDraftLine[]
+
+  @@index([accountId])
+  @@index([shipToLocationId])
+  @@index([status])
+  @@index([createdByUserId])
+  @@index([submittedByUserId])
+  @@index([status, updatedAt])
+}
+
+model OrderDraftLine {
+  id             String   @id @default(uuid()) @db.Uuid
+  orderDraftId   String   @db.Uuid
+  baseProductId  String?  @db.Uuid
+  sku            String?
+  productName    String
+  unitOfMeasure  String?
+  quantity       Int
+  unitPriceCents Int?
+  lineNote       String?
+  position       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orderDraft  OrderDraft   @relation(fields: [orderDraftId], references: [id], onDelete: Cascade)
+  baseProduct BaseProduct? @relation(fields: [baseProductId], references: [id], onDelete: SetNull)
+
+  @@index([orderDraftId])
+  @@index([baseProductId])
 }

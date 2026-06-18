@@ -6,13 +6,40 @@
 |-------|-------|
 | Module | Pricing & Price Update |
 | Document Type | Master PRD |
-| Version | 1.0 |
-| Status | Draft |
+| Version | 1.1 |
+| Status | Draft — scope-corrected 2026-06-18: the price-update engine + output generation is DE-SCOPED from Pulse (Pulse consumes price; the existing separate pricing system stays). See §0. |
 | Owner | Product / Finance / Dan Harshbarger |
 | Sprint Sequence | To be scheduled (downstream of Product Management and Dealer Portal) |
 | Priority | P1 |
 | Meeting Traceability | Session 2 (Feb 18 2026 — Dan Harshbarger, C G / Curry, Michelle Hogan, Adrienne Cardinale, Ahmad Hassan, Salman Shakeel); Session 3 (Feb 20 2026 — Dan Harshbarger, C G, Ahmad Hassan, Muhammad Majid, Michelle Hogan, Adrienne Cardinale); Session 6 (Feb 27 2026 — Dan Harshbarger, Samantha Marks, C G, Ahmad Hassan, Muhammad Majid); Session 9 (Mar 13 2026 — Dan Harshbarger, C G, Ahmad Hassan); April 2026 scope review (session-13th-20thApril-2026.md); Price Update Process document (Dan Harshbarger, written) |
 | Primary Companion Docs | `12_DEALER_PORTAL_ORDERING_PRD.md`, `PRODUCT_MANAGEMENT_ACUMATICA_INTEGRATION_ARCHITECTURE.md` |
+
+---
+
+## 0. Scope Correction (2026-06-18) — the price-update engine is NOT built in Pulse
+
+A re-check of the discovery transcripts (at the client's request) found this module was originally written up as if Pulse would become "the authoritative price master authoring tool" generating all four price outputs. That over-states what Dan Harshbarger (the pricing owner) actually asked for.
+
+**Corrected scope: Pulse does NOT build the price-update engine.** The wildcard pricing engine, the annual price-increase authoring workflow, and the generation of the Acumatica CSV / Bold-Commerce CSV / Excel / PDF outputs stay in the existing separate system (the LAMP/MSSQL engine + Dan's nightly-refreshed cloud databases). **Pulse consumes price; it does not author or generate it.**
+
+Evidence (verbatim from the transcripts):
+- **Session 2** — Dan: *"just prices, invoiced prices, go over to CRM. The price list does not go to the CRM"*; *"[the price books are] not even maintained in the ERP. They're maintained in a separate system."* (It was C G who floated *"can we build price books within the CRM?"* — Dan's reply was a permissive *"you could, yes,"* i.e. technically possible, not a request.)
+- **Session 3** — the agreed model: the pricing engine *"will remain working, the old, separate from ERP, and we can just pull the data from your pricing engine."* Dan's only ask was about his manual-output pain: *"I've got like 30 Excel spreadsheets that have to be manually updated and I always make mistakes … I would love it to spit out Excel spreadsheets and PDFs."*
+- **Session 7** — Dan's preferred architecture: *"the pricing … changes once a year. What I'd say is really nice [if] there was just a button that said go get all the pricing … I do have databases on the cloud that have pricing … you could just use those."*
+- **April review** — the "replicate the wildcard engine + automate the outputs in Pulse" idea was proposed by Clustox/AQS, and Dan was amenable (*"I'm just assuming you're gonna replicate … that would be great if we could automate that"*) but did not originate or require it. The PRD wrongly recorded this as "Dan reaffirmed … four target outputs."
+
+### In scope for Pulse (price consumed, not authored)
+- Price-class **assignment** to a lead/account (`FR-PRC-002`) and visibility on the account profile (`FR-PRC-023`). The price-class list itself is pulled/synced from the pricing source, not authored in Pulse.
+- Dealer portal shows each dealer the correct price for their assigned price class (`FR-PRC-021`) and access to their price sheet (`FR-PRC-020`) — prices/sheets **pulled** from Acumatica or Dan's existing pricing DB (a periodic "get all pricing" refresh, per Dan).
+- Instant-rebate **reference flag** on the account (`FR-PRC-024`) — reference only, no calculation.
+
+### Out of scope for Pulse (stays in the existing pricing system)
+- Wildcard price-rule engine + rule expansion — `FR-PRC-005`–`009`
+- Annual price-increase authoring workflow + checker + history — `FR-PRC-010`–`014`
+- Output generation (Acumatica CSV, Bold/Shopify CSV, Excel, PDF price sheets, bulk run) — `FR-PRC-015`–`019`, and the base-price constraint `FR-PRC-022`
+- Price-class **master authoring** (creating/editing classes, generic default, currency isolation) — `FR-PRC-001`, `003`, `004`: the class catalog is owned by the pricing system; Pulse references it.
+
+This section supersedes the "authoritative price master" framing in §3.2 and the In-Scope list in §4.1. Those rows are retained below for historical traceability, but the engine/authoring/output FRs (`FR-PRC-001`, `003`–`019`, `022`) are DE-SCOPED.
 
 ---
 
@@ -24,7 +51,7 @@
 | Discovery Session 3 | Feb 20 2026 | Dan Harshbarger, C G, Ahmad Hassan, Muhammad Majid | Pricing engine diagram validated; Dan's wish to automate Excel/PDF output; three outputs identified: Acumatica, dealer portal, PDFs+Excel; batch % increase concept discussed; 30+ residential price lists; multi-currency (USD / CAD) |
 | Discovery Session 6 | Feb 27 2026 | Dan Harshbarger, Samantha Marks, C G, Ahmad Hassan | Shopify walkthrough: Bold Commerce CSV import; per-customer tags; price A1 class; pricing update frequency (annually); Bold Commerce plug-in issues; rebate scope explicitly parked from CRM |
 | Discovery Session 9 | Mar 13 2026 | Dan Harshbarger, C G, Ahmad Hassan | April prototype walkthrough; digital price sheets discussed; PDF catalog generation confirmed as a key ask; affinity/ownership group pricing allocation shown in prototype |
-| April 2026 scope review | Apr 13–20 2026 | C G, Dan Harshbarger, Ahmad Hassan | Consolidated module scope confirmed; price update automation confirmed as in-scope; Dan reaffirmed Excel + PDF + Acumatica + dealer portal as four target outputs |
+| April 2026 scope review | Apr 13–20 2026 | C G, Dan Harshbarger, Ahmad Hassan | Clustox/AQS *proposed* replicating the wildcard engine + automating the four outputs in Pulse; Dan was amenable (*"I'm just assuming you're gonna replicate … would be great if we could automate that"*) but did not originate or require it. Per §0 this is NOT Pulse scope — Pulse consumes price; the engine stays in the existing separate system |
 | Price Update Process.docx | Written by Dan Harshbarger | Dan Harshbarger | Authoritative written description of the AS-IS annual price increase process: decision meeting, 35 Excel + 9 PDF lists, LAMP stack / MSSQL logic, CSV→Acumatica, CSV→Shopify Bold Commerce |
 
 ---
@@ -65,6 +92,8 @@ The root cause is a fragmented three-system chain (custom LAMP stack → Acumati
 
 ### 3.2 Target State
 
+> **⚠️ Superseded by §0 (2026-06-18).** The "authoring tool that generates all four outputs" vision below is NOT built in Pulse — the engine/authoring/output generation stays in the existing separate pricing system and Pulse consumes price. Retained for historical context.
+
 Pulse becomes the authoritative price master authoring tool for residential pricing. Pricing rules (percentage increases by product group, wildcard patterns, effective dates, price class definitions) are defined once in Pulse and generate all four downstream outputs automatically:
 
 1. **Acumatica Sales Price Worksheet CSV** — uploaded to Acumatica or pushed via API.
@@ -79,6 +108,8 @@ Rebates (quarterly rebate calculations, affinity group reconciliation, instant r
 ## 4. Scope
 
 ### 4.1 In Scope
+
+> **⚠️ Superseded by §0 (2026-06-18).** The engine, authoring workflow, and output-generation bullets below are DE-SCOPED from Pulse. Pulse's actual scope is narrow: price-class **assignment** + **display** of Acumatica/DB-sourced prices in the dealer portal + the instant-rebate reference flag. The bullets are retained for historical context.
 
 - Annual price increase decision workflow (product-group % input, effective date per affinity group / price class)
 - Price class master management (CRUD for residential price classes, ~34 classes including generic A1 and named affinity group variants)
@@ -122,7 +153,7 @@ Rebates (quarterly rebate calculations, affinity group reconciliation, instant r
 | FR-PRC-003 | Generic price class default | If no specific price class is assigned during onboarding, system defaults to the generic residential price class (A1 / ~80% of customers). Admin is alerted when a customer remains on the generic class after activation. | P1 | Not-built |
 | FR-PRC-004 | Multi-currency price class isolation | USD price classes and CAD price classes are maintained as separate sets. A single product can have both a USD price and a CAD price from different classes. No cross-currency contamination. | P0 | Not-built |
 
-### 5.2 Price Rule Engine (Wildcard / Product Group Logic)
+### 5.2 Price Rule Engine (Wildcard / Product Group Logic) — DE-SCOPED from Pulse (see §0; stays in the existing pricing system)
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status |
 |----|------------|---------------------|----------|--------------|
@@ -132,7 +163,7 @@ Rebates (quarterly rebate calculations, affinity group reconciliation, instant r
 | FR-PRC-008 | Product group percentage-increase input | Admin enters a percentage increase per product group (e.g., panels +4%, UV kits +5%, HEPA +5%, AirSana +2%, Marketing +0%, Pan Treatments +6%). System applies the percentage to all rules in each product group and previews resulting price changes before commit. | P0 | Not-built |
 | FR-PRC-009 | Price preview before commit | Before publishing any price change, system shows a preview table: SKU, current price, new price, % change, effective date. Admin must explicitly approve the preview before prices are published. | P0 | Not-built |
 
-### 5.3 Annual Price Update Workflow
+### 5.3 Annual Price Update Workflow — DE-SCOPED from Pulse (see §0; stays in the existing pricing system)
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status |
 |----|------------|---------------------|----------|--------------|
@@ -142,7 +173,7 @@ Rebates (quarterly rebate calculations, affinity group reconciliation, instant r
 | FR-PRC-013 | Audit trail for price changes | Every price change is logged with: user, timestamp, old price, new price, SKU, price class, effective date. Log is immutable and exportable. | P0 | Not-built |
 | FR-PRC-014 | Historical price versions | System retains all historical price versions (by price class, by effective date). Admin can view "what was the price of SKU X on date Y for price class Z?" | P1 | Not-built |
 
-### 5.4 Output Artifacts
+### 5.4 Output Artifacts — output GENERATION (FR-PRC-015–019, 022) DE-SCOPED from Pulse (see §0; generated by the existing pricing system). FR-PRC-020 (dealer accesses their price sheet) STAYS — Pulse surfaces the externally-generated sheet.
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status |
 |----|------------|---------------------|----------|--------------|

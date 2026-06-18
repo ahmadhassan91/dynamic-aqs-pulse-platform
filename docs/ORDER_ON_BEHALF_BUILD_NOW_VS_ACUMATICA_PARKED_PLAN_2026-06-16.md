@@ -14,6 +14,15 @@ Business priority: CG twice called this "critical" (Session 10); Don asked for i
 TM-in-field channel of four order-entry paths the business described — dealer-portal self-service,
 staff email, TM-in-field (this feature), and phone/in-person.
 
+## Build Status (2026-06-18)
+
+**ORD-P1 + ORD-P2 + ORD-P3 SHIPPED** (commit 0682328, branch `codex/entra-calendar-governance`) — the durable backend foundation:
+- **ORD-P1** — `OrderDraft` + `OrderDraftLine` Prisma models + migration `20260618170704_add_order_drafts`. Money is integer cents; `subtotalCents` is an explicitly best-effort estimate (BaseProduct has no price). **Status enum simplified to `DRAFT → SUBMITTED → FULFILLED | CANCELLED`** rather than the originally-sketched `SENT_TO_ERP → PLACED/REJECTED` — those ERP-coupled states belong to the parked Acumatica slices; `FULFILLED` is the manual back-office stand-in until the order boundary is wired, `CANCELLED` is the abandon path.
+- **ORD-P2** — `@pulse/contracts/orders` (summary/detail/line + create/update/submit/cancel request types; lowercase status-key union mirroring the Prisma enum), registered in the contracts barrel + `package.json` exports.
+- **ORD-P3** — governed API module `apps/api/src/modules/orders/` (service + http, wired into `server.ts`). New `orders` module-key + `order.view`/`order.create`/`order.submit` actions; TM/RD record-scoping reuses account scope (own-created OR); lifecycle transitions use atomic `updateMany` status guards; line builder caps qty/price and guards cumulative subtotal against INT4 overflow; full audit incl. changed header fields. **Regression contract delivered**: `apps/api/test/orders.regression.test.mjs` (8 cases). Verified green alongside RBAC (12) + auth-admin (2) + contracts type-check, after an adversarial multi-lens review.
+
+**NOT yet built: ORD-P4** (mobile capture UI) — the API is ready to wire. ORD-P5 (first-order signal) + ORD-P6 (back-office triage queue) follow. The Acumatica-side slices remain parked per below.
+
 ## Decision
 
 Build the Pulse-owned on-behalf **order intent** now (a CRM-owned `OrderDraft` the TM assembles and
@@ -117,7 +126,7 @@ Acumatica truth," and this feature must respect that line.
 
 ## Regression Contract Status
 
-`Pending` — no order contract or module exists yet. First slice adds `packages/contracts/src/orders.ts`
-and an `apps/api/test/orders.regression.test.mjs`; the Acumatica-side slices (`ORD-K1`..`ORD-K4`) remain
-parked with no fabricated ERP references, consistent with FR-ACU-024 and the consignment Acumatica
-boundary.
+`Delivered (ORD-P1–P3, 2026-06-18)` — `packages/contracts/src/orders.ts` and
+`apps/api/test/orders.regression.test.mjs` (8 cases) now exist and pass; the Acumatica-side slices
+(`ORD-K1`..`ORD-K4`) remain parked with no fabricated ERP references, consistent with FR-ACU-024 and the
+consignment Acumatica boundary.

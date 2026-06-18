@@ -4,13 +4,23 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
-| Date | 2026-06-09 |
-| Status | Enriched — traceability + FR/NFR/Assumptions pass complete |
+| Version | 2.1 |
+| Date | 2026-06-18 |
+| Status | Scope-accuracy correction (2026-06-18): FR-ACC-005's account-home-tabs source line (Rick Cardinale) marked as a paraphrased composite rather than a verbatim quote; the Profile/Training/Sales tab substance stays supported. Builds on v2.0's enrichment pass |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS sales leadership, Strategic Growth team, operations lead, finance lead, customer setup stakeholder |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `03_TERRITORY_PRD.md`, `05_CONSIGNMENT_PRD.md`, Training PRD, CIS / Finance / Onboarding PRD, Dealer / Portal PRD |
 | Enrichment note | Version 2.0 folds in full meeting traceability, a source inventory table, FR/NFR/ASM/OQ tables with SRC citations and build status. All BR-/Q-/UX-GAP IDs from v1.0 are preserved verbatim. |
+
+---
+
+## Scope corrections (2026-06-18)
+
+The following LOW-severity scope-accuracy correction was applied after the program-wide re-check of client-attributed quotes against the cited meeting transcripts. No rows were deleted; substance is unchanged.
+
+- **FR-ACC-005 — the Rick Cardinale account-home-tabs source line is a paraphrase, not a verbatim quote.** The cited line *"the home page of an account — Profile tab; training tab; sales tab"* is a paraphrased composite of the Session-4 discussion rather than an exact transcript quote. The substance it supports — that the account home presents Profile / Training / Sales tabs — **is** supported by the session; only the verbatim-quote framing is corrected.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -297,11 +307,11 @@ Pulse will:
 
 | Field | Value |
 |---|---|
-| Statement | The account workspace shall present primary Profile, Contacts, and Locations tabs and a "More" drawer containing account readiness, consignment, activity and documents, payment methods, training, and dealer portal panels, with deep-link URL support for each tab. |
+| Statement | The account workspace shall present primary Profile, Contacts, and Locations tabs and a "More" drawer containing account readiness, consignment, activity and documents, payment methods, training, and dealer portal panels, with deep-link URL support for each tab. — ⚠️ CORRECTED 2026-06-18: source line is a paraphrase, not a verbatim quote; substance supported. |
 | Acceptance criteria | (1) Three primary tabs (Profile, Contacts, Locations) accessible by default. (2) "More" drawer exposes six secondary panels. (3) Active tab is preserved in URL query parameter `?tab=`. (4) Role-based visibility governs which panels are accessible per role. |
 | Priority | P0 |
 | Build status | **Built** — `CustomerDetail.tsx` resolves tabs from URL; `resolveCustomerSecondaryPanel` handles all six; UX-A-014 done. |
-| Sources | SRC-ACC-002 (Rick Cardinale: "the home page of an account — Profile tab; training tab; sales tab"), SRC-ACC-001 (Adrienne: "onboarding tab, contacts tab" in Dynamics) |
+| Sources | SRC-ACC-002 (Rick Cardinale, *paraphrased composite — not verbatim*: account home page shows Profile / Training / Sales tabs), SRC-ACC-001 (Adrienne: "onboarding tab, contacts tab" in Dynamics) |
 
 ### FR-ACC-006 — Account Profile Fields
 

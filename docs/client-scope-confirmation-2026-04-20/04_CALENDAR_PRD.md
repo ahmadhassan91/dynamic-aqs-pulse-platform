@@ -6,14 +6,24 @@
 |---|---|
 | Module | Calendar |
 | Document Type | Master PRD |
-| Version | 2.1 |
-| Status | Draft — enrichment pass complete (traceability + FR/NFR closure) |
+| Version | 2.2 |
+| Status | Draft — scope-accuracy correction (2026-06-18): the "~16 hours/user/year" double-entry figure relabelled as vendor-estimated (the qualitative double-entry pain stays client-confirmed). Builds on v2.1's enrichment pass |
 | Owner | Product / Operations |
 | Sprint Sequence | Seq 02–03 (centralized calendar + Outlook reflection) |
 | Priority | P1 |
 | Meeting Traceability | Discovery Session 1 (Feb 16 2026), Discovery Session 4 (Feb 24 2026), Session 9 (Mar 13 2026), Session 10 (Mar 17 2026), April 13–20 scope review, Dan Introductory Meeting (Nov 11 2025) |
 | Primary Companion Docs | `CALENDAR_REQUIREMENTS_DISCOVERY_2026-04-15.md`, Leads PRD, Training PRD, Territory PRD |
 | Date | 2026-04-20 (enriched 2026-06-09) |
+
+---
+
+## Scope corrections (2026-06-18)
+
+The following LOW-severity scope-accuracy correction was applied after the program-wide re-check of client-attributed figures against the cited meeting transcripts. No rows were deleted; substance is unchanged.
+
+- **"~16 hours per user annually" double-entry figure is vendor-estimated.** The annual hours-lost figure originated with the vendor (Ahmad) and was questioned by Curry — Session 5: *"that's … hard to quantify."* It should be read as a **vendor estimate**, not a client-confirmed metric. The underlying qualitative pain — double entry between CRM and Outlook, and history gaps when the second entry is skipped — **is** client-confirmed and stands. The figure appears in the Executive Summary (§2) and the Problem Statement table (§3.1); treat it as vendor-estimated in both places.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -40,7 +50,7 @@
 
 ## 2. Executive Summary
 
-The Calendar module gives Dynamic AQS one centralized operational calendar inside Pulse across the event families that matter to revenue operations and field execution. Today there is no unified calendar: trainer schedules are invisible to leadership, TMs lose approximately 16 hours per user annually to double-entry between CRM and Outlook, and scheduling blocks are siloed per individual's Outlook calendar rather than owned by a shared operational source.
+The Calendar module gives Dynamic AQS one centralized operational calendar inside Pulse across the event families that matter to revenue operations and field execution. Today there is no unified calendar: trainer schedules are invisible to leadership, TMs lose an estimated 16 hours per user annually to double-entry between CRM and Outlook (vendor-estimated — see Scope corrections 2026-06-18; the double-entry pain itself is client-confirmed), and scheduling blocks are siloed per individual's Outlook calendar rather than owned by a shared operational source.
 
 Pulse will provide day, week, month, and list visibility; surface discovery calls, training sessions, site visits, and consignment audit events in one place; and connect scheduling back to the owning workflow. Outlook will be a connected reflection layer for approved users and approved event families. Pulse will remain the source of operational truth for scheduling.
 
@@ -55,7 +65,7 @@ The first production slice delivers the real backend-wired calendar read model o
 | Current State | Impact |
 |---|---|
 | No unified calendar in Pulse CRM | Leadership has blind spots on trainer and TM schedules |
-| Double entry: schedule in Outlook, then re-enter in CRM | ~16 hours per user per year lost to manual fatigue; history gaps when second entry is skipped |
+| Double entry: schedule in Outlook, then re-enter in CRM | ~16 hours per user per year lost to manual fatigue (vendor-estimated — see Scope corrections 2026-06-18); history gaps when second entry is skipped (client-confirmed pain) |
 | Scheduling is per-individual Outlook calendar, not a shared operational surface | No cross-TM visibility; conflicts not visible when scheduling |
 | Training/discovery/visit/audit events live in different modules with no single view | Operational workload planning requires jumping between screens |
 

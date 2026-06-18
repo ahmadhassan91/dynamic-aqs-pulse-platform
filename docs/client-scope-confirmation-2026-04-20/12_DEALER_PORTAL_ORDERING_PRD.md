@@ -6,12 +6,22 @@
 |-------|-------|
 | Module | Dealer Portal & B2B Ordering |
 | Document Type | Master PRD |
-| Version | 1.0 |
-| Status | Draft — initial authoring from discovery transcripts |
+| Version | 1.1 |
+| Status | Draft — initial authoring from discovery transcripts; scope corrections applied 2026-06-18 (FR-DPO-035 parked; FR-DPO-037/016 reframed as candidates) |
 | Owner | Product / Operations |
 | Sprint Sequence | Seq 06–07 |
 | Priority | P0 |
 | Date | 2026-06-09 |
+
+---
+
+## Scope corrections (2026-06-18)
+
+- **(HIGH) FR-DPO-035 — expedited shipping with estimated cost delta → move to Parked/Phase-2; drop the cost-delta acceptance criterion.** Dan scoped shipping OUT of the portal in Session 2: *"not charged a credit cards, not figure out the shipping not [do] tracking, do that in a[cumatica]"*; in Session 7 he problematized expedited (FedEx pickup cut-off) and wanted only an approximate algorithm. No transcript supports a per-option cost-delta display, and it contradicts this PRD's own parked-shipping row ("Shipping cost calculation at checkout", §5 Parked Dependencies / ASM-DPO-005).
+- **(MED) FR-DPO-037 — gift-card / coupon → reframe as a candidate pending its open question (OQ-DPO-004).** It was a Dan brainstorm in Session 7: *"this is too much … it would be nice if …"* — not a confirmed in-scope requirement.
+- **(MED) FR-DPO-016 — payment-decline alert → gate on the parked payment feed.** The alert presumes payment-failure data from a payment integration this same PRD parks (§4 Out-of-Scope: payment processing; §5 Parked Dependencies: credit card / ACH payment at checkout). Treat as a candidate dependent on that parked feed.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -149,7 +159,7 @@ A self-service B2B portal where dealers interact with a catalog tailored to thei
 | FR-DPO-013 | Dashboard shows credit-hold / past-due banner when account is on hold | Prominent red/orange banner states credit-hold status; ordering CTAs are disabled or hidden when credit hold is active; past-due is a yellow warning; credit hold is red with explicit block message (per C G, Session 11) | P0 | Not built | SRC-DPO-009 (C G, Session 11) |
 | FR-DPO-014 | Credit-hold/past-due change triggers configurable notifications | When an account moves to past-due, notify configurable recipients (TM, RD, accounting user); when account is placed on credit hold, notify same roster; Dynamic AQS controls the notification roster (C G, Session 11: "we need to have control of that notification process") | P1 | Not built | SRC-DPO-009 (C G, Don Hearn, Michelle Hogan, Session 11) |
 | FR-DPO-015 | Dashboard shows recent product files for quick access | Up to 3 recently-available downloadable assets shown on dashboard cards with one-click download | P2 | Built | SRC-DPO-003 |
-| FR-DPO-016 | Payment decline alert displayed on dashboard | When an ACH or credit card payment fails, a banner or notification prompts the dealer to contact Dynamic AQS to update payment method (Michelle Hogan, Session 11) | P2 | Not built | SRC-DPO-009 (Michelle Hogan, Session 11) |
+| FR-DPO-016 | Payment decline alert displayed on dashboard — ⚠️ CORRECTED 2026-06-18: candidate, not confirmed in-scope; depends on parked payment processing (see Scope corrections) | When an ACH or credit card payment fails, a banner or notification prompts the dealer to contact Dynamic AQS to update payment method (Michelle Hogan, Session 11) | P2 | Not built | SRC-DPO-009 (Michelle Hogan, Session 11) |
 
 ### 6.3 Catalog & Product Browse
 
@@ -174,9 +184,9 @@ A self-service B2B portal where dealers interact with a catalog tailored to thei
 | FR-DPO-032 | Billing address is locked at checkout; dealer cannot change it | Billing address field is read-only, populated from Acumatica; explicit label "Locked — contact Dynamic AQS to update" (Dan Harshbarger confirmed in Session 7: "agreed" to billing address lock; built in Account Center UI) | P0 | Partial (UI note built; checkout lock not built) | SRC-DPO-001 (Dan Harshbarger), SRC-DPO-006 |
 | FR-DPO-033 | Dealer selects shipping address from their account's registered locations | Shipping-address dropdown populated from dealer's `AccountLocation` records; primary location pre-selected; custom one-time address not allowed | P0 | Not built | SRC-DPO-009 (Ahmad Hassan demo, Session 11) |
 | FR-DPO-034 | Checkout requires a PO number before order can be submitted | PO number field is required at checkout; the current Shopify flow requires a PO at checkout (Session 7 demo: "you need to put in a purchase order, you could check out") | P0 | Not built | SRC-DPO-001 (Dan Harshbarger, Session 7) |
-| FR-DPO-035 | Dealer can select expedited shipping at checkout with estimated cost | Shipping options include standard (2–3 day) and expedited; estimated shipping cost shown per option; Samantha Marks proposed this in Session 7: "for the customer to choose shipping — if they needed it expedited, they have the options to select it" | P1 | Not built | SRC-DPO-001 (Samantha Marks, Session 7) |
+| FR-DPO-035 | Dealer can select expedited shipping at checkout with estimated cost — ⚠️ CORRECTED 2026-06-18: PARKED/Phase-2; shipping was scoped to Acumatica (S2); no per-option cost delta confirmed (see Scope corrections) | Shipping options include standard (2–3 day) and expedited; estimated shipping cost shown per option; Samantha Marks proposed this in Session 7: "for the customer to choose shipping — if they needed it expedited, they have the options to select it" | P1 | Not built | SRC-DPO-001 (Samantha Marks, Session 7) |
 | FR-DPO-036 | Requested delivery date field removed / not shown at checkout | C G and Don Hearn explicitly rejected this field in Session 11: "no, it's usually we tell all of our customers it's two to three days"; do not expose a delivery date picker to avoid unrealistic expectations | P0 | Not built (guard against accidental inclusion) | SRC-DPO-009 (C G, Don Hearn, Session 11) |
-| FR-DPO-037 | Dealer can apply a gift-card / coupon code at checkout | Code entry field at checkout; valid codes zero out the order total or apply a line-item discount; Dynamic AQS admin issues codes for contest winners; order clearly shows original value crossed out and discounted price (Michelle Hogan, Samantha Marks, Session 7) | P2 | Not built | SRC-DPO-001 (Dan Harshbarger, Michelle Hogan, Session 7) |
+| FR-DPO-037 | Dealer can apply a gift-card / coupon code at checkout — ⚠️ CORRECTED 2026-06-18: candidate, not confirmed in-scope; depends on parked payment processing (see Scope corrections) | Code entry field at checkout; valid codes zero out the order total or apply a line-item discount; Dynamic AQS admin issues codes for contest winners; order clearly shows original value crossed out and discounted price (Michelle Hogan, Samantha Marks, Session 7) | P2 | Not built | SRC-DPO-001 (Dan Harshbarger, Michelle Hogan, Session 7) |
 | FR-DPO-038 | Credit-hold accounts cannot place orders | If account has credit-hold status, checkout flow is blocked; error message directs dealer to contact Dynamic AQS; red banner visible on all portal pages when on hold | P0 | Not built | SRC-DPO-009 (C G, Session 11) |
 | FR-DPO-039 | Order placement sends order to Acumatica | On successful checkout, a sales order is created in Acumatica matched by customer ID (not email); Acumatica returns an order/reference number; Pulse stores the reference and surfaces it in order history | P0 | Not built | SRC-DPO-001 (Dan Harshbarger, Samantha Marks, Session 7); SRC-DPO-010 |
 | FR-DPO-040 | Order placement sends confirmation email to dealer | Email confirmation sent to the user who placed the order; shared Dynamic AQS mailbox also notified (current Shopify behaviour: "sends an email to the customer and to our group" — Dan Harshbarger, Session 7) | P1 | Not built | SRC-DPO-001 (Dan Harshbarger, Session 7) |

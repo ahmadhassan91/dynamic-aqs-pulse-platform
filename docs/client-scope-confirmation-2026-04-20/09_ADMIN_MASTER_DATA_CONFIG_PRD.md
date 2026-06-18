@@ -4,13 +4,27 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 2026-06-09 |
-| Status | Enriched — traceability closure pass complete |
+| Status | Enriched — traceability closure pass complete; 2026-06-18 scope correction (ASM-AD-08 routing threshold ≤5 was vendor-proposed; only the routing concept is client-confirmed — see Scope corrections) |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS IT / security lead, operations lead, data stewardship owner, Strategic Growth representative, Super Admin / implementation lead |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, Leads PRD, Territory PRD, Training PRD, Product Management PRD |
 | Meeting Traceability | Session 1 (Feb 16 2026), Session 2 (Feb 18 2026), Session 3 (Feb 20 2026), Session 4 (Feb 24 2026), Session 5 (Feb 25 2026), Session 6 (Feb 27 2026), Session 7 (Mar 2 2026 — Dealer Portal), Session 9 (Mar 13 2026 — Lead to Dealer Onboarding), Session 10 (Mar 17 2026), Session 11 (Mar 19 2026 — Dealer Portal / Product Mgmt), Sessions 13/20 April 2026 scope review |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A program-wide PRD scope-accuracy re-check (verifying client-attributed requirements against the actual cited meeting transcripts) found that **ASM-AD-08 over-attributes the routing threshold to the client**. As written, the assumption states "Dan Harshbarger confirmed the threshold should be 'less than or equal to five' and C G noted it may shift to technician count (SRC-AD-004)." In the cited Session 4 transcript:
+
+- The **"≤5" number was vendor-spoken** (Ahmad Hassan, Clustox, Session 4) — it was proposed by the vendor, not stated by the client.
+- The **client agreed to the routing *concept*** with a bare **"Yes"**; the client did **not** state the exact boundary value.
+- The **exact boundary and the technician-count basis/caveat are not present in the cited transcript** — so the precise number and the "shift to technician count" qualifier are unconfirmed.
+
+Correction applied: ASM-AD-08 is reworded so the threshold is recorded as **vendor-proposed ≤5; the client agreed to the routing concept; the exact boundary and basis are unconfirmed (OQ-AD-04)**. This is consistent with OQ-AD-04, which already holds the approved routing basis open. No rows are deleted; the assumption is retained with an inline corrected marker.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -329,7 +343,7 @@ These items remain part of the broader Pulse vision but require later approval o
 | ASM-AD-05 | Dealer-portal user provisioning (initial credential plus welcome email) belongs inside the admin user-create flow. | This affects onboarding completeness and whether dealer setup needs a separate path. |
 | ASM-AD-06 | Delegated (non-engineering) admins can perform user, access, and reference-data corrections within an approved boundary. | This sets who can safely operate the console without engineering support. |
 | ASM-AD-07 | ERP-owned reference values will become read-only in Pulse once Acumatica is the system of record. | This affects which reference lists Pulse owns versus mirrors, and how stewardship behaves over time (confirmed by C G in April session: SRC-AD-010). |
-| ASM-AD-08 | The truck-count / service-technician routing threshold is a configurable value, not hardcoded; the current boundary is five or fewer trucks / technicians → Strategic Growth, greater than five → National TM assignment. | Dan Harshbarger confirmed the threshold should be "less than or equal to five" and C G noted it may shift to technician count (SRC-AD-004). |
+| ASM-AD-08 | The truck-count / service-technician routing threshold is a configurable value, not hardcoded. The boundary was **vendor-proposed ≤5** (vendor-proposed: five or fewer trucks / technicians → Strategic Growth, greater than five → National TM assignment); the client agreed to the routing **concept**, and the exact boundary/basis is unconfirmed (OQ-AD-04). | Routing-basis configurability matters regardless of the exact threshold. Per the 2026-06-18 scope correction, the ≤5 number was vendor-spoken (Ahmad, Session 4) and the client agreed to the concept with a bare "Yes"; the exact boundary and the technician-count caveat are not in the cited transcript (SRC-AD-004) and remain open under OQ-AD-04. — ⚠️ CORRECTED 2026-06-18: ≤5 was vendor-proposed; only the routing concept is client-confirmed; boundary/basis open (OQ-AD-04). |
 | ASM-AD-09 | The break-glass procedure (fallback if Entra is unavailable) will be operated by IT and defined outside the Pulse admin UI for Phase 1. | If no fallback is defined, a Pulse admin with LOCAL identity can remain active as the emergency account. |
 
 ---

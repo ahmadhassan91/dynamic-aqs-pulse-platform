@@ -5,13 +5,25 @@
 |-------|-------|
 | Module | Consignment Management |
 | Document Type | Master PRD |
-| Version | 1.1 |
-| Status | Draft - traceability closure pass complete |
+| Version | 1.2 |
+| Status | Draft - traceability closure pass complete; scope-accuracy corrections applied 2026-06-18 |
 | Owner | Product / Operations |
 | Sprint Sequence | Seq 04–05, M-Seq 04 |
 | Priority | P1 |
 | Meeting Traceability | Session 5 (Feb 25 2026), Session 6 (Feb 27 2026), Session 10 (Mar 17 2026), April 20 scope review, supporting consignment onboarding/forms/docs/workbooks/screenshots shared by Samantha |
 | Primary Companion Docs | `CONSIGNMENT_STAKEHOLDER_SWIMLANE.md`, `validated/authoritative/CONSIGNMENT_OPERATING_MODEL_AND_SCHEMA_VALIDATION.md` |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A scope-accuracy re-audit re-checked client-attributed requirements against the cited meeting transcripts. Two corrections apply to this PRD. No requirements are deleted; affected rows carry inline ⚠️ markers.
+
+- **(HIGH) Near-real-time / "15-minute" inventory-sync SLA — FR-CSG-043, FR-CSG-034, OQ-CSG-06.** The numeric SLA was vendor-proposed, not a client requirement. Ahmad (Clustox), Session 10: *"minute by minute accuracy, right?"*; C G only echoed *"within a 15 minute accuracy … ?"* → *"Yes."* The client confirmed only that inventory **is a moving target** (Samantha). **Correction:** downgrade the numeric SLA to an open question (OQ-CSG-06); keep the supported requirement that discrepancy logic must consider in-transit product, submitted POs, and transfer/receipt status before flagging a discrepancy.
+
+- **(MED) "create/link PO in Acumatica" — FR-CSG-035.** PO posting is Acumatica-owned; the client asked Pulse only to **match** incoming POs (Samantha, Session 10). The "create … PO in Acumatica" wording contradicts this PRD's own boundary rule 4A.6 (*"Pulse never posts a PO"*). **Correction:** reword to link/reference the Acumatica-posted PO; Pulse does not post POs.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -96,8 +108,8 @@ The 90-day ROSE audit cycle is the heartbeat of consignment operations, executed
 | FR-CSG-031 | PO received confirmation | Admin/Ops or the shared consignment mailbox work queue confirms PO received, closes PO follow-up, and updates inventory baseline when reconciliation is resolved | P0 | Seq 04 |
 | FR-CSG-032 | PO overdue escalation | If PO not received by day 5: alert TM + RD. Day 10: Sales Leadership | P0 | Seq 04 |
 | FR-CSG-033 | Inventory baseline update | After PO confirmed + discrepancies resolved: update baseline for next audit cycle | P0 | Seq 04 |
-| FR-CSG-034 | Acumatica inventory sync | Consignment warehouse inventory synced from Acumatica as read model | P0 | Seq 05 |
-| FR-CSG-035 | PO generation to Acumatica | On PO confirmation, create/link PO in Acumatica | P1 | Seq 05 |
+| FR-CSG-034 | Acumatica inventory sync | Consignment warehouse inventory synced from Acumatica as read model — ⚠️ CORRECTED 2026-06-18: the 15-min/near-real-time SLA is vendor-proposed, not a client requirement (see Scope corrections). | P0 | Seq 05 |
+| FR-CSG-035 | PO generation to Acumatica | On PO confirmation, create/link PO in Acumatica — ⚠️ CORRECTED 2026-06-18: Pulse links/references the Acumatica-posted PO; it does not post POs (boundary rule 4A.6). | P1 | Seq 05 |
 
 ### 3.4 BLUE/PURPLE/SAND Cycles (FR-CSG-036 through FR-CSG-040)
 
@@ -115,7 +127,7 @@ The 90-day ROSE audit cycle is the heartbeat of consignment operations, executed
 |----|------------|-------------------|----------|--------|
 | FR-CSG-041 | Audit and reconciliation are separate states | A site audit can be marked complete while reconciliation remains open; users can see both statuses independently | P0 | Seq 04 |
 | FR-CSG-042 | PO clock starts only after true-up review | The 5-business-day PO clock begins only after open POs, in-transit items, and transfer/receipt status are reviewed and a real unresolved consumption discrepancy remains | P0 | Seq 04 |
-| FR-CSG-043 | Near-real-time warehouse context | Consignment status must account for in-transit product, submitted POs, shipped replenishment, and transfer orders that are not complete until receipt in Acumatica | P0 | Seq 05 |
+| FR-CSG-043 | Near-real-time warehouse context | Consignment status must account for in-transit product, submitted POs, shipped replenishment, and transfer orders that are not complete until receipt in Acumatica — ⚠️ CORRECTED 2026-06-18: the 15-min/near-real-time SLA is vendor-proposed, not a client requirement (see Scope corrections). | P0 | Seq 05 |
 | FR-CSG-044 | Acumatica-first warehouse creation | New warehouse/location creation defaults to Acumatica as system of record, with Pulse syncing the result; if Pulse-origin creation exists it must be restricted to high-permission admins only | P0 | Seq 04 |
 | FR-CSG-045 | Role-filtered consignment dashboards | TMs see only their assigned sites, RDs see their regional rollup, and leadership/Ops see the full program | P0 | Seq 04 |
 | FR-CSG-046 | Warehouse readiness snapshot | Dashboard shows onboarding/active/exited status, warehouse readiness, current variance, and next audit timing at a glance | P1 | Seq 04 |

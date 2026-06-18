@@ -6,14 +6,25 @@
 |-------|-------|
 | Module | Reporting & Dashboards |
 | Document Type | Master PRD |
-| Version | 1.0 |
-| Status | Draft — initial creation |
+| Version | 1.1 |
+| Status | Draft — scope-sourcing correction applied 2026-06-18 (FR-RPT-016 attribution; Power BI speaker; Discovery Session 1 added to Source Inventory) |
 | Owner | Product / Operations |
 | Sprint Sequence | Cross-module; reporting surfaces attach to Seq 01–05 module work |
 | Priority | P0 — #1 executive ask |
 | Date | 2026-06-09 |
 | Meeting Traceability | Session 12 (24 Mar 2026, C G / Ahmad Hassan / Michelle Hogan / Don Hearn / Dan Harshbarger / Adrienne Cardinale / Johan Ericsson); CG–Dynamics Meeting 2 (24 Oct 2025, C G / Ahmad Hassan / Adam Mohyuddin / Omer Aslam); Currie Catch-Up 8 Dec 2025 (C G / Faraz Sohail / Ahmad Hassan / Adam Mohyuddin / Omer Aslam); April 13–20 Scope Review session (C G / Ahmad Hassan / Steve Mores / Dan Harshbarger / Stephanie Norman) |
 | Primary Companion Docs | `REPORTING_ROLE_TRACEABILITY_MATRIX.md`, `05_CONSIGNMENT_PRD.md` §6, `auth-catalog.ts`, `packages/contracts/src/auth.ts` |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A program-wide scope-accuracy re-check (verifying every client-attributed / "confirmed" requirement against the actual cited meeting transcripts) flagged two LOW-severity sourcing nits in this module. The substance is sound; the corrections make the attribution honest before scope-lock. No row is deleted.
+
+- **FR-RPT-016 — revenue by territory manager.** This was **vendor-demo'd** by Ahmad Hassan in Session 12 ("territory revenue by manager"); it was not a client ask. The genuine, client-voiced territory-sales pain belongs to Dan Harshbarger in the (previously uncited) **Discovery Session 1, 16 Feb 2026**: *"all the sales that happened in Florida, South Carolina and Georgia. Well, I can get all breath sales but I don't know how I would get Florida, South Carolina, Georgia."* Discovery Session 1 has been added to the Source Inventory (SRC-RPT-010) so the real pain point is cited; the manager rollup remains a vendor-proposed presentation of it.
+- **Power BI out-of-scope note.** The "mentioned by Dan" attribution is wrong — Power BI was raised by **Ahmad Hassan (vendor)**, not Dan, in the April scope-review session. Corrected inline in §5.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -41,6 +52,7 @@
 | SRC-RPT-007 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/lib/auth-catalog.ts` | Code evidence: ROLE_DEFAULT_MODULE_ACCESS_CATALOG and ROLE_DEFAULT_ACTION_ACCESS_CATALOG confirming reports module and builder/executive action assignments per role |
 | SRC-RPT-008 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/consignment/service.ts` | Code evidence: 5 consignment KPIs built server-side (auditComplianceRatePct, onTimeFirstBaselinePct, overduePoCount, meanPoCycleDays, exitCompletionRatePct); consignment dashboard endpoint |
 | SRC-RPT-009 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryCommandDashboard.tsx` | Code evidence: territory dashboard component with training penetration, overdue engagement (90-day), regional rollups — built UI surface |
+| SRC-RPT-010 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Discovery Session 1 - 16th Feb 2026.md` | Added 2026-06-18: client-voiced territory-sales reporting pain — Dan Harshbarger: "all the sales that happened in Florida, South Carolina and Georgia. Well, I can get all breath sales but I don't know how I would get Florida, South Carolina, Georgia." Backs FR-RPT-016 / FR-RPT-017 as the genuine pain point behind the vendor-demo'd manager/state rollups |
 
 Note: `.docx` variants of meeting files were not attempted; the `.md` equivalents above are complete and fully readable. The `Dashbaords/` folder under `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Dashbaords/` contains only screenshot images (attachment-*.jpeg/png) and was not parseable as text.
 
@@ -92,7 +104,7 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 
 ## 5. Out of Scope
 
-- Power BI embedded dashboards (mentioned by Dan in April session as future, not Phase 1)
+- Power BI embedded dashboards (mentioned by Dan in April session as future, not Phase 1) (mentioned by the vendor, Ahmad — not Dan)
 - Homeowner / consumer-facing analytics
 - Commercial-side reporting (deferred — commercial CRM decision pending)
 - Email campaign analytics beyond lead form submission counts
@@ -140,7 +152,7 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-013 | YoY revenue by location (within a group) | Drill one level deeper: group → individual locations, current year vs prior year. Michelle: "Air Serve revenue by location, year over year, because we like to see the dip." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-014 | New account revenue tracking — first year and second year | When a new account comes on board, track their revenue through year 1 and year 2 separately. Michelle: "We track new account revenue for the first year and the second year because that's a big deal." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-015 | Lost account tracking | Report showing accounts that were active and have not ordered within the configured active-account window. Michelle: "We also like to see lost accounts." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
-| FR-RPT-016 | Revenue by territory manager (monthly + YTD) | Bar chart of TM revenue contributions side-by-side. Ahmad demo'd "territory revenue by manager" in Session 12. | P0 | Not-built | SRC-RPT-001 |
+| FR-RPT-016 | Revenue by territory manager (monthly + YTD) | Bar chart of TM revenue contributions side-by-side. Ahmad demo'd "territory revenue by manager" in Session 12. — ⚠️ CORRECTED 2026-06-18: vendor-demo'd; the real territory-sales pain is Dan, Discovery Session 1 (see Scope corrections). | P0 | Not-built | SRC-RPT-001, SRC-RPT-010 |
 | FR-RPT-017 | Revenue by state — territory map overlay | Table and map showing revenue aggregated by state. Ahmad demo'd "revenue by state." | P1 | Partial (TerritoryCommandDashboard has coverage counts by state/TM but not revenue figures; revenue requires Acumatica sync) | SRC-RPT-001, SRC-RPT-009 |
 | FR-RPT-018 | Executive exception summary — cross-module | Single panel surfacing all open exceptions: overdue audits, overdue training, accounts on credit hold, overdue POs, stale leads. C G: "I want an alert for pretty much anything." (SRC-RPT-005); SRC-RPT-004: "Executive exception summary across modules" | P0 | Not-built | SRC-RPT-004, SRC-RPT-005 |
 | FR-RPT-019 | Affinity group / PE group / independent performance comparison | Table showing total revenue, YoY growth %, new accounts, and active accounts broken out by group type. | P1 | Not-built | SRC-RPT-001, SRC-RPT-004 |

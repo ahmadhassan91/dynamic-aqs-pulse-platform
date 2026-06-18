@@ -6,14 +6,26 @@
 |---|---|
 | Module | CIS / Credit / Onboarding |
 | Document Type | Master PRD |
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 2026-06-09 |
-| Status | Draft — traceability enrichment pass complete |
+| Status | Draft — traceability enrichment pass complete; scope-accuracy corrections applied 2026-06-18 (see Scope corrections) |
 | Owner | Product / Business Development |
 | Sprint Sequence | Seq 01–02 |
 | Priority | P0 |
 | Meeting Traceability | Session 2 (Feb 18 2026), Session 3 (Feb 20 2026), Session 4 (Feb 24 2026) |
 | Primary Companion Docs | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `CIS_SLICE_IMPLEMENTATION_PLAN.md`, `CIS_OCR_AND_ACCOUNT_VAULT_FOUNDATION_2026-04-17.md` |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A scope-accuracy re-check against the cited meeting transcripts surfaced the following corrections. No corrections change what is already built; they make this PRD honest before scope-lock. Affected rows are kept and carry inline ⚠️ markers.
+
+- **(HIGH) Required Sales/BD sign-off gate — FR-CIS-015/016, BR-CIS-05/06, ASM-CIS-02.** The required Sales/BD sign-off gate before a package reaches finance is **vendor-designed, not found in the cited transcripts**. The opposite was recorded: a BD-review-before-advance gate was **objected to** by Michelle (Session 1) — *"would just slow the process … I don't necessarily like that."* Treat the sign-off gate as a vendor-proposed workflow that is **open**, and carry Michelle's objection.
+- **(MED) Card-on-file "for all accounts" — ASM-CIS-03.** "Required for all accounts" **overstates** the source. Michelle named exceptions and was unsure of universality — *"We have to collect that credit card up front"*, then *"Good exceptions … larger PE's … we just give them a credit line out of the gate … So I don't know"*; C G added *"also people on consignment."* Read ASM-CIS-03 as a **default expectation with confirmed PE + consignment exceptions; universality is unresolved** and tracked by OQ-CIS-06.
+- **(LOW) "Validated stage model" — ASM-CIS-09.** The CIS pipeline stage model was the **Session-4 vendor walkthrough** (Maryam, master data sheet), **not Session-3-validated**; the "validated" framing/Session-3 attribution is corrected to a Session-4 vendor presentation.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -184,8 +196,8 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 | FR-CIS-012 | Present the returned package in read-only review tabs inside the lead record | Package viewable in three tabs: Company and Contacts, Ordering and AP, Payment and Signature; all fields are read-only in review tabs | P0 | SRC-CIS-001, SRC-CIS-006 | Built |
 | FR-CIS-013 | Restrict payment and accounts-payable detail to finance-enabled roles | Payment method, AP contact details, and vault references are masked for non-finance roles; enforcement is server-side | P0 | SRC-CIS-001, SRC-CIS-004 | Built |
 | FR-CIS-014 | Capture Sales/BD review notes and a finance cover note | Sales review notes and finance cover note fields are available in the lead CIS workspace at the sign-off step; both fields persist on the internal review record | P0 | SRC-CIS-001, SRC-CIS-006 | Built |
-| FR-CIS-015 | Record an auditable Sales/BD sign-off that advances the lead to `cis_signed` | Sign-off is a single governed action that records actor, timestamp, and advances the package to `sales_signed_off`; lead stage moves to `cis_signed` only at this point, never on prospect submission alone (BR-CIS-05) | P0 | SRC-CIS-002, SRC-CIS-004 | Built |
-| FR-CIS-016 | Submit a clean package to finance as a single governed action | Submitting to finance moves package status to `finance_pending`; only packages in `sales_signed_off` state can be submitted; submit is logged with actor and timestamp | P0 | SRC-CIS-006, SRC-CIS-005 | Built |
+| FR-CIS-015 | Record an auditable Sales/BD sign-off that advances the lead to `cis_signed` — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | Sign-off is a single governed action that records actor, timestamp, and advances the package to `sales_signed_off`; lead stage moves to `cis_signed` only at this point, never on prospect submission alone (BR-CIS-05) | P0 | SRC-CIS-002, SRC-CIS-004 | Built |
+| FR-CIS-016 | Submit a clean package to finance as a single governed action — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | Submitting to finance moves package status to `finance_pending`; only packages in `sales_signed_off` state can be submitted; submit is logged with actor and timestamp | P0 | SRC-CIS-006, SRC-CIS-005 | Built |
 
 ### 6.4 Finance Decision And Queue
 
@@ -253,8 +265,8 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 | BR-CIS-02 | A prospect remains a lead through CIS, credit approval, and onboarding; the Acumatica customer is created only at the approved first-order activation boundary. | SRC-CIS-003 (Dan: "you cannot create an order in the CRM") |
 | BR-CIS-03 | Raw card number, CVV, ACH routing number, and ACH account number will never be stored in Pulse; only tokenized references and authorization state are kept. | SRC-CIS-001 (Michelle: "we cut off the credit card information…the credit card piece on that end") |
 | BR-CIS-04 | Submitting the digital CIS locks the package; further prospect edits require a new or reissued link. | SRC-CIS-002 |
-| BR-CIS-05 | The lead stage advances to `cis_sent` when the link is first sent and to `cis_signed` only after Sales/BD sign-off, never on prospect submission alone. | SRC-CIS-002, SRC-CIS-003 (master data sheet stage model) |
-| BR-CIS-06 | A package reaches finance only after a recorded Sales/BD sign-off. | SRC-CIS-002 |
+| BR-CIS-05 | The lead stage advances to `cis_sent` when the link is first sent and to `cis_signed` only after Sales/BD sign-off, never on prospect submission alone. — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | SRC-CIS-002, SRC-CIS-003 (master data sheet stage model) |
+| BR-CIS-06 | A package reaches finance only after a recorded Sales/BD sign-off. — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | SRC-CIS-002 |
 | BR-CIS-07 | Payment-method and accounts-payable detail is visible only to finance-enabled roles. | SRC-CIS-001 |
 | BR-CIS-08 | On the scanned-CIS fallback, payment-sensitive fields are flagged and excluded from canonical CIS data; only reviewed non-payment fields can be applied. | SRC-CIS-001 (Michelle: "we cut off the credit card information") |
 | BR-CIS-09 | The CIS address pickers will offer the complete set of US states and recognized territories, not a partial list. | SRC-CIS-001, SRC-CIS-008 |
@@ -270,8 +282,8 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 | ID | Assumption | Why It Matters | SRC |
 |---|---|---|---|
 | ASM-CIS-01 | The CIS is sent only after discovery is complete, with no general pre-discovery send path. | This determines the gate on link issuance and where CIS sits in the lead lifecycle. | SRC-CIS-001 |
-| ASM-CIS-02 | Sales/BD sign-off is a required step before any package reaches finance. | This protects finance from incomplete packages and defines the `cis_signed` interlock. | SRC-CIS-002 |
-| ASM-CIS-03 | A card on file is required for all accounts as the current business rule, even while hosted capture is parked. | This drives the interim card-on-file UX and the eventual capture integration. | SRC-CIS-001, SRC-CIS-002 |
+| ASM-CIS-02 | Sales/BD sign-off is a required step before any package reaches finance. — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | This protects finance from incomplete packages and defines the `cis_signed` interlock. | SRC-CIS-002 |
+| ASM-CIS-03 | A card on file is required for all accounts as the current business rule, even while hosted capture is parked. — ⚠️ CORRECTED 2026-06-18: default with PE/consignment exceptions; universality unresolved (OQ-CIS-06). | This drives the interim card-on-file UX and the eventual capture integration. | SRC-CIS-001, SRC-CIS-002 |
 | ASM-CIS-04 | The scanned-CIS fallback is a human-reviewed lane, and prospects are never asked to interact with parser internals. | This determines whether the fallback is a safe review surface or an accidental raw-data path. | SRC-CIS-001 |
 | ASM-CIS-05 | Raw card and bank data stays outside Pulse, and only tokenized references plus authorization state are stored. | This defines the PCI boundary and what the eventual provider integration is allowed to write. | SRC-CIS-001, SRC-CIS-004 |
 | ASM-CIS-06 | Credit approval does not create the Acumatica customer; first order remains the activation boundary. | This affects CRM/ERP handoff timing and avoids premature customer records. | SRC-CIS-003 |

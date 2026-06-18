@@ -6,8 +6,8 @@
 |---|---|
 | Module | Territory Management |
 | Document Type | Master PRD |
-| Version | 3.0 |
-| Status | Enriched — traceability closure pass complete |
+| Version | 3.1 |
+| Status | Enriched — traceability closure pass complete; 2026-06-18 scope correction (SRC-TR-002 mis-sourced — re-pointed to Session 1 + Session 10; see Scope corrections) |
 | Owner | Product / Field Operations |
 | Sprint Sequence | Seq 01–03 (kernel), Seq 04–05 (map parity + reporting), ongoing |
 | Priority | P0 |
@@ -17,12 +17,28 @@
 
 ---
 
+## Scope corrections (2026-06-18)
+
+A program-wide PRD scope-accuracy re-check (verifying client-attributed requirements against the actual cited meeting transcripts) found that the **SRC-TR-002 source row mis-sources Session 6**. Session 6 is a **consignment walkthrough**; it does **not** contain the "TM and RD field roles" or the "leadership and development team use of map for assignment decisions" content that the row credits to it. That content is actually in **Session 1** (Michelle Hogan / Curry Galbraith) and **Session 10**. The MMC-replacement ("map-my-customer replacement") line that appears in Session 6 was a vendor *"I hope"* statement (Muhammad Majid, Clustox), **not a client confirmation**.
+
+Corrections applied:
+
+- **Re-point the field-role and leadership/dev-map-use topics** off Session 6 (SRC-TR-002) and onto **SRC-TR-001 (Session 1)** plus a **Session-10** source. The substance is unchanged and remains supported — only the citation moves.
+- **Attribute the map-my-customer-replacement goal to the correct client speaker.** It is confirmed by **Curry Galbraith (C G), Session 1** — not established by the vendor's Session-6 "I hope" line.
+- **Attribute the state/region-report pain to the correct speaker.** The "no reporting by state/region" pain point belongs to **Dan Harshbarger, Session 1** ("I want to know all sales in Florida, South Carolina, and Georgia — CRM can't do that") — **not Curry**. (The Overview already reflects this; the correction is recorded here for consistency with the audit.)
+
+No rows are deleted. The SRC-TR-002 row is retained and carries an inline corrected marker; its remaining honest content (consignment-walkthrough confirmation of territory scoping; CRM scope boundaries) stays.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
+
+---
+
 ## 1. Source Inventory
 
 | ID | Absolute Path | What It Sourced |
 |----|--------------|-----------------|
 | SRC-TR-001 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Discovery Session 1 - 16th Feb 2026.md` | Strategic business objectives; pain points including lack of territorial visibility, disconnected CRM from Acumatica, no reporting by state/region (Dan: "I want to know all sales in Florida, South Carolina, and Georgia — CRM can't do that"), map-my-customer replacement need, TM adoption barriers, mobile field execution requirements |
-| SRC-TR-002 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Fri 27th  Feb Session 6.md` | Consignment walkthrough confirming territory scoping of field operations; CRM scope boundaries (no financial logic in CRM); module scope discussion (territory kernel, training, consignment, dealer portal); map-my-customer replacement as explicit goal; TM and RD field roles; leadership and development team use of map for assignment decisions |
+| SRC-TR-002 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Fri 27th  Feb Session 6.md` | Consignment walkthrough confirming territory scoping of field operations; CRM scope boundaries (no financial logic in CRM); module scope discussion (territory kernel, training, consignment, dealer portal); map-my-customer replacement as explicit goal; TM and RD field roles; leadership and development team use of map for assignment decisions — ⚠️ CORRECTED 2026-06-18: Session 6 does not contain RD/field-role/leadership-map content; re-sourced to Session 1 + Session 10 (see Scope corrections) |
 | SRC-TR-003 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/TERRITORY_REDISCOVERY_AND_DEPENDENCY_BOUNDARY_2026-04-14.md` | Territory kernel honest current state; what remains below prototype parity; four build slices (T1-T4); first real external dependency boundary; decisions locked (territory is still in progress; map parity is the next active slice; commercial-safe structure required) |
 | SRC-TR-004 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/territories/service.ts` | Implemented service operations: `listRegions`, `createRegion`, `updateRegion`, `listShippingCenters`, `createShippingCenter`, `updateShippingCenter`, `listTerritories`, `createTerritory`, `updateTerritory`, `replaceTerritoryCoverage`, `getTerritoryPolicy`, `updateTerritoryPolicy`, `getTerritoryDashboard`, `getTerritoryMapWorkspace`, `reassignLeadTerritory`, `reassignAccountTerritory`, `bulkReassignLeadTerritories`, `bulkReassignAccountTerritories`, `listTerritoryAssignmentHistory`, `listTerritoryAssignableUsers`; route plan stop types; territory policy seeding |
 | SRC-TR-005 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/territories/visibility.ts` | Visibility scoping: TM pre-handoff visibility flag; territory-manager lead scope; regional-director scope; global visibility for admin/leadership; `preHandoffTmVisibility` policy toggle wired |

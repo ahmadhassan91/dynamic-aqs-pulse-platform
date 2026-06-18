@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.3 |
-| Date | 2026-06-16 |
-| Status | Route-optimization build reconciliation — the buildable-now Map My Customer route builder is now SHIPPED (FR-MOB-034 nav handoff + FR-MOB-061 builder/optimize/dwell+ETA/saved-routes, plus map colour-coding), with the provider-backed road/traffic layer and server route sync explicitly parked (OQ-MOB-08). Builds on v2.2's meeting-research depth pass |
+| Version | 2.4 |
+| Date | 2026-06-18 |
+| Status | Scope-accuracy corrections (2026-06-18): FR-MOB-060 tap-to-call re-attributed to CG only (auto-log-as-disposition flagged design-inferred), and Session 4 (24 Feb 2026) added to the Source Inventory as the route-builder source. Builds on v2.3's route-optimization build reconciliation |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS field leadership, Territory Managers, Regional Directors, operations lead |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `02_TRAINING_PRD.md`, `03_TERRITORY_PRD.md`, `04_CALENDAR_PRD.md`, `05_CONSIGNMENT_PRD.md` |
@@ -49,6 +49,19 @@
 | SRC-MOB-020 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/docs/MOBILE_UX_DISCOVERY_AND_GAP_ANALYSIS.md` | Field-UX gap analysis: dark/high-contrast outdoor theme, accessibility labels + Dynamic Type, offline conflict-resolution UI, optimistic submit, thumb-zone ergonomics, skeleton states |
 | SRC-MOB-021 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/(tabs)/map.tsx` | Built MapLibre map view: status-derived colour-coded account markers, account-type filter toggles, territory overlay (precise marker geo stubbed via deterministic hash pending server lat/lng) |
 | SRC-MOB-022 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/mobile/app/(tabs)/calendar.tsx` | Built calendar view: real custom month-matrix grid with month navigation and per-day work, beyond the Today day-agenda strip |
+| SRC-MOB-023 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/24 Feb 2026 Discovery session 4.md` | Added 2026-06-18 (scope audit): route-builder source — Don's Map My Customer route requirements (per-stop dwell 1–60 min, end-of-day arrival prediction "you're gonna be at your hotel by seven o'clock", multiple/saved routes) backing FR-MOB-061 and FR-MOB-034; previously referenced in the prose but missing from the Source Inventory |
+
+---
+
+## Scope corrections (2026-06-18)
+
+The following LOW-severity scope-accuracy corrections were applied after the program-wide re-check of client-attributed requirements against the cited meeting transcripts. No rows were deleted; substance is unchanged.
+
+- **FR-MOB-060 (tap-to-call) — speaker re-attribution.** The requirement was sourced to "CG/Don, Session 10"; in the transcript only CG describes the click-to-call behaviour (Session 10: *"I need to call Joe Smith … it calls Joe"*). Attribution corrected to **CG only** (not Don). The device click-to-call need is client-confirmed.
+- **FR-MOB-060 — "optional per-call auto-log as a disposition" is design-inferred.** The auto-log-as-disposition elaboration is a vendor/design inference, not a client-stated requirement; it is not in the cited transcript. It remains a reasonable design choice but is no longer presented as client-confirmed.
+- **Source Inventory — Session 4 (24 Feb 2026) added (SRC-MOB-023).** Session 4 backs the route-builder requirements (FR-MOB-061 / FR-MOB-034) in the PRD prose (Don: per-stop dwell 1–60 min, end-of-day arrival prediction, multiple/saved routes) but was not previously listed as a source. It has been added.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -297,7 +310,7 @@ These items are part of the broader Pulse field vision but require a separate si
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |---|---|---|---|---|---|
 | FR-MOB-059 | Pulse Mobile shall make voice-to-text input available in the lead-capture / lead-create flow (not only in standalone Voice Notes), so a field user can dictate into lead fields | Voice-to-text input available on the lead capture/create surface; transcript editable before save | P1 | Built (lead detail has a 'Voice note' action deep-linking to the capture pre-scoped to that lead via `parseVoiceNotePresetContext`; reuses the Voice Notes recorder/transcript) | SRC-MOB-001, SRC-MOB-004 (Michelle: "voice text option could be available in the lead area as well … everywhere") |
-| FR-MOB-060 | Pulse Mobile shall support tap-to-call a lead/account contact from within the app, with optional per-call auto-logging of the call as a disposition | Tap-to-call initiates a device call; user can opt to auto-log the call (note + timestamp) to CRM | P1 | Built (lead detail Call opens the dialer and offers an optional 'Log call placed' disposition via the existing log-initial-contact path, gated by `shouldOfferCallLog`) | SRC-MOB-002 (CG/Don, Session 10 — device click-to-call, distinct from the parked desk/VoIP calling) |
+| FR-MOB-060 | Pulse Mobile shall support tap-to-call a lead/account contact from within the app, with optional per-call auto-logging of the call as a disposition — ⚠️ CORRECTED 2026-06-18: CG only (not Don); auto-log-as-disposition is design-inferred (see Scope corrections). | Tap-to-call initiates a device call; user can opt to auto-log the call (note + timestamp) to CRM | P1 | Built (lead detail Call opens the dialer and offers an optional 'Log call placed' disposition via the existing log-initial-contact path, gated by `shouldOfferCallLog`) | SRC-MOB-002 (CG, Session 10 — device click-to-call, distinct from the parked desk/VoIP calling) |
 
 ### 7.13 Route-Builder Requirement Added From The 2026-06-16 Meeting-Research Pass
 

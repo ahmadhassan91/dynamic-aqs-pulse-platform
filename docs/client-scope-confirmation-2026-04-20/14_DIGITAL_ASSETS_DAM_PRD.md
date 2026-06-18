@@ -6,8 +6,8 @@
 |-------|-------|
 | Module | Digital Assets — Digital Asset Management (DAM) |
 | Document Type | Master PRD |
-| Version | 1.0 |
-| Status | Draft — initial creation, traceability-complete |
+| Version | 1.1 |
+| Status | Draft — initial creation, traceability-complete; v1.1 applies 2026-06-18 scope-accuracy corrections (see "Scope corrections (2026-06-18)") |
 | Owner | Product / Marketing Operations |
 | Sprint Sequence | Seq 06–07 |
 | Priority | P1 |
@@ -21,6 +21,17 @@
 | Session | Date | Speakers Cited | Key Topics |
 |---------|------|----------------|-----------|
 | Session 12 — Reporting and Widen | 24 March 2026 | Johan Ericsson (SME), Adrienne Cardinale, Don Hearn, C G, Ahmad Hassan, Dan Harshbarger | Widen demo + pain-point walkthrough, stable-URL behaviour, portal vs. collection semantics, TM field-access problem, SEO / CDN architecture decision, AWS S3 + CloudFront replacement proposal, asset sharing via link, dealer/TM asset access workflow |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A 2026-06-18 scope-accuracy audit re-verified client-attributed requirements against the actual cited Session 12 transcript. Two corrections apply to this PRD. No requirements are removed; the corrections re-attribute and re-frame existing content.
+
+- **(HIGH) The "Decision reached in Session 12: replace Widen with S3 + CloudFront" framing was a vendor proposal the client was amenable to, not a ratified decision.** At session close the prototype was *pending review*: Ahmad Hassan said he would "shape that so you guys can see this can be a [re]placement for widen … upload a link," and C G replied "We'll look for that link." No client line ratified the replacement or the architecture. The Executive Overview "Decision reached" line and the Out-of-Scope "Pulse DAM replaces Widen entirely" line are reframed as **vendor-proposed; client review pending** — a proposal consistent with the still-open OQ-DAM-001 (migration timeline) and OQ-DAM-002 (portal behaviour), not a closed decision.
+- **(LOW) FR-DAM-009 brand-scope evidence is mis-attributed.** The brand-site scoping quote is **Johan Ericsson** (in the context of multi-site propagation), not Adrienne Cardinale. The scope-field granularity (brand / region / dealer group type / dealer group ID) is **code-derived** from the built service, not stated by the client. Substance of the requirement is sound; only the speaker attribution and sourcing basis are corrected.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -49,7 +60,7 @@ Dynamic AQS currently uses Widen Collective as its Digital Asset Management (DAM
 - Assets served from the Widen domain forfeit SEO credit; Dan Harshbarger explicitly requested CDN-served content routed through the Dynamic AQS domain (SRC-DAM-001 29:10–32:02)
 - No single-click share for TMs in the field (SRC-DAM-001 18:17–19:33)
 
-**Decision reached in Session 12:** Replace Widen with a Pulse-native DAM backed by AWS S3 (object storage) + CloudFront (CDN). Assets will be served through the Dynamic AQS domain, recovering SEO credit. Ahmad Hassan confirmed this is achievable (SRC-DAM-001 31:03–32:02).
+**Decision reached in Session 12:** Replace Widen with a Pulse-native DAM backed by AWS S3 (object storage) + CloudFront (CDN). Assets will be served through the Dynamic AQS domain, recovering SEO credit. Ahmad Hassan confirmed this is achievable (SRC-DAM-001 31:03–32:02). — ⚠️ CORRECTED 2026-06-18: vendor-proposed, client review pending; not a ratified decision (see Scope corrections)
 
 ---
 
@@ -71,7 +82,7 @@ Dynamic AQS currently uses Widen Collective as its Digital Asset Management (DAM
 
 ## 4. Out-of-Scope
 
-- Widen subscription continuation — Pulse DAM replaces Widen entirely
+- Widen subscription continuation — Pulse DAM replaces Widen entirely — ⚠️ CORRECTED 2026-06-18: vendor-proposed, client review pending; not a ratified decision (see Scope corrections)
 - Shopify product images — Johan Ericsson confirmed Widen is not used for Shopify (SRC-DAM-001 18:02); Shopify images remain outside this module
 - E-commerce / shopping-cart integration
 - AI-based asset tagging or auto-categorisation
@@ -104,7 +115,7 @@ Dynamic AQS currently uses Widen Collective as its Digital Asset Management (DAM
 | FR-DAM-006 | The system shall maintain a full version history for each asset, accessible from the asset detail view, with version number, file name, size, and created date. | Version list displays all historical versions; the current version is visually indicated. | P1 | Built (version list in detail) | SRC-DAM-002, SRC-DAM-005 |
 | FR-DAM-007 | The system shall support a review/approval workflow: assets default to `reviewStatus=pending_review`; an authorised user can move an asset to `approved` or `rejected`; only approved (or `not_required`) assets with `dealer_portal` or `public` visibility can be shared externally. | Attempting to share a `pending_review` or `rejected` asset returns an error. "Asset must be approved before it can be shared externally." (service.ts line 377) | P0 | Built | SRC-DAM-002, SRC-DAM-005 |
 | FR-DAM-008 | The system shall support full-text search across asset title, description, stable slug, Widen asset ID, legacy file name, legacy folder path, and searchable legacy metadata fields. | Search query returns matching assets; results are ordered by most-recently-updated. | P1 | Built | SRC-DAM-002 |
-| FR-DAM-009 | The system shall allow assets to be scoped by brand, region, dealer group type, and dealer group ID so that a collection or assignment can be filtered to specific market segments. | Scoping fields are optional and combinable; collection visibility respects the scoping at membership level. Adrienne Cardinale confirmed brand-site scoped assets are needed (SRC-DAM-001 09:44) | P1 | Built | SRC-DAM-001, SRC-DAM-002 |
+| FR-DAM-009 | The system shall allow assets to be scoped by brand, region, dealer group type, and dealer group ID so that a collection or assignment can be filtered to specific market segments. | Scoping fields are optional and combinable; collection visibility respects the scoping at membership level. Adrienne Cardinale confirmed brand-site scoped assets are needed (SRC-DAM-001 09:44) — ⚠️ CORRECTED 2026-06-18: quote is Johan (multi-site), scope-fields are code-derived | P1 | Built | SRC-DAM-001, SRC-DAM-002 |
 
 ### 6.2 Stable URLs and Storage (AWS S3 + CloudFront)
 

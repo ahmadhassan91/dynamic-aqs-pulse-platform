@@ -4,12 +4,22 @@
 
 | Field | Value |
 |---|---|
-| Version | 3.0 |
-| Date | 2026-06-09 |
-| Status | Enriched — traceability closure pass complete |
+| Version | 3.1 |
+| Date | 2026-06-18 |
+| Status | Enriched — traceability closure pass complete; scope-sourcing correction applied 2026-06-18 (FR-L-018 pipeline enumeration) |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS sales leadership, Strategic Growth team, operations lead, customer setup stakeholder |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, Training PRD, Territory PRD, Calendar PRD, CIS PRD |
+
+---
+
+## Scope corrections (2026-06-18)
+
+A program-wide scope-accuracy re-check (verifying every client-attributed / "confirmed" requirement against the actual cited meeting transcripts) flagged one LOW-severity sourcing nit in this module. The substance is sound; the correction makes the attribution honest before scope-lock. No row is deleted.
+
+- **FR-L-018 — seven-stage pipeline enumeration.** The lead-to-first-order *lifecycle concept* (lead until first order; discovery → CIS → onboarding → activation) is client-confirmed across Discovery Sessions 1–4. However, the *specific seven-stage enumeration* (`new` → `discovery_scheduled` → `discovery_completed` → `cis_sent` → `cis_signed` → `onboarding_completed` → `customer_active`) was **vendor-presented** (Maryam Zahid, Discovery Session 4) and sent to the client for review — it is **vendor-proposed, pending client field-list review**, not 16/18-Feb client-confirmed. Treat the stage names/count as a working proposal subject to the client's field-list review, not a locked client requirement.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -47,9 +57,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 → 3.0 |
-| Date | 2026-04-20 → enriched 2026-06-09 |
-| Status | Scope confirmation draft enriched with traceability closure pass |
+| Version | 2.0 → 3.0 → 3.1 |
+| Date | 2026-04-20 → enriched 2026-06-09 → corrected 2026-06-18 |
+| Status | Scope confirmation draft enriched with traceability closure pass; FR-L-018 sourcing correction applied 2026-06-18 |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS sales leadership, Strategic Growth team, operations lead, customer setup stakeholder |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, Training PRD, Territory PRD, Calendar PRD |
@@ -344,7 +354,7 @@ On 16 Feb 2026, C G said: "We go into a lead and we go — okay, here's all our 
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |----|-------------|---------------------|----------|--------------|-----|
-| FR-L-018 | Pulse shall maintain a seven-stage pipeline: `new` → `discovery_scheduled` → `discovery_completed` → `cis_sent` → `cis_signed` → `onboarding_completed` → `customer_active`. | All seven stages are present in the system. Stage transitions are logged with timestamps. Stage is visible in list, Kanban, and detail views. | P0 | Built | SRC-L-010 |
+| FR-L-018 | Pulse shall maintain a seven-stage pipeline: `new` → `discovery_scheduled` → `discovery_completed` → `cis_sent` → `cis_signed` → `onboarding_completed` → `customer_active`. — ⚠️ CORRECTED 2026-06-18: stage enumeration is vendor-proposed (Session 4), pending client review; the lifecycle concept is confirmed (see Scope corrections). | All seven stages are present in the system. Stage transitions are logged with timestamps. Stage is visible in list, Kanban, and detail views. | P0 | Built | SRC-L-010 |
 | FR-L-019 | Pulse shall support non-linear stage progression where Dynamic AQS requires it (e.g., CIS received before discovery call), while clearly showing incomplete steps. | Steps can be completed out of sequence. Incomplete earlier steps are shown as incomplete without blocking forward progress (configurable by policy). | P1 | Built | SRC-L-002 — Michelle Hogan: "sometimes we'll get a customer information sheet first before the discovery call" |
 | FR-L-020 | Pulse shall support backward stage transitions (e.g., returning from `cis_sent` to `discovery_completed`) with a mandatory reason capture. | Backward stage drag on Kanban and stage-change on detail both require the user to provide a reason before the transition is committed. Reason is stored in the audit trail. | P0 | Built | SRC-L-011 — UX-L-011 marked Done |
 | FR-L-021 | Pulse shall support a `parked` lifecycle status with reason, and a `closed` lifecycle status with reason. Both must be recoverable (reopenable) by authorized roles. | Parked and closed leads are visually distinct from active leads in list and Kanban views. Authorized users can reopen a parked lead with a reason. Lifecycle badge visible on list rows. | P1 | Partial — lifecycle badge missing on list rows (UX-L-004) | SRC-L-002 |

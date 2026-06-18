@@ -6,13 +6,24 @@
 |---|---|
 | Module | Acumatica ERP Integration |
 | Document Type | Master PRD |
-| Version | 1.0 |
-| Status | Draft — scope confirmation pass, 2026-06-09 |
+| Version | 1.1 |
+| Status | Draft — scope-accuracy corrections (2026-06-18): FR-ACU-029 "base price" source-of-truth scoped to identity fields + price class (base/list price originates in the external pricing engine, reflected via Acumatica — cross-ref Pricing §0); push-notification availability qualified as documented-in-2024-R2-docs, unconfirmed in the Dynamic AQS instance. Builds on the 2026-06-09 scope-confirmation pass |
 | Owner | Product / Architecture |
 | Priority | P0 (unblocking) |
 | Sprint Sequence | Mostly PARKED — sandbox access and endpoint certification gate all active slices |
 | Meeting Traceability | Discovery Session 1 (Feb 16 2026, Currie G, Ahmad Hassan, Faraz Sohail, Michelle Hogan, Dan Harshbarger, Donald Hearn); Session 2 (Feb 18 2026, Dan Harshbarger, Currie G, Ahmad Hassan); Session 3 (Feb 20 2026, Ahmad Hassan, Currie G, Dan Harshbarger, Michelle Hogan); Session 5 (Feb 25 2026, Samantha Marks, Currie G, Ahmad Hassan); Session 6 (Feb 27 2026, Currie G, Dan Harshbarger, Ahmad Hassan, Samantha Marks); Session 9 (Mar 13 2026, Currie G, Ahmad Hassan, Donald Hearn, Michelle Hogan, Dan Harshbarger); Session 10 (Mar 17 2026, Currie G, Samantha Marks, Ahmad Hassan); Session 11 (undated — To-Be Dealer Portal and Product Management, Currie G, Ahmad Hassan, Don Hearn, Michelle Hogan); Apr 13–20 2026 scope review (Currie G, Steve Mores, Betsy Eastman, Johan Ericsson, Ahmad Hassan, Faraz Sohail); Acumatica training PDFs I100/I300/I310 2024 R2 |
-| Primary Companion Docs | `06_ACCOUNTS_CUSTOMERS_PRD.md`, `05_CONSIGNMENT_PRD.md`, `12_DEALER_PORTAL_ORDERING_PRD.md`, `07_CIS_CREDIT_ONBOARDING_PRD.md` |
+| Primary Companion Docs | `06_ACCOUNTS_CUSTOMERS_PRD.md`, `05_CONSIGNMENT_PRD.md`, `12_DEALER_PORTAL_ORDERING_PRD.md`, `07_CIS_CREDIT_ONBOARDING_PRD.md`, `11_PRICING_PRICE_UPDATE_PRD.md` |
+
+---
+
+## Scope corrections (2026-06-18)
+
+The following LOW-severity scope-accuracy corrections were applied after the program-wide re-check of source-of-truth claims and inferred-from-docs assumptions against the cited transcripts and PDFs. No rows were deleted; substance is otherwise unchanged.
+
+- **FR-ACU-029 — "base price" mis-scoped as Acumatica source-of-truth.** The requirement listed Acumatica as the source of truth for product `InventoryID`, `ItemClass`, **base price**, and unit of measure. Base/list price actually originates in the **external pricing engine** and is only *reflected via* Acumatica (cross-ref `11_PRICING_PRICE_UPDATE_PRD.md` §0, which established the pricing engine is separate from the ERP). Acumatica's truth should be scoped to the **identity fields** (`InventoryID`, `ItemClass`, UoM) plus the **price CLASS**, not the base/list price value itself. FR-ACU-029 is corrected accordingly.
+- **Push-notification availability is inferred from generic 2024 R2 docs, not the Dynamic AQS instance.** The claim that Acumatica push notifications are available for real-time credit-hold / inventory monitoring (ASM-ACU-007, NFR-ACU-002, §4.2) is derived from the generic Acumatica 2024 R2 documentation (I300/I310 PDFs), not from the client's own instance. It must be **confirmed in the sandbox** before being relied upon; polling remains the certified fallback.
+
+Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 
 ---
 
@@ -123,7 +134,7 @@ Ahmad Hassan, Session 3 (SRC-ACU-003):
 
 ### 4.2 Technical Interface
 
-The Acumatica REST API is the primary integration interface, using the contract-based REST API (version `24.100.001`) as documented in I310 (SRC-ACU-019). The OData interfaces (SRC-ACU-018) are available for read-heavy reporting queries and delta-fetch patterns. Push notifications (I300 Part 3, I310 Part 3) are available for real-time credit-hold and inventory monitoring. The `packages/acumatica` client library is already built and supports both cookie-session login and Bearer token access.
+The Acumatica REST API is the primary integration interface, using the contract-based REST API (version `24.100.001`) as documented in I310 (SRC-ACU-019). The OData interfaces (SRC-ACU-018) are available for read-heavy reporting queries and delta-fetch patterns. Push notifications (I300 Part 3, I310 Part 3) are documented as available for real-time credit-hold and inventory monitoring — ⚠️ CORRECTED 2026-06-18: documented in 2024 R2 docs; availability in the Dynamic AQS instance unconfirmed (sandbox). The `packages/acumatica` client library is already built and supports both cookie-session login and Bearer token access.
 
 ---
 
@@ -210,7 +221,7 @@ All active Acumatica integration work is gated on:
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |---|---|---|---|---|---|
-| FR-ACU-029 | Acumatica shall be the source of truth for base product identity: `InventoryID`, `ItemClass`, base price, and unit of measure | Products in Pulse carry `acumaticaInventoryId`, `acumaticaItemClass`, `acumaticaLastSyncedAt`; these are read-only in Pulse | P0 | Partial (fields built in product-management service; live API sync parked) | SRC-ACU-016 |
+| FR-ACU-029 | Acumatica shall be the source of truth for base product identity: `InventoryID`, `ItemClass`, base price, and unit of measure — ⚠️ CORRECTED 2026-06-18: Acumatica = truth for identity + price class; base/list price originates in the external pricing engine (see Pricing §0). | Products in Pulse carry `acumaticaInventoryId`, `acumaticaItemClass`, `acumaticaLastSyncedAt`; these are read-only in Pulse | P0 | Partial (fields built in product-management service; live API sync parked) | SRC-ACU-016 |
 | FR-ACU-030 | Pulse shall enrich Acumatica base items with marketing descriptions, specifications, product images (AWS S3/CloudFront), and dealer-visibility rules | Enriched products are owned by Pulse and do not sync back to Acumatica | P0 | Built (product-management module) | SRC-ACU-008 |
 | FR-ACU-031 | Pulse shall not publish any product to the dealer catalog until its Acumatica `InventoryID` mapping is certified | Publish action blocked if `acumaticaInventoryId` is null or from legacy CSV seed | P0 | Built (publish gate in `service.ts` line 350–360) | SRC-ACU-016 |
 | FR-ACU-032 | A periodic delta-sync (recommended: nightly or on-demand) shall update Pulse product records from Acumatica when base identity fields change | Products updated; `acumaticaLastSyncedAt` refreshed; new items added; discontinued items flagged | P1 | Not-built (parked) | SRC-ACU-016, SRC-ACU-017 |
@@ -245,7 +256,7 @@ All active Acumatica integration work is gated on:
 | ID | Category | Requirement | Priority | SRC |
 |---|---|---|---|---|
 | NFR-ACU-001 | Performance | Customer creation push to Acumatica shall complete within 5 seconds under normal load; retry-eligible failures shall not block the Pulse user | P0 | (inferred standard) |
-| NFR-ACU-002 | Performance | Credit-hold polling latency from Acumatica event to Pulse badge update shall not exceed 15 minutes; real-time push notification path shall reduce this to under 60 seconds when certified | P0 | SRC-ACU-018, SRC-ACU-019 |
+| NFR-ACU-002 | Performance | Credit-hold polling latency from Acumatica event to Pulse badge update shall not exceed 15 minutes; real-time push notification path shall reduce this to under 60 seconds when certified — ⚠️ CORRECTED 2026-06-18: documented in 2024 R2 docs; availability in the Dynamic AQS instance unconfirmed (sandbox). | P0 | SRC-ACU-018, SRC-ACU-019 |
 | NFR-ACU-003 | Performance | Inventory read for consignment warehouse shall return within 3 seconds for single-warehouse queries; bulk inventory queries (for delta sync) shall use OData `$filter` for delta records to avoid full scans | P1 | SRC-ACU-018 |
 | NFR-ACU-004 | Security / Auth | Acumatica credentials (username, password, access token) shall be stored only in environment variables or a secrets manager; never committed to source code or database | P0 | SRC-ACU-020 |
 | NFR-ACU-005 | Security / Auth | API calls to Acumatica shall use the least-privilege service account — read-only for inventory/credit reads; write-capable only for Customer, Warehouse, and PO endpoints | P0 | (inferred standard) |
@@ -273,7 +284,7 @@ All active Acumatica integration work is gated on:
 | ASM-ACU-004 | Acumatica is the sole warehouse creation authority; Pulse-origin warehouse creation is restricted to SUPER_ADMIN with mandatory audit log | Session 10 confirmed: "very few folks have access to create warehouses within Acumatica … locked down" |
 | ASM-ACU-005 | Price class resolution (Affinity + Ownership + Region → Dealer Group → Price Class) is handled by Acumatica; Pulse only reads the resolved price class code and displays it | Session 11: "that is all coming from the Acumatica" |
 | ASM-ACU-006 | The Dynamic AQS Acumatica instance may contain a custom `NAW.DAQS` customization project extending standard entities; this must be discovered via `$metadata` before any field mapping is written | Session 10 references customer attributes that are non-standard (consignment free-shipping flag) |
-| ASM-ACU-007 | Acumatica push notifications (I300 Part 3 / I310 Part 3) will be used for credit-hold real-time monitoring once the sandbox is certified; polling remains the fallback | I310 documents push notification capability for item availability monitoring |
+| ASM-ACU-007 | Acumatica push notifications (I300 Part 3 / I310 Part 3) will be used for credit-hold real-time monitoring once the sandbox is certified; polling remains the fallback — ⚠️ CORRECTED 2026-06-18: documented in 2024 R2 docs; availability in the Dynamic AQS instance unconfirmed (sandbox). | I310 documents push notification capability for item availability monitoring |
 | ASM-ACU-008 | The Shopify-to-Acumatica hourly order sync remains outside Pulse scope and will continue to operate independently; Pulse does not interfere with or replace this sync | Session 6: "every hour Acumatica says you have any new orders for me and pulls them in" |
 | ASM-ACU-009 | Financial data (AR balance, credit limit, invoice history) will be displayed read-only in Pulse and will not be editable; any changes must be made in Acumatica | Governing decision by Currie G confirmed in session 13/20 April |
 | ASM-ACU-010 | The `packages/acumatica` package is the canonical integration boundary; no other package or module may make direct HTTP calls to Acumatica | Architectural decision; enforced via build rules |

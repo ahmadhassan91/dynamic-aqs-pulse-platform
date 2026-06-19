@@ -741,6 +741,7 @@ export async function convertLeadOnFirstOrder(
   actor: AuthenticatedActor,
   leadId: string,
   input: ConvertLeadOnFirstOrderRequest = {},
+  options: { autoFirstOrderSignal?: boolean } = {},
 ): Promise<ConvertLeadOnFirstOrderResponse> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.create');
@@ -770,9 +771,18 @@ export async function convertLeadOnFirstOrder(
       throw new Error(`Lead is not ready for conversion: ${readiness.blockers.join('; ')}`);
     }
 
-    const firstOrderAt = input.firstOrderConfirmedAt
+    let firstOrderAt = input.firstOrderConfirmedAt
       ? parseRequiredDate(input.firstOrderConfirmedAt, 'firstOrderConfirmedAt')
       : lead.firstOrderAt ?? null;
+    // ORD-P5 (flag-gated, default OFF): treat the conversion moment as the first-order
+    // signal so the office isn't forced to hand-key a date. This stays a CRM intent, not
+    // an ERP confirmation — when the Acumatica order boundary is wired, a real order event
+    // would supply this timestamp instead.
+    let firstOrderAutoDerived = false;
+    if (!firstOrderAt && options.autoFirstOrderSignal) {
+      firstOrderAt = new Date();
+      firstOrderAutoDerived = true;
+    }
     if (!firstOrderAt) {
       throw new Error('firstOrderConfirmedAt is required until the Acumatica order boundary is wired');
     }
@@ -924,6 +934,7 @@ export async function convertLeadOnFirstOrder(
           sessionId: actor.sessionId,
           note: optionalTrimmed(input.note),
           accountId: account.id,
+          firstOrderAutoDerived,
         },
         afterData: {
           accountId: account.id,

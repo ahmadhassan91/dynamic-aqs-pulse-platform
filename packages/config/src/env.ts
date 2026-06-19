@@ -147,6 +147,14 @@ export type AppAiConfig = {
   };
 };
 
+export type AppOrdersConfig = {
+  // ORD-P5: when ON, lead conversion on first order may derive the first-order timestamp
+  // (the conversion moment) instead of requiring a manually entered date. Default OFF — it
+  // stays a reversible CRM intent until the Acumatica order boundary is wired, at which
+  // point a real order event would supply the timestamp.
+  firstOrderAutoSignalEnabled: boolean;
+};
+
 export type AppConfig = {
   app: {
     name: string;
@@ -169,6 +177,7 @@ export type AppConfig = {
   monerisHostedTokenization: AppMonerisHostedTokenizationConfig;
   productReferenceImport: AppProductReferenceImportConfig;
   ai: AppAiConfig;
+  orders: AppOrdersConfig;
 };
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -359,6 +368,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         transcriptionModel: optionalString(env.PULSE_VOICE_NOTES_TRANSCRIPTION_MODEL) ?? 'gpt-4o-transcribe',
         timeoutMs: parseNumber(env.PULSE_VOICE_NOTES_AI_TIMEOUT_MS, 20_000),
       },
+    },
+    orders: {
+      firstOrderAutoSignalEnabled: parseBoolean(env.ORDERS_FIRST_ORDER_AUTO_SIGNAL_ENABLED, false),
     },
   };
 }

@@ -468,3 +468,76 @@ test('conditional finance approval keeps conversion blocked even after checklist
     /Finance approval is conditional and still requires follow-through/i,
   );
 });
+
+async function buildReadyToConvertLead(actor) {
+  const readyFixture = await createFinanceReviewedLead(actor, 'approved');
+  const shippingCenter = await prisma.shippingCenter.findFirstOrThrow({ orderBy: { createdAt: 'asc' } });
+  const region = await prisma.region.create({
+    data: { code: 'rg_ord_p5', name: 'ORD-P5 Region', directorUserId: actor.userId, isActive: true },
+  });
+  const territory = await prisma.territory.create({
+    data: {
+      code: 'tx_ord_p5',
+      name: 'ORD-P5 Territory',
+      regionId: region.id,
+      managerUserId: actor.userId,
+      shippingCenterId: shippingCenter.id,
+      isActive: true,
+    },
+  });
+  await prisma.lead.update({
+    where: { id: readyFixture.lead.id },
+    data: {
+      territoryId: territory.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      territoryAssignedAt: new Date('2026-04-13T09:30:00.000Z'),
+      shippingCenterId: shippingCenter.id,
+      assignedTmUserId: actor.userId,
+      assignedRdUserId: actor.userId,
+    },
+  });
+  await generateLeadReadinessChecklist(actor, readyFixture.lead.id);
+  await importLeadContactsFromCis(actor, readyFixture.lead.id);
+  await updateLeadConversionPreparation(actor, readyFixture.lead.id, {
+    priceClassCode: 'NET30-DEALER',
+    portalEligibilityStatus: 'provisioned',
+    shippingAddressSnapshot: { name: 'Main', line1: '455 Market Street', city: 'Dallas', state: 'TX', postalCode: '75201', countryCode: 'US' },
+    billingAddressSnapshot: { name: 'Billing', line1: '455 Market Street', city: 'Dallas', state: 'TX', postalCode: '75201', countryCode: 'US' },
+    notes: 'ORD-P5 ready lead.',
+  });
+  await completeManualChecklistItems(actor, readyFixture.lead.id);
+  const readiness = await getLeadReadiness(actor, readyFixture.lead.id);
+  assert.equal(readiness.summary.status, 'ready');
+  return readyFixture.lead;
+}
+
+test('ORD-P5: order auto first-order signal flag derives the conversion date without manual entry', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await buildReadyToConvertLead(actor);
+
+  // Flag OFF (default) — conversion still requires a manually entered first-order date.
+  await assert.rejects(
+    () => convertLeadOnFirstOrder(actor, lead.id, {}, { autoFirstOrderSignal: false }),
+    /firstOrderConfirmedAt is required/i,
+  );
+
+  // Flag ON — the conversion moment supplies the first-order timestamp.
+  const before = Date.now();
+  const converted = await convertLeadOnFirstOrder(actor, lead.id, {}, { autoFirstOrderSignal: true });
+  assert.ok(converted.accountId);
+
+  const updatedLead = await prisma.lead.findUniqueOrThrow({
+    where: { id: lead.id },
+    select: { stage: true, firstOrderAt: true },
+  });
+  assert.equal(updatedLead.stage, 'CUSTOMER_ACTIVE');
+  assert.ok(updatedLead.firstOrderAt, 'firstOrderAt should be derived');
+  const derivedMs = new Date(updatedLead.firstOrderAt).getTime();
+  assert.ok(derivedMs >= before - 2000 && derivedMs <= Date.now() + 2000, `derived ~ now, got ${updatedLead.firstOrderAt}`);
+
+  const account = await prisma.account.findUniqueOrThrow({
+    where: { id: converted.accountId },
+    select: { sourceLeadId: true },
+  });
+  assert.equal(account.sourceLeadId, lead.id);
+});

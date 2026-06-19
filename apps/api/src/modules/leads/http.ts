@@ -1022,7 +1022,9 @@ export async function handleLeadRoutes(
         action: 'customer.create',
       });
       const body = (await readJsonBody(req)) as ConvertLeadOnFirstOrderRequest;
-      const response = await convertLeadOnFirstOrder(actor, leadId, body);
+      const response = await convertLeadOnFirstOrder(actor, leadId, body, {
+        autoFirstOrderSignal: config?.orders.firstOrderAutoSignalEnabled ?? false,
+      });
       return jsonResponse(res, 200, response);
     }
 

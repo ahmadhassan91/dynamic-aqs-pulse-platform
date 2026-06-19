@@ -10,6 +10,9 @@ import type {
   OrderDraftLineSummary,
   OrderDraftStatusKey,
   OrderDraftSummary,
+  OrderProductOption,
+  SearchOrderProductsRequest,
+  SearchOrderProductsResponse,
   SubmitOrderDraftRequest,
   UpdateOrderDraftRequest,
 } from '@pulse/contracts/orders';
@@ -78,6 +81,48 @@ export async function listOrderDrafts(
   return {
     items: items.map((draft) => toOrderDraftSummary(draft)),
     total,
+  };
+}
+
+// Catalog search that feeds the order-line picker. Gated on order.create (not the
+// product_management module) so on-behalf authors can find products without the full
+// product-management workspace grant. Returns only sellable products.
+export async function searchOrderableProducts(
+  actor: AuthenticatedActor,
+  query: SearchOrderProductsRequest = {},
+): Promise<SearchOrderProductsResponse> {
+  assertModuleAccess(actor.role, 'orders');
+  assertActionAccess(actor.role, 'order.create');
+
+  const limit = normalizeLimit(query.limit);
+  const search = query.search?.trim();
+  const where: Prisma.BaseProductWhereInput = { isSellable: true };
+  if (search) {
+    where.OR = [
+      { productName: { contains: search, mode: Prisma.QueryMode.insensitive } },
+      { sku: { contains: search, mode: Prisma.QueryMode.insensitive } },
+    ];
+  }
+
+  const products = await prisma.baseProduct.findMany({
+    where,
+    orderBy: [{ productName: 'asc' }],
+    take: limit,
+    select: { id: true, sku: true, productName: true, uom: true },
+  });
+
+  return {
+    items: products.map((product) => {
+      const option: OrderProductOption = {
+        id: product.id,
+        sku: product.sku,
+        productName: product.productName,
+      };
+      if (product.uom) {
+        option.unitOfMeasure = product.uom;
+      }
+      return option;
+    }),
   };
 }
 

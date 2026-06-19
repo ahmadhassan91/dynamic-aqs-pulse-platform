@@ -6,6 +6,7 @@ import {
   type CreateOrderDraftRequest,
   type ListOrderDraftsRequest,
   type OrderDraftStatusKey,
+  type SearchOrderProductsRequest,
   type SubmitOrderDraftRequest,
   type UpdateOrderDraftRequest,
 } from '@pulse/contracts/orders';
@@ -29,6 +30,7 @@ import {
   fulfillOrderDraft,
   getOrderDraftDetail,
   listOrderDrafts,
+  searchOrderableProducts,
   submitOrderDraft,
   updateOrderDraft,
 } from './service.js';
@@ -38,6 +40,7 @@ export async function handleOrderRoutes(req: IncomingMessage, res: ServerRespons
   const method = req.method ?? 'GET';
   const isOrderRoute =
     pathname === '/api/v1/order-drafts'
+    || pathname === '/api/v1/order-products'
     || /^\/api\/v1\/order-drafts\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/order-drafts\/[^/]+\/(submit|cancel|fulfill)$/.test(pathname);
 
@@ -93,6 +96,28 @@ export async function handleOrderRoutes(req: IncomingMessage, res: ServerRespons
       }
 
       return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    if (pathname === '/api/v1/order-products') {
+      if (method === 'GET') {
+        const actor = await requireAuthenticatedActor(req, {
+          module: 'orders',
+          action: 'order.create',
+        });
+        const query: SearchOrderProductsRequest = {};
+        const search = url.searchParams.get('search')?.trim();
+        const limit = parseInteger(url.searchParams.get('limit'));
+        if (search) {
+          query.search = search;
+        }
+        if (limit !== undefined) {
+          query.limit = limit;
+        }
+        const response = await searchOrderableProducts(actor, query);
+        return jsonResponse(res, 200, response);
+      }
+
+      return methodNotAllowedResponse(res, method, ['GET']);
     }
 
     const transitionMatch = pathname.match(/^\/api\/v1\/order-drafts\/([^/]+)\/(submit|cancel|fulfill)$/);

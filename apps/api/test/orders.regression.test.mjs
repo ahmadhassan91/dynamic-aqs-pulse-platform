@@ -16,6 +16,7 @@ let updateOrderDraft;
 let submitOrderDraft;
 let cancelOrderDraft;
 let fulfillOrderDraft;
+let searchOrderableProducts;
 
 const SERIAL = { concurrency: false };
 
@@ -31,6 +32,7 @@ test.before(async () => {
     submitOrderDraft,
     cancelOrderDraft,
     fulfillOrderDraft,
+    searchOrderableProducts,
   } = await import('../dist/modules/orders/service.js'));
 
   config = configModule.loadAppConfig(process.env);
@@ -318,5 +320,32 @@ test('validates line quantity, unknown products, and ship-to ownership', SERIAL,
       lines: [{ baseProductId: product.id, quantity: 1000, unitPriceCents: 100_000_000 }],
     }),
     /Order subtotal exceeds the maximum supported amount/,
+  );
+});
+
+test('searchOrderableProducts returns sellable catalog products and enforces order RBAC', SERIAL, async () => {
+  const admin = await createAdminActor();
+  await createProductRow('SKU-FIND-1', { productName: 'Findable Widget', isSellable: true });
+  await createProductRow('SKU-HIDE-1', { productName: 'Hidden Widget', isSellable: false });
+
+  const all = await searchOrderableProducts(admin, {});
+  const skus = all.items.map((item) => item.sku);
+  assert.ok(skus.includes('SKU-FIND-1'));
+  assert.ok(!skus.includes('SKU-HIDE-1'), 'non-sellable products are excluded');
+
+  const filtered = await searchOrderableProducts(admin, { search: 'Findable' });
+  assert.equal(filtered.items.length, 1);
+  assert.equal(filtered.items[0].productName, 'Findable Widget');
+
+  // A territory manager (order author) can search the catalog without product_management access.
+  const tm = await createScopedActor('TERRITORY_MANAGER', 'tm-search@test.local', 'TM Search');
+  const tmResults = await searchOrderableProducts(tm, { search: 'Findable' });
+  assert.equal(tmResults.items.length, 1);
+
+  // A role without order.create cannot.
+  const trainingActor = await createScopedActor('TRAINING_OPS', 'training-search@test.local', 'Training Search');
+  await assert.rejects(
+    () => searchOrderableProducts(trainingActor, {}),
+    (error) => error.name === 'AuthorizationError',
   );
 });

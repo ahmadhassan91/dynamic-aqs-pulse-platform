@@ -1,10 +1,11 @@
-import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
+import type { OrderDraftSummary } from '@pulse/contracts/orders';
 import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
 import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { createMobileVoiceNote, fetchAccountDetail, fetchAccountTrainingHistory } from '@/lib/api';
+import { createMobileVoiceNote, fetchAccountDetail, fetchAccountOrderDrafts, fetchAccountTrainingHistory } from '@/lib/api';
 import { formatDate, initials } from '@/lib/format';
 import { formatGroupClassification } from '@/lib/account-map-status';
 import { useSession } from '@/providers/session-provider';
@@ -17,6 +18,7 @@ export default function AccountDetailScreen() {
   const { apiBaseUrl, auth } = useSession();
   const [account, setAccount] = useState<AccountDetail | null>(null);
   const [trainingHistory, setTrainingHistory] = useState<AccountTrainingHistoryResponse | null>(null);
+  const [orderDrafts, setOrderDrafts] = useState<OrderDraftSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -47,6 +49,25 @@ export default function AccountDetailScreen() {
       .catch((error) => setErrorMessage(error instanceof Error ? error.message : 'Unable to load account.'))
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, auth, id]);
+
+  // Refresh the order-drafts list whenever the screen regains focus (e.g. after returning
+  // from the order-draft capture screen) so a just-created/submitted/cancelled order shows.
+  useFocusEffect(
+    useCallback(() => {
+      if (!auth || !id) return;
+      let cancelled = false;
+      void fetchAccountOrderDrafts(apiBaseUrl, auth.tokens.accessToken, { accountId: id, limit: 5 })
+        .then((response) => {
+          if (!cancelled) setOrderDrafts(response.items);
+        })
+        .catch(() => {
+          // Non-blocking: keep the last-known list if this refresh fails.
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [apiBaseUrl, auth, id]),
+  );
 
   async function handleLogVisit() {
     if (!auth || !id || !visitNote.trim()) return;
@@ -176,6 +197,39 @@ export default function AccountDetailScreen() {
                 onPress={() => setShowVisitLog(true)}
               />
             )}
+
+            {/* ORD-P4 — order-on-behalf entry point */}
+            <SectionTitle title="Order drafts" detail="Place an order for this account. It goes to the office to finalize pricing and place in Acumatica." />
+            <Card>
+              {orderDrafts.length === 0 ? (
+                <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                  No orders yet for this account.
+                </Text>
+              ) : (
+                orderDrafts.map((draft) => (
+                  <Pressable
+                    key={draft.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open order with ${draft.lineCount} line${draft.lineCount === 1 ? '' : 's'}`}
+                    onPress={() => router.push({ pathname: '/order-draft', params: { accountId: id, accountName: account.displayName, draftId: draft.id } })}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm }}
+                  >
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={{ ...typography.callout, color: colors.text }}>
+                        {draft.lineCount} line{draft.lineCount === 1 ? '' : 's'}{draft.customerPoNumber ? ` · PO ${draft.customerPoNumber}` : ''}
+                      </Text>
+                      <Text style={{ ...typography.caption, color: colors.muted }}>Updated {formatDate(draft.updatedAt)}</Text>
+                    </View>
+                    <Pill label={draft.status} tone={draft.status} />
+                  </Pressable>
+                ))
+              )}
+              <SecondaryButton
+                label="New order"
+                icon={{ name: 'cart.fill.badge.plus', fallback: 'New' }}
+                onPress={() => router.push({ pathname: '/order-draft', params: { accountId: id, accountName: account.displayName } })}
+              />
+            </Card>
 
             <SectionTitle title="Field ownership" />
             <Card>

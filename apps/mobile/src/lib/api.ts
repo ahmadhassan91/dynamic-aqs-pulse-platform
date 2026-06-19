@@ -48,6 +48,18 @@ import type {
   UploadTrainingSessionProofResponse,
 } from '@pulse/contracts/training';
 import type { TerritoryMapWorkspaceResponse } from '@pulse/contracts/territories';
+import type {
+  CancelOrderDraftRequest,
+  CreateOrderDraftRequest,
+  ListOrderDraftsRequest,
+  ListOrderDraftsResponse,
+  OrderDraftDetail,
+  OrderDraftSummary,
+  SearchOrderProductsRequest,
+  SearchOrderProductsResponse,
+  SubmitOrderDraftRequest,
+  UpdateOrderDraftRequest,
+} from '@pulse/contracts/orders';
 import { defaultApiBaseUrl, normalizeApiBaseUrl } from './api-base-url';
 export { defaultApiBaseUrl, normalizeApiBaseUrl } from './api-base-url';
 
@@ -300,6 +312,64 @@ export async function createMobileVoiceNote(apiBaseUrl: string, accessToken: str
     accessToken,
     body: input,
   });
+}
+
+// Order-on-behalf (ORD-P4 / FR-MOB-047): CRM-owned order-draft capture + the catalog
+// search that feeds the line picker. These never place an Acumatica order — submit hands
+// the draft to back-office triage.
+export async function fetchAccountOrderDrafts(apiBaseUrl: string, accessToken: string, query: ListOrderDraftsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'accountId', query.accountId);
+  append(searchParams, 'status', query.status);
+  append(searchParams, 'search', query.search);
+  append(searchParams, 'limit', query.limit);
+  append(searchParams, 'offset', query.offset);
+  const path = `/api/v1/order-drafts${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<ListOrderDraftsResponse>(apiBaseUrl, path, { accessToken });
+}
+
+export async function fetchOrderDraft(apiBaseUrl: string, accessToken: string, draftId: string) {
+  return requestJson<OrderDraftDetail>(apiBaseUrl, `/api/v1/order-drafts/${encodeURIComponent(draftId)}`, { accessToken });
+}
+
+export async function createOrderDraft(apiBaseUrl: string, accessToken: string, input: CreateOrderDraftRequest) {
+  return requestJson<OrderDraftDetail>(apiBaseUrl, '/api/v1/order-drafts', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateOrderDraft(apiBaseUrl: string, accessToken: string, draftId: string, input: UpdateOrderDraftRequest) {
+  return requestJson<OrderDraftDetail>(apiBaseUrl, `/api/v1/order-drafts/${encodeURIComponent(draftId)}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function submitOrderDraft(apiBaseUrl: string, accessToken: string, draftId: string, input: SubmitOrderDraftRequest = {}) {
+  return requestJson<OrderDraftDetail>(apiBaseUrl, `/api/v1/order-drafts/${encodeURIComponent(draftId)}/submit`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function cancelOrderDraft(apiBaseUrl: string, accessToken: string, draftId: string, input: CancelOrderDraftRequest = {}) {
+  return requestJson<OrderDraftDetail>(apiBaseUrl, `/api/v1/order-drafts/${encodeURIComponent(draftId)}/cancel`, {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchOrderProducts(apiBaseUrl: string, accessToken: string, query: SearchOrderProductsRequest = {}) {
+  const searchParams = new URLSearchParams();
+  append(searchParams, 'search', query.search);
+  append(searchParams, 'limit', query.limit);
+  const path = `/api/v1/order-products${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+  return requestJson<SearchOrderProductsResponse>(apiBaseUrl, path, { accessToken });
 }
 
 async function requestJson<T>(apiBaseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {

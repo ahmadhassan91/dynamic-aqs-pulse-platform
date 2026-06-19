@@ -112,3 +112,22 @@ export interface SubmitOrderDraftRequest {
 export interface CancelOrderDraftRequest {
   cancelReason?: string;
 }
+
+// Lightweight catalog search for the order-line picker. Lives under the orders module
+// (gated on order.create) so an on-behalf author can search products without being granted
+// the full product_management workspace.
+export interface OrderProductOption {
+  id: string;
+  sku: string;
+  productName: string;
+  unitOfMeasure?: string;
+}
+
+export interface SearchOrderProductsRequest {
+  search?: string;
+  limit?: number;
+}
+
+export interface SearchOrderProductsResponse {
+  items: OrderProductOption[];
+}

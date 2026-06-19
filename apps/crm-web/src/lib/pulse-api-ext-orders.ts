@@ -14,6 +14,7 @@ import type {
   ListOrderDraftsResponse,
   OrderDraftDetail,
   OrderDraftStatusKey,
+  OrderSourceKey,
 } from '@pulse/contracts';
 
 async function extRequestJson<TResponse>(
@@ -65,11 +66,14 @@ async function extRequestJson<TResponse>(
 export async function fetchOrderTriageQueue(
   apiBaseUrl: string,
   accessToken: string,
-  query: { status?: OrderDraftStatusKey; limit?: number } = {},
+  query: { status?: OrderDraftStatusKey; source?: OrderSourceKey; limit?: number } = {},
 ): Promise<ListOrderDraftsResponse> {
   const searchParams = new URLSearchParams();
   if (query.status) {
     searchParams.set('status', query.status);
+  }
+  if (query.source) {
+    searchParams.set('source', query.source);
   }
   if (query.limit !== undefined) {
     searchParams.set('limit', String(query.limit));

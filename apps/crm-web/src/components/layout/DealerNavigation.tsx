@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Badge, Box, Group, Stack, Text, ThemeIcon, UnstyledButton, rem } from '@mantine/core';
 import type { DealerPortalAccessRoleKey } from '@pulse/contracts';
-import { IconBuilding, IconCreditCard, IconHome, IconPackage, type TablerIcon } from '@tabler/icons-react';
+import { IconBuilding, IconClipboardList, IconCreditCard, IconHome, IconPackage, IconShoppingCart, type TablerIcon } from '@tabler/icons-react';
 import classes from './Navigation.module.css';
 
 type DealerNavItem = {
@@ -36,6 +36,16 @@ const dealerNavItems: DealerNavItem[] = [
     link: '/dealer/catalog',
     icon: IconPackage,
     badgeForRole: { purchasing: 'Files' },
+  },
+  {
+    label: 'Cart',
+    link: '/dealer/cart',
+    icon: IconShoppingCart,
+  },
+  {
+    label: 'Orders',
+    link: '/dealer/orders',
+    icon: IconClipboardList,
   },
 ];
 

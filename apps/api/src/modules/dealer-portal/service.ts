@@ -11,6 +11,8 @@ import {
   DigitalAssetStatus,
   DigitalAssetVisibility,
   IdentityProvider,
+  OrderDraftStatus,
+  OrderSource,
   PortalEligibilityStatus,
   Prisma,
   ProductLifecycleStatus,
@@ -23,16 +25,25 @@ import type {
   CatalogRuleConditionInput,
   AcceptDealerPortalInviteRequest,
   AcceptDealerPortalInviteResponse,
+  AddDealerPortalCartItemRequest,
   CreateDealerPortalInviteResponse,
   DealerPortalAccessRoleKey,
   DealerPortalAccountDetail,
   DealerPortalAccountSummary,
   DealerPortalAssetOpenResponse,
+  DealerPortalCartLine,
+  DealerPortalCartResponse,
   DealerPortalCatalogResponse,
   DealerPortalCatalogDiagnostics,
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
   DealerPortalInternalPreviewResponse,
+  DealerPortalOrderDetail,
+  DealerPortalOrdersResponse,
+  DealerPortalOrderSummary,
+  OrderDraftStatusKey,
+  SubmitDealerPortalOrderRequest,
+  UpdateDealerPortalCartItemRequest,
   DealerPortalSelfCreateUserRequest,
   DealerPortalSelfCreateUserResponse,
   DealerPortalSelfUpdateUserRequest,
@@ -1585,6 +1596,518 @@ export async function recordCurrentDealerPortalAssetOpen(
   }
 
   return response;
+}
+
+// --- Dealer self-service ordering (cart + order submission) ---
+// A dealer order IS an OrderDraft (source = DEALER_SELF_SERVICE, account = the dealer's own
+// account, createdBy = the dealer user). The persistent cart is the single DRAFT-status draft
+// for that user; submit is the DRAFT -> SUBMITTED transition so it flows into the existing
+// back-office /orders triage queue. No price is shown or stored; payment/shipping/tax/delivery
+// date/Acumatica placement are parked. We do the OrderDraft writes here (rather than calling the
+// internal orders service, which hard-asserts internal order.* actions on the platform role).
+
+const DEALER_PORTAL_ORDER_ENTITY = 'ORDER_DRAFT';
+const DEALER_PORTAL_MAX_CART_LINES = 200;
+const DEALER_PORTAL_MAX_LINE_QUANTITY = 1_000_000;
+
+const DEALER_PORTAL_ORDER_INCLUDE = {
+  lines: { orderBy: { position: 'asc' } },
+} satisfies Prisma.OrderDraftInclude;
+
+type DealerPortalOrderRecord = Prisma.OrderDraftGetPayload<{
+  include: typeof DEALER_PORTAL_ORDER_INCLUDE;
+}>;
+type DealerPortalOrderLineRecord = DealerPortalOrderRecord['lines'][number];
+
+export async function getCurrentDealerPortalCart(
+  actor: AuthenticatedActor,
+): Promise<DealerPortalCartResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_view');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+  const cart = await findOrCreateDealerPortalCart(actor, portalUser.accountId);
+  return toDealerPortalCart(cart);
+}
+
+export async function addCurrentDealerPortalCartItem(
+  actor: AuthenticatedActor,
+  body: AddDealerPortalCartItemRequest,
+): Promise<DealerPortalCartResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_create');
+
+  // Resolve the presentation against the dealer's LIVE visible catalog. This both enforces the
+  // in-account access gate (ADMIN/PURCHASING only) and rejects any presentation that is not
+  // visible/sellable for this dealer — never trust the client-supplied presentation/product id.
+  const context = await loadVisibleDealerCatalogPresentation(actor, body.presentationId);
+  assertDealerPortalCanManageOrders(context.portalUser.accessRole);
+
+  const quantity = clampDealerPortalQuantity(body.quantity);
+  const lineNote = optionalDealerPortalText(body.lineNote);
+  const baseProductId = context.presentation.baseProductId;
+  const sku = context.presentation.baseProduct.sku;
+  const productName = context.presentation.displayName ?? context.presentation.baseProduct.productName;
+  const unitOfMeasure = context.presentation.baseProduct.uom ?? undefined;
+
+  const cart = await findOrCreateDealerPortalCart(actor, context.portalUser.accountId);
+  if (cart.lines.length >= DEALER_PORTAL_MAX_CART_LINES) {
+    const existing = cart.lines.find((line) => line.baseProductId === baseProductId);
+    if (!existing) {
+      throw new Error(`A dealer cart cannot exceed ${DEALER_PORTAL_MAX_CART_LINES} lines`);
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Merge onto the existing line for the same product so add-to-cart is idempotent per product.
+    const existing = cart.lines.find((line) => line.baseProductId === baseProductId);
+    if (existing) {
+      await tx.orderDraftLine.update({
+        where: { id: existing.id },
+        data: {
+          quantity: clampDealerPortalQuantity(existing.quantity + quantity),
+          ...(lineNote !== undefined ? { lineNote } : {}),
+        },
+      });
+    } else {
+      // Position from a fresh in-transaction count, not the stale pre-transaction
+      // cart.lines.length, so concurrent adds can't assign duplicate positions.
+      const lineCountInTx = await tx.orderDraftLine.count({ where: { orderDraftId: cart.id } });
+      await tx.orderDraftLine.create({
+        data: {
+          orderDraft: { connect: { id: cart.id } },
+          baseProduct: { connect: { id: baseProductId } },
+          productName,
+          quantity,
+          position: lineCountInTx,
+          sku,
+          ...(unitOfMeasure ? { unitOfMeasure } : {}),
+          ...(lineNote ? { lineNote } : {}),
+        },
+      });
+    }
+
+    await recomputeDealerPortalCartCounts(tx, cart.id);
+  });
+
+  const next = await loadDealerPortalCartById(cart.id);
+  return toDealerPortalCart(next);
+}
+
+export async function updateCurrentDealerPortalCartItem(
+  actor: AuthenticatedActor,
+  lineId: string,
+  body: UpdateDealerPortalCartItemRequest,
+): Promise<DealerPortalCartResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_create');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+  assertDealerPortalCanManageOrders(portalUser.accessRole);
+
+  const cart = await findOrCreateDealerPortalCart(actor, portalUser.accountId);
+  const line = cart.lines.find((entry) => entry.id === lineId.trim());
+  if (!line) {
+    throw new Error('Cart line not found');
+  }
+
+  const data: Prisma.OrderDraftLineUpdateInput = {};
+  if (body.quantity !== undefined) {
+    data.quantity = clampDealerPortalQuantity(body.quantity);
+  }
+  if (body.lineNote !== undefined) {
+    data.lineNote = normalizeDealerPortalNullableText(body.lineNote);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (Object.keys(data).length > 0) {
+      await tx.orderDraftLine.update({ where: { id: line.id }, data });
+    }
+    await recomputeDealerPortalCartCounts(tx, cart.id);
+  });
+
+  const next = await loadDealerPortalCartById(cart.id);
+  return toDealerPortalCart(next);
+}
+
+export async function removeCurrentDealerPortalCartItem(
+  actor: AuthenticatedActor,
+  lineId: string,
+): Promise<DealerPortalCartResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_create');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+  assertDealerPortalCanManageOrders(portalUser.accessRole);
+
+  const cart = await findOrCreateDealerPortalCart(actor, portalUser.accountId);
+  const line = cart.lines.find((entry) => entry.id === lineId.trim());
+  if (!line) {
+    throw new Error('Cart line not found');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.orderDraftLine.delete({ where: { id: line.id } });
+    // Re-pack positions from the lines that ACTUALLY remain (re-queried in-transaction, not
+    // the stale pre-transaction snapshot) so they stay 0-based contiguous under concurrency.
+    const remaining = await tx.orderDraftLine.findMany({
+      where: { orderDraftId: cart.id },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, position: true },
+    });
+    await Promise.all(
+      remaining.map((entry, index) =>
+        entry.position === index
+          ? Promise.resolve(null)
+          : tx.orderDraftLine.update({ where: { id: entry.id }, data: { position: index } }),
+      ),
+    );
+    await recomputeDealerPortalCartCounts(tx, cart.id);
+  });
+
+  const next = await loadDealerPortalCartById(cart.id);
+  return toDealerPortalCart(next);
+}
+
+export async function submitCurrentDealerPortalOrder(
+  actor: AuthenticatedActor,
+  body: SubmitDealerPortalOrderRequest,
+): Promise<DealerPortalOrderDetail> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_submit');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+  assertDealerPortalCanManageOrders(portalUser.accessRole);
+
+  const poNumber = body.poNumber?.trim();
+  if (!poNumber) {
+    throw new Error('A purchase order (PO) number is required to submit a dealer order');
+  }
+
+  const cart = await findOrCreateDealerPortalCart(actor, portalUser.accountId);
+  if (cart.lineCount < 1 || cart.lines.length < 1) {
+    throw new Error('Add at least one product to your cart before submitting an order');
+  }
+
+  // Ship-to (when supplied) must belong to the dealer's OWN account — derived from the portal
+  // user, never from client input.
+  const shipToLocationId = optionalDealerPortalText(body.shipToLocationId);
+  if (shipToLocationId) {
+    await assertDealerPortalShipToBelongsToAccount(portalUser.accountId, shipToLocationId);
+  }
+
+  // CREDIT-HOLD SEAM (parked): there is no Pulse-side credit-hold field today — only
+  // Account.financeAuthorityMode, which is not a real-time credit signal. Once an
+  // Acumatica-synced credit-hold flag exists, the block would go HERE (throw before the
+  // transition). For now submit always proceeds. Do NOT fabricate a credit-hold block.
+
+  const notes = optionalDealerPortalText(body.notes);
+
+  const submitted = await prisma.$transaction(async (tx) => {
+    // Atomic DRAFT -> SUBMITTED guard: only advance if the row is still the DRAFT cart, so a
+    // double-submit (e.g. double click) cannot double-fire submittedAt/submittedBy. source stays
+    // DEALER_SELF_SERVICE so it lands in the back-office triage queue.
+    const result = await tx.orderDraft.updateMany({
+      // lineCount >= 1 is part of the atomic guard: if a concurrent remove drained the cart
+      // between the pre-check and here, this matches nothing and we throw instead of
+      // submitting an empty order.
+      where: { id: cart.id, status: OrderDraftStatus.DRAFT, source: OrderSource.DEALER_SELF_SERVICE, lineCount: { gte: 1 } },
+      data: {
+        status: OrderDraftStatus.SUBMITTED,
+        submittedAt: new Date(),
+        submittedByUserId: actor.userId,
+        customerPoNumber: poNumber,
+        ...(shipToLocationId ? { shipToLocationId } : { shipToLocationId: null }),
+        ...(notes !== undefined ? { notes } : {}),
+      },
+    });
+    if (result.count === 0) {
+      throw new Error('This order was already submitted; reload your cart and try again');
+    }
+
+    const draft = await tx.orderDraft.findUniqueOrThrow({
+      where: { id: cart.id },
+      include: DEALER_PORTAL_ORDER_INCLUDE,
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: DEALER_PORTAL_ORDER_ENTITY,
+        entityId: draft.id,
+        metadata: {
+          operation: 'dealer_portal.submit_order',
+          sessionId: actor.sessionId,
+          actorRole: actor.role,
+          actorType: actor.actorType,
+          accountId: portalUser.accountId,
+          dealerPortalUserId: portalUser.id,
+          transition: 'submit',
+          source: toOrderSourceKey(draft.source),
+        },
+        beforeData: { status: toOrderDraftStatusKey(cart.status) },
+        afterData: {
+          status: toOrderDraftStatusKey(draft.status),
+          customerPoNumber: draft.customerPoNumber,
+          shipToLocationId: draft.shipToLocationId,
+          lineCount: draft.lineCount,
+        },
+      }),
+    });
+
+    return draft;
+  });
+
+  return toDealerPortalOrder(submitted);
+}
+
+export async function getCurrentDealerPortalOrders(
+  actor: AuthenticatedActor,
+): Promise<DealerPortalOrdersResponse> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_view');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+
+  const where: Prisma.OrderDraftWhereInput = {
+    accountId: portalUser.accountId,
+    source: OrderSource.DEALER_SELF_SERVICE,
+    status: { not: OrderDraftStatus.DRAFT },
+  };
+
+  const [items, total] = await Promise.all([
+    prisma.orderDraft.findMany({
+      where,
+      orderBy: [{ submittedAt: 'desc' }, { updatedAt: 'desc' }],
+      include: DEALER_PORTAL_ORDER_INCLUDE,
+    }),
+    prisma.orderDraft.count({ where }),
+  ]);
+
+  return {
+    items: items.map((order) => toDealerPortalOrderSummary(order)),
+    total,
+  };
+}
+
+export async function getCurrentDealerPortalOrder(
+  actor: AuthenticatedActor,
+  orderId: string,
+): Promise<DealerPortalOrderDetail | null> {
+  assertModuleAccess(actor.role, 'dealer_portal');
+  assertActionAccess(actor.role, 'dealer.order_view');
+
+  const portalUser = await loadActiveDealerPortalUser(actor);
+
+  const order = await prisma.orderDraft.findFirst({
+    where: {
+      id: orderId.trim(),
+      accountId: portalUser.accountId,
+      source: OrderSource.DEALER_SELF_SERVICE,
+      status: { not: OrderDraftStatus.DRAFT },
+    },
+    include: DEALER_PORTAL_ORDER_INCLUDE,
+  });
+
+  return order ? toDealerPortalOrder(order) : null;
+}
+
+async function findOrCreateDealerPortalCart(
+  actor: AuthenticatedActor,
+  accountId: string,
+): Promise<DealerPortalOrderRecord> {
+  // Serializable so a concurrent first-add (two requests when no DRAFT cart exists yet)
+  // cannot both pass the find then both create — Postgres SSI aborts the loser, preserving
+  // the one-DRAFT-cart-per-dealer-user invariant (no DB-level partial-unique needed). Once a
+  // cart exists this is a single read with no write, so there is nothing to conflict on.
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.orderDraft.findFirst({
+      where: {
+        accountId,
+        createdByUserId: actor.userId,
+        source: OrderSource.DEALER_SELF_SERVICE,
+        status: OrderDraftStatus.DRAFT,
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      include: DEALER_PORTAL_ORDER_INCLUDE,
+    });
+    if (existing) {
+      return existing;
+    }
+
+    return tx.orderDraft.create({
+      data: {
+        account: { connect: { id: accountId } },
+        createdBy: { connect: { id: actor.userId } },
+        source: OrderSource.DEALER_SELF_SERVICE,
+        status: OrderDraftStatus.DRAFT,
+      },
+      include: DEALER_PORTAL_ORDER_INCLUDE,
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+async function loadDealerPortalCartById(cartId: string): Promise<DealerPortalOrderRecord> {
+  return prisma.orderDraft.findUniqueOrThrow({
+    where: { id: cartId },
+    include: DEALER_PORTAL_ORDER_INCLUDE,
+  });
+}
+
+async function recomputeDealerPortalCartCounts(tx: Prisma.TransactionClient, cartId: string) {
+  const lines = await tx.orderDraftLine.findMany({
+    where: { orderDraftId: cartId },
+    select: { id: true },
+  });
+  await tx.orderDraft.update({
+    where: { id: cartId },
+    data: { lineCount: lines.length, subtotalCents: 0, pricingEstimated: false },
+  });
+}
+
+async function assertDealerPortalShipToBelongsToAccount(accountId: string, shipToLocationId: string) {
+  const location = await prisma.accountLocation.findFirst({
+    where: { id: shipToLocationId, accountId },
+    select: { id: true },
+  });
+  if (!location) {
+    throw new Error('Ship-to location does not belong to this dealer account');
+  }
+}
+
+// Dealer self-service ordering is a write capability: mirror favorites' ADMIN/PURCHASING gate.
+function assertDealerPortalCanManageOrders(accessRole: DealerPortalAccessRole) {
+  if (accessRole === DealerPortalAccessRole.ADMIN || accessRole === DealerPortalAccessRole.PURCHASING) {
+    return;
+  }
+
+  throw new AuthorizationError('This dealer portal role cannot place orders');
+}
+
+function clampDealerPortalQuantity(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  const truncated = Math.trunc(value);
+  return Math.min(Math.max(truncated, 1), DEALER_PORTAL_MAX_LINE_QUANTITY);
+}
+
+function optionalDealerPortalText(value?: string | null): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeDealerPortalNullableText(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function toDealerPortalCartLine(line: DealerPortalOrderLineRecord): DealerPortalCartLine {
+  const mapped: DealerPortalCartLine = {
+    id: line.id,
+    productName: line.productName,
+    quantity: line.quantity,
+    position: line.position,
+  };
+  if (line.baseProductId) {
+    mapped.baseProductId = line.baseProductId;
+  }
+  if (line.sku) {
+    mapped.sku = line.sku;
+  }
+  if (line.unitOfMeasure) {
+    mapped.unitOfMeasure = line.unitOfMeasure;
+  }
+  if (line.lineNote) {
+    mapped.lineNote = line.lineNote;
+  }
+  return mapped;
+}
+
+function toDealerPortalCart(cart: DealerPortalOrderRecord): DealerPortalCartResponse {
+  const lines = cart.lines.map(toDealerPortalCartLine);
+  const response: DealerPortalCartResponse = {
+    lines,
+    lineCount: lines.length,
+    totalUnits: lines.reduce((total, line) => total + line.quantity, 0),
+    updatedAt: cart.updatedAt.toISOString(),
+  };
+  if (cart.shipToLocationId) {
+    response.shipToLocationId = cart.shipToLocationId;
+  }
+  if (cart.customerPoNumber) {
+    response.customerPoNumber = cart.customerPoNumber;
+  }
+  if (cart.notes) {
+    response.notes = cart.notes;
+  }
+  return response;
+}
+
+function toDealerPortalOrderSummary(order: DealerPortalOrderRecord): DealerPortalOrderSummary {
+  const summary: DealerPortalOrderSummary = {
+    id: order.id,
+    status: toOrderDraftStatusKey(order.status),
+    lineCount: order.lineCount,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+  };
+  if (order.customerPoNumber) {
+    summary.customerPoNumber = order.customerPoNumber;
+  }
+  if (order.shipToLocationId) {
+    summary.shipToLocationId = order.shipToLocationId;
+  }
+  if (order.submittedAt) {
+    summary.submittedAt = order.submittedAt.toISOString();
+  }
+  if (order.fulfilledAt) {
+    summary.fulfilledAt = order.fulfilledAt.toISOString();
+  }
+  if (order.cancelledAt) {
+    summary.cancelledAt = order.cancelledAt.toISOString();
+  }
+  return summary;
+}
+
+function toDealerPortalOrder(order: DealerPortalOrderRecord): DealerPortalOrderDetail {
+  const detail: DealerPortalOrderDetail = {
+    ...toDealerPortalOrderSummary(order),
+    lines: order.lines.map(toDealerPortalCartLine),
+  };
+  if (order.notes) {
+    detail.notes = order.notes;
+  }
+  return detail;
+}
+
+function toOrderDraftStatusKey(value: OrderDraftStatus): OrderDraftStatusKey {
+  switch (value) {
+    case OrderDraftStatus.DRAFT:
+      return 'draft';
+    case OrderDraftStatus.SUBMITTED:
+      return 'submitted';
+    case OrderDraftStatus.FULFILLED:
+      return 'fulfilled';
+    case OrderDraftStatus.CANCELLED:
+      return 'cancelled';
+  }
+}
+
+function toOrderSourceKey(value: OrderSource): string {
+  switch (value) {
+    case OrderSource.INTERNAL_ON_BEHALF:
+      return 'internal_on_behalf';
+    case OrderSource.DEALER_SELF_SERVICE:
+      return 'dealer_self_service';
+  }
 }
 
 function resolveDealerPortalAssetDelivery(assignment: any): {

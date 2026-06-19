@@ -17,7 +17,12 @@ import {
 } from '@mantine/core';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { ORDER_DRAFT_STATUSES } from '@pulse/contracts';
-import type { OrderDraftDetail, OrderDraftStatusKey, OrderDraftSummary } from '@pulse/contracts';
+import type {
+  OrderDraftDetail,
+  OrderDraftStatusKey,
+  OrderDraftSummary,
+  OrderSourceKey,
+} from '@pulse/contracts';
 import { WorkbenchHeader } from '@/components/ui/Workbench';
 import { canPerformAction } from '@/lib/access';
 import {
@@ -40,6 +45,20 @@ const STATUS_COLOR: Record<OrderDraftStatusKey, string> = {
   cancelled: 'red',
 };
 
+// Where the order originated: a dealer self-serving via the portal, or an internal
+// rep/CSR/TM keying it on the account's behalf.
+const SOURCE_BADGE: Record<OrderSourceKey, { label: string; color: string }> = {
+  dealer_self_service: { label: 'Dealer', color: 'grape' },
+  internal_on_behalf: { label: 'On behalf', color: 'gray' },
+};
+
+// 'all' is a UI-only sentinel meaning "no source filter" — never sent to the API.
+const SOURCE_FILTER_OPTIONS = [
+  { value: 'all', label: 'All sources' },
+  { value: 'dealer_self_service', label: 'Dealer' },
+  { value: 'internal_on_behalf', label: 'On behalf' },
+];
+
 function formatDateTime(value?: string) {
   if (!value) return '—';
   const date = new Date(value);
@@ -53,6 +72,7 @@ function formatCents(cents: number) {
 export function OrderTriageQueue() {
   const { apiBaseUrl, auth, isHydrated } = usePulseSession();
   const [statusFilter, setStatusFilter] = useState<OrderDraftStatusKey>('submitted');
+  const [sourceFilter, setSourceFilter] = useState<OrderSourceKey | 'all'>('all');
   const [items, setItems] = useState<OrderDraftSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +100,11 @@ export function OrderTriageQueue() {
     setIsLoading(true);
     setError(null);
     setActionSuccess(null);
-    fetchOrderTriageQueue(apiBaseUrl, accessToken, { status: statusFilter, limit: 100 })
+    fetchOrderTriageQueue(apiBaseUrl, accessToken, {
+      status: statusFilter,
+      ...(sourceFilter !== 'all' ? { source: sourceFilter } : {}),
+      limit: 100,
+    })
       .then((response) => {
         if (!cancelled) setItems(response.items);
       })
@@ -93,11 +117,15 @@ export function OrderTriageQueue() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, statusFilter]);
+  }, [apiBaseUrl, auth, statusFilter, sourceFilter]);
 
   async function reloadQueue() {
     if (!auth) return;
-    const response = await fetchOrderTriageQueue(apiBaseUrl, auth.tokens.accessToken, { status: statusFilter, limit: 100 });
+    const response = await fetchOrderTriageQueue(apiBaseUrl, auth.tokens.accessToken, {
+      status: statusFilter,
+      ...(sourceFilter !== 'all' ? { source: sourceFilter } : {}),
+      limit: 100,
+    });
     setItems(response.items);
   }
 
@@ -171,15 +199,26 @@ export function OrderTriageQueue() {
       />
 
       <Paper withBorder p="md" radius="xl" className="premium-subhero-panel">
-        <Select
-          label="Status"
-          value={statusFilter}
-          onChange={(value) => setStatusFilter((value as OrderDraftStatusKey) ?? 'submitted')}
-          data={STATUS_OPTIONS}
-          allowDeselect={false}
-          disabled={isActing}
-          w={220}
-        />
+        <Group gap="md" align="flex-end">
+          <Select
+            label="Status"
+            value={statusFilter}
+            onChange={(value) => setStatusFilter((value as OrderDraftStatusKey) ?? 'submitted')}
+            data={STATUS_OPTIONS}
+            allowDeselect={false}
+            disabled={isActing}
+            w={220}
+          />
+          <Select
+            label="Source"
+            value={sourceFilter}
+            onChange={(value) => setSourceFilter((value as OrderSourceKey | 'all') ?? 'all')}
+            data={SOURCE_FILTER_OPTIONS}
+            allowDeselect={false}
+            disabled={isActing}
+            w={220}
+          />
+        </Group>
       </Paper>
 
       {error ? (
@@ -200,6 +239,7 @@ export function OrderTriageQueue() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Account</Table.Th>
+                <Table.Th>Source</Table.Th>
                 <Table.Th>Lines</Table.Th>
                 <Table.Th>Customer PO</Table.Th>
                 <Table.Th>Submitted</Table.Th>
@@ -211,6 +251,11 @@ export function OrderTriageQueue() {
               {items.map((item) => (
                 <Table.Tr key={item.id}>
                   <Table.Td>{item.accountName ?? item.accountId}</Table.Td>
+                  <Table.Td>
+                    <Badge variant="light" color={SOURCE_BADGE[item.source].color}>
+                      {SOURCE_BADGE[item.source].label}
+                    </Badge>
+                  </Table.Td>
                   <Table.Td>{item.lineCount}</Table.Td>
                   <Table.Td>{item.customerPoNumber ?? '—'}</Table.Td>
                   <Table.Td>

@@ -2,11 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import type {
   AcceptDealerPortalInviteRequest,
+  AddDealerPortalCartItemRequest,
   DealerPortalAccessRoleKey,
   DealerPortalSelfCreateUserRequest,
   DealerPortalSelfUpdateUserRequest,
   ProvisionDealerPortalUserRequest,
   ResetDealerPortalUserPasswordRequest,
+  SubmitDealerPortalOrderRequest,
+  UpdateDealerPortalCartItemRequest,
   UpdateDealerPortalUserStatusRequest,
 } from '@pulse/contracts';
 import { DEALER_PORTAL_ACCESS_ROLES } from '@pulse/contracts';
@@ -26,17 +29,24 @@ import {
 } from '../auth/request.js';
 import {
   acceptDealerPortalInvite,
+  addCurrentDealerPortalCartItem,
   createCurrentDealerPortalUser,
   createDealerPortalInvite,
   favoriteCurrentDealerPortalProduct,
+  getCurrentDealerPortalCart,
   getCurrentDealerPortalCatalog,
   getCurrentDealerPortalDashboard,
+  getCurrentDealerPortalOrder,
+  getCurrentDealerPortalOrders,
   getDealerPortalAccount,
   getDealerPortalInternalPreview,
   provisionDealerPortalUser,
   recordCurrentDealerPortalAssetOpen,
+  removeCurrentDealerPortalCartItem,
   resetDealerPortalUserPassword,
+  submitCurrentDealerPortalOrder,
   unfavoriteCurrentDealerPortalProduct,
+  updateCurrentDealerPortalCartItem,
   updateCurrentDealerPortalUser,
   updateDealerPortalUserStatus,
 } from './service.js';
@@ -58,7 +68,13 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
     || pathname === '/api/v1/dealer-portal/me/users'
     || /^\/api\/v1\/dealer-portal\/me\/users\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/dealer-portal\/me\/favorites\/[^/]+$/.test(pathname)
-    || /^\/api\/v1\/dealer-portal\/me\/assets\/[^/]+\/open$/.test(pathname);
+    || /^\/api\/v1\/dealer-portal\/me\/assets\/[^/]+\/open$/.test(pathname)
+    || pathname === '/api/v1/dealer-portal/me/cart'
+    || pathname === '/api/v1/dealer-portal/me/cart/items'
+    || /^\/api\/v1\/dealer-portal\/me\/cart\/items\/[^/]+$/.test(pathname)
+    || pathname === '/api/v1/dealer-portal/me/orders'
+    || pathname === '/api/v1/dealer-portal/me/orders/submit'
+    || /^\/api\/v1\/dealer-portal\/me\/orders\/[^/]+$/.test(pathname);
 
   if (!isDealerPortalRoute) {
     return false;
@@ -98,6 +114,104 @@ export async function handleDealerPortalRoutes(req: IncomingMessage, res: Server
         module: 'dealer_portal',
       });
       const response = await getCurrentDealerPortalDashboard(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/dealer-portal/me/cart') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_view',
+      });
+      const response = await getCurrentDealerPortalCart(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/dealer-portal/me/cart/items') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_create',
+      });
+      const body = (await readJsonBody(req)) as AddDealerPortalCartItemRequest;
+      const response = await addCurrentDealerPortalCartItem(actor, body);
+      return jsonResponse(res, 201, response);
+    }
+
+    const cartItemMatch = pathname.match(/^\/api\/v1\/dealer-portal\/me\/cart\/items\/([^/]+)$/);
+    if (cartItemMatch) {
+      const lineId = cartItemMatch[1];
+      if (!lineId) {
+        return badRequestResponse(res, 'Cart line id is required');
+      }
+      if (method !== 'PATCH' && method !== 'DELETE') {
+        return methodNotAllowedResponse(res, method, ['PATCH', 'DELETE']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_create',
+      });
+      if (method === 'PATCH') {
+        const body = (await readJsonBody(req)) as UpdateDealerPortalCartItemRequest;
+        const response = await updateCurrentDealerPortalCartItem(actor, decodeURIComponent(lineId), body);
+        return jsonResponse(res, 200, response);
+      }
+      const response = await removeCurrentDealerPortalCartItem(actor, decodeURIComponent(lineId));
+      return jsonResponse(res, 200, response);
+    }
+
+    if (pathname === '/api/v1/dealer-portal/me/orders/submit') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_submit',
+      });
+      const body = (await readJsonBody(req)) as SubmitDealerPortalOrderRequest;
+      const response = await submitCurrentDealerPortalOrder(actor, body);
+      return jsonResponse(res, 201, response);
+    }
+
+    if (pathname === '/api/v1/dealer-portal/me/orders') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_view',
+      });
+      const response = await getCurrentDealerPortalOrders(actor);
+      return jsonResponse(res, 200, response);
+    }
+
+    const dealerOrderMatch = pathname.match(/^\/api\/v1\/dealer-portal\/me\/orders\/([^/]+)$/);
+    if (dealerOrderMatch) {
+      const orderId = dealerOrderMatch[1];
+      if (!orderId) {
+        return badRequestResponse(res, 'Order id is required');
+      }
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+
+      const actor = await requireAuthenticatedActor(req, {
+        module: 'dealer_portal',
+        action: 'dealer.order_view',
+      });
+      const response = await getCurrentDealerPortalOrder(actor, decodeURIComponent(orderId));
+      if (!response) {
+        return notFoundResponse(res, { entity: 'DealerPortalOrder', id: orderId });
+      }
       return jsonResponse(res, 200, response);
     }
 

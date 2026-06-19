@@ -2,10 +2,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import {
   ORDER_DRAFT_STATUSES,
+  ORDER_SOURCES,
   type CancelOrderDraftRequest,
   type CreateOrderDraftRequest,
   type ListOrderDraftsRequest,
   type OrderDraftStatusKey,
+  type OrderSourceKey,
   type SearchOrderProductsRequest,
   type SubmitOrderDraftRequest,
   type UpdateOrderDraftRequest,
@@ -58,6 +60,7 @@ export async function handleOrderRoutes(req: IncomingMessage, res: ServerRespons
         const query: ListOrderDraftsRequest = {};
         const accountId = url.searchParams.get('accountId')?.trim();
         const status = url.searchParams.get('status')?.trim();
+        const source = url.searchParams.get('source')?.trim();
         const search = url.searchParams.get('search')?.trim();
         const limit = parseInteger(url.searchParams.get('limit'));
         const offset = parseInteger(url.searchParams.get('offset'));
@@ -70,6 +73,12 @@ export async function handleOrderRoutes(req: IncomingMessage, res: ServerRespons
             return badRequestResponse(res, `Invalid status: ${status}`, { allowed: ORDER_DRAFT_STATUSES });
           }
           query.status = status;
+        }
+        if (source) {
+          if (!isOrderSourceKey(source)) {
+            return badRequestResponse(res, `Invalid source: ${source}`, { allowed: ORDER_SOURCES });
+          }
+          query.source = source;
         }
         if (search) {
           query.search = search;
@@ -224,4 +233,8 @@ function parseInteger(value: string | null) {
 
 function isOrderDraftStatusKey(value: string): value is OrderDraftStatusKey {
   return (ORDER_DRAFT_STATUSES as readonly string[]).includes(value);
+}
+
+function isOrderSourceKey(value: string): value is OrderSourceKey {
+  return (ORDER_SOURCES as readonly string[]).includes(value);
 }

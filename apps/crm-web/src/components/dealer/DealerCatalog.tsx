@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Anchor, Badge, Button, Card, Collapse, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
 import type { DealerPortalCatalogAssetSummary, DealerPortalCatalogResponse, DealerPortalCatalogProductSummary } from '@pulse/contracts';
-import { IconArrowRight, IconDownload, IconFile, IconFilter, IconPackage, IconSearch, IconStar, IconStarFilled } from '@tabler/icons-react';
+import { IconArrowRight, IconDownload, IconFile, IconFilter, IconPackage, IconSearch, IconShoppingCart, IconShoppingCartPlus, IconStar, IconStarFilled } from '@tabler/icons-react';
 
 type DealerCatalogProductWithFavorites = DealerPortalCatalogProductSummary & {
   isFavorite?: boolean;
@@ -27,15 +27,23 @@ export interface DealerCatalogAssetActions {
   openAsset?: (asset: DealerPortalCatalogAssetSummary, product: DealerCatalogProductWithFavorites) => void | Promise<void>;
 }
 
+export interface DealerCatalogCartActions {
+  isAvailable: boolean;
+  addingPresentationId?: string | undefined;
+  addToCart?: (product: DealerCatalogProductWithFavorites) => void | Promise<void>;
+}
+
 const uncategorizedFilterValue = '__uncategorized__';
 
 export function DealerCatalog({
   assetActions,
+  cartActions,
   catalog,
   favoriteActions,
 }: {
   catalog: DealerPortalCatalogResponse;
   assetActions?: DealerCatalogAssetActions | undefined;
+  cartActions?: DealerCatalogCartActions | undefined;
   favoriteActions?: DealerCatalogFavoriteActions | undefined;
 }) {
   const catalogWithFavorites = catalog as DealerCatalogResponseWithFavorites;
@@ -264,6 +272,7 @@ export function DealerCatalog({
                 <ProductCard
                   key={product.presentationId}
                   assetActions={assetActions}
+                  cartActions={cartActions}
                   favoriteActions={favoriteActions}
                   product={product}
                 />
@@ -292,10 +301,12 @@ function buildProductOptionList(
 
 function ProductCard({
   assetActions,
+  cartActions,
   favoriteActions,
   product,
 }: {
   assetActions?: DealerCatalogAssetActions | undefined;
+  cartActions?: DealerCatalogCartActions | undefined;
   favoriteActions?: DealerCatalogFavoriteActions | undefined;
   product: DealerCatalogProductWithFavorites;
 }) {
@@ -303,6 +314,8 @@ function ProductCard({
   const primaryFiles = availableFiles.slice(0, 2);
   const isFavorite = Boolean(product.isFavorite);
   const canToggleFavorite = Boolean(favoriteActions?.isAvailable && favoriteActions.toggleFavorite);
+  const canAddToCart = Boolean(cartActions?.isAvailable && cartActions.addToCart);
+  const isAddingToCart = cartActions?.addingPresentationId === product.presentationId;
   const supportingDetails = [product.familyName, product.brandLabel].filter(Boolean).join(' / ');
 
   return (
@@ -350,6 +363,22 @@ function ProductCard({
             >
               {isFavorite ? 'Saved' : 'Save'}
             </Button>
+            {canAddToCart ? (
+              <Button
+                size="compact-xs"
+                variant="light"
+                color="blue"
+                leftSection={isAddingToCart ? <IconShoppingCart size={13} /> : <IconShoppingCartPlus size={13} />}
+                loading={isAddingToCart}
+                onClick={() => {
+                  if (cartActions?.addToCart) {
+                    void cartActions.addToCart(product);
+                  }
+                }}
+              >
+                Add to cart
+              </Button>
+            ) : null}
           </Group>
         </Group>
 

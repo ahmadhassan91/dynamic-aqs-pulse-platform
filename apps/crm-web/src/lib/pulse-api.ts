@@ -48,13 +48,20 @@ import type {
   AcceptDealerPortalInviteRequest,
   AcceptDealerPortalInviteResponse,
   ContactSummary,
+  AddDealerPortalCartItemRequest,
   CreateDealerPortalInviteResponse,
   DealerPortalAccountDetail,
   DealerPortalAssetOpenResponse,
+  DealerPortalCartResponse,
   DealerPortalCatalogResponse,
   DealerPortalDashboardResponse,
   DealerPortalFavoriteProductResponse,
   DealerPortalInternalPreviewResponse,
+  DealerPortalOrderDetail,
+  DealerPortalOrdersResponse,
+  SubmitDealerPortalOrderRequest,
+  SubmitDealerPortalOrderResponse,
+  UpdateDealerPortalCartItemRequest,
   DealerPortalSelfCreateUserRequest,
   DealerPortalSelfCreateUserResponse,
   DealerPortalSelfUpdateUserRequest,
@@ -2512,6 +2519,87 @@ export async function recordDealerPortalAssetOpen(apiBaseUrl: string, accessToke
     `/api/v1/dealer-portal/me/assets/${encodeURIComponent(assetId)}/open`,
     {
       method: 'POST',
+      accessToken,
+    },
+  );
+}
+
+// --- Dealer self-service ordering: persistent cart + order intent ---
+// Account scope is derived server-side from the authenticated dealer user; the client
+// never supplies an account id. The cart is the dealer's single DRAFT OrderDraft.
+
+export async function fetchDealerPortalCart(apiBaseUrl: string, accessToken: string) {
+  return requestJson<DealerPortalCartResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/cart', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function addDealerPortalCartItem(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: AddDealerPortalCartItemRequest,
+) {
+  return requestJson<DealerPortalCartResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/cart/items', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function updateDealerPortalCartItem(
+  apiBaseUrl: string,
+  accessToken: string,
+  lineId: string,
+  input: UpdateDealerPortalCartItemRequest,
+) {
+  return requestJson<DealerPortalCartResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/cart/items/${encodeURIComponent(lineId)}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input,
+    },
+  );
+}
+
+export async function removeDealerPortalCartItem(apiBaseUrl: string, accessToken: string, lineId: string) {
+  return requestJson<DealerPortalCartResponse>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/cart/items/${encodeURIComponent(lineId)}`,
+    {
+      method: 'DELETE',
+      accessToken,
+    },
+  );
+}
+
+export async function submitDealerPortalOrder(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: SubmitDealerPortalOrderRequest,
+) {
+  return requestJson<SubmitDealerPortalOrderResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/orders/submit', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function fetchDealerPortalOrders(apiBaseUrl: string, accessToken: string) {
+  return requestJson<DealerPortalOrdersResponse>(apiBaseUrl, '/api/v1/dealer-portal/me/orders', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchDealerPortalOrder(apiBaseUrl: string, accessToken: string, orderId: string) {
+  return requestJson<DealerPortalOrderDetail>(
+    apiBaseUrl,
+    `/api/v1/dealer-portal/me/orders/${encodeURIComponent(orderId)}`,
+    {
+      method: 'GET',
       accessToken,
     },
   );

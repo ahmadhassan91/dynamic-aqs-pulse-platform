@@ -13,6 +13,15 @@ export const ORDER_DRAFT_STATUSES = [
 
 export type OrderDraftStatusKey = (typeof ORDER_DRAFT_STATUSES)[number];
 
+// Origin of the order: internal rep/CSR/TM on behalf of an account, or a dealer placing
+// it for their own account via the dealer portal. Both share the OrderDraft lifecycle.
+export const ORDER_SOURCES = [
+  'internal_on_behalf',
+  'dealer_self_service',
+] as const;
+
+export type OrderSourceKey = (typeof ORDER_SOURCES)[number];
+
 export interface OrderDraftLineSummary {
   id: string;
   baseProductId?: string;
@@ -34,6 +43,7 @@ export interface OrderDraftSummary {
   accountName?: string;
   shipToLocationId?: string;
   status: OrderDraftStatusKey;
+  source: OrderSourceKey;
   referenceCode?: string;
   customerPoNumber?: string;
   notes?: string;
@@ -73,6 +83,7 @@ export interface OrderDraftLineInput {
 export interface ListOrderDraftsRequest {
   accountId?: string;
   status?: OrderDraftStatusKey;
+  source?: OrderSourceKey;
   /** Matches referenceCode / customerPoNumber / account display name. */
   search?: string;
   limit?: number;

@@ -68,6 +68,9 @@ export const WORKSPACE_ACTIONS = [
   'order.view',
   'order.create',
   'order.submit',
+  'dealer.order_view',
+  'dealer.order_create',
+  'dealer.order_submit',
   'contact.view',
   'contact.create',
   'location.view',
@@ -321,7 +324,7 @@ export const ROLE_PROFILE_CATALOG: Record<AuthRole, RoleProfileDefinition> = {
     bestFor: 'External dealer users who should only see the dealer portal experience.',
     scopeSummary: 'External-facing, tightly bounded access with no internal CRM administration or operational workflow control.',
     workspaceHighlights: ['dealer_portal', 'calendar'],
-    actionHighlights: [],
+    actionHighlights: ['dealer.order_view', 'dealer.order_create', 'dealer.order_submit'],
   },
 };
 
@@ -348,5 +351,5 @@ export const ROLE_DEFAULT_ACTION_ACCESS: Record<AuthRole, readonly WorkspaceActi
   TERRITORY_MANAGER: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'order.view', 'order.create', 'order.submit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.consignment_approve', 'territory.reassign', 'training.schedule', 'product.view', 'digital_asset.view', 'digital_asset.download', 'digital_asset.share', 'consignment.view', 'consignment.audit', 'reports.builder'],
   REGIONAL_DIRECTOR: ['reference.view', 'lead.view', 'customer.view', 'order.view', 'contact.view', 'location.view', 'territory.admin', 'territory.reassign', 'training.schedule', 'product.view', 'digital_asset.view', 'digital_asset.download', 'digital_asset.share', 'digital_asset.usage_view', 'consignment.view', 'consignment.audit', 'reports.builder'],
   TRAINING_OPS: ['reference.view', 'training.catalog_manage', 'training.schedule', 'product.view', 'product.asset_link', 'digital_asset.view', 'digital_asset.download', 'digital_asset.share', 'digital_asset.usage_view', 'reports.builder'],
-  DEALER_PORTAL_USER: [],
+  DEALER_PORTAL_USER: ['dealer.order_view', 'dealer.order_create', 'dealer.order_submit'],
 };

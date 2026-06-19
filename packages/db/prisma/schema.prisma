@@ -81,6 +81,14 @@ enum OrderDraftStatus {
   CANCELLED
 }
 
+// Origin of an order intent: a rep/CSR/TM placing it on behalf of an account, vs a dealer
+// placing it for their own account via the dealer portal self-service flow. Both share the
+// OrderDraft lifecycle + back-office triage; default preserves all pre-existing rows.
+enum OrderSource {
+  INTERNAL_ON_BEHALF
+  DEALER_SELF_SERVICE
+}
+
 enum MobileVoiceNoteContextType {
   GENERAL
   LEAD
@@ -3961,6 +3969,7 @@ model OrderDraft {
   accountId         String           @db.Uuid
   shipToLocationId  String?          @db.Uuid
   status            OrderDraftStatus @default(DRAFT)
+  source            OrderSource      @default(INTERNAL_ON_BEHALF)
   referenceCode     String?
   customerPoNumber  String?
   notes             String?
@@ -3986,6 +3995,7 @@ model OrderDraft {
   @@index([accountId])
   @@index([shipToLocationId])
   @@index([status])
+  @@index([source])
   @@index([createdByUserId])
   @@index([submittedByUserId])
   @@index([status, updatedAt])

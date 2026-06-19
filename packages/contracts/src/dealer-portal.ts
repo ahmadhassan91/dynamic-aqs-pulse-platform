@@ -1,3 +1,5 @@
+import type { OrderDraftStatusKey } from './orders.js';
+
 export const DEALER_PORTAL_PROVISIONING_STATUSES = [
   'not_started',
   'ready_to_provision',
@@ -320,3 +322,74 @@ export interface DealerPortalAssetOpenResponse {
   targetUrl?: string;
   downloadUrl?: string;
 }
+
+// --- Dealer self-service ordering (cart + order intent) ---
+// The cart is a DRAFT OrderDraft owned by the dealer's account; submit routes it to the
+// back-office triage queue. No price is shown (none exists on the catalog today) and no
+// payment/shipping/tax — those are parked. See 12_DEALER_PORTAL_ORDERING_PRD.md §Build.
+
+export interface DealerPortalCartLine {
+  id: string;
+  presentationId?: string;
+  baseProductId?: string;
+  sku?: string;
+  productName: string;
+  unitOfMeasure?: string;
+  quantity: number;
+  lineNote?: string;
+  position: number;
+}
+
+export interface DealerPortalCartResponse {
+  lines: DealerPortalCartLine[];
+  lineCount: number;
+  totalUnits: number;
+  shipToLocationId?: string;
+  customerPoNumber?: string;
+  notes?: string;
+  updatedAt?: string;
+}
+
+export interface AddDealerPortalCartItemRequest {
+  /** Catalog presentation the dealer is ordering; the server resolves it to a product + snapshot. */
+  presentationId: string;
+  quantity: number;
+  lineNote?: string;
+}
+
+export interface UpdateDealerPortalCartItemRequest {
+  quantity?: number;
+  lineNote?: string | null;
+}
+
+export interface SubmitDealerPortalOrderRequest {
+  /** Customer PO is required to submit a dealer order. */
+  poNumber: string;
+  shipToLocationId?: string;
+  notes?: string;
+}
+
+export interface DealerPortalOrderSummary {
+  id: string;
+  status: OrderDraftStatusKey;
+  customerPoNumber?: string;
+  shipToLocationId?: string;
+  lineCount: number;
+  submittedAt?: string;
+  fulfilledAt?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DealerPortalOrderDetail extends DealerPortalOrderSummary {
+  lines: DealerPortalCartLine[];
+  notes?: string;
+}
+
+export interface DealerPortalOrdersResponse {
+  items: DealerPortalOrderSummary[];
+  total: number;
+}
+
+export type SubmitDealerPortalOrderResponse = DealerPortalOrderDetail;

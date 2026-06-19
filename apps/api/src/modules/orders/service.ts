@@ -1,5 +1,5 @@
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
-import { AuditAction, OrderDraftStatus, Prisma, prisma } from '@pulse/db';
+import { AuditAction, OrderDraftStatus, OrderSource, Prisma, prisma } from '@pulse/db';
 import type {
   CancelOrderDraftRequest,
   CreateOrderDraftRequest,
@@ -11,6 +11,7 @@ import type {
   OrderDraftStatusKey,
   OrderDraftSummary,
   OrderProductOption,
+  OrderSourceKey,
   SearchOrderProductsRequest,
   SearchOrderProductsResponse,
   SubmitOrderDraftRequest,
@@ -55,6 +56,9 @@ export async function listOrderDrafts(
   }
   if (query.status) {
     where.status = toOrderDraftStatusEnum(query.status);
+  }
+  if (query.source) {
+    where.source = toOrderSourceEnum(query.source);
   }
   const search = query.search?.trim();
   if (search) {
@@ -617,6 +621,7 @@ function toOrderDraftSummary(draft: OrderDraftWithRelations): OrderDraftSummary 
     id: draft.id,
     accountId: draft.accountId,
     status: toOrderDraftStatusKey(draft.status),
+    source: toOrderSourceKey(draft.source),
     currencyCode: draft.currencyCode,
     subtotalCents: draft.subtotalCents,
     lineCount: draft.lineCount,
@@ -696,6 +701,24 @@ function toOrderDraftStatusKey(value: OrderDraftStatus): OrderDraftStatusKey {
       return 'fulfilled';
     case OrderDraftStatus.CANCELLED:
       return 'cancelled';
+  }
+}
+
+function toOrderSourceKey(value: OrderSource): OrderSourceKey {
+  switch (value) {
+    case OrderSource.INTERNAL_ON_BEHALF:
+      return 'internal_on_behalf';
+    case OrderSource.DEALER_SELF_SERVICE:
+      return 'dealer_self_service';
+  }
+}
+
+function toOrderSourceEnum(value: OrderSourceKey): OrderSource {
+  switch (value) {
+    case 'internal_on_behalf':
+      return OrderSource.INTERNAL_ON_BEHALF;
+    case 'dealer_self_service':
+      return OrderSource.DEALER_SELF_SERVICE;
   }
 }
 

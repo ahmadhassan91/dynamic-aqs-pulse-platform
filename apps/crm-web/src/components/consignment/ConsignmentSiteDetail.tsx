@@ -660,13 +660,37 @@ export function ConsignmentSiteDetail({ siteId }: { siteId: string }) {
 
       <Modal opened={isScheduleRoseModalOpen} onClose={() => setIsScheduleRoseModalOpen(false)} title="Schedule ROSE audit" size="md">
         <Stack gap="md">
-          <TextInput
-            label="Scheduled for"
-            type="datetime-local"
-            value={scheduleRoseForm.scheduledFor}
-            onChange={(event) => setScheduleRoseForm((current) => ({ ...current, scheduledFor: event.currentTarget.value }))}
-            required
-          />
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput
+              label="Date"
+              type="date"
+              value={splitLocalDateTimeInput(scheduleRoseForm.scheduledFor).date}
+              onChange={(event) => setScheduleRoseForm((current) => ({
+                ...current,
+                scheduledFor: mergeLocalDateTimeInput(
+                  current.scheduledFor,
+                  event.currentTarget.value,
+                  splitLocalDateTimeInput(current.scheduledFor).time,
+                ),
+              }))}
+              required
+            />
+            <TextInput
+              label="Time"
+              type="time"
+              step={60}
+              value={splitLocalDateTimeInput(scheduleRoseForm.scheduledFor).time}
+              onChange={(event) => setScheduleRoseForm((current) => ({
+                ...current,
+                scheduledFor: mergeLocalDateTimeInput(
+                  current.scheduledFor,
+                  splitLocalDateTimeInput(current.scheduledFor).date,
+                  event.currentTarget.value,
+                ),
+              }))}
+              required
+            />
+          </SimpleGrid>
           <Textarea label="Notes" minRows={3} value={scheduleRoseForm.notes} onChange={(event) => setScheduleRoseForm((current) => ({ ...current, notes: event.currentTarget.value }))} />
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setIsScheduleRoseModalOpen(false)} disabled={Boolean(savingAction)}>Cancel</Button>
@@ -1213,6 +1237,24 @@ function requireTrimmed(value: string, label: string) {
 function toDatetimeLocal(value: Date) {
   const offsetMs = value.getTimezoneOffset() * 60 * 1000;
   return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function splitLocalDateTimeInput(value: string) {
+  const [date = '', time = ''] = value.split('T');
+  return { date, time };
+}
+
+function mergeLocalDateTimeInput(currentValue: string, date: string, time: string) {
+  const current = splitLocalDateTimeInput(currentValue);
+  const nextDate = date || current.date;
+  const nextTime = time || current.time;
+  if (!nextDate) {
+    return '';
+  }
+  if (!nextTime) {
+    return `${nextDate}T00:00`;
+  }
+  return `${nextDate}T${nextTime}`;
 }
 
 function addDays(value: Date, days: number) {

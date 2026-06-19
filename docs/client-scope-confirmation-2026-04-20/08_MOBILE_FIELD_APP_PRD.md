@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.6 |
+| Version | 2.7 |
 | Date | 2026-06-19 |
-| Status | Order-on-behalf delivery (2026-06-19): the buildable-now CRM `OrderDraft` flow for FR-MOB-047 is SHIPPED end to end — backend ORD-P1–P3, mobile capture UI ORD-P4, and the web back-office triage queue ORD-P6 — see the §BUILD note below; the Acumatica order placement remains parked. Builds on v2.4's scope-accuracy corrections and v2.3's route-optimization build reconciliation |
+| Status | Order-on-behalf delivery (2026-06-19): the buildable-now CRM `OrderDraft` flow for FR-MOB-047 is COMPLETE on the CRM side — backend ORD-P1–P3, mobile capture UI ORD-P4, web back-office triage queue ORD-P6, and the flag-gated first-order conversion signal ORD-P5 — see the §BUILD note below; only the Acumatica-gated order placement remains parked. Builds on v2.4's scope-accuracy corrections and v2.3's route-optimization build reconciliation |
 | Module owner | Pulse delivery team |
 | Primary reviewers | Dynamic AQS field leadership, Territory Managers, Regional Directors, operations lead |
 | Related documents | `00_README_AND_MEETING_AGENDA.md`, `01_LEADS_PRD.md`, `02_TRAINING_PRD.md`, `03_TERRITORY_PRD.md`, `04_CALENDAR_PRD.md`, `05_CONSIGNMENT_PRD.md` |
@@ -613,7 +613,8 @@ The buildable-now CRM half of order-on-behalf is SHIPPED. It is a Pulse-owned **
 - **Backend — `OrderDraft` model + governed API (ORD-P1–P3)** — commit `0682328`. `OrderDraft` + `OrderDraftLine` (status DRAFT→SUBMITTED→FULFILLED|CANCELLED, integer-cents money, migration `20260618170704_add_order_drafts`); `@pulse/contracts/orders`; the `apps/api/src/modules/orders` module with a new `orders` workspace module + `order.view`/`order.create`/`order.submit` actions, TM/RD record-scoping (reuses account scope), atomic lifecycle transitions, and full audit.
 - **Mobile — capture UI (ORD-P4)** — commit `4e4f649`. "Order drafts" section + "New order" entry point on the account screen (refreshes on focus); a capture screen (`app/order-draft.tsx`) with catalog + custom lines, quantity steppers, ship-to picker, customer PO + office notes, Save-draft / Submit, and a read-only + Cancel view for already-submitted orders; a debounced catalog-search sheet backed by a self-contained `GET /api/v1/order-products` endpoint (under the `orders` module, gated `order.create`, so a TM can search products without the full product-management workspace).
 - **Web — back-office triage queue (ORD-P6)** — commit `53e594c`. The office hand-off: a status-filtered queue at `/orders` (crm-web, gated to the `orders` module + `order.view`) where staff review a submitted order (account, lines, notes, ship-to) and Mark fulfilled (keyed into Acumatica) or Cancel with a reason. Closes the field→office loop for FR-MOB-047 without any Acumatica dependency.
+- **First-order conversion signal (ORD-P5)** — commit `9363cab`. Behind a default-OFF flag (`ORDERS_FIRST_ORDER_AUTO_SIGNAL_ENABLED`), lead conversion derives the first-order timestamp (the conversion moment) instead of requiring a hand-keyed date — removing the `readiness.ts` stub as a reversible CRM intent. (The literal "order submission auto-creates the account on first order" remains the parked Acumatica boundary — an order needs an account, which conversion creates.)
 
-**Parked (Acumatica-gated, ORD-K-series):** live `SalesOrder`/`Customer` create, first-order-creates-account, authoritative price/tax/shipping, inbound order reflection. Next CRM-side slice: ORD-P5 (first-order signal into `convertLeadOnFirstOrder`). Full split: `docs/ORDER_ON_BEHALF_BUILD_NOW_VS_ACUMATICA_PARKED_PLAN_2026-06-16.md`.
+**CRM-side order-on-behalf is complete (ORD-P1–P6).** Parked (Acumatica-gated, ORD-K-series): live `SalesOrder`/`Customer` create, first-order-creates-account, authoritative price/tax/shipping, inbound order reflection. Full split: `docs/ORDER_ON_BEHALF_BUILD_NOW_VS_ACUMATICA_PARKED_PLAN_2026-06-16.md`.
 
 _To be completed during the review meeting._

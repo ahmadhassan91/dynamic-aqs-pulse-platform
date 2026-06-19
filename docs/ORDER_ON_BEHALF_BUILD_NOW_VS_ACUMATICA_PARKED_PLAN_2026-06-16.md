@@ -25,7 +25,9 @@ staff email, TM-in-field (this feature), and phone/in-person.
 
 **ORD-P6 SHIPPED** (commit 53e594c) — web back-office triage queue. A status-filtered queue of submitted order drafts at `/orders` (crm-web), gated to the `orders` module + `order.view`; office staff open a review modal (account, lines, notes, ship-to) and **Mark fulfilled** (keyed into Acumatica) or **Cancel** with a reason. Files: `apps/crm-web/src/components/orders/OrderTriageQueue.tsx`, `src/lib/pulse-api-ext-orders.ts`, `src/app/orders/`, plus an "Orders" sidebar entry. Required syncing the frontend `auth-catalog.ts` mirror to the backend (`orders` module + `order.*` actions). Review fix: cancel now requires `order.submit` (backend + UI) so the two triage actions share one capability. Verified: api build + 9 orders regression cases, crm-web typecheck + eslint clean, two-reviewer adversarial pass.
 
-**NOT yet built:** ORD-P5 (first-order signal into `convertLeadOnFirstOrder`). The Acumatica-side slices remain parked per below.
+**ORD-P5 SHIPPED** (commit 9363cab) — flag-gated first-order signal. The original "order submission triggers conversion" mechanism is NOT buildable as framed: an `OrderDraft` requires an existing account, but `convertLeadOnFirstOrder` is what *creates* the account (chicken-and-egg), so an order can't trigger the conversion that made its own account — that order→account-on-first-order flow is the **parked Acumatica boundary** (FR-MOB-047). The buildable CRM half delivered here: behind a default-OFF flag (`ORDERS_FIRST_ORDER_AUTO_SIGNAL_ENABLED`), `convertLeadOnFirstOrder` derives the first-order timestamp (the conversion moment) instead of hard-throwing when no manual date is entered — removing the `readiness.ts` stub as a reversible CRM intent (`firstOrderAutoDerived` recorded in the audit). Verified: leads readiness 3/3 (both flag paths) + RBAC 12/12.
+
+**CRM-side order-on-behalf is now complete (ORD-P1–P6).** Everything remaining is the Acumatica-side ORD-K-series, parked per below.
 
 ## Decision
 

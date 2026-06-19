@@ -15,6 +15,7 @@ import {
 } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { PulseSessionProvider } from '@/lib/pulse-session';
+import { StaleServerActionRecovery } from '@/components/providers/StaleServerActionRecovery';
 
 const theme = createTheme({
   colors: {
@@ -144,6 +145,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <MantineProvider theme={theme} defaultColorScheme="light" cssVariablesResolver={resolveCssVariables}>
       <Notifications position="top-right" />
+      <StaleServerActionRecovery />
       <PulseSessionProvider>{children}</PulseSessionProvider>
     </MantineProvider>
   );

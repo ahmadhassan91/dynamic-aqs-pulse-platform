@@ -23,7 +23,9 @@ staff email, TM-in-field (this feature), and phone/in-person.
 
 **ORD-P4 SHIPPED** (commit 4e4f649) — mobile capture UI. "Order drafts" section + "New order" entry point on the account screen (refreshes on focus); capture screen (`apps/mobile/app/order-draft.tsx`) with catalog + custom lines, quantity steppers, ship-to picker, customer PO + office notes, Save-draft / Submit, and a read-only + Cancel view for submitted orders; a debounced catalog-search sheet backed by a self-contained `GET /api/v1/order-products` (added under the `orders` module, gated `order.create`, so a TM searches products without the full `product_management` workspace — fix for a review finding that the picker would 403 for every TM). Pure form logic in `src/lib/order-draft-form.ts` (10 unit tests). Verified: mobile typecheck clean, 123 mobile unit tests, 9 API regression cases.
 
-**NOT yet built:** ORD-P5 (first-order signal into `convertLeadOnFirstOrder`) + ORD-P6 (web back-office triage queue). The Acumatica-side slices remain parked per below.
+**ORD-P6 SHIPPED** (commit 53e594c) — web back-office triage queue. A status-filtered queue of submitted order drafts at `/orders` (crm-web), gated to the `orders` module + `order.view`; office staff open a review modal (account, lines, notes, ship-to) and **Mark fulfilled** (keyed into Acumatica) or **Cancel** with a reason. Files: `apps/crm-web/src/components/orders/OrderTriageQueue.tsx`, `src/lib/pulse-api-ext-orders.ts`, `src/app/orders/`, plus an "Orders" sidebar entry. Required syncing the frontend `auth-catalog.ts` mirror to the backend (`orders` module + `order.*` actions). Review fix: cancel now requires `order.submit` (backend + UI) so the two triage actions share one capability. Verified: api build + 9 orders regression cases, crm-web typecheck + eslint clean, two-reviewer adversarial pass.
+
+**NOT yet built:** ORD-P5 (first-order signal into `convertLeadOnFirstOrder`). The Acumatica-side slices remain parked per below.
 
 ## Decision
 

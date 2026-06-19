@@ -6,12 +6,12 @@
 |-------|-------|
 | Module | Dealer Portal & B2B Ordering |
 | Document Type | Master PRD |
-| Version | 1.1 |
-| Status | Draft — initial authoring from discovery transcripts; scope corrections applied 2026-06-18 (FR-DPO-035 parked; FR-DPO-037/016 reframed as candidates) |
+| Version | 1.2 |
+| Status | Draft — scope corrections 2026-06-18; **buildable-now dealer self-service ordering slice scoped + in delivery 2026-06-19** (see "Build scope decision" below) |
 | Owner | Product / Operations |
 | Sprint Sequence | Seq 06–07 |
 | Priority | P0 |
-| Date | 2026-06-09 |
+| Date | 2026-06-19 |
 
 ---
 
@@ -22,6 +22,22 @@
 - **(MED) FR-DPO-016 — payment-decline alert → gate on the parked payment feed.** The alert presumes payment-failure data from a payment integration this same PRD parks (§4 Out-of-Scope: payment processing; §5 Parked Dependencies: credit card / ACH payment at checkout). Treat as a candidate dependent on that parked feed.
 
 Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
+
+---
+
+## Build scope decision — dealer self-service ordering (2026-06-19)
+
+The **buildable-now** dealer-ordering slice is a **self-service cart → submit order INTENT**, deliberately reusing the order infrastructure already shipped for the on-behalf flow (ORD-P1–P6, see `08_MOBILE_FIELD_APP_PRD.md` §BUILD). It is NOT an Acumatica order — submit routes the intent to the existing back-office triage queue (`/orders`), where staff finalize pricing and place it in Acumatica.
+
+**Architecture (reuse, not rebuild):**
+- A dealer order **is an `OrderDraft`** — `account` = the dealer's own account, `createdBy` = the dealer user, with a new additive `source = DEALER_SELF_SERVICE` (vs `INTERNAL_ON_BEHALF`; default preserves all existing rows). The **persistent cart is a DRAFT-status `OrderDraft`** (one per dealer user); add-to-cart appends an `OrderDraftLine`; **submit is the existing DRAFT→SUBMITTED transition**, so dealer orders surface in the same triage queue automatically (tagged with a "Dealer" source).
+- **Dedicated least-privilege RBAC:** new `dealer.order_view/create/submit` actions granted to `DEALER_PORTAL_USER` (NOT the internal `order.*` actions). Endpoints live in the dealer-portal module, gated to `dealer_portal` + the new actions, and are **hard-scoped to the dealer's own account** via `loadActiveDealerPortalUser` (account is never client-supplied). In-account `accessRole` (ADMIN/PURCHASING) gates who can place orders.
+- **Server guards:** required PO number, ≥1 line, ship-to validated against the account's own locations, and each cart line re-validated against the dealer's live catalog (never trust client product ids).
+
+**Parked (unchanged from §4/§5; confirmed against transcripts):** payment / credit-card / ACH at checkout (Dan S2 "do that in Acumatica"); shipping cost/rate calc + expedited cost-delta (FR-DPO-035); automated Acumatica sales-order placement (FR-DPO-039 → reframed to back-office intent-routing for now); live/cached Acumatica **pricing at checkout** (FR-DPO-031 — no price exists on `BaseProduct`/catalog today, so the cart shows **no authoritative price**, only a "back-office confirms pricing" placeholder); tax display; **delivery-date picker (FR-DPO-036 — must NOT be shown)**; gift-card/coupon (FR-DPO-037); payment-decline alert (FR-DPO-016); real-time inventory; returns/RMA.
+- **Credit-hold block (FR-DPO-038/NFR-DPO-006) — PARKED pending signal.** There is currently **no Pulse-side credit-hold field** (only `Account.financeAuthorityMode`); a true credit-hold submit-block can't be enforced until Acumatica syncs a credit-hold status into Pulse. The submit guard is structured to enforce it the moment that signal lands; until then it is a documented gap, not a silent omission.
+
+**Delivery:** foundation (model/migration/contracts/RBAC) + dealer cart/order API + dealer web cart & order-history UI + triage "Dealer" source surface, built and verified incrementally; see commit trail.
 
 ---
 

@@ -21,7 +21,9 @@ staff email, TM-in-field (this feature), and phone/in-person.
 - **ORD-P2** — `@pulse/contracts/orders` (summary/detail/line + create/update/submit/cancel request types; lowercase status-key union mirroring the Prisma enum), registered in the contracts barrel + `package.json` exports.
 - **ORD-P3** — governed API module `apps/api/src/modules/orders/` (service + http, wired into `server.ts`). New `orders` module-key + `order.view`/`order.create`/`order.submit` actions; TM/RD record-scoping reuses account scope (own-created OR); lifecycle transitions use atomic `updateMany` status guards; line builder caps qty/price and guards cumulative subtotal against INT4 overflow; full audit incl. changed header fields. **Regression contract delivered**: `apps/api/test/orders.regression.test.mjs` (8 cases). Verified green alongside RBAC (12) + auth-admin (2) + contracts type-check, after an adversarial multi-lens review.
 
-**NOT yet built: ORD-P4** (mobile capture UI) — the API is ready to wire. ORD-P5 (first-order signal) + ORD-P6 (back-office triage queue) follow. The Acumatica-side slices remain parked per below.
+**ORD-P4 SHIPPED** (commit 4e4f649) — mobile capture UI. "Order drafts" section + "New order" entry point on the account screen (refreshes on focus); capture screen (`apps/mobile/app/order-draft.tsx`) with catalog + custom lines, quantity steppers, ship-to picker, customer PO + office notes, Save-draft / Submit, and a read-only + Cancel view for submitted orders; a debounced catalog-search sheet backed by a self-contained `GET /api/v1/order-products` (added under the `orders` module, gated `order.create`, so a TM searches products without the full `product_management` workspace — fix for a review finding that the picker would 403 for every TM). Pure form logic in `src/lib/order-draft-form.ts` (10 unit tests). Verified: mobile typecheck clean, 123 mobile unit tests, 9 API regression cases.
+
+**NOT yet built:** ORD-P5 (first-order signal into `convertLeadOnFirstOrder`) + ORD-P6 (web back-office triage queue). The Acumatica-side slices remain parked per below.
 
 ## Decision
 

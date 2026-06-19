@@ -7,7 +7,7 @@
 | Module | Dealer Portal & B2B Ordering |
 | Document Type | Master PRD |
 | Version | 1.2 |
-| Status | Draft — scope corrections 2026-06-18; **buildable-now dealer self-service ordering slice scoped + in delivery 2026-06-19** (see "Build scope decision" below) |
+| Status | Draft — scope corrections 2026-06-18; **buildable-now dealer self-service ordering slice SHIPPED 2026-06-19** (commits 9891127 foundation + 66a1796 implementation; see "Build scope decision" below) |
 | Owner | Product / Operations |
 | Sprint Sequence | Seq 06–07 |
 | Priority | P0 |
@@ -37,7 +37,7 @@ The **buildable-now** dealer-ordering slice is a **self-service cart → submit 
 **Parked (unchanged from §4/§5; confirmed against transcripts):** payment / credit-card / ACH at checkout (Dan S2 "do that in Acumatica"); shipping cost/rate calc + expedited cost-delta (FR-DPO-035); automated Acumatica sales-order placement (FR-DPO-039 → reframed to back-office intent-routing for now); live/cached Acumatica **pricing at checkout** (FR-DPO-031 — no price exists on `BaseProduct`/catalog today, so the cart shows **no authoritative price**, only a "back-office confirms pricing" placeholder); tax display; **delivery-date picker (FR-DPO-036 — must NOT be shown)**; gift-card/coupon (FR-DPO-037); payment-decline alert (FR-DPO-016); real-time inventory; returns/RMA.
 - **Credit-hold block (FR-DPO-038/NFR-DPO-006) — PARKED pending signal.** There is currently **no Pulse-side credit-hold field** (only `Account.financeAuthorityMode`); a true credit-hold submit-block can't be enforced until Acumatica syncs a credit-hold status into Pulse. The submit guard is structured to enforce it the moment that signal lands; until then it is a documented gap, not a silent omission.
 
-**Delivery:** foundation (model/migration/contracts/RBAC) + dealer cart/order API + dealer web cart & order-history UI + triage "Dealer" source surface, built and verified incrementally; see commit trail.
+**Delivery — SHIPPED (2026-06-19):** foundation `9891127` (OrderSource enum + migration, dealer cart/order contracts, dealer.order_* RBAC) + implementation `66a1796` (dealer cart/order API hard-scoped to the dealer's account, dealer web cart + order-history UI + catalog Add-to-cart, "Dealer" source badge/filter on the back-office triage queue, 5-case regression test). Built via a multi-agent workflow then hardened by an adversarial review (authz/scoping lens found no IDOR; confirmed concurrency races fixed — serializable cart find-or-create, atomic line position + empty-cart submit guard). Verified: api build + 20 dealer + 36 dealer/orders/rbac regression tests + crm-web typecheck/eslint all clean. Parked items below remain parked.
 
 ---
 

@@ -145,7 +145,7 @@ export async function handleOrderRoutes(req: IncomingMessage, res: ServerRespons
       if (transition === 'cancel') {
         const actor = await requireAuthenticatedActor(req, {
           module: 'orders',
-          action: 'order.create',
+          action: 'order.submit',
         });
         const body = (await readJsonBody(req)) as CancelOrderDraftRequest;
         const response = await cancelOrderDraft(actor, orderDraftId, body);

@@ -14,6 +14,7 @@ import {
   IconPackage,
   IconSchool,
   IconShield,
+  IconShoppingCart,
   IconUserPlus,
   type TablerIcon,
 } from '@tabler/icons-react';
@@ -156,6 +157,11 @@ export function Navigation() {
         { label: 'Field Activity', link: '/customers/field-activity' },
       ],
     });
+  }
+
+  // Order-on-behalf triage — single-screen back-office queue for submitted orders.
+  if (role && canAccessModule(role, 'orders')) {
+    navItems.push({ label: 'Orders', icon: IconShoppingCart, link: '/orders' });
   }
 
   // Consignment is a single-screen module — flattened from a one-child collapsible

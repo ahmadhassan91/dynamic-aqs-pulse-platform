@@ -371,10 +371,10 @@ export async function cancelOrderDraft(
   input: CancelOrderDraftRequest = {},
 ): Promise<OrderDraftDetail> {
   assertModuleAccess(actor.role, 'orders');
-  // Cancel is the "abandon" side of authoring, so it deliberately reuses order.create
-  // (whoever can author/edit a draft can abandon it) rather than introducing a separate
-  // order.cancel action. submit/fulfill (forward advancement) use order.submit.
-  assertActionAccess(actor.role, 'order.create');
+  // Cancel is a lifecycle transition on a submitted/draft order (back-office reject or
+  // field retract), so it requires order.submit — the same finalize capability as fulfill —
+  // keeping the two triage actions on one consistent action key rather than splitting them.
+  assertActionAccess(actor.role, 'order.submit');
 
   const existing = await findScopedOrderDraft(actor, orderDraftId);
   if (!existing) {

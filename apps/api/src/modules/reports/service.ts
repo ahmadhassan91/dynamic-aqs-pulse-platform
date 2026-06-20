@@ -20,7 +20,14 @@ import type {
 import { REPORT_KEYS, REPORT_SCHEDULE_CADENCES, REPORT_VISIBILITIES } from '@pulse/contracts/reports';
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { buildLeadRecordScope, resolveLeadRecordScope } from '../auth/visibility.js';
+import {
+  buildAccountRecordScope,
+  buildConsignmentSiteRecordScope,
+  buildLeadRecordScope,
+  buildTerritoryRecordScope,
+  buildTrainingSessionRecordScope,
+  resolveLeadRecordScope,
+} from '../auth/visibility.js';
 
 type ReportDefinitionRecord = Prisma.ReportDefinitionGetPayload<{
   include: { ownerUser: { select: { id: true; displayName: true } }; _count: { select: { schedules: true } } };
@@ -195,12 +202,12 @@ export async function runReportDefinition(actor: AuthenticatedActor, definitionI
   if (!record) {
     throw new Error('Report definition not found');
   }
-  return executeReport(record.reportKey as ReportKey, (record.config ?? {}) as ReportConfig);
+  return executeReport(actor, record.reportKey as ReportKey, (record.config ?? {}) as ReportConfig);
 }
 
 export async function runAdHocReport(actor: AuthenticatedActor, reportKey: string, config: ReportConfig | undefined): Promise<ReportRunResult> {
   assertModuleAccess(actor.role, 'reports');
-  return executeReport(assertReportKey(reportKey), config ?? {});
+  return executeReport(actor, assertReportKey(reportKey), config ?? {});
 }
 
 // --- Lead dashboard (role-scoped pipeline snapshot) -------------------------
@@ -328,18 +335,21 @@ function reportWindow(config: ReportConfig) {
   return { start, end };
 }
 
-export async function executeReport(reportKey: ReportKey, config: ReportConfig): Promise<ReportRunResult> {
+// Every executor applies the actor's record scope so saved/ad-hoc/scheduled runs
+// respect row-level visibility (FR-RPT-004 / NFR-RPT-004). Global-visibility roles
+// get an undefined scope (unchanged behaviour); TM/RD are restricted to their book.
+export async function executeReport(actor: AuthenticatedActor, reportKey: ReportKey, config: ReportConfig): Promise<ReportRunResult> {
   switch (reportKey) {
     case 'lead_funnel':
-      return runLeadFunnel(config);
+      return runLeadFunnel(actor, config);
     case 'training_compliance':
-      return runTrainingCompliance(config);
+      return runTrainingCompliance(actor, config);
     case 'consignment_audit_status':
-      return runConsignmentAuditStatus(config);
+      return runConsignmentAuditStatus(actor, config);
     case 'territory_coverage':
-      return runTerritoryCoverage(config);
+      return runTerritoryCoverage(actor, config);
     case 'field_activity':
-      return runFieldActivity(config);
+      return runFieldActivity(actor, config);
   }
 }
 
@@ -347,12 +357,14 @@ function result(reportKey: ReportKey, columns: ReportRunResult['columns'], rows:
   return { reportKey, generatedAt: new Date().toISOString(), columns, rows, rowCount: rows.length };
 }
 
-async function runLeadFunnel(config: ReportConfig): Promise<ReportRunResult> {
+async function runLeadFunnel(actor: AuthenticatedActor, config: ReportConfig): Promise<ReportRunResult> {
   const { start, end } = reportWindow(config);
-  const where: Prisma.LeadWhereInput = {
+  const scope = await resolveLeadRecordScope(actor);
+  const baseWhere: Prisma.LeadWhereInput = {
     createdAt: { gte: start, lte: end },
     ...(config.territoryId ? { territoryId: config.territoryId } : {}),
   };
+  const where: Prisma.LeadWhereInput = scope ? { AND: [scope, baseWhere] } : baseWhere;
   const leads = await prisma.lead.findMany({
     where,
     select: { stage: true, sourceSiteName: true, sourceDetail: true, initialContactDueAt: true, initialContactedAt: true },
@@ -385,9 +397,13 @@ async function runLeadFunnel(config: ReportConfig): Promise<ReportRunResult> {
   ], rows);
 }
 
-async function runTrainingCompliance(config: ReportConfig): Promise<ReportRunResult> {
+async function runTrainingCompliance(actor: AuthenticatedActor, config: ReportConfig): Promise<ReportRunResult> {
+  const accountScope = buildAccountRecordScope(actor);
+  const accountConditions: Prisma.AccountWhereInput[] = [];
+  if (config.territoryId) accountConditions.push({ territoryId: config.territoryId });
+  if (accountScope) accountConditions.push(accountScope);
   const programs = await prisma.accountTrainingProgram.findMany({
-    where: { status: 'ACTIVE', ...(config.territoryId ? { account: { territoryId: config.territoryId } } : {}) },
+    where: { status: 'ACTIVE', ...(accountConditions.length ? { account: { AND: accountConditions } } : {}) },
     include: { account: { select: { id: true, displayName: true } } },
   });
   const lastCompleted = await prisma.trainingSession.groupBy({
@@ -414,9 +430,13 @@ async function runTrainingCompliance(config: ReportConfig): Promise<ReportRunRes
   ], rows);
 }
 
-async function runConsignmentAuditStatus(config: ReportConfig): Promise<ReportRunResult> {
+async function runConsignmentAuditStatus(actor: AuthenticatedActor, config: ReportConfig): Promise<ReportRunResult> {
+  const scope = buildConsignmentSiteRecordScope(actor);
+  const baseWhere: Prisma.ConsignmentSiteWhereInput = {
+    ...(config.territoryId ? { territoryId: config.territoryId } : {}),
+  };
   const sites = await prisma.consignmentSite.findMany({
-    where: { ...(config.territoryId ? { territoryId: config.territoryId } : {}) },
+    where: scope ? { AND: [scope, baseWhere] } : baseWhere,
     include: {
       account: { select: { displayName: true } },
       _count: { select: { workItems: { where: { status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] } } } } },
@@ -441,9 +461,13 @@ async function runConsignmentAuditStatus(config: ReportConfig): Promise<ReportRu
   ], rows);
 }
 
-async function runTerritoryCoverage(config: ReportConfig): Promise<ReportRunResult> {
+async function runTerritoryCoverage(actor: AuthenticatedActor, config: ReportConfig): Promise<ReportRunResult> {
+  const scope = buildTerritoryRecordScope(actor);
+  const baseWhere: Prisma.TerritoryWhereInput = {
+    ...(config.territoryId ? { id: config.territoryId } : {}),
+  };
   const territories = await prisma.territory.findMany({
-    where: { ...(config.territoryId ? { id: config.territoryId } : {}) },
+    where: scope ? { AND: [scope, baseWhere] } : baseWhere,
     include: {
       managerUser: { select: { displayName: true } },
       stateCoverage: { select: { stateCode: true } },
@@ -466,16 +490,24 @@ async function runTerritoryCoverage(config: ReportConfig): Promise<ReportRunResu
   ], rows);
 }
 
-async function runFieldActivity(config: ReportConfig): Promise<ReportRunResult> {
+async function runFieldActivity(actor: AuthenticatedActor, config: ReportConfig): Promise<ReportRunResult> {
   const { start, end } = reportWindow(config);
-  const sessionWhere: Prisma.TrainingSessionWhereInput = {
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const accountScope = buildAccountRecordScope(actor);
+  const sessionBase: Prisma.TrainingSessionWhereInput = {
     createdAt: { gte: start, lte: end },
     ...(config.userId ? { trainerUserId: config.userId } : {}),
   };
-  const noteWhere: Prisma.MobileVoiceNoteWhereInput = {
+  const sessionWhere: Prisma.TrainingSessionWhereInput = sessionScope ? { AND: [sessionScope, sessionBase] } : sessionBase;
+  const noteBase: Prisma.MobileVoiceNoteWhereInput = {
     createdAt: { gte: start, lte: end },
     ...(config.userId ? { createdByUserId: config.userId } : {}),
   };
+  // Scoped roles (TM/RD) see voice notes they created OR notes tied to accounts in their book.
+  const noteScope: Prisma.MobileVoiceNoteWhereInput | undefined = accountScope
+    ? { OR: [{ createdByUserId: actor.userId }, { account: { is: accountScope } }] }
+    : undefined;
+  const noteWhere: Prisma.MobileVoiceNoteWhereInput = noteScope ? { AND: [noteScope, noteBase] } : noteBase;
   const [sessions, notes] = await Promise.all([
     prisma.trainingSession.groupBy({ by: ['trainerUserId'], where: sessionWhere, _count: { _all: true } }),
     prisma.mobileVoiceNote.groupBy({ by: ['createdByUserId'], where: noteWhere, _count: { _all: true } }),
@@ -661,7 +693,7 @@ export interface ReportScheduleScanResult {
 export async function processDueReportSchedules(now: Date = new Date()): Promise<ReportScheduleScanResult> {
   const due = await prisma.reportSchedule.findMany({
     where: { isActive: true, nextRunAt: { lte: now }, reportDefinition: { isActive: true } },
-    include: { reportDefinition: true },
+    include: { reportDefinition: { include: { ownerUser: true } } },
     take: 25,
   });
   let sent = 0;
@@ -669,7 +701,22 @@ export async function processDueReportSchedules(now: Date = new Date()): Promise
   for (const schedule of due) {
     const cadence = toCadenceKey(schedule.cadence);
     try {
+      // Scheduled reports run with the report OWNER's record scope so an emailed
+      // report respects the same row-level visibility the owner has in-app.
+      const owner = schedule.reportDefinition.ownerUser;
+      if (!owner) {
+        throw new Error('Report owner not found');
+      }
+      const ownerActor: AuthenticatedActor = {
+        userId: schedule.reportDefinition.ownerUserId,
+        sessionId: `scheduler:${schedule.id}`,
+        role: owner.roleCode as AuthenticatedActor['role'],
+        actorType: 'internal',
+        ...(owner.email ? { email: owner.email } : {}),
+        ...(owner.displayName ? { displayName: owner.displayName } : {}),
+      };
       const run = await executeReport(
+        ownerActor,
         schedule.reportDefinition.reportKey as ReportKey,
         (schedule.reportDefinition.config ?? {}) as ReportConfig,
       );

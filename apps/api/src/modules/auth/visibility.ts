@@ -151,6 +151,54 @@ export function buildOrderDraftRecordScope(actor: AuthenticatedActor): Prisma.Or
   };
 }
 
+export function buildTerritoryRecordScope(actor: AuthenticatedActor): Prisma.TerritoryWhereInput | undefined {
+  if (hasGlobalRecordVisibility(actor.role)) {
+    return undefined;
+  }
+
+  if (actor.role === 'TERRITORY_MANAGER') {
+    return { managerUserId: actor.userId };
+  }
+
+  if (actor.role === 'REGIONAL_DIRECTOR') {
+    return {
+      OR: [
+        { managerUserId: actor.userId },
+        { region: { is: { directorUserId: actor.userId } } },
+      ],
+    };
+  }
+
+  return {
+    id: '__no-record-scope__',
+  };
+}
+
+export function buildConsignmentSiteRecordScope(actor: AuthenticatedActor): Prisma.ConsignmentSiteWhereInput | undefined {
+  if (hasGlobalRecordVisibility(actor.role)) {
+    return undefined;
+  }
+
+  // Mirrors the consignment module's own siteScopeWhere (owner-based), so report
+  // visibility matches what the actor sees in the Consignment workspace.
+  if (actor.role === 'TERRITORY_MANAGER') {
+    return { ownerTmUserId: actor.userId };
+  }
+
+  if (actor.role === 'REGIONAL_DIRECTOR') {
+    return {
+      OR: [
+        { ownerRdUserId: actor.userId },
+        { region: { is: { directorUserId: actor.userId } } },
+      ],
+    };
+  }
+
+  return {
+    id: '__no-record-scope__',
+  };
+}
+
 export function buildTrainingSessionRecordScope(actor: AuthenticatedActor): Prisma.TrainingSessionWhereInput | undefined {
   if (hasGlobalRecordVisibility(actor.role)) {
     return undefined;

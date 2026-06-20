@@ -401,3 +401,84 @@ test('field_activity counts training sessions and voice notes per field user', S
   assert.equal(filteredTrainer.trainingSessions, 2);
   assert.equal(filteredTrainer.voiceNotes, 1);
 });
+
+test('report executors scope rows to the actor record scope (TM sees only their book)', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const tm = await createScopedActor('TERRITORY_MANAGER', 'tm.scope@pulse.local', 'Scope TM');
+  const segment = await prisma.businessSegmentRef.findFirst();
+  const source = await prisma.leadSourceRef.findFirst();
+  const region = await prisma.region.create({ data: { code: 'scope_region', name: 'Scope Region' } });
+  const territory = await prisma.territory.create({
+    data: { code: 'scope_territory', name: 'Scope Territory', regionId: region.id, managerUserId: tm.userId },
+  });
+  const base = {
+    contactDisplayName: 'Scope Contact',
+    businessSegmentId: segment.id,
+    leadSourceId: source.id,
+    serviceTechCount: 4,
+    routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+    routingThresholdSnapshot: 5,
+    routingTeam: 'STRATEGIC_GROWTH',
+  };
+  await prisma.lead.createMany({
+    data: [
+      // TM's own lead, made visible past the pre-handoff gate via MANUAL_OVERRIDE.
+      { ...base, companyName: 'TM Owned Lead', stage: 'CUSTOMER_ACTIVE', assignedTmUserId: tm.userId, territoryId: territory.id, territoryAssignmentMethod: 'MANUAL_OVERRIDE' },
+      // A lead outside the TM's book.
+      { ...base, companyName: 'Other TM Lead', stage: 'NEW' },
+    ],
+  });
+
+  // lead_funnel: a global actor sees both leads; the TM sees only its own — BEFORE this
+  // fix the TM saw both (the cross-role data-exposure bug).
+  const adminFunnel = await runAdHocReport(admin, 'lead_funnel', {});
+  assert.equal(adminFunnel.rows.reduce((total, row) => total + row.leadCount, 0), 2);
+  const tmFunnel = await runAdHocReport(tm, 'lead_funnel', {});
+  assert.equal(tmFunnel.rows.reduce((total, row) => total + row.leadCount, 0), 1);
+
+  // territory_coverage: the TM sees only the territory it manages.
+  const tmCoverage = await runAdHocReport(tm, 'territory_coverage', {});
+  assert.deepEqual(tmCoverage.rows.map((row) => row.territory), ['Scope Territory']);
+});
+
+test('account- and site-rooted report executors also scope to the actor (TM)', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const tm = await createScopedActor('TERRITORY_MANAGER', 'tm.scope2@pulse.local', 'Scope TM2');
+  const mineAccount = await prisma.account.create({
+    data: { displayName: 'TM Scoped Account', accountType: 'Dealer', isActive: true, assignedTmUserId: tm.userId },
+  });
+  const otherAccount = await prisma.account.create({
+    data: { displayName: 'Out-of-book Account', accountType: 'Dealer', isActive: true },
+  });
+  const pastDue = new Date(Date.now() - 14 * 86400000);
+  await prisma.accountTrainingProgram.createMany({
+    data: [
+      { accountId: mineAccount.id, title: 'Mine', status: 'ACTIVE', nextDueAt: pastDue },
+      { accountId: otherAccount.id, title: 'Other', status: 'ACTIVE', nextDueAt: pastDue },
+    ],
+  });
+  await prisma.consignmentSite.createMany({
+    data: [
+      { accountId: mineAccount.id, name: 'TM Scoped Site', status: 'ACTIVE', ownerTmUserId: tm.userId, nextAuditDueAt: pastDue },
+      { accountId: otherAccount.id, name: 'Out-of-book Site', status: 'ACTIVE', nextAuditDueAt: pastDue },
+    ],
+  });
+
+  // training_compliance (account-rooted): admin sees both; TM sees only its account.
+  const adminTraining = await runAdHocReport(admin, 'training_compliance', {});
+  const adminTrainingAccounts = adminTraining.rows.map((row) => row.account);
+  assert.ok(adminTrainingAccounts.includes('TM Scoped Account') && adminTrainingAccounts.includes('Out-of-book Account'));
+  const tmTraining = await runAdHocReport(tm, 'training_compliance', {});
+  const tmTrainingAccounts = tmTraining.rows.map((row) => row.account);
+  assert.ok(tmTrainingAccounts.includes('TM Scoped Account'));
+  assert.ok(!tmTrainingAccounts.includes('Out-of-book Account'));
+
+  // consignment_audit_status (site-rooted, owner-based): admin sees both; TM sees only its owned site.
+  const adminConsign = await runAdHocReport(admin, 'consignment_audit_status', {});
+  const adminSites = adminConsign.rows.map((row) => row.site);
+  assert.ok(adminSites.includes('TM Scoped Site') && adminSites.includes('Out-of-book Site'));
+  const tmConsign = await runAdHocReport(tm, 'consignment_audit_status', {});
+  const tmSites = tmConsign.rows.map((row) => row.site);
+  assert.ok(tmSites.includes('TM Scoped Site'));
+  assert.ok(!tmSites.includes('Out-of-book Site'));
+});

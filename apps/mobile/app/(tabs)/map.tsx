@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { Camera, GeoJSONSource, Layer, Map, Marker } from '@maplibre/maplibre-react-native';
 import type { AccountSummary } from '@pulse/contracts/accounts';
-import type { TerritoryMapCoverageEntrySummary } from '@pulse/contracts/territories';
+import type { TerritoryMapCoverageEntrySummary, TerritoryMapGeoPrecisionKey } from '@pulse/contracts/territories';
 import {
   ACCOUNT_MAP_STATUS_META,
   ACCOUNT_MAP_STATUS_ORDER,
@@ -14,6 +14,7 @@ import {
 import { NavigateSheet } from '@/components/navigate-sheet';
 import { MarkerActionSheet } from '@/components/marker-action-sheet';
 import type { NavTarget } from '@/lib/external-nav';
+import { canNavigateWithPrecision, describeGeoPrecision } from '@/lib/geo-precision';
 import { toggleRouteStop, useRouteSelection } from '@/lib/route-selection-store';
 import { US_CENTER_LNG_LAT, deriveStubCoordinate, type LngLat } from '@/lib/map-stub-coordinates';
 import { buildTerritoryStateCollection, summarizeMyTerritory } from '@/lib/territory-coverage';
@@ -40,6 +41,9 @@ export default function MapScreen() {
   const [coverageEntries, setCoverageEntries] = useState<TerritoryMapCoverageEntrySummary[]>([]);
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const [markerActionAccount, setMarkerActionAccount] = useState<AccountSummary | null>(null);
+  // FR-MOB-028 — per-account geocode precision from the territory workspace pins, keyed by account id.
+  // (Record, not Map: the MapLibre `Map` import shadows the global Map constructor in this file.)
+  const [precisionByAccount, setPrecisionByAccount] = useState<Record<string, TerritoryMapGeoPrecisionKey>>(() => ({}));
   const routeSelection = useRouteSelection();
   const routeSet = useMemo(() => new Set(routeSelection ?? []), [routeSelection]);
 
@@ -48,7 +52,11 @@ export default function MapScreen() {
     let cancelled = false;
     fetchTerritoryMapWorkspace(apiBaseUrl, auth.tokens.accessToken)
       .then((workspace) => {
-        if (!cancelled) setCoverageEntries(workspace.coverageEntries);
+        if (cancelled) return;
+        setCoverageEntries(workspace.coverageEntries);
+        const precision: Record<string, TerritoryMapGeoPrecisionKey> = {};
+        for (const pin of workspace.accountPins) precision[pin.recordId] = pin.geoPrecision;
+        setPrecisionByAccount(precision);
       })
       .catch(() => {
         // Boundaries are an overlay; the map stays usable without them.
@@ -128,9 +136,12 @@ export default function MapScreen() {
           </GeoJSONSource>
         ) : null}
         {markers.map(({ account, status, coordinate }) => {
-          // Navigate only to a real (non-stub) location; the marker may sit on a deriveStubCoordinate.
+          // FR-MOB-028 — navigate only to a real, precise-enough location. The marker may sit on a
+          // deriveStubCoordinate (no coords), and a state-centroid pin is too coarse to route to.
+          const precision = precisionByAccount[account.id];
+          const precisionInfo = describeGeoPrecision(precision);
           const stopNavTarget: NavTarget | null =
-            typeof account.latitude === 'number' && typeof account.longitude === 'number'
+            typeof account.latitude === 'number' && typeof account.longitude === 'number' && canNavigateWithPrecision(precision)
               ? { latitude: account.latitude, longitude: account.longitude, label: account.displayName }
               : null;
           const inRoute = routeSet.has(account.id);
@@ -138,7 +149,7 @@ export default function MapScreen() {
           <Marker key={account.id} lngLat={coordinate}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${account.displayName} — ${ACCOUNT_MAP_STATUS_META[status].label}${inRoute ? ' — on route' : ''}`}
+              accessibilityLabel={`${account.displayName} — ${ACCOUNT_MAP_STATUS_META[status].label} — ${precisionInfo.label}${inRoute ? ' — on route' : ''}`}
               accessibilityHint="Opens account. Long press for route and navigation actions."
               accessibilityActions={[
                 { name: 'toggleRoute', label: inRoute ? 'Remove from route' : 'Add to route' },
@@ -177,8 +188,9 @@ export default function MapScreen() {
           }}
         >
           <Text style={{ ...typography.caption, color: colors.text }}>
-            Approximate positions — accounts are placed by their city/state; any without a saved
-            location fall back to a placeholder. Colors, filters, and ownership are live.
+            Approximate positions — accounts are placed by their city/state, so navigation routes to that
+            area, not the street address. State-only pins are too coarse to navigate. Colors, filters, and
+            ownership are live.
           </Text>
         </View>
         {errorMessage ? (
@@ -249,7 +261,11 @@ export default function MapScreen() {
       <MarkerActionSheet
         account={markerActionAccount}
         inRoute={markerActionAccount ? routeSet.has(markerActionAccount.id) : false}
-        canNavigate={typeof markerActionAccount?.latitude === 'number' && typeof markerActionAccount?.longitude === 'number'}
+        canNavigate={
+          typeof markerActionAccount?.latitude === 'number' &&
+          typeof markerActionAccount?.longitude === 'number' &&
+          canNavigateWithPrecision(markerActionAccount ? precisionByAccount[markerActionAccount.id] : undefined)
+        }
         onOpen={() => {
           if (markerActionAccount) router.push({ pathname: '/account/[id]', params: { id: markerActionAccount.id } });
           setMarkerActionAccount(null);
@@ -259,7 +275,11 @@ export default function MapScreen() {
           setMarkerActionAccount(null);
         }}
         onNavigate={() => {
-          if (typeof markerActionAccount?.latitude === 'number' && typeof markerActionAccount?.longitude === 'number') {
+          if (
+            typeof markerActionAccount?.latitude === 'number' &&
+            typeof markerActionAccount?.longitude === 'number' &&
+            canNavigateWithPrecision(precisionByAccount[markerActionAccount.id])
+          ) {
             setNavTarget({ latitude: markerActionAccount.latitude, longitude: markerActionAccount.longitude, label: markerActionAccount.displayName });
           }
           setMarkerActionAccount(null);

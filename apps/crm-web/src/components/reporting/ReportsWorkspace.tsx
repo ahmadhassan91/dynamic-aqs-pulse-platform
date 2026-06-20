@@ -18,7 +18,7 @@ import {
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconSchool, IconTrash } from '@tabler/icons-react';
+import { IconBriefcase, IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconSchool, IconTrash } from '@tabler/icons-react';
 import type {
   ReportDefinitionSummary,
   ReportDeliveryRecordSummary,
@@ -68,6 +68,7 @@ import {
 import { WorkbenchHeader } from '@/components/ui/Workbench';
 import { LeadDashboard } from '@/components/reporting/LeadDashboard';
 import { TrainingDashboard } from '@/components/reporting/TrainingDashboard';
+import { ExecutiveDashboard } from '@/components/reporting/ExecutiveDashboard';
 import { canAccessModule, canPerformAction } from '@/lib/access';
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
@@ -81,9 +82,10 @@ export function ReportsWorkspace() {
   const role = auth?.identity.role;
   // Only surface a dashboard tab the role can actually load (the endpoints gate on
   // lead.view / the training module), so we never render a tab that 403s.
+  const showExecutive = Boolean(role && canPerformAction(role, 'reports.executive'));
   const showLeads = Boolean(role && canPerformAction(role, 'lead.view'));
   const showTraining = Boolean(role && canAccessModule(role, 'training'));
-  const defaultDashboardTab = showLeads ? 'leads' : showTraining ? 'training' : 'reports';
+  const defaultDashboardTab = showExecutive ? 'executive' : showLeads ? 'leads' : showTraining ? 'training' : 'reports';
 
   const [definitions, setDefinitions] = useState<ReportDefinitionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -266,6 +268,11 @@ export function ReportsWorkspace() {
 
       <Tabs defaultValue={defaultDashboardTab}>
         <Tabs.List mb="md">
+          {showExecutive ? (
+            <Tabs.Tab value="executive" leftSection={<IconBriefcase size={16} />}>
+              Executive
+            </Tabs.Tab>
+          ) : null}
           {showLeads ? (
             <Tabs.Tab value="leads" leftSection={<IconLayoutDashboard size={16} />}>
               Leads
@@ -280,6 +287,12 @@ export function ReportsWorkspace() {
             Saved reports
           </Tabs.Tab>
         </Tabs.List>
+
+        {showExecutive ? (
+          <Tabs.Panel value="executive">
+            <ExecutiveDashboard />
+          </Tabs.Panel>
+        ) : null}
 
         {showLeads ? (
           <Tabs.Panel value="leads">

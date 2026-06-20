@@ -220,3 +220,25 @@ export interface TrainingDashboardResponse {
   overdueAccounts: TrainingDashboardOverdueAccount[]; // most-overdue training programs
   generatedAt: string; // ISO
 }
+
+// --- Executive overview -----------------------------------------------------
+// Org-wide exec landing (reports.executive gate — EXECUTIVE/SUPER_ADMIN only).
+// CRM-native KPIs + a cross-module exception summary. Revenue/financial KPIs are
+// parked on Acumatica and intentionally excluded here.
+
+export interface ExecutiveDashboardResponse {
+  windowDays: number;
+  metrics: {
+    openLeads: number; // active leads, org-wide
+    activeConsignmentSites: number; // consignment sites in ACTIVE status
+    trainingsCompleted: number; // completed training sessions in window
+    openExceptions: number; // sum of the exception counts below
+  };
+  exceptions: {
+    overdueAudits: number; // active consignment sites past their next audit date
+    overdueTraining: number; // active/overdue training programs past due
+    staleLeads: number; // active leads past initial-contact SLA, not yet contacted
+    openConsignmentWorkItems: number; // open/in-progress/blocked consignment work items
+  };
+  generatedAt: string; // ISO
+}

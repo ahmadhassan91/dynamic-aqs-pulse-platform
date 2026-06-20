@@ -2,6 +2,7 @@ import { Prisma, prisma } from '@pulse/db';
 import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
+  ExecutiveDashboardResponse,
   LeadDashboardResponse,
   ListReportDefinitionsResponse,
   ListReportDeliveriesResponse,
@@ -439,6 +440,48 @@ export async function getTrainingDashboard(actor: AuthenticatedActor): Promise<T
     byType,
     byTrainer,
     overdueAccounts,
+    generatedAt: now.toISOString(),
+  };
+}
+
+// --- Executive overview (org-wide; reports.executive only) -------------------
+
+const EXEC_DASHBOARD_WINDOW_DAYS = 90;
+
+// Executive landing: CRM-native KPIs + a cross-module exception summary. Gated on
+// reports.executive (EXECUTIVE/SUPER_ADMIN only — both global-visibility), so the
+// counts are deliberately org-wide. Revenue/financial KPIs stay parked on Acumatica.
+export async function getExecutiveDashboard(actor: AuthenticatedActor): Promise<ExecutiveDashboardResponse> {
+  assertModuleAccess(actor.role, 'reports');
+  assertActionAccess(actor.role, 'reports.executive');
+
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - EXEC_DASHBOARD_WINDOW_DAYS * 86_400_000);
+
+  const [
+    openLeads,
+    activeConsignmentSites,
+    trainingsCompleted,
+    overdueAudits,
+    overdueTraining,
+    staleLeads,
+    openConsignmentWorkItems,
+  ] = await Promise.all([
+    prisma.lead.count({ where: { lifecycleStatus: 'ACTIVE' } }),
+    prisma.consignmentSite.count({ where: { status: 'ACTIVE' } }),
+    prisma.trainingSession.count({ where: { status: 'COMPLETED', activityKind: 'TRAINING', completedAt: { gte: windowStart } } }),
+    prisma.consignmentSite.count({ where: { status: 'ACTIVE', nextAuditDueAt: { lt: now } } }),
+    prisma.accountTrainingProgram.count({ where: { status: { in: ['ACTIVE', 'OVERDUE'] }, nextDueAt: { lt: now } } }),
+    prisma.lead.count({ where: { lifecycleStatus: 'ACTIVE', initialContactedAt: null, initialContactDueAt: { lt: now } } }),
+    prisma.consignmentWorkItem.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] } } }),
+  ]);
+
+  const openExceptions = overdueAudits + overdueTraining + staleLeads + openConsignmentWorkItems;
+
+  return {
+    windowDays: EXEC_DASHBOARD_WINDOW_DAYS,
+    metrics: { openLeads, activeConsignmentSites, trainingsCompleted, openExceptions },
+    exceptions: { overdueAudits, overdueTraining, staleLeads, openConsignmentWorkItems },
     generatedAt: now.toISOString(),
   };
 }

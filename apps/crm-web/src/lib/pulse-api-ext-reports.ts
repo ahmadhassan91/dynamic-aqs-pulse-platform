@@ -7,6 +7,7 @@
 import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
+  ExecutiveDashboardResponse,
   LeadDashboardResponse,
   TrainingDashboardResponse,
   ListReportDefinitionsResponse,
@@ -134,4 +135,8 @@ export async function fetchLeadDashboardApi(apiBaseUrl: string, accessToken: str
 
 export async function fetchTrainingDashboardApi(apiBaseUrl: string, accessToken: string) {
   return fetchJson<TrainingDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/training', { accessToken });
+}
+
+export async function fetchExecutiveDashboardApi(apiBaseUrl: string, accessToken: string) {
+  return fetchJson<ExecutiveDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/executive', { accessToken });
 }

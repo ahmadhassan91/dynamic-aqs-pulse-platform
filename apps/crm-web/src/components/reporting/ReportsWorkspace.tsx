@@ -18,7 +18,7 @@ import {
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconSchool, IconTrash } from '@tabler/icons-react';
 import type {
   ReportDefinitionSummary,
   ReportDeliveryRecordSummary,
@@ -67,6 +67,8 @@ import {
 } from '@/lib/pulse-api-ext-reports';
 import { WorkbenchHeader } from '@/components/ui/Workbench';
 import { LeadDashboard } from '@/components/reporting/LeadDashboard';
+import { TrainingDashboard } from '@/components/reporting/TrainingDashboard';
+import { canAccessModule, canPerformAction } from '@/lib/access';
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
   value: String(hour),
@@ -76,6 +78,12 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
 export function ReportsWorkspace() {
   const { auth, apiBaseUrl } = usePulseSession();
   const accessToken = auth?.tokens.accessToken ?? '';
+  const role = auth?.identity.role;
+  // Only surface a dashboard tab the role can actually load (the endpoints gate on
+  // lead.view / the training module), so we never render a tab that 403s.
+  const showLeads = Boolean(role && canPerformAction(role, 'lead.view'));
+  const showTraining = Boolean(role && canAccessModule(role, 'training'));
+  const defaultDashboardTab = showLeads ? 'leads' : showTraining ? 'training' : 'reports';
 
   const [definitions, setDefinitions] = useState<ReportDefinitionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -256,19 +264,34 @@ export function ReportsWorkspace() {
         )}
       />
 
-      <Tabs defaultValue="dashboard">
+      <Tabs defaultValue={defaultDashboardTab}>
         <Tabs.List mb="md">
-          <Tabs.Tab value="dashboard" leftSection={<IconLayoutDashboard size={16} />}>
-            Dashboard
-          </Tabs.Tab>
+          {showLeads ? (
+            <Tabs.Tab value="leads" leftSection={<IconLayoutDashboard size={16} />}>
+              Leads
+            </Tabs.Tab>
+          ) : null}
+          {showTraining ? (
+            <Tabs.Tab value="training" leftSection={<IconSchool size={16} />}>
+              Training
+            </Tabs.Tab>
+          ) : null}
           <Tabs.Tab value="reports" leftSection={<IconFileText size={16} />}>
             Saved reports
           </Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="dashboard">
-          <LeadDashboard />
-        </Tabs.Panel>
+        {showLeads ? (
+          <Tabs.Panel value="leads">
+            <LeadDashboard />
+          </Tabs.Panel>
+        ) : null}
+
+        {showTraining ? (
+          <Tabs.Panel value="training">
+            <TrainingDashboard />
+          </Tabs.Panel>
+        ) : null}
 
         <Tabs.Panel value="reports">
           <Stack gap="lg">

@@ -26,6 +26,7 @@ import {
   deleteReportDefinition,
   deleteReportSchedule,
   getLeadDashboard,
+  getTrainingDashboard,
   listReportDefinitions,
   listReportDeliveries,
   listReportSchedules,
@@ -152,6 +153,16 @@ export async function handleReportRoutes(req: IncomingMessage, res: ServerRespon
     }
     return withReportsAuth(req, res, async (actor) => {
       const response = await getLeadDashboard(actor);
+      return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/reports/dashboard/training') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+    return withReportsAuth(req, res, async (actor) => {
+      const response = await getTrainingDashboard(actor);
       return jsonResponse(res, 200, response);
     });
   }

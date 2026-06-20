@@ -8,6 +8,7 @@ import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
   LeadDashboardResponse,
+  TrainingDashboardResponse,
   ListReportDefinitionsResponse,
   ListReportDeliveriesResponse,
   ListReportSchedulesResponse,
@@ -129,4 +130,8 @@ export async function listReportDeliveriesApi(apiBaseUrl: string, accessToken: s
 
 export async function fetchLeadDashboardApi(apiBaseUrl: string, accessToken: string) {
   return fetchJson<LeadDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/leads', { accessToken });
+}
+
+export async function fetchTrainingDashboardApi(apiBaseUrl: string, accessToken: string) {
+  return fetchJson<TrainingDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/training', { accessToken });
 }

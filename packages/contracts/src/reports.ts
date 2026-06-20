@@ -188,3 +188,35 @@ export interface LeadDashboardResponse {
   byState: LeadDashboardCountBucket[]; // top states by active-lead count
   generatedAt: string; // ISO
 }
+
+// --- Training dashboard -----------------------------------------------------
+// Role-scoped aggregate KPI view over CRM-native training data (no Acumatica).
+// Session metrics are windowed (last N days); program-overdue is current state.
+
+export interface TrainingDashboardBucket {
+  // Training-type name or trainer name; 'Unspecified'/'Unknown'/'Unassigned' when null.
+  key: string;
+  sessions: number;
+  hours: number; // durationMinutes / 60, rounded to 1 decimal
+}
+
+export interface TrainingDashboardOverdueAccount {
+  account: string;
+  nextDueAt: string; // ISO
+  daysOverdue: number;
+}
+
+export interface TrainingDashboardResponse {
+  windowDays: number;
+  metrics: {
+    completedSessions: number; // all COMPLETED sessions (training + site visits) in window
+    trainingHours: number; // hours from COMPLETED training sessions in window
+    accountsTrained: number; // distinct accounts with a completed training in window
+    siteVisits: number; // COMPLETED site visits in window
+    overduePrograms: number; // active/overdue training programs past due (current state)
+  };
+  byType: TrainingDashboardBucket[]; // top training types by sessions (completed, in window)
+  byTrainer: TrainingDashboardBucket[]; // top trainers by hours (completed training, in window)
+  overdueAccounts: TrainingDashboardOverdueAccount[]; // most-overdue training programs
+  generatedAt: string; // ISO
+}

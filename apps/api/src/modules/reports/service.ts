@@ -14,6 +14,7 @@ import type {
   ReportScheduleCadenceKey,
   ReportScheduleSummary,
   ReportVisibilityKey,
+  TrainingDashboardResponse,
   UpdateReportDefinitionRequest,
   UpdateReportScheduleRequest,
 } from '@pulse/contracts/reports';
@@ -321,6 +322,123 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     byStage,
     bySource,
     byState,
+    generatedAt: now.toISOString(),
+  };
+}
+
+// --- Training dashboard (role-scoped) ---------------------------------------
+
+const TRAINING_DASHBOARD_TOP_N = 8;
+const TRAINING_DASHBOARD_WINDOW_DAYS = 90;
+
+// Role-scoped training KPIs over CRM-native data only (no Acumatica). Gated on the
+// reports module AND the training module so a reports-but-not-training role
+// (SALES_BD/FINANCE/ADMIN_CSR_OPS) cannot read training data here. Session metrics
+// use a trailing window; program-overdue is current state. TM/RD are scoped to
+// their book; global roles (incl. TRAINING_OPS) see everything.
+export async function getTrainingDashboard(actor: AuthenticatedActor): Promise<TrainingDashboardResponse> {
+  assertModuleAccess(actor.role, 'reports');
+  assertModuleAccess(actor.role, 'training');
+
+  const sessionScope = buildTrainingSessionRecordScope(actor);
+  const accountScope = buildAccountRecordScope(actor);
+  const sessScoped = (filter: Prisma.TrainingSessionWhereInput): Prisma.TrainingSessionWhereInput =>
+    sessionScope ? { AND: [sessionScope, filter] } : filter;
+  const progScoped = (filter: Prisma.AccountTrainingProgramWhereInput): Prisma.AccountTrainingProgramWhereInput =>
+    accountScope ? { AND: [{ account: { is: accountScope } }, filter] } : filter;
+
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - TRAINING_DASHBOARD_WINDOW_DAYS * 86_400_000);
+  const completedTraining: Prisma.TrainingSessionWhereInput = {
+    status: 'COMPLETED',
+    activityKind: 'TRAINING',
+    completedAt: { gte: windowStart },
+  };
+  const completedAny: Prisma.TrainingSessionWhereInput = {
+    status: 'COMPLETED',
+    completedAt: { gte: windowStart },
+  };
+  const overdueProgram: Prisma.AccountTrainingProgramWhereInput = {
+    status: { in: ['ACTIVE', 'OVERDUE'] },
+    nextDueAt: { lt: now },
+  };
+
+  const [
+    completedSessions,
+    trainingAgg,
+    siteVisits,
+    accountsGroups,
+    overduePrograms,
+    typeGroups,
+    trainerGroups,
+    overdueRows,
+  ] = await Promise.all([
+    prisma.trainingSession.count({ where: sessScoped(completedAny) }),
+    prisma.trainingSession.aggregate({ where: sessScoped(completedTraining), _sum: { durationMinutes: true } }),
+    prisma.trainingSession.count({ where: sessScoped({ status: 'COMPLETED', activityKind: 'SITE_VISIT', completedAt: { gte: windowStart } }) }),
+    prisma.trainingSession.groupBy({ by: ['accountId'], where: sessScoped(completedTraining), _count: { _all: true } }),
+    prisma.accountTrainingProgram.count({ where: progScoped(overdueProgram) }),
+    prisma.trainingSession.groupBy({ by: ['trainingTypeId'], where: sessScoped(completedAny), _count: { _all: true }, _sum: { durationMinutes: true } }),
+    prisma.trainingSession.groupBy({ by: ['trainerUserId'], where: sessScoped(completedTraining), _count: { _all: true }, _sum: { durationMinutes: true } }),
+    prisma.accountTrainingProgram.findMany({
+      where: progScoped(overdueProgram),
+      select: { nextDueAt: true, account: { select: { displayName: true } } },
+      orderBy: { nextDueAt: 'asc' },
+      take: TRAINING_DASHBOARD_TOP_N,
+    }),
+  ]);
+
+  const toHours = (minutes: number | null | undefined): number => Math.round((minutes ?? 0) / 6) / 10;
+
+  const typeIds = typeGroups.map((group) => group.trainingTypeId).filter((id): id is string => Boolean(id));
+  const typeRefs = typeIds.length
+    ? await prisma.trainingType.findMany({ where: { id: { in: typeIds } }, select: { id: true, name: true } })
+    : [];
+  const typeNameById = new Map(typeRefs.map((ref) => [ref.id, ref.name]));
+  const byType = typeGroups
+    .map((group) => ({
+      key: group.trainingTypeId ? (typeNameById.get(group.trainingTypeId) ?? 'Unknown') : 'Unspecified',
+      sessions: group._count._all,
+      hours: toHours(group._sum.durationMinutes),
+    }))
+    .sort((a, b) => b.sessions - a.sessions)
+    .slice(0, TRAINING_DASHBOARD_TOP_N);
+
+  const trainerIds = trainerGroups.map((group) => group.trainerUserId).filter((id): id is string => Boolean(id));
+  const trainerRefs = trainerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: trainerIds } }, select: { id: true, displayName: true } })
+    : [];
+  const trainerNameById = new Map(trainerRefs.map((ref) => [ref.id, ref.displayName]));
+  const byTrainer = trainerGroups
+    .map((group) => ({
+      key: group.trainerUserId ? (trainerNameById.get(group.trainerUserId) ?? 'Unknown') : 'Unassigned',
+      sessions: group._count._all,
+      hours: toHours(group._sum.durationMinutes),
+    }))
+    .sort((a, b) => b.hours - a.hours)
+    .slice(0, TRAINING_DASHBOARD_TOP_N);
+
+  const overdueAccounts = overdueRows.map((row) => {
+    const due = row.nextDueAt;
+    return {
+      account: row.account.displayName,
+      nextDueAt: due ? due.toISOString() : '',
+      daysOverdue: due ? Math.max(0, Math.floor((now.getTime() - due.getTime()) / 86_400_000)) : 0,
+    };
+  });
+
+  return {
+    windowDays: TRAINING_DASHBOARD_WINDOW_DAYS,
+    metrics: {
+      completedSessions,
+      trainingHours: toHours(trainingAgg._sum.durationMinutes),
+      accountsTrained: accountsGroups.length,
+      siteVisits,
+      overduePrograms,
+    },
+    byType,
+    byTrainer,
+    overdueAccounts,
     generatedAt: now.toISOString(),
   };
 }

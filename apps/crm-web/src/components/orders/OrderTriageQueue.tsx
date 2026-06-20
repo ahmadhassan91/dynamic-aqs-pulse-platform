@@ -16,7 +16,6 @@ import {
   Textarea,
 } from '@mantine/core';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
-import { ORDER_DRAFT_STATUSES } from '@pulse/contracts';
 import type {
   OrderDraftDetail,
   OrderDraftStatusKey,
@@ -32,6 +31,12 @@ import {
   fulfillOrderTriageDraft,
 } from '@/lib/pulse-api-ext-orders';
 import { usePulseSession } from '@/lib/pulse-session';
+
+// Defined locally rather than imported as a runtime value: crm-web's tsconfig maps
+// @pulse/contracts to its dist .d.ts files, so importing the ORDER_DRAFT_STATUSES const
+// resolves to the type declaration (undefined at runtime, in dev and prod). Types above
+// still import correctly.
+const ORDER_DRAFT_STATUSES: readonly OrderDraftStatusKey[] = ['draft', 'submitted', 'fulfilled', 'cancelled'];
 
 const STATUS_OPTIONS = ORDER_DRAFT_STATUSES.map((status) => ({
   value: status,

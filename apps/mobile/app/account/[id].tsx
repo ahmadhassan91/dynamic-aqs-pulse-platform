@@ -3,12 +3,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
 import type { OrderDraftSummary } from '@pulse/contracts/orders';
+import type { ConsignmentSiteSummary } from '@pulse/contracts/consignment';
 import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
-import { Card, ErrorState, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
-import { createMobileVoiceNote, fetchAccountDetail, fetchAccountOrderDrafts, fetchAccountTrainingHistory } from '@/lib/api';
-import { formatDate, initials } from '@/lib/format';
+import { Card, ErrorState, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle, SegmentedTabs } from '@/components/native-kit';
+import { createMobileVoiceNote, fetchAccountDetail, fetchAccountOrderDrafts, fetchAccountTrainingHistory, fetchConsignmentSites } from '@/lib/api';
+import { formatDate, humanize, initials } from '@/lib/format';
 import { formatGroupClassification } from '@/lib/account-map-status';
 import { buildMailtoUrl, buildTelUrl, chooseCallNumber } from '@/lib/contact-link';
+import { ACCOUNT_DETAIL_TABS, isConsignmentTabEnabled, resolveAccountConsignmentSites, type AccountDetailTabKey } from '@/lib/account-detail-tabs';
 import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { radius, spacing, typography } from '@/theme';
@@ -22,6 +24,8 @@ export default function AccountDetailScreen() {
   const [orderDrafts, setOrderDrafts] = useState<OrderDraftSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<AccountDetailTabKey>('overview');
+  const [consignmentSites, setConsignmentSites] = useState<ConsignmentSiteSummary[]>([]);
 
   // UX-M-006 — quick visit-log action
   const [showVisitLog, setShowVisitLog] = useState(false);
@@ -70,6 +74,23 @@ export default function AccountDetailScreen() {
     }, [apiBaseUrl, auth, id]),
   );
 
+  // FR-MOB-036 — load the consignment sites this account owns (record-scoped); the Consignment tab is
+  // greyed out when there are none. Non-blocking: a failure just leaves the tab disabled.
+  useEffect(() => {
+    if (!auth || !id) return;
+    let cancelled = false;
+    void fetchConsignmentSites(apiBaseUrl, auth.tokens.accessToken, { includeExited: false, limit: 200 })
+      .then((response) => {
+        if (!cancelled) setConsignmentSites(response.items);
+      })
+      .catch(() => {
+        // Non-blocking: Consignment tab stays disabled if this fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, auth, id]);
+
   async function handleLogVisit() {
     if (!auth || !id || !visitNote.trim()) return;
     setIsLoggingVisit(true);
@@ -92,6 +113,11 @@ export default function AccountDetailScreen() {
       setIsLoggingVisit(false);
     }
   }
+
+  const accountConsignmentSites = resolveAccountConsignmentSites(consignmentSites, id ?? '');
+  const accountTabs = ACCOUNT_DETAIL_TABS.map((tab) =>
+    tab.key === 'consignment' ? { ...tab, disabled: !isConsignmentTabEnabled(accountConsignmentSites) } : tab,
+  );
 
   return (
     <>
@@ -127,6 +153,10 @@ export default function AccountDetailScreen() {
               </View>
             </Card>
 
+            <SegmentedTabs tabs={accountTabs} value={activeTab} onChange={setActiveTab} />
+
+            {activeTab === 'overview' ? (
+              <>
             {/* UX-M-006 — Quick visit-log action */}
             <SectionTitle title="Visit log" detail="Log a quick note from this visit. The note goes to CRM for office review." />
 
@@ -198,7 +228,11 @@ export default function AccountDetailScreen() {
                 onPress={() => setShowVisitLog(true)}
               />
             )}
+              </>
+            ) : null}
 
+            {activeTab === 'sales' ? (
+              <>
             {/* ORD-P4 — order-on-behalf entry point */}
             <SectionTitle title="Order drafts" detail="Place an order for this account. It goes to the office to finalize pricing and place in Acumatica." />
             <Card>
@@ -232,6 +266,16 @@ export default function AccountDetailScreen() {
               />
             </Card>
 
+            <Card style={{ backgroundColor: colors.surfaceMuted, boxShadow: 'none' }}>
+              <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+                Sales totals (YTD / last year) and invoice history stay parked until the Acumatica feed is approved. Orders placed above flow to the office to finalize pricing in Acumatica.
+              </Text>
+            </Card>
+              </>
+            ) : null}
+
+            {activeTab === 'overview' ? (
+              <>
             <SectionTitle title="Field ownership" />
             <Card>
               <Row label="Territory" value={account.territoryName ?? 'Not assigned'} />
@@ -256,7 +300,27 @@ export default function AccountDetailScreen() {
               ))}
               {!account.contacts.length ? <Row label="No contacts" value="Add contact management in the account slice." /> : null}
             </Card>
+              </>
+            ) : null}
 
+            {activeTab === 'consignment' ? (
+              <>
+            <SectionTitle title="Consignment" detail={`${accountConsignmentSites.length} site${accountConsignmentSites.length === 1 ? '' : 's'} for this account`} />
+            {accountConsignmentSites.length ? (
+              accountConsignmentSites.map((site) => <AccountConsignmentCard key={site.id} site={site} />)
+            ) : (
+              <Card>
+                <Text selectable style={{ ...typography.callout, color: colors.muted }}>
+                  No consignment sites are linked to this account.
+                </Text>
+              </Card>
+            )}
+            <SecondaryButton label="Open ROSE audits" icon={{ name: 'shippingbox.fill', fallback: 'C' }} onPress={() => router.push('/consignment')} />
+              </>
+            ) : null}
+
+            {activeTab === 'history' ? (
+              <>
             <SectionTitle title="Training" detail="Field-ready training context for upcoming mobile execution." />
             <Card>
               {trainingHistory ? (
@@ -285,6 +349,8 @@ export default function AccountDetailScreen() {
                 <Row label="Training context" value="Not available for this session." />
               )}
             </Card>
+              </>
+            ) : null}
           </>
         ) : null}
       </Screen>
@@ -365,6 +431,32 @@ function ContactAction({ disabled, icon, label, onPress }: { disabled: boolean; 
     >
       <NativeIcon name={icon} color={disabled ? colors.subtle : colors.primaryDeep} size={18} />
     </Pressable>
+  );
+}
+
+// FR-MOB-036 — compact per-site consignment summary on the account's Consignment tab.
+function AccountConsignmentCard({ site }: { site: ConsignmentSiteSummary }) {
+  const { palette: colors } = useTheme();
+  return (
+    <Card>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text selectable style={{ ...typography.subtitle, color: colors.text }}>
+            {site.name}
+          </Text>
+          <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+            {site.territoryName ?? site.locationName ?? 'Territory pending'}
+          </Text>
+        </View>
+        <Pill label={humanize(site.status)} tone={site.status} />
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <MiniStat label="Open work" value={String(site.openWorkItemCount)} tone={site.openWorkItemCount > 0 ? 'warning' : 'normal'} />
+        <MiniStat label="Discrepancies" value={String(site.openDiscrepancyCount)} tone={site.openDiscrepancyCount > 0 ? 'warning' : 'normal'} />
+      </View>
+      <Row label="Last audit" value={formatDate(site.lastAuditCompletedAt)} />
+      <Row label="Next audit" value={formatDate(site.nextAuditDueAt)} />
+    </Card>
   );
 }
 

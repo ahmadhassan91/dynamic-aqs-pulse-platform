@@ -345,6 +345,52 @@ export function SecondaryButton({ label, onPress, disabled, icon }: { label: str
   );
 }
 
+// Segmented tab control (FR-MOB-036). A disabled tab renders greyed and non-pressable.
+export function SegmentedTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: { key: T; label: string; disabled?: boolean }[];
+  value: T;
+  onChange: (key: T) => void;
+}) {
+  const { palette: colors } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceMuted, borderRadius: radius.lg, padding: 3, gap: 2, borderCurve: 'continuous' }}>
+      {tabs.map((tab) => {
+        const active = tab.key === value;
+        const disabled = Boolean(tab.disabled);
+        return (
+          <Pressable
+            key={tab.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active, disabled }}
+            accessibilityLabel={tab.label}
+            disabled={disabled}
+            onPress={() => onChange(tab.key)}
+            style={{
+              flex: 1,
+              minHeight: 38,
+              borderRadius: radius.md,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: active ? colors.surface : 'transparent',
+              ...(active ? { borderWidth: 1, borderColor: colors.border } : null),
+              opacity: disabled ? 0.45 : 1,
+              borderCurve: 'continuous',
+            }}
+          >
+            <Text style={{ ...typography.caption, fontFamily: 'Inter_700Bold', color: disabled ? colors.subtle : active ? colors.primary : colors.muted }}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Field({ label, style, ...props }: TextInputProps & { label: string; style?: TextStyle }) {
   const { palette: colors } = useTheme();
   return (

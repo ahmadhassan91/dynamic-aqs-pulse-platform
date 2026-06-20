@@ -2,18 +2,23 @@ import type { ReactElement, ReactNode } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { radius, spacing, typography } from '@/theme';
+import { useResponsiveLayout } from '@/hooks/use-responsive-layout';
 import { useTheme } from '@/providers/theme-provider';
 
 export function Screen({ children }: { children: ReactNode }) {
   const { palette: colors } = useTheme();
+  // FR-MOB-009 — cap + centre the content column so cards/text don't stretch on iPad (no-op on phones).
+  const { contentMaxWidth } = useResponsiveLayout();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136, gap: spacing.lg }}
+      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136 }}
       keyboardShouldPersistTaps="handled"
     >
-      {children}
+      <View style={{ width: '100%', maxWidth: contentMaxWidth, alignSelf: 'center', gap: spacing.lg }}>
+        {children}
+      </View>
     </ScrollView>
   );
 }
@@ -35,12 +40,14 @@ export function ListScreen<T>({
   empty?: ReactNode;
 }) {
   const { palette: colors } = useTheme();
+  // FR-MOB-009 — cap + centre the list column on iPad (no-op on phones).
+  const { contentMaxWidth } = useResponsiveLayout();
   return (
     <FlatList
       data={data as T[]}
       style={{ flex: 1, backgroundColor: colors.background }}
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136, gap: spacing.md }}
+      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 136, gap: spacing.md, width: '100%', maxWidth: contentMaxWidth, alignSelf: 'center' }}
       keyboardShouldPersistTaps="handled"
       keyExtractor={keyExtractor}
       renderItem={({ item, index }) => renderItem(item, index)}

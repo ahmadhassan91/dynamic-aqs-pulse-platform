@@ -185,6 +185,7 @@ const SF_TO_IONICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   'pencil.and.list.clipboard': 'clipboard',
   'person.3.fill': 'people',
   'phone.fill': 'call',
+  'envelope.fill': 'mail',
   'photo.on.rectangle.angled': 'images',
   'plus.circle.fill': 'add-circle',
   'minus.circle.fill': 'remove-circle',

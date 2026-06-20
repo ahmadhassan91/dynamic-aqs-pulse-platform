@@ -12,7 +12,7 @@ import { fetchCalendarWorkspace } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { MobileLiveApiStatus } from '@/lib/mobile-live-api-status';
 import type { MobileNextAction } from '@/lib/mobile-next-action';
-import { countOverdueRoseSites } from '@/lib/today-metrics';
+import { TODAY_LEAD_INBOX_HREF, countOverdueRoseSites } from '@/lib/today-metrics';
 import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { radius, spacing, typography } from '@/theme';
@@ -80,6 +80,9 @@ export default function FieldHomeScreen() {
 
       <SectionTitle title="Start here" detail="Pulse ranks route, lead, ROSE, and phone-saved work into one next action." />
       <MobileNextActionCard action={nextActions.primary} onPress={openNextAction} />
+
+      {/* FR-MOB-007/046 (Q-M-02): always-present lead-inbox entry so Leads is never buried under More */}
+      <SecondaryButton label="Lead inbox" icon={{ name: 'person.crop.circle.badge.plus', fallback: 'Leads' }} onPress={() => router.push(TODAY_LEAD_INBOX_HREF)} />
 
       <SectionTitle title="Today's priorities" detail="Start with the oldest urgent follow-up, then refresh when you are back online." />
       <View style={{ gap: spacing.md }}>

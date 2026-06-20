@@ -139,6 +139,7 @@ test('orderDraftDetailToFormState round-trips a server detail into editable form
   const state = orderDraftDetailToFormState({
     id: 'd1',
     accountId: 'acct-9',
+    source: 'internal_on_behalf',
     status: 'draft',
     currencyCode: 'USD',
     subtotalCents: 0,

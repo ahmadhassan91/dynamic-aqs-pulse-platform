@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countOverdueRoseSites } from '../src/lib/today-metrics.ts';
+import { TODAY_LEAD_INBOX_HREF, countOverdueRoseSites } from '../src/lib/today-metrics.ts';
 import { MOBILE_ADVANCEABLE_STAGES } from '../src/lib/lead-stage-policy.ts';
 
 // --- countOverdueRoseSites ---
@@ -40,6 +40,12 @@ test('countOverdueRoseSites counts only overdue sites in a mixed list', () => {
     { nextAuditDueAt: '2026-06-08T11:59:59.999Z' }, // overdue (1ms before now)
   ];
   assert.equal(countOverdueRoseSites(sites, now), 2);
+});
+
+// --- TODAY_LEAD_INBOX_HREF (FR-MOB-007/046) ---
+
+test('TODAY_LEAD_INBOX_HREF points at the lead inbox route', () => {
+  assert.equal(TODAY_LEAD_INBOX_HREF, '/leads');
 });
 
 // --- MOBILE_ADVANCEABLE_STAGES ---

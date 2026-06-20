@@ -4,6 +4,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import type { ConsignmentAuditSummary, ConsignmentSiteSummary } from '@pulse/contracts/consignment';
 import { Card, EmptyState, ErrorState, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SearchField, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { formatDate, formatDateTime, humanize } from '@/lib/format';
+import { CONSIGNMENT_SOURCE_STATE_META, deriveConsignmentSourceState } from '@/lib/consignment-source-status';
 import {
   areRoseLineCountsValid,
   formatQuantity,
@@ -126,7 +127,12 @@ export default function ConsignmentScreen() {
 
 function ConsignmentSiteCard({ onOpen, site }: { onOpen: () => void; site: ConsignmentSiteSummary }) {
   const { palette: colors } = useTheme();
-  const acumaticaTone = site.acumaticaStatus === 'available' ? 'active' : 'review';
+  // FR-MOB-011: classify the expected-count source so a parked office source reads differently from a stale one.
+  const sourceMeta = CONSIGNMENT_SOURCE_STATE_META[deriveConsignmentSourceState({
+    acumaticaStatus: site.acumaticaStatus,
+    acumaticaLastSyncedAt: site.acumaticaLastSyncedAt,
+    now: new Date(),
+  })];
   return (
     <Card>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -148,7 +154,7 @@ function ConsignmentSiteCard({ onOpen, site }: { onOpen: () => void; site: Consi
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}>
-        <Pill label={`Source ${humanize(site.acumaticaStatus)}`} tone={acumaticaTone} />
+        <Pill label={sourceMeta.label} tone={sourceMeta.tone} />
         <SecondaryButton label="Start ROSE" icon={{ name: 'checklist', fallback: 'R' }} onPress={onOpen} />
       </View>
     </Card>
@@ -196,6 +202,14 @@ function RoseAuditCard({
 }) {
   const { palette: colors } = useTheme();
   const [currentStep, setCurrentStep] = useState<RoseAuditStep>('counts');
+  // FR-MOB-011: parked-vs-stale classification of the expected-count source, shown before counting.
+  const sourceMeta = CONSIGNMENT_SOURCE_STATE_META[deriveConsignmentSourceState({
+    acumaticaStatus: site.acumaticaStatus,
+    acumaticaLastSyncedAt: site.acumaticaLastSyncedAt,
+    sourceFreshnessLabel: audit?.sourceFreshnessLabel,
+    expectedSource: audit?.expectedSource,
+    now: new Date(),
+  })];
   const varianceSummary = summarizeVariance(lineCounts);
   const submitBlocker = getRoseSubmitBlocker({ attestedByName, evidenceItems, isAttested, isSubmitting, lineCounts, notes, varianceSummary });
   const countsReady = areRoseLineCountsValid(lineCounts);
@@ -230,14 +244,17 @@ function RoseAuditCard({
           {currentStep === 'counts' ? (
             <RoseStepPanel title="Step 1 of 5" detail="Verify the source, then enter the physical count for every ROSE item.">
               <Card style={{ backgroundColor: colors.surface, boxShadow: 'none' }}>
-                <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
-                  Expected count source
-                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+                  <Text selectable style={{ ...typography.caption, color: colors.muted, textTransform: 'uppercase' }}>
+                    Expected count source
+                  </Text>
+                  <Pill label={sourceMeta.label} tone={sourceMeta.tone} />
+                </View>
                 <Text selectable style={{ ...typography.callout, color: colors.text }}>
                   {humanize(audit.expectedSource)} · {audit.sourceFreshnessLabel}
                 </Text>
                 <Text selectable style={{ ...typography.caption, color: colors.warning }}>
-                  Verify manually when the office source is parked or stale.
+                  {sourceMeta.guidance}
                 </Text>
               </Card>
               <RoseLineCountSection

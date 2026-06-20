@@ -1,13 +1,14 @@
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
 import type { OrderDraftSummary } from '@pulse/contracts/orders';
 import type { AccountTrainingHistoryResponse } from '@pulse/contracts/training';
-import { Card, ErrorState, LoadingState, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
+import { Card, ErrorState, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { createMobileVoiceNote, fetchAccountDetail, fetchAccountOrderDrafts, fetchAccountTrainingHistory } from '@/lib/api';
 import { formatDate, initials } from '@/lib/format';
 import { formatGroupClassification } from '@/lib/account-map-status';
+import { buildMailtoUrl, buildTelUrl, chooseCallNumber } from '@/lib/contact-link';
 import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { radius, spacing, typography } from '@/theme';
@@ -251,7 +252,7 @@ export default function AccountDetailScreen() {
             <SectionTitle title="Contacts" detail={`${account.contacts.length} contact${account.contacts.length === 1 ? '' : 's'} on file`} />
             <Card>
               {account.contacts.slice(0, 4).map((contact) => (
-                <Row key={contact.id} label={`${contact.firstName} ${contact.lastName}`} value={contact.email ?? contact.phone ?? contact.mobilePhone ?? 'No direct contact'} />
+                <ContactRow key={contact.id} contact={contact} />
               ))}
               {!account.contacts.length ? <Row label="No contacts" value="Add contact management in the account slice." /> : null}
             </Card>
@@ -302,6 +303,68 @@ function MiniStat({ label, tone = 'normal', value }: { label: string; tone?: 'no
         {value}
       </Text>
     </View>
+  );
+}
+
+// FR-MOB-035 — per-contact tap-to-call / tap-to-email. URL building is in the pure contact-link
+// helper (unit-tested); here we only fire Linking.openURL when the helper returns a usable URL.
+function ContactRow({ contact }: { contact: AccountDetail['contacts'][number] }) {
+  const { palette: colors } = useTheme();
+  const telUrl = buildTelUrl(chooseCallNumber(contact));
+  const mailUrl = buildMailtoUrl(contact.email);
+  const subtitle = contact.email ?? chooseCallNumber(contact) ?? 'No direct contact';
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text selectable style={{ ...typography.callout, color: colors.text, fontWeight: '700' }}>
+          {contact.firstName} {contact.lastName}
+        </Text>
+        <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+          {subtitle}
+        </Text>
+      </View>
+      <ContactAction
+        label={`Call ${contact.firstName} ${contact.lastName}`}
+        icon="phone.fill"
+        disabled={!telUrl}
+        onPress={() => {
+          if (telUrl) void Linking.openURL(telUrl);
+        }}
+      />
+      <ContactAction
+        label={`Email ${contact.firstName} ${contact.lastName}`}
+        icon="envelope.fill"
+        disabled={!mailUrl}
+        onPress={() => {
+          if (mailUrl) void Linking.openURL(mailUrl);
+        }}
+      />
+    </View>
+  );
+}
+
+function ContactAction({ disabled, icon, label, onPress }: { disabled: boolean; icon: string; label: string; onPress: () => void }) {
+  const { palette: colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={{
+        width: 42,
+        height: 42,
+        borderRadius: radius.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: disabled ? colors.surfaceMuted : colors.primarySoft,
+        opacity: disabled ? 0.55 : 1,
+        borderCurve: 'continuous',
+      }}
+    >
+      <NativeIcon name={icon} color={disabled ? colors.subtle : colors.primaryDeep} size={18} />
+    </Pressable>
   );
 }
 

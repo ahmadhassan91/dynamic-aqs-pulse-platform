@@ -6,8 +6,8 @@
 |-------|-------|
 | Module | Reporting & Dashboards |
 | Document Type | Master PRD |
-| Version | 1.3 |
-| Status | Draft — build-status reconciliation 2026-06-20: the existing reports module (saved-report builder, scheduling, 5 executors — now role-scoped) and the RPT-P1 lead dashboard were marked Not-built in error; corrected (see *Build-status reconciliation* + §12). Prior: dashboard-mockup analysis 2026-06-20 (FR-RPT-075–079 from SRC-RPT-011); scope-sourcing correction 2026-06-18 (FR-RPT-016 attribution; Power BI speaker) |
+| Version | 1.4 |
+| Status | Draft — RPT-P2/P3/P4 build-status update 2026-06-20 (Training + Executive dashboards + KPI drill-down + CSV export shipped; see Build-status reconciliation §RPT-P2/P3/P4 + §12). Prior: build-status reconciliation 2026-06-20 (existing builder/scheduling + RPT-P1 lead dashboard); dashboard-mockup analysis (FR-RPT-075–079); scope-sourcing correction 2026-06-18 |
 | Owner | Product / Operations |
 | Sprint Sequence | Cross-module; reporting surfaces attach to Seq 01–05 module work |
 | Priority | P0 — #1 executive ask |
@@ -63,7 +63,26 @@ A build-status pass against the shipped code found the prior revision **material
 | FR-RPT-073 | Not-built | **Partial** | `training_compliance` schedulable monthly; delivery preview-mode |
 | FR-RPT-074 | Parked | **Partial** | preview dispatcher built (`processDueReportSchedules` records deliveries + advances `nextRunAt`); real Microsoft Graph mailbox send remains Parked |
 
-**Still genuinely Not-built** in this surface (not contradicted by the existing module): FR-RPT-060 (drag-drop *any-field* selector — the implemented builder picks one of 5 fixed report types, not arbitrary fields), FR-RPT-062 (sort), FR-RPT-063 (pre-save preview tab), FR-RPT-067 (chart type), FR-RPT-008 (CSV/Excel/PDF export), FR-RPT-006/007/009 (charts — no chart library installed). The 8 role dashboards (Executive/Finance/TM/RD/Training/Consignment/Dealer) remain unbuilt beyond the Lead surface.
+**Still genuinely Not-built** in this surface (not contradicted by the existing module): FR-RPT-060 (drag-drop *any-field* selector — the implemented builder picks one of 5 fixed report types, not arbitrary fields), FR-RPT-062 (sort), FR-RPT-063 (pre-save preview tab), FR-RPT-067 (chart type), FR-RPT-006/007/009 (charts — no chart library installed).
+
+### RPT-P2 / P3 / P4 update (2026-06-20)
+
+Subsequent slices shipped the Training dashboard (commit e5f623b), the Executive overview (9aee568), and KPI drill-down + CSV export (5b77b78). Corrected statuses (authoritative over inline cells where they differ):
+
+| FR | Was | Now | Evidence |
+|----|-----|-----|----------|
+| FR-RPT-018 | Not-built | **Built** | Executive cross-module exception summary (overdue audits / training / stale leads / open consignment work items) |
+| FR-RPT-020 | Partial | **Built** | Executive dashboard gated on `reports.executive` (getExecutiveDashboard + UI tab) |
+| FR-RPT-050 | Not-built | **Built** | Training-overdue exception (overdue-programs KPI + overdue-account list) |
+| FR-RPT-051 | Not-built | **Built** | Site-visits vs trainings split (siteVisits metric + training counts) |
+| FR-RPT-011 | Not-built | **Partial** | Exec KPIs open-leads / active-sites / trainings built; YTD revenue + active accounts parked on Acumatica |
+| FR-RPT-005 | Not-built | **Partial** | KPI cards drill down by navigating to the module list; in-place filtered drawer is the richer later version |
+| FR-RPT-008 | Not-built | **Partial** | CSV export on saved-report runs (dependency-free); Excel/PDF + dashboard export deferred (need a library) |
+| FR-RPT-048 | Partial | **Partial** | total training hours built; per-account hours breakdown still pending |
+| FR-RPT-049 | Not-built | **Partial** | training hours by trainer built; RD/region/state breakdown pending |
+| FR-RPT-052 | Not-built | **Partial** | training-type breakdown built; per-TM (type×TM) cross pending |
+
+Reporting Home now has 3 working CRM-data dashboards (Executive / Leads / Training, role-gated) + KPI drill-down + CSV, alongside the pre-existing builder/scheduling. Remaining dashboard FRs are Acumatica-parked (revenue) or finer role surfaces (Finance/RD/Consignment/Dealer tabs).
 
 ---
 
@@ -187,10 +206,10 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-002 | Dashboard tab navigation: Executive, Sales & BD, Finance & Ops, TM, RD, Training, Consignment, Dealer | Tabs visible to each user are restricted by their role permissions. TM does not see the Executive tab. Dealer sees only Dealer. | P0 | Partial (Tabs framework: Dashboard / Saved reports; the 8 enumerated role dashboards not yet) | SRC-RPT-001, SRC-RPT-005 |
 | FR-RPT-003 | Configurable "active account" threshold | Admin can configure the window (e.g. ordered in last N months) that defines an "active account" for all dashboard KPI counts. C G: "Active accounts — we should be able to change that parameter." (SRC-RPT-001) | P1 | Not-built | SRC-RPT-001 |
 | FR-RPT-004 | Role-based data scope (row-level visibility) | TMs see only their assigned accounts/territory. RDs see their TM subordinates' data in rollup. Executives and Admins see full dataset. Dealers see only their own account data. | P0 | Partial (server-side row-level scope now enforced in all 5 report executors + the lead dashboard — commits 4dfe445/619de4f; not every reporting surface built) | SRC-RPT-006, SRC-RPT-007 |
-| FR-RPT-005 | Dashboard KPI cards — drill-down on click | Clicking a KPI card (e.g. "Training Overdue: 14") opens the filtered list view behind that number. | P1 | Not-built | SRC-RPT-001 (C G: "There are times when we need to run a special report") |
+| FR-RPT-005 | Dashboard KPI cards — drill-down on click | Clicking a KPI card (e.g. "Training Overdue: 14") opens the filtered list view behind that number. | P1 | Partial (KPI cards drill down by navigating to the module list; in-place filtered drawer pending) | SRC-RPT-001 (C G: "There are times when we need to run a special report") |
 | FR-RPT-006 | Dashboard charts: bar, line, area — switchable | Each chart widget offers bar / line / area toggle. Ahmad confirmed: "We have different chart options by area, line, and bar." (SRC-RPT-001) | P1 | Not-built | SRC-RPT-001 |
 | FR-RPT-007 | Revenue by month chart (last 6 months + YTD) | Standard chart shows monthly revenue bars with a YTD cumulative overlay. Scope to territory for TM view, regional rollup for RD, full company for Executive. | P0 | Not-built | SRC-RPT-001 |
-| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001, SRC-RPT-005 |
+| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | Partial (CSV export on saved-report runs; Excel/PDF + dashboard export deferred — need a library) | SRC-RPT-001, SRC-RPT-005 |
 | FR-RPT-009 | Summary view + chart view toggle per report | Each pre-built report has a Summary tab (key metrics) and a Chart tab (visual). | P1 | Not-built | SRC-RPT-001 |
 | FR-RPT-010 | "Reporting Home" as module; listed in role access | `reports` module key already present in WORKSPACE_MODULES. Route, page shell, and navigation entry to be wired. | P0 | Built (reports module key + `/reports` route/page + nav entry all wired) | SRC-RPT-006 |
 
@@ -198,16 +217,16 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 
 | ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
 |----|------------|---------------------|----------|-------------|-----|
-| FR-RPT-011 | Executive dashboard: YTD revenue, active accounts, open leads, training hours, audit compliance | Five KPI cards visible at-a-glance on executive landing. Ahmad demo'd these at Session 12. | P0 | Not-built | SRC-RPT-001 |
+| FR-RPT-011 | Executive dashboard: YTD revenue, active accounts, open leads, training hours, audit compliance | Five KPI cards visible at-a-glance on executive landing. Ahmad demo'd these at Session 12. | P0 | Partial (CRM KPIs built — open leads / active consignment sites / trainings completed / open exceptions; YTD revenue + active accounts parked on Acumatica) | SRC-RPT-001 |
 | FR-RPT-012 | Year-over-year (YoY) revenue by affinity group / PE group | Shows group revenue current year vs prior year side-by-side. Michelle: "We like to see YoY revenue by group … ARS, Service Experts." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-013 | YoY revenue by location (within a group) | Drill one level deeper: group → individual locations, current year vs prior year. Michelle: "Air Serve revenue by location, year over year, because we like to see the dip." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-014 | New account revenue tracking — first year and second year | When a new account comes on board, track their revenue through year 1 and year 2 separately. Michelle: "We track new account revenue for the first year and the second year because that's a big deal." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-015 | Lost account tracking | Report showing accounts that were active and have not ordered within the configured active-account window. Michelle: "We also like to see lost accounts." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-016 | Revenue by territory manager (monthly + YTD) | Bar chart of TM revenue contributions side-by-side. Ahmad demo'd "territory revenue by manager" in Session 12. — ⚠️ CORRECTED 2026-06-18: vendor-demo'd; the real territory-sales pain is Dan, Discovery Session 1 (see Scope corrections). | P0 | Not-built | SRC-RPT-001, SRC-RPT-010 |
 | FR-RPT-017 | Revenue by state — territory map overlay | Table and map showing revenue aggregated by state. Ahmad demo'd "revenue by state." | P1 | Partial (TerritoryCommandDashboard has coverage counts by state/TM but not revenue figures; revenue requires Acumatica sync) | SRC-RPT-001, SRC-RPT-009 |
-| FR-RPT-018 | Executive exception summary — cross-module | Single panel surfacing all open exceptions: overdue audits, overdue training, accounts on credit hold, overdue POs, stale leads. C G: "I want an alert for pretty much anything." (SRC-RPT-005); SRC-RPT-004: "Executive exception summary across modules" | P0 | Not-built | SRC-RPT-004, SRC-RPT-005 |
+| FR-RPT-018 | Executive exception summary — cross-module | Single panel surfacing all open exceptions: overdue audits, overdue training, accounts on credit hold, overdue POs, stale leads. C G: "I want an alert for pretty much anything." (SRC-RPT-005); SRC-RPT-004: "Executive exception summary across modules" | P0 | Built (Executive dashboard cross-module exception summary — overdue audits / training / stale leads / open consignment work items; credit-hold parked on Acumatica) | SRC-RPT-004, SRC-RPT-005 |
 | FR-RPT-019 | Affinity group / PE group / independent performance comparison | Table showing total revenue, YoY growth %, new accounts, and active accounts broken out by group type. | P1 | Not-built | SRC-RPT-001, SRC-RPT-004 |
-| FR-RPT-020 | `reports.executive` action gate | Executive dashboard is only accessible to users with the `reports.executive` permission. All other roles see their own default. | P0 | Partial (action key defined in contracts; gating not enforced in a built UI) | SRC-RPT-006, SRC-RPT-007 |
+| FR-RPT-020 | `reports.executive` action gate | Executive dashboard is only accessible to users with the `reports.executive` permission. All other roles see their own default. | P0 | Built (Executive dashboard + tab gated on `reports.executive` in API and UI) | SRC-RPT-006, SRC-RPT-007 |
 
 ### 7.3 Sales & BD Dashboard (FR-RPT-021 through FR-RPT-027)
 
@@ -262,8 +281,8 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 |----|------------|---------------------|----------|-------------|-----|
 | FR-RPT-048 | Training hours by account | Total training hours delivered to each account, filterable by period, TM, type. C G: "Can't run a report for how many trainings we did last month." (SRC-RPT-002) | P0 | Partial (TrainingWorkspace exists; no dedicated reporting view) | SRC-RPT-002, SRC-RPT-004 |
 | FR-RPT-049 | Training hours by TM / RD / region / state | Aggregate training hours broken out by TM, RD, region, and state. | P0 | Not-built | SRC-RPT-004 |
-| FR-RPT-050 | Training overdue / no-contact exception | Exception list: accounts that have not received training within the configured threshold (e.g. 90-day or 180-day policy). C G + Don discussed "90 days if set as parameter." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001, SRC-RPT-004 |
-| FR-RPT-051 | Site visits vs trainings breakdown | Separate count of site visits (non-training) from training events so Michelle can see "site visit visibility separate from training." (SRC-RPT-004) | P1 | Not-built | SRC-RPT-004 |
+| FR-RPT-050 | Training overdue / no-contact exception | Exception list: accounts that have not received training within the configured threshold (e.g. 90-day or 180-day policy). C G + Don discussed "90 days if set as parameter." (SRC-RPT-001) | P0 | Built (Training dashboard overdue-programs KPI + overdue-account list) | SRC-RPT-001, SRC-RPT-004 |
+| FR-RPT-051 | Site visits vs trainings breakdown | Separate count of site visits (non-training) from training events so Michelle can see "site visit visibility separate from training." (SRC-RPT-004) | P1 | Built (Training dashboard separates site-visit count from training sessions/hours) | SRC-RPT-004 |
 | FR-RPT-052 | Training type breakdown by TM | How many product trainings, sales trainings, certifications each TM has delivered, by period. | P1 | Not-built | SRC-RPT-004 |
 | FR-RPT-053 | Training penetration by account tier (TM view) | Percentage of TM's accounts that have received at least one training in the configured active window. | P1 | Built (TerritoryCommandDashboard has trainingPenetration with penetrationPercent) | SRC-RPT-009 |
 
@@ -483,13 +502,13 @@ Added 2026-06-20 from the client's as-is Dynamics 365 dashboard screenshots (`Me
 The lists below were reconciled against the shipped code on 2026-06-20 (see *Build-status reconciliation*) and categorize all 79 FRs.
 
 **Built (confirmed in code):**
-FR-RPT-010 (reports module + route + nav), FR-RPT-021 (lead intake by source/state), FR-RPT-023 (lead→account conversion rate), FR-RPT-026 (homeowner/contractor segmentation), FR-RPT-039 (90-day staleness), FR-RPT-053 (training penetration), FR-RPT-054 (consignment dashboard), FR-RPT-055 (audit compliance KPI), FR-RPT-058 (PO overdue count + mean cycle days), FR-RPT-064 (saved report definitions, personal/shared), FR-RPT-066 (builder gated on reports.builder), FR-RPT-069 (recurring schedules), FR-RPT-070 (multi-recipient delivery list)
+FR-RPT-010 (reports module + route + nav), FR-RPT-018 (exec cross-module exception summary), FR-RPT-020 (reports.executive gate), FR-RPT-021 (lead intake by source/state), FR-RPT-023 (lead→account conversion rate), FR-RPT-026 (homeowner/contractor segmentation), FR-RPT-039 (90-day staleness), FR-RPT-050 (training-overdue exception), FR-RPT-051 (site visits vs trainings), FR-RPT-053 (training penetration), FR-RPT-054 (consignment dashboard), FR-RPT-055 (audit compliance KPI), FR-RPT-058 (PO overdue count + mean cycle days), FR-RPT-064 (saved report definitions, personal/shared), FR-RPT-066 (builder gated on reports.builder), FR-RPT-069 (recurring schedules), FR-RPT-070 (multi-recipient delivery list)
 
 **Partial (backing code exists; full Reporting Home surface not built):**
-FR-RPT-001 (shell + default Dashboard tab; per-role defaults pending), FR-RPT-002 (tab framework; 8 role dashboards pending), FR-RPT-004 (row-level scope enforced in executors + lead dashboard; not every surface), FR-RPT-020, FR-RPT-022 (stage counts; aging pending), FR-RPT-025, FR-RPT-030, FR-RPT-031, FR-RPT-035, FR-RPT-040, FR-RPT-042, FR-RPT-043, FR-RPT-048, FR-RPT-056, FR-RPT-061 (config filters; arbitrary-field filters pending), FR-RPT-065 (report types as shared saved reports; named templates pending), FR-RPT-068 (saved-reports list; pre-built tile section pending), FR-RPT-072 (scheduling built; delivery preview-mode), FR-RPT-073 (training schedule built; delivery preview-mode), FR-RPT-074 (preview dispatcher built; Microsoft Graph send Parked)
+FR-RPT-001 (shell + default tab; per-role defaults pending), FR-RPT-002 (tabs Exec/Leads/Training/Saved-reports; remaining role dashboards pending), FR-RPT-004 (row-level scope enforced in executors + dashboards; not every surface), FR-RPT-005 (drill-down navigates to module list; in-place filtered drawer pending), FR-RPT-008 (CSV on saved-report runs; Excel/PDF + dashboard export pending), FR-RPT-011 (exec CRM KPIs built; revenue/active-accounts parked), FR-RPT-022 (stage counts; aging pending), FR-RPT-025, FR-RPT-030, FR-RPT-031, FR-RPT-035, FR-RPT-040, FR-RPT-042, FR-RPT-043, FR-RPT-048 (total hours; per-account pending), FR-RPT-049 (by trainer; RD/region/state pending), FR-RPT-052 (type breakdown; per-TM pending), FR-RPT-056, FR-RPT-061 (config filters; arbitrary-field pending), FR-RPT-065 (report types as shared saved reports; named templates pending), FR-RPT-068 (saved-reports list; pre-built tile section pending), FR-RPT-072 (scheduling built; delivery preview-mode), FR-RPT-073 (training schedule built; delivery preview-mode), FR-RPT-074 (preview dispatcher built; Microsoft Graph send Parked)
 
 **Not-built (Pulse-owned work, no external blocker):**
-FR-RPT-003, FR-RPT-005, FR-RPT-006, FR-RPT-007, FR-RPT-008, FR-RPT-009, FR-RPT-011, FR-RPT-012, FR-RPT-013, FR-RPT-014, FR-RPT-015, FR-RPT-016, FR-RPT-018, FR-RPT-019, FR-RPT-024, FR-RPT-027, FR-RPT-034, FR-RPT-038, FR-RPT-041, FR-RPT-044, FR-RPT-045, FR-RPT-046, FR-RPT-047, FR-RPT-049, FR-RPT-050, FR-RPT-051, FR-RPT-052, FR-RPT-057, FR-RPT-060 (drag-drop any-field builder), FR-RPT-062, FR-RPT-063, FR-RPT-067, FR-RPT-071, FR-RPT-076 (member-list import dependency), FR-RPT-077 (goal config; revenue parked), FR-RPT-079 (new-account count)
+FR-RPT-003, FR-RPT-006, FR-RPT-007, FR-RPT-009, FR-RPT-012, FR-RPT-013, FR-RPT-014, FR-RPT-015, FR-RPT-016, FR-RPT-019, FR-RPT-024, FR-RPT-027, FR-RPT-034, FR-RPT-038, FR-RPT-041, FR-RPT-044, FR-RPT-045, FR-RPT-046, FR-RPT-047, FR-RPT-057, FR-RPT-060 (drag-drop any-field builder), FR-RPT-062, FR-RPT-063, FR-RPT-067, FR-RPT-071, FR-RPT-076 (member-list import dependency), FR-RPT-077 (goal config; revenue parked), FR-RPT-079 (new-account count)
 
 **Parked (blocked on Acumatica sync or Microsoft Graph):**
 FR-RPT-017 (revenue figures), FR-RPT-028, FR-RPT-029, FR-RPT-032, FR-RPT-033 (delivery), FR-RPT-036, FR-RPT-037, FR-RPT-059, FR-RPT-075 (product-category revenue), FR-RPT-078 (Top-N revenue rankings)

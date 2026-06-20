@@ -103,6 +103,12 @@ export interface CreateOrderDraftRequest {
   referenceCode?: string;
   currencyCode?: string;
   lines?: OrderDraftLineInput[];
+  /**
+   * Optional client-supplied idempotency key. Replaying a create with the same key (per actor) returns
+   * the existing draft instead of creating a duplicate — closes the FR-MOB-047 offline-retry
+   * lost-response window where a create committed server-side but its response never reached the client.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UpdateOrderDraftRequest {

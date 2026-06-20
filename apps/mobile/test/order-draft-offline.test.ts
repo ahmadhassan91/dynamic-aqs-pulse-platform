@@ -23,6 +23,12 @@ test('buildOrderDraftOfflinePayload makes a CREATE payload when there is no draf
   assert.equal((payload.request as { accountId?: string }).accountId, 'acct-1');
 });
 
+test('buildOrderDraftOfflinePayload preserves a create idempotencyKey so the offline replay dedupes', () => {
+  const request = { ...buildCreateOrderDraftRequest(formWithLine()), idempotencyKey: 'idmp-abc' };
+  const payload = buildOrderDraftOfflinePayload({ request, currentDraftId: undefined, accountId: 'acct-1', accountName: 'Acme' });
+  assert.equal((payload.request as { idempotencyKey?: string }).idempotencyKey, 'idmp-abc');
+});
+
 test('buildOrderDraftOfflinePayload makes an UPDATE payload when a draft id exists', () => {
   const request = buildUpdateOrderDraftRequest(formWithLine());
   const payload = buildOrderDraftOfflinePayload({ request, currentDraftId: 'draft-9', accountId: 'acct-1', accountName: 'Acme' });

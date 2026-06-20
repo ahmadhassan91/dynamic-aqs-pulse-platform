@@ -2,7 +2,7 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { AccountDetail } from '@pulse/contracts/accounts';
-import type { OrderDraftStatusKey, OrderProductOption } from '@pulse/contracts/orders';
+import type { CreateOrderDraftRequest, OrderDraftStatusKey, OrderProductOption, UpdateOrderDraftRequest } from '@pulse/contracts/orders';
 import {
   Card,
   ErrorState,
@@ -57,6 +57,9 @@ export default function OrderDraftScreen() {
   const [form, setForm] = useState<OrderDraftFormState>(() => createEmptyOrderDraftForm(accountId));
   const [account, setAccount] = useState<AccountDetail | null>(null);
   const [currentDraftId, setCurrentDraftId] = useState<string | undefined>(params.draftId);
+  // FR-MOB-047 — a stable per-attempt idempotency key for the CREATE: reused across the online attempt
+  // and any offline replay so a create whose response was lost dedupes server-side instead of duplicating.
+  const [idempotencyKey] = useState(() => `idmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
   const [status, setStatus] = useState<OrderDraftStatusKey>('draft');
   const [isLoading, setIsLoading] = useState(true);
   const [saving, setSaving] = useState<SavingMode>(null);
@@ -142,11 +145,16 @@ export default function OrderDraftScreen() {
     setSaving(mode);
     setErrorMessage(null);
     setMessage(null);
+    // Build the request once so the online attempt and any offline replay are identical. The CREATE
+    // carries a stable idempotencyKey so a lost-response replay dedupes server-side (no duplicate draft).
+    const request: CreateOrderDraftRequest | UpdateOrderDraftRequest = currentDraftId
+      ? buildUpdateOrderDraftRequest(snapshot)
+      : { ...buildCreateOrderDraftRequest(snapshot), idempotencyKey };
     try {
       const token = auth.tokens.accessToken;
       const detail = currentDraftId
-        ? await updateOrderDraft(apiBaseUrl, token, currentDraftId, buildUpdateOrderDraftRequest(snapshot))
-        : await createOrderDraft(apiBaseUrl, token, buildCreateOrderDraftRequest(snapshot));
+        ? await updateOrderDraft(apiBaseUrl, token, currentDraftId, request as UpdateOrderDraftRequest)
+        : await createOrderDraft(apiBaseUrl, token, request as CreateOrderDraftRequest);
       // Commit the persisted draft to state BEFORE any dependent call, so a submit failure
       // can't strand an untracked draft and a retry updates it instead of creating a duplicate.
       setCurrentDraftId(detail.id);
@@ -160,17 +168,16 @@ export default function OrderDraftScreen() {
     } catch (error) {
       // FR-MOB-047 — offline parity: persist the order on-device so the work is never lost, then let
       // Sync Status replay it when CRM is reachable. (A submit still needs a server-side draft first,
-      // so an offline submit syncs the draft and the office/online submit completes it.)
-      // KNOWN LIMITATION: if a create reached the server but its response was lost in transit, the
-      // replay re-creates rather than updates (no draftId was received), risking a duplicate. The
-      // durable fix is server-side idempotency on POST /api/v1/order-drafts (tracked as a follow-up).
+      // so an offline submit syncs the draft and the office/online submit completes it.) The CREATE's
+      // idempotencyKey makes the replay safe: if the original create reached the server but its response
+      // was lost, the server returns that draft on retry instead of creating a duplicate.
       try {
         await enqueueDraftDurably({
           kind: 'order_draft',
           title: 'Order draft',
           detail: '',
           payload: buildOrderDraftOfflinePayload({
-            request: currentDraftId ? buildUpdateOrderDraftRequest(snapshot) : buildCreateOrderDraftRequest(snapshot),
+            request,
             currentDraftId,
             accountId,
             accountName,

@@ -151,6 +151,38 @@ test('creates an order draft on behalf of an account with line snapshots and est
   assert.equal(auditCount, 1);
 });
 
+test('replaying a create with the same idempotency key returns the same draft (no duplicate)', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const account = await createAccountRow({ displayName: 'Idempotent Co' });
+  const product = await createProductRow('SKU-IDEM-1');
+
+  const input = {
+    accountId: account.id,
+    idempotencyKey: 'idmp-test-key-1',
+    lines: [{ baseProductId: product.id, quantity: 2, unitPriceCents: 500 }],
+  };
+
+  const first = await createOrderDraft(actor, input);
+  const second = await createOrderDraft(actor, input);
+
+  // Same draft returned, and exactly one row exists for the key.
+  assert.equal(second.id, first.id);
+  const keyCount = await prisma.orderDraft.count({ where: { idempotencyKey: 'idmp-test-key-1' } });
+  assert.equal(keyCount, 1);
+  // The replay must not have written a second audit CREATE entry.
+  const auditCount = await prisma.auditEntry.count({ where: { entityType: 'ORDER_DRAFT', entityId: first.id } });
+  assert.equal(auditCount, 1);
+
+  // A different key creates a distinct draft.
+  const third = await createOrderDraft(actor, { ...input, idempotencyKey: 'idmp-test-key-2' });
+  assert.notEqual(third.id, first.id);
+
+  // No key preserves legacy behavior: every call creates a new draft.
+  const fourth = await createOrderDraft(actor, { accountId: account.id, lines: input.lines });
+  const fifth = await createOrderDraft(actor, { accountId: account.id, lines: input.lines });
+  assert.notEqual(fourth.id, fifth.id);
+});
+
 test('lists and fetches order drafts, filters by account and status', SERIAL, async () => {
   const actor = await createAdminActor();
   const accountA = await createAccountRow({ displayName: 'Account A' });

@@ -3977,6 +3977,7 @@ model OrderDraft {
   subtotalCents     Int              @default(0)
   lineCount         Int              @default(0)
   pricingEstimated  Boolean          @default(false)
+  idempotencyKey    String?
   createdByUserId   String?          @db.Uuid
   submittedAt       DateTime?
   submittedByUserId String?          @db.Uuid
@@ -3999,6 +4000,9 @@ model OrderDraft {
   @@index([createdByUserId])
   @@index([submittedByUserId])
   @@index([status, updatedAt])
+  // FR-MOB-047 idempotency: a (per-actor) key dedupes replayed offline creates. Nullable on both
+  // columns, so existing rows (no key) and Postgres NULL semantics never collide.
+  @@unique([createdByUserId, idempotencyKey])
 }
 
 model OrderDraftLine {

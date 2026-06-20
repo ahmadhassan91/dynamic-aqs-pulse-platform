@@ -159,48 +159,79 @@ export async function createOrderDraft(
     await assertShipToBelongsToAccount(accountId, shipToLocationId);
   }
 
+  // FR-MOB-047 idempotency: an offline create can be replayed after its first response was lost. With a
+  // client-supplied key, a replay returns the original draft instead of creating a duplicate. The lookup
+  // is scoped to this actor; the @@unique([createdByUserId, idempotencyKey]) constraint backs it on races.
+  const idempotencyKey = optionalTrimmed(input.idempotencyKey);
+  if (idempotencyKey) {
+    const existing = await prisma.orderDraft.findFirst({
+      where: { idempotencyKey, createdByUserId: actor.userId },
+      include: ORDER_DRAFT_INCLUDE,
+    });
+    if (existing) {
+      return toOrderDraftDetail(existing);
+    }
+  }
+
   const { lineData, subtotalCents, pricingEstimated } = await buildLineCreateData(input.lines ?? []);
   const currencyCode = normalizeCurrency(input.currencyCode);
   const notes = optionalTrimmed(input.notes);
   const customerPoNumber = optionalTrimmed(input.customerPoNumber);
   const referenceCode = optionalTrimmed(input.referenceCode);
 
-  const created = await prisma.$transaction(async (tx) => {
-    const draft = await tx.orderDraft.create({
-      data: {
-        account: { connect: { id: accountId } },
-        createdBy: { connect: { id: actor.userId } },
-        currencyCode,
-        subtotalCents,
-        lineCount: lineData.length,
-        pricingEstimated,
-        ...(shipToLocationId ? { shipToLocation: { connect: { id: shipToLocationId } } } : {}),
-        ...(notes ? { notes } : {}),
-        ...(customerPoNumber ? { customerPoNumber } : {}),
-        ...(referenceCode ? { referenceCode } : {}),
-        ...(lineData.length ? { lines: { create: lineData } } : {}),
-      },
-      include: ORDER_DRAFT_INCLUDE,
-    });
-
-    await tx.auditEntry.create({
-      data: buildAuditEntryData({
-        actorUserId: actor.userId,
-        action: AuditAction.CREATE,
-        entityType: ORDER_DRAFT_ENTITY_TYPE,
-        entityId: draft.id,
-        metadata: { sessionId: actor.sessionId, actorRole: actor.role, actorType: actor.actorType },
-        afterData: {
-          accountId: draft.accountId,
-          status: draft.status,
-          lineCount: draft.lineCount,
-          subtotalCents: draft.subtotalCents,
+  let created: OrderDraftWithRelations;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const draft = await tx.orderDraft.create({
+        data: {
+          account: { connect: { id: accountId } },
+          createdBy: { connect: { id: actor.userId } },
+          currencyCode,
+          subtotalCents,
+          lineCount: lineData.length,
+          pricingEstimated,
+          ...(shipToLocationId ? { shipToLocation: { connect: { id: shipToLocationId } } } : {}),
+          ...(notes ? { notes } : {}),
+          ...(customerPoNumber ? { customerPoNumber } : {}),
+          ...(referenceCode ? { referenceCode } : {}),
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          ...(lineData.length ? { lines: { create: lineData } } : {}),
         },
-      }),
-    });
+        include: ORDER_DRAFT_INCLUDE,
+      });
 
-    return draft;
-  });
+      await tx.auditEntry.create({
+        data: buildAuditEntryData({
+          actorUserId: actor.userId,
+          action: AuditAction.CREATE,
+          entityType: ORDER_DRAFT_ENTITY_TYPE,
+          entityId: draft.id,
+          metadata: { sessionId: actor.sessionId, actorRole: actor.role, actorType: actor.actorType },
+          afterData: {
+            accountId: draft.accountId,
+            status: draft.status,
+            lineCount: draft.lineCount,
+            subtotalCents: draft.subtotalCents,
+          },
+        }),
+      });
+
+      return draft;
+    });
+  } catch (error) {
+    // Lost the dedup race (a concurrent replay of the same key won) — the unique constraint fired;
+    // return the winning draft instead of surfacing a duplicate-key error.
+    if (idempotencyKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const existing = await prisma.orderDraft.findFirst({
+        where: { idempotencyKey, createdByUserId: actor.userId },
+        include: ORDER_DRAFT_INCLUDE,
+      });
+      if (existing) {
+        return toOrderDraftDetail(existing);
+      }
+    }
+    throw error;
+  }
 
   return toOrderDraftDetail(created);
 }

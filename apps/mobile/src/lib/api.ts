@@ -48,6 +48,7 @@ import type {
   UploadTrainingSessionProofResponse,
 } from '@pulse/contracts/training';
 import type { TerritoryMapWorkspaceResponse } from '@pulse/contracts/territories';
+import type { LeadDashboardResponse, TrainingDashboardResponse } from '@pulse/contracts/reports';
 import type {
   CancelOrderDraftRequest,
   CreateOrderDraftRequest,
@@ -235,6 +236,16 @@ export async function fetchTrainingSessions(apiBaseUrl: string, accessToken: str
 
 export async function fetchAccountTrainingHistory(apiBaseUrl: string, accessToken: string, accountId: string) {
   return requestJson<AccountTrainingHistoryResponse>(apiBaseUrl, `/api/v1/training/accounts/${encodeURIComponent(accountId)}`, { accessToken });
+}
+
+// FR-MOB-058 — role-scoped reporting dashboards for the RD rollup. The server scopes leads/training to
+// the actor's book; RD lacks reports.executive so we use these, not /reports/dashboard/executive.
+export async function fetchLeadDashboard(apiBaseUrl: string, accessToken: string) {
+  return requestJson<LeadDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/leads', { accessToken });
+}
+
+export async function fetchTrainingDashboard(apiBaseUrl: string, accessToken: string) {
+  return requestJson<TrainingDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/training', { accessToken });
 }
 
 export async function createTrainingSessionRecord(apiBaseUrl: string, accessToken: string, accountId: string, input: CreateTrainingSessionRequest) {

@@ -3,11 +3,15 @@ import { Linking, Pressable, Switch, Text, View } from 'react-native';
 import type { DigitalAssetSummary } from '@pulse/contracts/digital-assets';
 import { Card, EmptyState, ErrorState, Field, HeroCard, LoadingState, NativeIcon, Pill, PrimaryButton, Screen, SecondaryButton, SectionTitle } from '@/components/native-kit';
 import { useMobileAssets } from '@/hooks/use-mobile-assets';
+import { isRdDashboardRole } from '@/lib/rd-dashboard-metrics';
 import { radius, spacing, typography } from '@/theme';
+import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
 
 export default function AssetsScreen() {
   const { palette: colors, isHighContrast, setHighContrast, scheme } = useTheme();
+  const { auth } = useSession();
+  const showRd = isRdDashboardRole(auth?.identity.role);
   const { assets, cache, clearSearch, createShareForSelectedAsset, errorMessage, isLoading, isSharing, loadAssets, search, selectedAsset, selectAsset, setSearch, shareUrl, submitSearch } = useMobileAssets();
 
   return (
@@ -58,6 +62,18 @@ export default function AssetsScreen() {
         <QueueButton label="ROSE audits" icon={{ name: 'shippingbox.fill', fallback: 'C' }} onPress={() => router.push('/consignment')} />
         <QueueButton label="Training" icon={{ name: 'graduationcap.fill', fallback: 'T' }} onPress={() => router.push('/training')} />
       </View>
+
+      {showRd ? (
+        <>
+          <SectionTitle title="Director overview" detail="Regional pipeline, training, and consignment exceptions — for Regional Directors and executives." />
+          <MoreAction
+            detail="Pipeline health, training compliance, and consignment exceptions across your region, scoped to your book."
+            icon={{ name: 'building.2.fill', fallback: 'RD' }}
+            label="Director overview"
+            onPress={() => router.push('/rd-dashboard')}
+          />
+        </>
+      ) : null}
 
       <SectionTitle title="Asset Library" detail="Search once, choose one approved asset, then create a customer-safe share link." />
       <Field label="Search assets" value={search} onChangeText={setSearch} placeholder="Product, brochure, file name..." returnKeyType="search" onSubmitEditing={submitSearch} />

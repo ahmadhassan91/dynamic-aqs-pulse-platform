@@ -40,6 +40,8 @@ import {
   type OrderDraftFormState,
   type OrderDraftLineDraft,
 } from '@/lib/order-draft-form';
+import { buildOrderDraftOfflinePayload } from '@/lib/order-draft-offline';
+import { describeDraftSaveFailure, enqueueDraftDurably } from '@/lib/mobile-draft-queue';
 import { useSession } from '@/providers/session-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { radius, spacing, typography } from '@/theme';
@@ -156,7 +158,27 @@ export default function OrderDraftScreen() {
       }
       setMessage('Draft saved to CRM. The office finalizes pricing and places the order.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Could not save the order.');
+      // FR-MOB-047 — offline parity: persist the order on-device so the work is never lost, then let
+      // Sync Status replay it when CRM is reachable. (A submit still needs a server-side draft first,
+      // so an offline submit syncs the draft and the office/online submit completes it.)
+      try {
+        await enqueueDraftDurably({
+          kind: 'order_draft',
+          title: 'Order draft',
+          detail: '',
+          payload: buildOrderDraftOfflinePayload({
+            request: currentDraftId ? buildUpdateOrderDraftRequest(snapshot) : buildCreateOrderDraftRequest(snapshot),
+            currentDraftId,
+            accountId,
+            accountName,
+          }),
+        });
+        const failure = describeDraftSaveFailure(error);
+        setMessage(mode === 'submit' ? `${failure.message} Submit once it syncs.` : failure.message);
+        setErrorMessage(null);
+      } catch {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not save the order.');
+      }
     } finally {
       inFlight.current = false;
       setSaving(null);
@@ -270,6 +292,15 @@ export default function OrderDraftScreen() {
                       </Pressable>
                     ) : null}
                   </View>
+                  {!readOnly || line.lineNote ? (
+                    <Field
+                      label="Line note"
+                      value={line.lineNote ?? ''}
+                      editable={!readOnly}
+                      onChangeText={(text) => setForm((current) => updateLine(current, line.key, { lineNote: text }))}
+                      placeholder="Optional note for this line (size, finish, special instructions)"
+                    />
+                  ) : null}
                 </View>
               ))}
             </Card>

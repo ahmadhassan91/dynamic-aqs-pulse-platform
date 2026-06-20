@@ -2,12 +2,13 @@ import { useSyncExternalStore } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { UpdateConsignmentAuditRequest } from '@pulse/contracts/consignment';
+import type { CreateOrderDraftRequest, UpdateOrderDraftRequest } from '@pulse/contracts/orders';
 import type { CheckInTrainingSessionRequest, CompleteTrainingSessionRequest, CreateTrainingSessionRequest } from '@pulse/contracts/training';
-import { PulseApiError, checkInTrainingSessionRecord, completeTrainingSessionRecord, createTrainingSessionRecord, updateConsignmentAudit } from '@/lib/api';
+import { PulseApiError, checkInTrainingSessionRecord, completeTrainingSessionRecord, createOrderDraft, createTrainingSessionRecord, updateConsignmentAudit, updateOrderDraft } from '@/lib/api';
 import { refreshRouteVisitCreateRequestForRetry } from '@/lib/mobile-draft-route-policy';
 import { getMobileDraftReviewState, isMobileDraftReviewRetryable, type MobileDraftReviewCategory, type MobileDraftReviewState } from '@/lib/mobile-draft-review-policy';
 
-export type MobileDraftKind = 'consignment_rose_audit' | 'route_visit' | 'training_session';
+export type MobileDraftKind = 'consignment_rose_audit' | 'route_visit' | 'training_session' | 'order_draft';
 export type MobileDraftStatus = 'pending' | 'syncing' | 'failed' | 'conflict' | 'synced';
 
 export type MobileDraftErrorKind = 'storage' | 'network' | 'server' | 'conflict' | 'validation' | 'auth' | 'unknown';
@@ -52,7 +53,7 @@ export type MobileDraft = {
   errorMessage?: string;
   error?: MobileDraftErrorMetadata;
   retryCount?: number;
-  payload: ConsignmentRoseAuditDraftPayload | RouteVisitDraftPayload | TrainingSessionDraftPayload;
+  payload: ConsignmentRoseAuditDraftPayload | RouteVisitDraftPayload | TrainingSessionDraftPayload | OrderDraftDraftPayload;
 };
 
 export type RoseEvidenceMetadata = {
@@ -111,6 +112,18 @@ export type TrainingSessionDraftPayload = {
   attendeeCount: number;
   proofNotes?: string;
   completeRequest: CompleteTrainingSessionRequest;
+};
+
+// FR-MOB-047 — an order-on-behalf draft queued for offline replay. A create when CRM has no id yet,
+// otherwise a full-replacement update. The retry is atomic (a single create-or-update), unlike the
+// route-visit create→check-in→complete chain.
+export type OrderDraftDraftPayload = {
+  kind: 'order_draft';
+  draftId?: string;
+  isUpdate: boolean;
+  accountId: string;
+  accountName: string;
+  request: CreateOrderDraftRequest | UpdateOrderDraftRequest;
 };
 
 const draftQueueKey = 'pulse.mobile.draftQueue.v1';
@@ -337,6 +350,13 @@ export async function retryDraft(apiBaseUrl: string, accessToken: string, draftI
       await completeTrainingSessionRecord(apiBaseUrl, accessToken, sessionId, draft.payload.completeRequest);
     } else if (draft.payload.kind === 'training_session') {
       await completeTrainingSessionRecord(apiBaseUrl, accessToken, draft.payload.sessionId, draft.payload.completeRequest);
+    } else if (draft.payload.kind === 'order_draft') {
+      // Atomic: an order draft retries as a single create-or-update, then is marked synced below.
+      if (draft.payload.isUpdate && draft.payload.draftId) {
+        await updateOrderDraft(apiBaseUrl, accessToken, draft.payload.draftId, draft.payload.request as UpdateOrderDraftRequest);
+      } else {
+        await createOrderDraft(apiBaseUrl, accessToken, draft.payload.request as CreateOrderDraftRequest);
+      }
     } else {
       throw new Error('This draft cannot be retried with the current mobile sync contract.');
     }
@@ -668,6 +688,17 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
         notes: redactedDraft.payload.notes.slice(0, 1000),
         ...(redactedDraft.payload.proofNotes ? { proofNotes: redactedDraft.payload.proofNotes.slice(0, 1000) } : {}),
         completeRequest,
+      },
+    };
+  }
+  if (redactedDraft.payload.kind === 'order_draft') {
+    return {
+      ...redactedDraft,
+      title: 'Order draft',
+      detail: redactedDraft.detail || 'Order saved on this device until CRM accepts it. Final pricing and placement happen in Acumatica.',
+      payload: {
+        ...redactedDraft.payload,
+        accountName: 'Order account',
       },
     };
   }

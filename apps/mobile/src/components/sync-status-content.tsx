@@ -21,6 +21,7 @@ export function SyncStatusContent() {
   const roseDrafts = pendingDrafts.filter((draft) => draft.kind === 'consignment_rose_audit').length;
   const routeDrafts = pendingDrafts.filter((draft) => draft.kind === 'route_visit').length;
   const trainingDrafts = pendingDrafts.filter((draft) => draft.kind === 'training_session').length;
+  const orderDrafts = pendingDrafts.filter((draft) => draft.kind === 'order_draft').length;
   const canRetry = Boolean(auth);
 
   return (
@@ -64,7 +65,7 @@ export function SyncStatusContent() {
           <Pill label={`${syncedDrafts.length} CRM saved`} tone="active" />
         </View>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
-          ROSE {roseDrafts} · Route {routeDrafts} · Training {trainingDrafts} · Phone storage {summary.storageHydrated ? 'ready' : 'loading'}
+          ROSE {roseDrafts} · Route {routeDrafts} · Training {trainingDrafts} · Orders {orderDrafts} · Phone storage {summary.storageHydrated ? 'ready' : 'loading'}
         </Text>
         <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
           For this mobile slice, retry is manual. Background sync, conflict merging, push/deep links, route optimization, and offline photo/file caches remain parked.
@@ -144,6 +145,9 @@ export function SyncStatusContent() {
                     ) : null}
                     {draft.payload.kind === 'training_session' ? (
                       <TrainingDraftSummary draft={draft} />
+                    ) : null}
+                    {draft.payload.kind === 'order_draft' ? (
+                      <OrderDraftSummary draft={draft} />
                     ) : null}
                   </View>
                   <Pill
@@ -321,6 +325,44 @@ function TrainingDraftSummary({ draft }: { draft: MobileDraft }) {
       <Text selectable style={{ ...typography.caption, color: colors.muted }}>
         {draft.payload.notes}
       </Text>
+    </View>
+  );
+}
+
+function OrderDraftSummary({ draft }: { draft: MobileDraft }) {
+  const { palette: colors } = useTheme();
+  if (draft.payload.kind !== 'order_draft') return null;
+  const lines = draft.payload.request.lines ?? [];
+  const units = lines.reduce((sum, line) => sum + (typeof line.quantity === 'number' ? line.quantity : 0), 0);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+        {draft.payload.isUpdate
+          ? 'Order changes will retry as an update to the existing CRM draft.'
+          : 'Order will retry by creating the draft in CRM. Final pricing and placement happen in Acumatica.'}
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <DraftMetric label="Lines" value={String(lines.length)} />
+        <DraftMetric label="Units" value={String(units)} />
+        {draft.payload.request.customerPoNumber ? <DraftMetric label="PO" value={String(draft.payload.request.customerPoNumber)} /> : null}
+      </View>
+      {lines.slice(0, 4).map((line, index) => (
+        <View key={`${line.sku ?? line.productName ?? 'line'}-${index}`} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: 2 }}>
+          <Text selectable style={{ ...typography.caption, color: colors.text, fontWeight: '800' }}>
+            {line.productName ?? line.sku ?? 'Item'} × {line.quantity}
+          </Text>
+          {line.lineNote ? (
+            <Text selectable style={{ ...typography.caption, color: colors.muted }}>
+              {line.lineNote}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+      {lines.length > 4 ? (
+        <Text selectable style={{ ...typography.caption, color: colors.subtle }}>
+          {lines.length - 4} more line{lines.length - 4 === 1 ? '' : 's'} saved in the draft.
+        </Text>
+      ) : null}
     </View>
   );
 }

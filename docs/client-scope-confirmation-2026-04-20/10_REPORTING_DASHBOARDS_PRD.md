@@ -6,8 +6,8 @@
 |-------|-------|
 | Module | Reporting & Dashboards |
 | Document Type | Master PRD |
-| Version | 1.1 |
-| Status | Draft — scope-sourcing correction applied 2026-06-18 (FR-RPT-016 attribution; Power BI speaker; Discovery Session 1 added to Source Inventory) |
+| Version | 1.2 |
+| Status | Draft — dashboard-mockup analysis applied 2026-06-20 (added FR-RPT-075–079 from SRC-RPT-011; line-57 "not parseable" note retracted; OQ-RPT-009/010/011 added). Prior: scope-sourcing correction 2026-06-18 (FR-RPT-016 attribution; Power BI speaker; Discovery Session 1 added to Source Inventory) |
 | Owner | Product / Operations |
 | Sprint Sequence | Cross-module; reporting surfaces attach to Seq 01–05 module work |
 | Priority | P0 — #1 executive ask |
@@ -25,6 +25,16 @@ A program-wide scope-accuracy re-check (verifying every client-attributed / "con
 - **Power BI out-of-scope note.** The "mentioned by Dan" attribution is wrong — Power BI was raised by **Ahmad Hassan (vendor)**, not Dan, in the April scope-review session. Corrected inline in §5.
 
 Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
+
+---
+
+## Scope additions (2026-06-20) — dashboard-mockup analysis
+
+The prior revision's Source Inventory noted that the client's `Dashbaords/` screenshots "were not parseable as text" and excluded them. On 2026-06-20 the seven images (the client's as-is Dynamics 365 "Residential Sales Dashboard" P1/P3) were analyzed visually and catalogued as **SRC-RPT-011**. They surfaced five reporting widgets the original 74 FRs did not capture. A cross-PRD refutation audit (all 16 module PRDs + parked PRDs) verified each is genuinely absent from the Reporting PRD before adding it; two adjacent items were confirmed already captured in other modules and are cross-referenced rather than duplicated.
+
+- **Added as new FRs (see §7.11):** FR-RPT-075 product-category revenue; FR-RPT-076 affinity member-list penetration %; FR-RPT-077 sales goal vs actual; FR-RPT-078 Top-N account tiles; FR-RPT-079 new-account acquisition count.
+- **Cross-referenced (no duplicate FR added):** contest/campaign ROI reporting → parked Promotions/Coupons/Contests PRD (PCC-006) + Training FR-TRN-055 + Dealer Portal FR-DPO-037; dealer rebate-qualifying spend (quarter filter, shipping excluded) → Dealer Portal FR-DPO-012 / FR-DPO-062 / FR-DPO-064.
+- **New open questions:** OQ-RPT-009 (goal tracking — mockup-only, never voiced in discovery), OQ-RPT-010 (member-list penetration metric definition), OQ-RPT-011 (product-category taxonomy / internal-vs-dealer parity with OQ-DPO-005).
 
 ---
 
@@ -53,8 +63,11 @@ Full audit: `docs/SCOPE_ACCURACY_AUDIT_2026-06-18.md`.
 | SRC-RPT-008 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/api/src/modules/consignment/service.ts` | Code evidence: 5 consignment KPIs built server-side (auditComplianceRatePct, onTimeFirstBaselinePct, overduePoCount, meanPoCycleDays, exitCompletionRatePct); consignment dashboard endpoint |
 | SRC-RPT-009 | `/Users/clustox1/Documents/Currie/dynamic-aqs-pulse-platform/apps/crm-web/src/components/territories/TerritoryCommandDashboard.tsx` | Code evidence: territory dashboard component with training penetration, overdue engagement (90-day), regional rollups — built UI surface |
 | SRC-RPT-010 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Discovery Session 1 - 16th Feb 2026.md` | Added 2026-06-18: client-voiced territory-sales reporting pain — Dan Harshbarger: "all the sales that happened in Florida, South Carolina and Georgia. Well, I can get all breath sales but I don't know how I would get Florida, South Carolina, Georgia." Backs FR-RPT-016 / FR-RPT-017 as the genuine pain point behind the vendor-demo'd manager/state rollups |
+| SRC-RPT-011 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Dashbaords/` (attachment-1.png, attachment-1.jpeg, attachment-2..6.jpeg) | Added 2026-06-20: the client's as-is Dynamics 365 "Residential Sales Dashboard" (P1/P3) screenshots, analyzed visually. Evidenced five widgets not previously captured: **sales by product category** ("Active Product Categories — Last 12 Month Sales By Category": UV Lights $17.3M, Air Cleaners $12.8M, Media, Pan Treatment); **affinity-group member-list penetration %** ("% of Sold Accounts of Member List Count": Service Experts 69.31%, ARS 60.81%); **sales goal vs actual** ("Current Year Goals vs. Sales", Total Sales Goal = $40M, Goal-CYTD bars); **Top-N tiles** (Top 20 Customers, Top YoY Increases, Top YoY Declines); **new-account count** by month and by owner ("Residential First Order Dates — New Accounts By Month", "New Accounts This Fiscal Year by Owner"). Basis for FR-RPT-075 through FR-RPT-079. |
+| SRC-RPT-012 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/02 March session 7 Discovery - Delaer Portal.md` | Added 2026-06-20: Michelle Hogan's recurring product-category sales-mix ask — "what percentage of our business is [each category] … air cleaner, UV lights, pant treatments, HEPA." Verbal corroboration for FR-RPT-075 (product-category revenue), alongside the SRC-RPT-011 mockup. |
+| SRC-RPT-013 | `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/24 Feb 2026 Discovery session 4.md` | Added 2026-06-20: affinity member-list context — lists of 300–1,000 members; Dan Harshbarger manually cross-references each group's member list against sales for rebate eligibility. Verbal corroboration for FR-RPT-076 (member-list penetration %), alongside the SRC-RPT-011 mockup. |
 
-Note: `.docx` variants of meeting files were not attempted; the `.md` equivalents above are complete and fully readable. The `Dashbaords/` folder under `/Users/clustox1/Documents/Currie/dynamic-aqs-crm/Meetings/Dashbaords/` contains only screenshot images (attachment-*.jpeg/png) and was not parseable as text.
+Note: `.docx` variants of meeting files were not attempted; the `.md` equivalents above are complete and fully readable. ⚠️ CORRECTED 2026-06-20: the earlier statement that the `Dashbaords/` screenshots "were not parseable as text" is **retracted** — the seven images were analyzed visually on 2026-06-20, catalogued as SRC-RPT-011, and are the basis for FR-RPT-075 through FR-RPT-079 (see Scope additions).
 
 ---
 
@@ -99,6 +112,11 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 - Consignment-audit-overdue report (SRC-RPT-001, SRC-RPT-004)
 - Role-based dashboard and builder access gating (SRC-RPT-006, SRC-RPT-007)
 - Configurable "active account" parameter (C G, SRC-RPT-001: "active = ordered in last N months, configurable")
+- Sales-by-product-category revenue mix on Executive/Sales dashboards (SRC-RPT-011 + Michelle, Session 7; FR-RPT-075 — Parked on Acumatica)
+- Affinity / buying-group member-list penetration % (SRC-RPT-011 + Session 4; FR-RPT-076)
+- Sales goal vs actual / YTD attainment on the Executive dashboard (SRC-RPT-011; FR-RPT-077 — pending client confirmation, OQ-RPT-009)
+- Top-N ranked account tiles — Top Customers, Top YoY Increases, Top Declining-but-Active (SRC-RPT-011; FR-RPT-078)
+- New-account acquisition count by month and by owner (SRC-RPT-011; FR-RPT-079)
 
 ---
 
@@ -123,6 +141,10 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | Microsoft Graph email delivery for scheduled reports | Same Microsoft Graph credentials dependency as lead/consignment alert delivery |
 | Dealer portal revenue analytics beyond Acumatica-synced order data | Acumatica/Shopify data quality alignment |
 | Payment aging and DSO (days sales outstanding) calculations | Acumatica financial data |
+| Sales-by-product-category revenue (FR-RPT-075) | Acumatica order-line / product-category revenue sync |
+| Top-N revenue rankings — Top Customers / Increases / Declines (FR-RPT-078) | Acumatica revenue figures |
+| Sales goal vs actual — actual-revenue half (FR-RPT-077) | Acumatica revenue sync (goal config is Pulse-owned) |
+| Contest / campaign ROI reporting surface | Promotions/Coupons/Contests module activation (parked PRD PCC-006) + Acumatica sales attribution |
 
 ---
 
@@ -252,6 +274,23 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-073 | Scheduled report: training hours and overdue follow-up — monthly | Michelle: "An account that hasn't had training … any accounts on hold at the end of every month." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-074 | Scheduled report delivery dispatcher (Microsoft Graph sendMail) | Email delivery uses Microsoft Graph. Persisted schedule records queue on `PENDING` until Graph credentials certified — same pattern as consignment/lead alert delivery. | P0 | Parked (Microsoft Graph credentials dependency) | SRC-RPT-001 |
 
+### 7.11 Dashboard-mockup-sourced additions (FR-RPT-075 through FR-RPT-079)
+
+Added 2026-06-20 from the client's as-is Dynamics 365 dashboard screenshots (`Meetings/Dashbaords/`, SRC-RPT-011), which the prior revision had not parsed (see *Scope additions*). Each row below is a widget the client uses today and/or voiced in discovery but which the original 74 FRs did not capture. Each was verified absent from the Reporting PRD via the 2026-06-20 cross-PRD refutation audit before being added here.
+
+| ID | Requirement | Acceptance Criteria | Priority | Build Status | SRC |
+|----|------------|---------------------|----------|-------------|-----|
+| FR-RPT-075 | Revenue / sales by product category (and product line) | Executive and Sales dashboards include a "Sales by Product Category" widget (e.g. UV Lights, Air Cleaners, Media, Pan Treatment, Replacement Parts) for the trailing-12-month window, showing $ and % of total, drill-down to category. Client mockup "Active Product Categories — Last 12 Month Sales By Category"; Michelle (Session 7): "what percentage of our business is [each category] … air cleaner, UV lights, pant treatments, HEPA." Category taxonomy from Product Management PRD 13 (see OQ-RPT-011). | P1 | Parked (requires Acumatica order-line / product-category revenue sync) | SRC-RPT-011, SRC-RPT-012 |
+| FR-RPT-076 | Affinity / buying-group member-list penetration | For each affinity / PE / buying group, a tile shows total member-list count, count of those members that are sold/active accounts, and penetration % (sold ÷ members), with drill-through to the member/account list. Client mockup "% of Sold Accounts of Member List Count" (Service Experts 69.31%, ARS 60.81%); Session 4: Dan cross-references member lists vs sales for rebates. Depends on member-list import (FR-L-004 / FR-ACC-018); metric definition pending (OQ-RPT-010). | P1 | Not-built (member-list import dependency) | SRC-RPT-011, SRC-RPT-013 |
+| FR-RPT-077 | Sales goal vs actual — YTD attainment | Executive dashboard shows a configurable sales goal (company-wide and/or by business unit), actual YTD sales, $ delta, and attainment %, plus a monthly cumulative-sales-vs-straight-line-goal chart. Client mockup "Current Year Goals vs. Sales" (Total Sales Goal = $40M, Goal-CYTD bars). ⚠️ Present in the as-is dashboard but **not voiced in any discovery transcript** — confirm with client before building (OQ-RPT-009). | P2 | Not-built (goal config is Pulse-owned; actual revenue Parked on Acumatica sync) | SRC-RPT-011 |
+| FR-RPT-078 | Top-N ranked account tiles — Top Customers, Top YoY Increases, Top Declining-but-Active | Three ranked tiles with configurable N (default 20): (a) Top Customers by trailing-12-month revenue; (b) Top YoY revenue increases; (c) Top YoY revenue **declines among still-active accounts** — an early-churn-warning view distinct from Lost Accounts (FR-RPT-015). Each drills to the account list. Client mockups "Top 20 Customers (Last 12 Mo)", "Top YoY Sales Increases", "Top YoY Sales Declines"; Michelle (Session 12): "we like to see the dip." | P1 | Parked (requires Acumatica revenue figures) | SRC-RPT-011, SRC-RPT-001 |
+| FR-RPT-079 | New-account acquisition count by month and by owner | Count (not revenue) of newly acquired accounts by first-order / onboarding month, plus a ranking by owner/RSM and a rollup by RD/region. Distinct from FR-RPT-014 (new-account *revenue* yr1/yr2). Client mockups "Residential First Order Dates — New Accounts By Month" and "New Accounts This Fiscal Year by Owner." | P1 | Not-built (CRM onboarding / first-order date; first-order-shipped figure may need Acumatica) | SRC-RPT-011 |
+
+**Cross-referenced (captured in other module PRDs — no Reporting FR added):**
+
+- **Contest / campaign ROI reporting per TM** (units given away, monetary value, coupon/gift-card redemption, sales lift) — parked under the Promotions/Coupons/Contests PRD (**PCC-006**), with reward-tracking in Training **FR-TRN-055** and coupon redemption in Dealer Portal **FR-DPO-037**. When the Promotions module is activated, its ROI reporting surface attaches to Reporting Home. Sessions 4/5/7 (Michelle, C G, Ahmad). See §6 Parked Dependencies.
+- **Dealer self-serve rebate-qualifying spend** (quarter filter, shipping excluded) — fully captured in Dealer Portal PRD **FR-DPO-012** (YTD/monthly spend), **FR-DPO-062** (quarter / date-range filter), **FR-DPO-064** (shipping excluded from rebate-eligible spend), all sourced to Session 11 (Michelle: "they do not get rebates if they paid any shipping"). Not a Reporting-PRD gap; this PRD only cross-references it for the dealer reporting tab.
+
 ---
 
 ## 8. Non-Functional Requirements
@@ -303,6 +342,9 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | OQ-RPT-006 | Is the "training overdue" threshold the same 90-day cycle Don mentioned, or is it different per training type (e.g. 180 days for certification vs 90 days for product training)? | FR-RPT-050, ASM-RPT-007 | C G, Training Ops |
 | OQ-RPT-007 | Should the Report Builder allow creating reports across modules (e.g. a single row = account + last training date + last order date + consignment status)? Or is it module-scoped? | Builder architecture complexity | Product / Architecture |
 | OQ-RPT-008 | Adrienne asked about styling website intake forms to match brand. Does the same branding customization extend to exported PDF reports (logo, colours)? | FR-RPT-008 export format scope | Adrienne Cardinale, C G |
+| OQ-RPT-009 | Sales goal vs actual appears in the client's as-is Dynamics dashboard ($40M company goal) but was **never voiced in any discovery session**. Does the client want goal/attainment tracking carried into Pulse, and what is the goal source — single admin-entered company goal, by business unit, by TM, or imported? | FR-RPT-077 (build vs drop) | C G, Michelle Hogan, Dan Harshbarger |
+| OQ-RPT-010 | Member-list penetration metric definition: is a member counted as "sold/active" by the configurable active-account window, by any historical order, or by current-year order? And is penetration computed on member **count** or member **revenue**? | FR-RPT-076 calculation | Dan Harshbarger (rebate logic), Michelle Hogan |
+| OQ-RPT-011 | Product-category revenue: should the internal Executive/Sales dashboards mirror the dealer-portal category breakdown (OQ-DPO-005), and what is the canonical category taxonomy (from Product Management PRD 13)? | FR-RPT-075 scope + taxonomy | Product, Michelle Hogan |
 
 ---
 
@@ -384,6 +426,11 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-072 | SRC-RPT-001 | Session 12 (C G, Michelle Hogan) |
 | FR-RPT-073 | SRC-RPT-001 | Session 12 (Michelle Hogan) |
 | FR-RPT-074 | SRC-RPT-001 | Session 12 |
+| FR-RPT-075 | SRC-RPT-011, SRC-RPT-012 | Dashboard mockups (2026-06-20); Session 7 (Michelle, product-category %) |
+| FR-RPT-076 | SRC-RPT-011, SRC-RPT-013 | Dashboard mockups; Session 4 (Dan member-list/rebate cross-reference) |
+| FR-RPT-077 | SRC-RPT-011 | Dashboard mockups only — as-is, not voiced (see OQ-RPT-009) |
+| FR-RPT-078 | SRC-RPT-011, SRC-RPT-001 | Dashboard mockups; Session 12 (Michelle, "the dip") |
+| FR-RPT-079 | SRC-RPT-011 | Dashboard mockups |
 | NFR-RPT-001 | (inferred) | — |
 | NFR-RPT-002 | (inferred) | — |
 | NFR-RPT-003 | (inferred) | — |
@@ -407,10 +454,13 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 The following FR entries are confirmed Not-built or Parked and constitute the full reporting module backlog.
 
 **Not-built (Pulse-owned work, no external blocker):**
-FR-RPT-001, FR-RPT-002, FR-RPT-003, FR-RPT-005, FR-RPT-006, FR-RPT-007, FR-RPT-008, FR-RPT-009, FR-RPT-011, FR-RPT-012, FR-RPT-013, FR-RPT-014, FR-RPT-015, FR-RPT-016, FR-RPT-018, FR-RPT-019, FR-RPT-021, FR-RPT-022, FR-RPT-023, FR-RPT-024, FR-RPT-025, FR-RPT-026, FR-RPT-027, FR-RPT-030 (UI surface), FR-RPT-031 (Reporting Home surface), FR-RPT-034, FR-RPT-038, FR-RPT-040, FR-RPT-041, FR-RPT-042 (Reporting Home surface), FR-RPT-043 (default landing), FR-RPT-044, FR-RPT-045, FR-RPT-046, FR-RPT-047, FR-RPT-048 (reporting view), FR-RPT-049, FR-RPT-050, FR-RPT-051, FR-RPT-052, FR-RPT-056 (Reporting Home surface), FR-RPT-057, FR-RPT-060, FR-RPT-061, FR-RPT-062, FR-RPT-063, FR-RPT-064, FR-RPT-065, FR-RPT-067, FR-RPT-068, FR-RPT-069, FR-RPT-070, FR-RPT-071, FR-RPT-072, FR-RPT-073
+FR-RPT-001, FR-RPT-002, FR-RPT-003, FR-RPT-005, FR-RPT-006, FR-RPT-007, FR-RPT-008, FR-RPT-009, FR-RPT-011, FR-RPT-012, FR-RPT-013, FR-RPT-014, FR-RPT-015, FR-RPT-016, FR-RPT-018, FR-RPT-019, FR-RPT-021, FR-RPT-022, FR-RPT-023, FR-RPT-024, FR-RPT-025, FR-RPT-026, FR-RPT-027, FR-RPT-030 (UI surface), FR-RPT-031 (Reporting Home surface), FR-RPT-034, FR-RPT-038, FR-RPT-040, FR-RPT-041, FR-RPT-042 (Reporting Home surface), FR-RPT-043 (default landing), FR-RPT-044, FR-RPT-045, FR-RPT-046, FR-RPT-047, FR-RPT-048 (reporting view), FR-RPT-049, FR-RPT-050, FR-RPT-051, FR-RPT-052, FR-RPT-056 (Reporting Home surface), FR-RPT-057, FR-RPT-060, FR-RPT-061, FR-RPT-062, FR-RPT-063, FR-RPT-064, FR-RPT-065, FR-RPT-067, FR-RPT-068, FR-RPT-069, FR-RPT-070, FR-RPT-071, FR-RPT-072, FR-RPT-073, FR-RPT-076 (member-list import dependency), FR-RPT-077 (goal config half; revenue half parked), FR-RPT-079 (new-account count)
 
 **Parked (blocked on Acumatica sync or Microsoft Graph):**
-FR-RPT-017 (revenue figures), FR-RPT-028, FR-RPT-029, FR-RPT-032, FR-RPT-033 (delivery), FR-RPT-036, FR-RPT-037, FR-RPT-059, FR-RPT-074
+FR-RPT-017 (revenue figures), FR-RPT-028, FR-RPT-029, FR-RPT-032, FR-RPT-033 (delivery), FR-RPT-036, FR-RPT-037, FR-RPT-059, FR-RPT-074, FR-RPT-075 (product-category revenue), FR-RPT-078 (Top-N revenue rankings)
+
+**Cross-referenced to other module PRDs (no Reporting FR — see §7.11):**
+Contest / campaign ROI reporting → Promotions PCC-006 + Training FR-TRN-055 + Dealer FR-DPO-037; Dealer rebate-qualifying spend (shipping excluded, quarter filter) → Dealer Portal FR-DPO-012 / FR-DPO-062 / FR-DPO-064
 
 **Built (confirmed in code):**
 FR-RPT-039 (TerritoryCommandDashboard — 90-day staleness), FR-RPT-053 (training penetration), FR-RPT-054 (consignment dashboard), FR-RPT-055 (audit compliance KPI), FR-RPT-058 (PO overdue count + mean cycle days)

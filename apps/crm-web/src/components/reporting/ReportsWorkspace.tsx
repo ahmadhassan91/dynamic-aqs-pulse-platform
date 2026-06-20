@@ -13,11 +13,12 @@ import {
   TagsInput,
   Stack,
   Table,
+  Tabs,
   Text,
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { IconCalendarTime, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
 import type {
   ReportDefinitionSummary,
   ReportDeliveryRecordSummary,
@@ -65,6 +66,7 @@ import {
   updateReportScheduleApi,
 } from '@/lib/pulse-api-ext-reports';
 import { WorkbenchHeader } from '@/components/ui/Workbench';
+import { LeadDashboard } from '@/components/reporting/LeadDashboard';
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
   value: String(hour),
@@ -246,7 +248,7 @@ export function ReportsWorkspace() {
       <WorkbenchHeader
         eyebrow="CRM Reporting"
         title="Reports"
-        description="Saved, shareable reports over live CRM data — leads, training, consignment, territories, and field activity — with scheduled email delivery."
+        description="Role-scoped dashboards plus saved, shareable reports over live CRM data — leads, training, consignment, territories, and field activity — with scheduled email delivery."
         primaryAction={(
           <Button leftSection={<IconPlus size={16} />} onClick={() => setIsCreateOpen(true)}>
             New report
@@ -254,6 +256,22 @@ export function ReportsWorkspace() {
         )}
       />
 
+      <Tabs defaultValue="dashboard">
+        <Tabs.List mb="md">
+          <Tabs.Tab value="dashboard" leftSection={<IconLayoutDashboard size={16} />}>
+            Dashboard
+          </Tabs.Tab>
+          <Tabs.Tab value="reports" leftSection={<IconFileText size={16} />}>
+            Saved reports
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="dashboard">
+          <LeadDashboard />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="reports">
+          <Stack gap="lg">
       <Alert color="gray" variant="light" title="Revenue reporting arrives with the ERP feed">
         Order and revenue numbers stay in Acumatica until that integration is approved — these reports
         cover the CRM activity layer so the numbers here are always trustworthy.
@@ -370,6 +388,9 @@ export function ReportsWorkspace() {
           )}
         </Card>
       ) : null}
+          </Stack>
+        </Tabs.Panel>
+      </Tabs>
 
       <Modal opened={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="New report" centered>
         <Stack gap="md">

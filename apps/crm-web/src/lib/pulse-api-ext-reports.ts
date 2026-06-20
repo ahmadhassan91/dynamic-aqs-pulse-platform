@@ -7,6 +7,7 @@
 import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
+  LeadDashboardResponse,
   ListReportDefinitionsResponse,
   ListReportDeliveriesResponse,
   ListReportSchedulesResponse,
@@ -124,4 +125,8 @@ export async function deleteReportScheduleApi(apiBaseUrl: string, accessToken: s
 
 export async function listReportDeliveriesApi(apiBaseUrl: string, accessToken: string, scheduleId: string) {
   return fetchJson<ListReportDeliveriesResponse>(apiBaseUrl, `/api/v1/reports/schedules/${encodeURIComponent(scheduleId)}/deliveries`, { accessToken });
+}
+
+export async function fetchLeadDashboardApi(apiBaseUrl: string, accessToken: string) {
+  return fetchJson<LeadDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/leads', { accessToken });
 }

@@ -2,6 +2,7 @@ import { Prisma, prisma } from '@pulse/db';
 import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
+  LeadDashboardResponse,
   ListReportDefinitionsResponse,
   ListReportDeliveriesResponse,
   ListReportSchedulesResponse,
@@ -19,6 +20,7 @@ import type {
 import { REPORT_KEYS, REPORT_SCHEDULE_CADENCES, REPORT_VISIBILITIES } from '@pulse/contracts/reports';
 import { assertActionAccess, assertModuleAccess } from '@pulse/auth';
 import type { AuthenticatedActor } from '../auth/types.js';
+import { buildLeadRecordScope, resolveLeadRecordScope } from '../auth/visibility.js';
 
 type ReportDefinitionRecord = Prisma.ReportDefinitionGetPayload<{
   include: { ownerUser: { select: { id: true; displayName: true } }; _count: { select: { schedules: true } } };
@@ -199,6 +201,121 @@ export async function runReportDefinition(actor: AuthenticatedActor, definitionI
 export async function runAdHocReport(actor: AuthenticatedActor, reportKey: string, config: ReportConfig | undefined): Promise<ReportRunResult> {
   assertModuleAccess(actor.role, 'reports');
   return executeReport(assertReportKey(reportKey), config ?? {});
+}
+
+// --- Lead dashboard (role-scoped pipeline snapshot) -------------------------
+
+const LEAD_DASHBOARD_STAGES: {
+  key: string;
+  label: string;
+  value: 'NEW' | 'DISCOVERY_SCHEDULED' | 'DISCOVERY_COMPLETED' | 'CIS_SENT' | 'CIS_SIGNED' | 'ONBOARDING_COMPLETED' | 'CUSTOMER_ACTIVE';
+}[] = [
+  { key: 'new', label: 'New', value: 'NEW' },
+  { key: 'discovery_scheduled', label: 'Discovery scheduled', value: 'DISCOVERY_SCHEDULED' },
+  { key: 'discovery_completed', label: 'Discovery completed', value: 'DISCOVERY_COMPLETED' },
+  { key: 'cis_sent', label: 'CIS sent', value: 'CIS_SENT' },
+  { key: 'cis_signed', label: 'CIS signed', value: 'CIS_SIGNED' },
+  { key: 'onboarding_completed', label: 'Onboarding completed', value: 'ONBOARDING_COMPLETED' },
+  { key: 'customer_active', label: 'Customer active', value: 'CUSTOMER_ACTIVE' },
+];
+
+const LEAD_DASHBOARD_TOP_N = 8;
+
+// Role-scoped lead pipeline KPIs over CRM-native data only (no Acumatica/revenue).
+// Scope mirrors the rest of the leads module via resolveLeadRecordScope so a TM/RD
+// dashboard never counts leads outside their book. (The legacy report executors
+// above are NOT scoped — that pre-existing gap is tracked separately.)
+export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadDashboardResponse> {
+  // Reporting-surface gate + lead-data gate: this endpoint returns lead-record
+  // KPIs, so it requires the same authorization as the leads module. A role with
+  // `reports` but not `lead.view` (e.g. TRAINING_OPS) must NOT read lead data here.
+  assertModuleAccess(actor.role, 'reports');
+  assertActionAccess(actor.role, 'lead.view');
+
+  // Two scopes. `scoped` = what the actor can currently see (the TM pre-handoff
+  // visibility gate applies) — used for the pipeline/visibility KPIs. `owned` =
+  // the actor's full book WITHOUT the pre-handoff gate — used only for the
+  // conversion funnel so the denominator is stable and comparable across roles
+  // instead of being inflated by the gate (a non-pre-handoff TM otherwise sees a
+  // near-100% rate computed over only its converted/override-visible leads).
+  const visibleScope = await resolveLeadRecordScope(actor);
+  const ownedScope = buildLeadRecordScope(actor, { preHandoffTmVisibility: true });
+  const scoped = (filter: Prisma.LeadWhereInput): Prisma.LeadWhereInput =>
+    visibleScope ? { AND: [visibleScope, filter] } : filter;
+  const owned = (filter: Prisma.LeadWhereInput): Prisma.LeadWhereInput =>
+    ownedScope ? { AND: [ownedScope, filter] } : filter;
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86_400_000);
+  const active: Prisma.LeadWhereInput = { lifecycleStatus: 'ACTIVE' };
+
+  const [
+    totalActiveLeads,
+    newStageCount,
+    slaAtRiskCount,
+    intakeLast30Days,
+    convertedLeads,
+    totalLeads,
+    homeowner,
+    contractor,
+    stageGroups,
+    sourceGroups,
+    stateGroups,
+  ] = await Promise.all([
+    prisma.lead.count({ where: scoped(active) }),
+    prisma.lead.count({ where: scoped({ ...active, stage: 'NEW' }) }),
+    prisma.lead.count({ where: scoped({ ...active, initialContactedAt: null, initialContactDueAt: { lt: now } }) }),
+    prisma.lead.count({ where: scoped({ createdAt: { gte: thirtyDaysAgo } }) }),
+    prisma.lead.count({ where: owned({ stage: 'CUSTOMER_ACTIVE' }) }),
+    prisma.lead.count({ where: owned({}) }),
+    prisma.lead.count({ where: scoped({ ...active, leadType: 'HOMEOWNER' }) }),
+    prisma.lead.count({ where: scoped({ ...active, leadType: 'CONTRACTOR' }) }),
+    prisma.lead.groupBy({ by: ['stage'], where: scoped(active), _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ['leadSourceId'], where: scoped(active), _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ['state'], where: scoped(active), _count: { _all: true } }),
+  ]);
+
+  const stageCounts = new Map<string, number>(stageGroups.map((group) => [group.stage as string, group._count._all]));
+  const byStage = LEAD_DASHBOARD_STAGES.map((stage) => ({
+    stage: stage.key,
+    label: stage.label,
+    count: stageCounts.get(stage.value) ?? 0,
+  }));
+
+  const sourceIds = sourceGroups.map((group) => group.leadSourceId);
+  const sourceRefs = sourceIds.length
+    ? await prisma.leadSourceRef.findMany({ where: { id: { in: sourceIds } }, select: { id: true, name: true } })
+    : [];
+  const sourceNameById = new Map(sourceRefs.map((ref) => [ref.id, ref.name]));
+  const bySource = sourceGroups
+    .map((group) => ({ key: sourceNameById.get(group.leadSourceId) ?? 'Unknown', count: group._count._all }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, LEAD_DASHBOARD_TOP_N);
+
+  const byState = stateGroups
+    .map((group) => ({ key: group.state ?? 'Unspecified', count: group._count._all }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, LEAD_DASHBOARD_TOP_N);
+
+  const unspecifiedSegment = Math.max(0, totalActiveLeads - homeowner - contractor);
+  const conversionRatePct = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+
+  return {
+    metrics: {
+      totalActiveLeads,
+      newStageCount,
+      slaAtRiskCount,
+      intakeLast30Days,
+      convertedLeads,
+      totalLeads,
+      conversionRatePct,
+    },
+    segmentation: { homeowner, contractor, unspecified: unspecifiedSegment },
+    byStage,
+    bySource,
+    byState,
+    generatedAt: now.toISOString(),
+  };
 }
 
 // --- Report execution -------------------------------------------------------

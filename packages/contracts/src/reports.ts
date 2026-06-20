@@ -149,3 +149,42 @@ export const REPORT_KEY_LABELS: Record<ReportKey, { label: string; description: 
     description: 'Training sessions and voice notes logged per user in a date range.',
   },
 };
+
+// --- Lead dashboard ---------------------------------------------------------
+// Role-scoped aggregate KPI view over CRM-native lead data. Scope is applied
+// server-side via the actor's lead record scope; no Acumatica/revenue data is
+// involved. Counts are a current-pipeline snapshot unless noted otherwise.
+
+export interface LeadDashboardStageBucket {
+  // Lowercased LeadStage key (e.g. 'new', 'cis_sent', 'customer_active').
+  stage: string;
+  label: string;
+  count: number;
+}
+
+export interface LeadDashboardCountBucket {
+  // Source name or state code; 'Unspecified'/'Unknown' when the field is null.
+  key: string;
+  count: number;
+}
+
+export interface LeadDashboardResponse {
+  metrics: {
+    totalActiveLeads: number; // lifecycleStatus ACTIVE, in scope
+    newStageCount: number; // active leads still in the NEW stage
+    slaAtRiskCount: number; // active leads past initial-contact due and not yet contacted
+    intakeLast30Days: number; // leads created in the last 30 days, in scope
+    convertedLeads: number; // leads at CUSTOMER_ACTIVE in the actor's owned book (any lifecycle)
+    totalLeads: number; // all leads in the actor's owned book — conversion-rate denominator (any lifecycle)
+    conversionRatePct: number; // round(convertedLeads / totalLeads * 100)
+  };
+  segmentation: {
+    homeowner: number;
+    contractor: number;
+    unspecified: number;
+  };
+  byStage: LeadDashboardStageBucket[]; // all stages, active leads
+  bySource: LeadDashboardCountBucket[]; // top sources by active-lead count
+  byState: LeadDashboardCountBucket[]; // top states by active-lead count
+  generatedAt: string; // ISO
+}

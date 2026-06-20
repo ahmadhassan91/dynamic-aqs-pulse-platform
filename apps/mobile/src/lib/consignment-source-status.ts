@@ -36,7 +36,9 @@ export function deriveConsignmentSourceState(input: {
   }
   if (acumaticaStatus === 'available') {
     if (acumaticaLastSyncedAt) {
-      const age = now.getTime() - new Date(acumaticaLastSyncedAt).getTime();
+      const syncedMs = new Date(acumaticaLastSyncedAt).getTime();
+      if (Number.isNaN(syncedMs)) return 'stale'; // unparseable timestamp -> conservative: verify before trusting
+      const age = now.getTime() - syncedMs;
       return age > staleAfterMs ? 'stale' : 'fresh';
     }
     return 'stale'; // connected but never synced -> treat as stale (verify before trusting)

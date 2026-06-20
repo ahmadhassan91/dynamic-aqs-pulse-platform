@@ -692,6 +692,13 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
     };
   }
   if (redactedDraft.payload.kind === 'order_draft') {
+    // Proactively truncate text fields (mirrors the other kinds) so a long note can't push the draft
+    // past the 16KB durable-storage cap and fail the save with no guidance.
+    const request = { ...redactedDraft.payload.request };
+    if (request.notes) request.notes = request.notes.slice(0, 1000);
+    if (Array.isArray(request.lines)) {
+      request.lines = request.lines.map((line) => (line.lineNote ? { ...line, lineNote: line.lineNote.slice(0, 200) } : line));
+    }
     return {
       ...redactedDraft,
       title: 'Order draft',
@@ -699,6 +706,7 @@ function sanitizeDraft(draft: MobileDraft): MobileDraft {
       payload: {
         ...redactedDraft.payload,
         accountName: 'Order account',
+        request,
       },
     };
   }
@@ -739,7 +747,10 @@ function extensionFromMimeType(mimeType: string) {
 
 function isDraftFresh(draft: MobileDraft) {
   const ageMs = Date.now() - new Date(draft.createdAt).getTime();
-  const maxAgeMs = draft.payload.kind === 'route_visit' || draft.payload.kind === 'training_session' ? 72 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  // Time-boxed field events expire fast (72h); office-bound work — ROSE true-ups and order intents
+  // (order_draft) — deliberately keeps for 7 days so it survives a long offline stretch.
+  const shortLived = draft.payload.kind === 'route_visit' || draft.payload.kind === 'training_session';
+  const maxAgeMs = shortLived ? 72 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   return Number.isFinite(ageMs) && ageMs <= maxAgeMs;
 }
 

@@ -33,6 +33,11 @@ test('stale when available but never synced', () => {
   assert.equal(deriveConsignmentSourceState({ acumaticaStatus: 'available', now }), 'stale');
 });
 
+test('stale when the sync timestamp is unparseable (NaN guard, not silently fresh)', () => {
+  assert.equal(deriveConsignmentSourceState({ acumaticaStatus: 'available', acumaticaLastSyncedAt: 'not-a-date', now }), 'stale');
+  assert.equal(deriveConsignmentSourceState({ acumaticaStatus: 'available', acumaticaLastSyncedAt: '', now }), 'stale');
+});
+
 test('threshold boundary: age exactly == staleAfter stays fresh (strict >)', () => {
   const syncedExactlyAtThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   assert.equal(

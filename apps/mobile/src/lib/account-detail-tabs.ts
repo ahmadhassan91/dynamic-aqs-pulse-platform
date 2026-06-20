@@ -11,7 +11,8 @@ export const ACCOUNT_DETAIL_TABS: { key: AccountDetailTabKey; label: string }[] 
   { key: 'history', label: 'History' },
 ];
 
-// The consignment-sites list endpoint matches on display name, so filter to the exact account id.
+// The consignment-sites list endpoint has no accountId filter, so callers fetch a page (narrowed by the
+// account's display name) and filter to the exact account id here to drop any name collisions.
 export function resolveAccountConsignmentSites<T extends { accountId: string }>(
   sites: T[] | null | undefined,
   accountId: string,

@@ -29,6 +29,16 @@ test('buildMailtoUrl returns null for empty / nullish', () => {
   assert.equal(buildMailtoUrl(undefined), null);
 });
 
+test('buildMailtoUrl accepts plus-addressing but rejects header-injection attempts', () => {
+  assert.equal(buildMailtoUrl('user+tag@example.com'), 'mailto:user+tag@example.com');
+  assert.equal(buildMailtoUrl('first.last@sub.example.co.uk'), 'mailto:first.last@sub.example.co.uk');
+  // injection / malformed -> null (no tampered compose window)
+  assert.equal(buildMailtoUrl('test@example.com?cc=evil@attacker.com&subject=phished'), null);
+  assert.equal(buildMailtoUrl('a@b.com,c@d.com'), null);
+  assert.equal(buildMailtoUrl('a@b.com\nbcc:evil@x.com'), null);
+  assert.equal(buildMailtoUrl('notanemail'), null);
+});
+
 test('chooseCallNumber prefers phone, falls back to mobile, else null', () => {
   assert.equal(chooseCallNumber({ phone: '111', mobilePhone: '222' }), '111');
   assert.equal(chooseCallNumber({ mobilePhone: '222' }), '222');

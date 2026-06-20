@@ -384,11 +384,11 @@ export function SegmentedTabs<T extends string>({
               justifyContent: 'center',
               backgroundColor: active ? colors.surface : 'transparent',
               ...(active ? { borderWidth: 1, borderColor: colors.border } : null),
-              opacity: disabled ? 0.45 : 1,
+              opacity: disabled ? 0.6 : 1,
               borderCurve: 'continuous',
             }}
           >
-            <Text style={{ ...typography.caption, fontFamily: 'Inter_700Bold', color: disabled ? colors.subtle : active ? colors.primary : colors.muted }}>
+            <Text style={{ ...typography.caption, fontFamily: 'Inter_700Bold', color: disabled ? colors.muted : active ? colors.primary : colors.muted }}>
               {tab.label}
             </Text>
           </Pressable>

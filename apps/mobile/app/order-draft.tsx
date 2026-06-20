@@ -161,6 +161,9 @@ export default function OrderDraftScreen() {
       // FR-MOB-047 — offline parity: persist the order on-device so the work is never lost, then let
       // Sync Status replay it when CRM is reachable. (A submit still needs a server-side draft first,
       // so an offline submit syncs the draft and the office/online submit completes it.)
+      // KNOWN LIMITATION: if a create reached the server but its response was lost in transit, the
+      // replay re-creates rather than updates (no draftId was received), risking a duplicate. The
+      // durable fix is server-side idempotency on POST /api/v1/order-drafts (tracked as a follow-up).
       try {
         await enqueueDraftDurably({
           kind: 'order_draft',

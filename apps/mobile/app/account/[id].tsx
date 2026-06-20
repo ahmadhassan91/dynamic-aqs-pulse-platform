@@ -74,12 +74,19 @@ export default function AccountDetailScreen() {
     }, [apiBaseUrl, auth, id]),
   );
 
-  // FR-MOB-036 — load the consignment sites this account owns (record-scoped); the Consignment tab is
-  // greyed out when there are none. Non-blocking: a failure just leaves the tab disabled.
+  // FR-MOB-036 — load this account's consignment sites. The list endpoint has no accountId filter, so
+  // narrow by the account's display name (server-side search) and still filter by id client-side
+  // (resolveAccountConsignmentSites) to drop name collisions — this keeps the page limit from ever
+  // hiding the account's sites. Non-blocking: a failure just leaves the Consignment tab disabled.
+  const accountSearchName = account?.displayName;
   useEffect(() => {
     if (!auth || !id) return;
     let cancelled = false;
-    void fetchConsignmentSites(apiBaseUrl, auth.tokens.accessToken, { includeExited: false, limit: 200 })
+    void fetchConsignmentSites(apiBaseUrl, auth.tokens.accessToken, {
+      includeExited: false,
+      limit: 200,
+      ...(accountSearchName ? { search: accountSearchName } : {}),
+    })
       .then((response) => {
         if (!cancelled) setConsignmentSites(response.items);
       })
@@ -89,7 +96,7 @@ export default function AccountDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, auth, id]);
+  }, [apiBaseUrl, auth, id, accountSearchName]);
 
   async function handleLogVisit() {
     if (!auth || !id || !visitNote.trim()) return;

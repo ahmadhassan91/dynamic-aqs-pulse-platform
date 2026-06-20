@@ -12,10 +12,14 @@ export function buildTelUrl(phone: string | null | undefined): string | null {
   return `tel:${hasPlus ? '+' : ''}${digits}`;
 }
 
+// Only a single plain address opens a compose window; chars like ? & # ; , < > or whitespace let a
+// crafted value inject mailto headers (cc/bcc/subject) or extra recipients, so we reject those rather
+// than open a tampered draft. Plus-addressing (user+tag@host) stays valid.
 export function buildMailtoUrl(email: string | null | undefined): string | null {
   if (!email) return null;
   const trimmed = email.trim();
   if (!trimmed) return null;
+  if (!/^[^\s,;:?&#<>"]+@[^\s,;:?&#<>"]+\.[^\s,;:?&#<>"]+$/.test(trimmed)) return null;
   return `mailto:${trimmed}`;
 }
 

@@ -630,6 +630,8 @@ The eight buildable "Partial" Mobile FRs are now built end-to-end (mobile `tsc -
 - **FR-MOB-047 — order polish** (`4f54538`): per-line notes + offline-queue parity (a save/submit that fails offline is persisted on-device and replayed from Sync Status). Live ERP placement stays Acumatica-parked.
 - **FR-MOB-009 — iPad responsive** (`538a95b`): shared `Screen`/`ListScreen` cap + centre the content column on tablet (pure width hook). Pixel/device verification (landscape tab bar, hero gradients, safe-area insets) still needs a simulator.
 
+**Adversarial review + hardening (commit `a01aa74`):** a 4-dimension review with an independent skeptic per finding confirmed 11 of 30 findings; the genuine in-scope ones are fixed — a NaN sync-timestamp guard (was silently "fresh"), mailto header-injection rejection, order-draft offline truncation + an explicit 7-day TTL, the consignment fetch narrowed by account name (so the page limit can't hide an account's sites), SegmentedTabs disabled-tab contrast, and a documented create-response-lost duplicate risk (durable fix = server-side idempotency on `POST /api/v1/order-drafts`, a backend follow-up). Suite at 157/157.
+
 **Still parked (external dependency, not a build gap):** order ERP placement/pricing + first-order account create (047); final pin colours + street-level geocoding (028); the durable "stale" expected-count signal (011) — all Acumatica/geocoding-provider. iPad **pixel** verification (009) needs hardware.
 
 _To be completed during the review meeting._

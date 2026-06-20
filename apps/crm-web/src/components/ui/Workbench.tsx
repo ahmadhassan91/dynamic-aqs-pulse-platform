@@ -33,6 +33,7 @@ import {
   IconPlugConnectedX,
   IconSearch,
 } from '@tabler/icons-react';
+import Link from 'next/link';
 
 /**
  * Pulse workbench contract:
@@ -82,6 +83,8 @@ export type WorkbenchMetric = {
   tone?: MantineColor | WorkbenchStatusTone | undefined;
   helper?: string | undefined;
   icon?: ReactNode;
+  /** When set, the metric card becomes a drill-down link to this route. */
+  href?: string | undefined;
 };
 
 export type WorkbenchMetricStripProps = {
@@ -374,8 +377,8 @@ export function WorkbenchAttentionPanel(props: WorkbenchAttentionPanelProps) {
 export function WorkbenchMetricStrip({ metrics, columns = { base: 1, sm: 2, lg: 4 } }: WorkbenchMetricStripProps) {
   return (
     <SimpleGrid cols={columns} spacing="md">
-      {metrics.map((metric) => (
-        <Paper key={metric.label} withBorder radius="lg" p="md" className="premium-stat-card">
+      {metrics.map((metric) => {
+        const body = (
           <Group justify="space-between" align="flex-start" gap="md" wrap="nowrap">
             <Stack gap={2}>
               <Text size="xs" tt="uppercase" fw={800} c="dimmed">
@@ -392,8 +395,31 @@ export function WorkbenchMetricStrip({ metrics, columns = { base: 1, sm: 2, lg: 
             </Stack>
             {metric.icon ? <Box c={resolveToneColor(metric.tone) ?? 'gray'}>{metric.icon}</Box> : null}
           </Group>
-        </Paper>
-      ))}
+        );
+
+        if (metric.href) {
+          return (
+            <Paper
+              key={metric.label}
+              component={Link}
+              href={metric.href}
+              withBorder
+              radius="lg"
+              p="md"
+              className="premium-stat-card"
+              style={{ textDecoration: 'none', color: 'inherit' }}
+            >
+              {body}
+            </Paper>
+          );
+        }
+
+        return (
+          <Paper key={metric.label} withBorder radius="lg" p="md" className="premium-stat-card">
+            {body}
+          </Paper>
+        );
+      })}
     </SimpleGrid>
   );
 }

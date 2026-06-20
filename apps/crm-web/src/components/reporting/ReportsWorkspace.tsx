@@ -18,7 +18,7 @@ import {
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { IconBriefcase, IconCalendarTime, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconSchool, IconTrash } from '@tabler/icons-react';
+import { IconBriefcase, IconCalendarTime, IconDownload, IconFileText, IconLayoutDashboard, IconPlayerPlay, IconPlus, IconSchool, IconTrash } from '@tabler/icons-react';
 import type {
   ReportDefinitionSummary,
   ReportDeliveryRecordSummary,
@@ -70,6 +70,7 @@ import { LeadDashboard } from '@/components/reporting/LeadDashboard';
 import { TrainingDashboard } from '@/components/reporting/TrainingDashboard';
 import { ExecutiveDashboard } from '@/components/reporting/ExecutiveDashboard';
 import { canAccessModule, canPerformAction } from '@/lib/access';
+import { downloadReportCsv } from '@/lib/report-csv';
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
   value: String(hour),
@@ -396,9 +397,21 @@ export function ReportsWorkspace() {
         <Card withBorder radius="md" padding="lg">
           <Group justify="space-between" mb="sm">
             <Text fw={700}>{runTitle}</Text>
-            <Text size="sm" c="dimmed">
-              {runResult.rowCount} row{runResult.rowCount === 1 ? '' : 's'} · generated {new Date(runResult.generatedAt).toLocaleString()}
-            </Text>
+            <Group gap="sm">
+              <Text size="sm" c="dimmed">
+                {runResult.rowCount} row{runResult.rowCount === 1 ? '' : 's'} · generated {new Date(runResult.generatedAt).toLocaleString()}
+              </Text>
+              {runResult.rowCount > 0 ? (
+                <Button
+                  size="compact-sm"
+                  variant="light"
+                  leftSection={<IconDownload size={14} />}
+                  onClick={() => downloadReportCsv(runResult, runTitle)}
+                >
+                  CSV
+                </Button>
+              ) : null}
+            </Group>
           </Group>
           {runResult.rowCount === 0 ? (
             <Text c="dimmed" size="sm">No rows for this report’s current filters.</Text>

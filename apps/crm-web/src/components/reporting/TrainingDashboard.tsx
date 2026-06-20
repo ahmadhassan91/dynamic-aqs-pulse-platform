@@ -51,23 +51,27 @@ export function TrainingDashboard() {
             value: metrics.completedSessions,
             icon: <IconSchool size={20} />,
             helper: `Last ${windowDays} days`,
+            href: '/training',
           },
           {
             label: 'Training hours',
             value: metrics.trainingHours,
             icon: <IconClockHour4 size={20} />,
             helper: `${metrics.siteVisits} site visit${metrics.siteVisits === 1 ? '' : 's'}`,
+            href: '/training',
           },
           {
             label: 'Accounts trained',
             value: metrics.accountsTrained,
             icon: <IconUsers size={20} />,
+            href: '/training',
           },
           {
             label: 'Overdue programs',
             value: metrics.overduePrograms,
             tone: metrics.overduePrograms > 0 ? 'danger' : 'success',
             icon: <IconAlertTriangle size={20} />,
+            href: '/training',
           },
         ]}
       />

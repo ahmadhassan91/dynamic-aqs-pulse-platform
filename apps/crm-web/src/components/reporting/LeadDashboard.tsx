@@ -57,12 +57,14 @@ export function LeadDashboard() {
             value: metrics.totalActiveLeads,
             icon: <IconUsers size={20} />,
             helper: 'In your pipeline',
+            href: '/leads',
           },
           {
             label: 'New (unworked)',
             value: metrics.newStageCount,
             tone: metrics.newStageCount > 0 ? 'brand' : 'neutral',
             icon: <IconActivity size={20} />,
+            href: '/leads',
           },
           {
             label: 'SLA at risk',
@@ -70,6 +72,7 @@ export function LeadDashboard() {
             tone: metrics.slaAtRiskCount > 0 ? 'danger' : 'success',
             icon: <IconAlertTriangle size={20} />,
             helper: 'Past initial-contact due',
+            href: '/leads',
           },
           {
             label: 'Conversion rate',
@@ -77,6 +80,7 @@ export function LeadDashboard() {
             tone: 'success',
             icon: <IconUserCheck size={20} />,
             helper: `${metrics.convertedLeads} of ${metrics.totalLeads} converted`,
+            href: '/leads',
           },
         ]}
       />

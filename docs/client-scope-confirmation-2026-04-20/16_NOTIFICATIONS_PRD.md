@@ -149,4 +149,54 @@ Status legend: `built` = trigger produced today (not yet surfaced/delivered) · 
 
 Mined from: Discovery Sessions 1–12 (notably **Session 1** executive vision/alert gaps, **Session 10** mobile/consignment app alerts + deep links, **Session 11** dealer-portal payment/credit alerts, **Session 12** report digests), plus the intro/catch-up calls. Code inventory: `leads/alerts.ts`, `consignment/alerts.ts`, `ReportSchedule`/`REPORT_SCHEDULE_SCAN_QUEUE`, `WebsiteLeadNotificationRecipient`, `crm-web` Mantine notifications, mobile draft-queue. Representative quotes are inline in §5–§6.
 
-> **Status note:** This is a *scope draft* for client confirmation, not a committed build. Phase 1 (in-app core) is fully buildable today with zero external dependencies and is the recommended first increment.
+> **Status note:** No longer just a scope — the in-app core is BUILT (see §10). The remaining gaps are tracked in §12.
+
+---
+
+## 10. §BUILD — Notifications module delivery (2026-06-21)
+
+Built on branch `codex/entra-calendar-governance`. Every layer is `tsc`/eslint clean; notifications regression **4/4**; lead + consignment scan suites **120/120** (the bridge is invoked there).
+
+- **Phase 1 — in-app core (COMPLETE):** `UserNotification` model + per-user inbox API (list / unread-count / mark-read / archive, strictly actor-scoped) — `d1d3f5b`; web Notification Center (header **bell + unread badge**, dropdown feed, **deep-links**) — `ece9eda`; **bridge** materializing Lead (assignee) + Consignment (site owner TM+RD) alert rows into the inbox, hooked best-effort into both scan jobs — `ef4799f`.
+- **Phase 2 — preferences / page / routing (DONE except where parked):** per-category **preferences** (opt-out; muted categories skipped at the single materialization point) API `ce6b757` + `/settings/notifications` UI `cf15481`; full **`/notifications` page** (All/Unread/Archived + category filters, pagination, manage) `cf16f5d`; **admin routing rules** (FR-NOTIF-005) — `NotificationRoutingRule` + `resolveRuleRecipients` (role → all active users with that role; user → the user) + admin CRUD (gated on the admin module); the bridge now fans out to entity-defaults **∪** rule-recipients — `e8a6ab5`.
+
+## 11. CG (Currie) requirement fulfillment
+
+Mapped against CG's verbatim asks (§5–§6 quotes).
+
+| CG asked for | Status | Where |
+|---|---|---|
+| "reporting and **alerts and notifications** … most important" — a real notification system | ✅ Built | inbox + bell + page |
+| "we need to **control** that … **determine who gets it** … may change down the road" (his #1, said 3+ ways) | ✅ Built | routing rules `e8a6ab5` |
+| "**notification bell** … notifications pending for your review" | ✅ Built | `ece9eda` |
+| PO "past X days late → automatically **notifies a regional director**" | ✅ Built | consignment scan + bridge |
+| ROSE audit "30-day … 90-day **red alert**" → "RD, TM, whoever we determine" | ✅ Built | consignment scan + severity + routing |
+| Lead "**48 hours** without moving → another alert"; "a five came in, only four contacted" | ✅ Built | lead escalations surfaced in-app |
+| Per-user "we determine what those alerts are and who gets them" | ✅ Built | preferences + routing rules |
+| Past-due **yellow** / credit-hold **red** → "notify whoever we specify (RD/TM/accounting)" | ⚠️ Framework ready, **trigger parked** | severity + routing built; event needs Acumatica AR |
+| TM "logs in … accounts past due … call Jimmy" (at-a-glance) | ⚠️ Inbox ready, **trigger parked** | same Acumatica AR dependency |
+| Daily "**agent email**: here's your orders for the day"; avoid the "30 emails" storm | ⚠️ In-app avoids the storm; **digest + email parked** | needs digest engine + Microsoft Graph |
+| "no order in **8 weeks** / no visit in **6 months** → alerts" | ⚠️ Audit-overdue ✅; **inactivity triggers not built** | buildable (orders partly Acumatica) |
+| "alert: this **billing/contact info changed**" | ⛔ Not built | account-change trigger |
+| Dealer-portal "**past due** … also notify internal" (dealer-facing copy) | ⛔ Not built | dealer-facing surface + Acumatica |
+| "**free shipping** $3,000 … nudge at $2,750" | ⛔ Not built (P2) | dealer-portal nudge |
+| Mobile push (TM field alerts) | ⛔ Parked | push-provider decision |
+
+## 12. Gap-fix plan
+
+**Sprint A — buildable now (zero external dependency):**
+- **GAP-N1 — Routing-rules admin UI** (web). Backend is done (`e8a6ab5`); add a `/settings/notifications/routing` admin page (list/create/delete rules) so non-engineers can use the control CG demanded. *(M)*
+- **GAP-N2 — New in-app triggers from existing Pulse data:** CIS-received → "new account, call this person" (lead lifecycle stage transition); billing/contact-changed (account update hook); visit-inactivity (no training/visit in 6 months). Each = a small scanner/emit + `upsertUserNotification`. *(M each)*
+- **GAP-N3 — Digest batching (in-app first)** (FR-NOTIF-008): reuse the `ReportSchedule` scan-worker pattern to roll low-urgency categories into a daily in-app digest now; the email send attaches later when Graph lands. *(M)*
+- **GAP-N4 — Generalized quiet hours** (FR-NOTIF-007): lift the lead-only quiet-hours policy to all categories (suppress outbound when channels exist; in-app always recorded). *(M, lower value until channels)*
+
+**Sprint B — unblock with one external decision each (each lights up several CG asks):**
+- **GAP-N5 — Payment past-due (yellow) + credit-hold (red) alerts** (FR-NOTIF-013): once **Acumatica AR / credit-hold** data is available, add the trigger; the severity + routing framework is already built, so this is a scanner + mirror only. *(unblocks CG's payment/credit asks)*
+- **GAP-N6 — Email delivery + daily order digest** (FR-NOTIF-009): once **Microsoft Graph creds** land, promote the existing PREVIEW delivery to live and add the daily order-digest schedule. *(unblocks the "agent email" + report digests; one cred unblocks lead/consignment/website/report email too)*
+- **GAP-N7 — Order-inactivity alert** (8 weeks no order): build on Pulse `OrderDraft` now for the captured-intent signal; full order history needs Acumatica.
+
+**Sprint C — provider/UX decisions:**
+- **GAP-N8 — Mobile push** (FR-NOTIF-010): adopt Expo Notifications (FCM/APNs), device tokens, deep-link payloads for TM field alerts.
+- **GAP-N9 — Dealer-facing payment self-service** (FR-NOTIF-012) + **free-shipping nudge**: dealer-portal surfaces with admin-editable copy; gate ordering at credit-hold.
+
+**Highest-leverage unlocks for CG:** provisioning **Acumatica AR data** (GAP-N5) and **Microsoft Graph creds** (GAP-N6) — together they convert most of the ⚠️/⛔ rows in §11 to ✅, because the in-app framework (inbox, severity, routing, preferences) is already built and waiting.

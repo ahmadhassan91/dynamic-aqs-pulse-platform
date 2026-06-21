@@ -205,6 +205,8 @@ test('FR-RPT-022: per-stage aging reports days-in-stage avg/max + stale count', 
   await prisma.lead.create({ data: { ...base, companyName: 'New Old', stage: 'NEW', createdAt: daysAgo(100) } });
   await prisma.lead.create({ data: { ...base, companyName: 'New Recent', stage: 'NEW', createdAt: daysAgo(10) } });
   await prisma.lead.create({ data: { ...base, companyName: 'CIS Sent', stage: 'CIS_SENT', createdAt: daysAgo(40), cisSentAt: daysAgo(2) } });
+  // DISCOVERY_SCHEDULED anchors on the FUTURE discoveryScheduledAt -> aging clamps to 0.
+  await prisma.lead.create({ data: { ...base, companyName: 'Disc Scheduled', stage: 'DISCOVERY_SCHEDULED', createdAt: daysAgo(20), discoveryScheduledAt: new Date(Date.now() + 5 * 86_400_000) } });
 
   const dashboard = await getLeadDashboard(admin);
 
@@ -217,6 +219,13 @@ test('FR-RPT-022: per-stage aging reports days-in-stage avg/max + stale count', 
   const cisBucket = dashboard.byStage.find((b) => b.stage === 'cis_sent');
   assert.equal(cisBucket.count, 1);
   assert.ok(cisBucket.maxDaysInStage >= 1 && cisBucket.maxDaysInStage <= 3, `cis max=${cisBucket.maxDaysInStage}`);
+
+  // DISCOVERY_SCHEDULED anchors on a FUTURE milestone -> clamped to 0, consistent with the workflow queue.
+  const discBucket = dashboard.byStage.find((b) => b.stage === 'discovery_scheduled');
+  assert.equal(discBucket.count, 1);
+  assert.equal(discBucket.maxDaysInStage, 0);
+  assert.equal(discBucket.avgDaysInStage, 0);
+  assert.equal(discBucket.staleCount, 0);
 
   // Empty stages report zeroes, never undefined.
   const signedBucket = dashboard.byStage.find((b) => b.stage === 'cis_signed');

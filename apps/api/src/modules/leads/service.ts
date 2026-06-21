@@ -4987,7 +4987,7 @@ function toWorkflowQueueComputationWithPolicy(
   policy: LeadRoutingPolicyRecord | null,
 ): WorkflowQueueComputation {
   const stageAnchorAt = getWorkflowStageAnchorAt(lead);
-  const daysInStage = Math.floor((now.getTime() - stageAnchorAt.getTime()) / (24 * 60 * 60 * 1000));
+  const daysInStage = daysSinceStageAnchor(now, stageAnchorAt);
   const fallbackPolicy = policy ?? buildInMemoryLeadRoutingPolicy();
   const initialContactSla = getInitialContactSlaState(lead, now, fallbackPolicy);
   const discoverySchedulingSla = getDiscoverySchedulingSlaState(lead, now, fallbackPolicy);
@@ -5128,10 +5128,20 @@ function getWorkflowStageAnchorAt(lead: LeadStageAnchorFields) {
   }
 }
 
+// Whole days a lead has sat since its stage anchor. Shared by the workflow queue and the dashboard
+// aging rollup so "days in stage" is identical across surfaces. Clamped at 0: for stages whose anchor
+// is a scheduled/future milestone (e.g. DISCOVERY_SCHEDULED -> discoveryScheduledAt) this reads 0
+// until the milestone passes rather than going negative.
+function daysSinceStageAnchor(now: Date, anchorAt: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - anchorAt.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
 // FR-RPT-022: per-stage aging for the lead dashboard. Reuses the SAME stage-entry anchor and stale
-// threshold (policy.stagnantStageDays) as the workflow queue, so "days in stage" is consistent across
-// the app. No stageEnteredAt column is needed — the anchor derives entry time from existing milestone
-// timestamps. `where` should already carry the caller's record scope.
+// threshold (policy.stagnantStageDays) as the workflow queue (via daysSinceStageAnchor), so "days in
+// stage" is consistent across the app. No stageEnteredAt column is needed — the anchor derives entry
+// time from existing milestone timestamps. `where` should already carry the caller's record scope.
+// Scale note: this materializes in-scope ACTIVE leads (minimal select) and rolls up in JS — fine at
+// realistic pipeline sizes; if active volume grows large, push the avg/max/stale rollup into SQL.
 export async function computeLeadStageAging(
   where: Prisma.LeadWhereInput,
   now: Date = new Date(),
@@ -5158,7 +5168,7 @@ export async function computeLeadStageAging(
   const accumulator = new Map<LeadStage, { count: number; sum: number; max: number; stale: number }>();
   for (const lead of leads) {
     const anchorAt = getWorkflowStageAnchorAt(lead);
-    const daysInStage = Math.max(0, Math.floor((now.getTime() - anchorAt.getTime()) / (24 * 60 * 60 * 1000)));
+    const daysInStage = daysSinceStageAnchor(now, anchorAt);
     const entry = accumulator.get(lead.stage) ?? { count: 0, sum: 0, max: 0, stale: 0 };
     entry.count += 1;
     entry.sum += daysInStage;

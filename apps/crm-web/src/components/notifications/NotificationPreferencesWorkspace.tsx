@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Alert, Card, Container, Group, Loader, Stack, Switch, Text, Title } from '@mantine/core';
+import Link from 'next/link';
+import { Alert, Anchor, Card, Container, Group, Loader, Stack, Switch, Text, Title } from '@mantine/core';
 import type { UserNotificationCategoryKey, UserNotificationPreferenceSummary } from '@pulse/contracts/notifications';
 import { fetchNotificationPreferences, updateNotificationPreferenceRecord } from '@/lib/pulse-api';
+import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
 
 const CATEGORY_META: Record<UserNotificationCategoryKey, { label: string; description: string }> = {
@@ -17,6 +19,7 @@ const CATEGORY_META: Record<UserNotificationCategoryKey, { label: string; descri
 
 export function NotificationPreferencesWorkspace() {
   const { apiBaseUrl, auth } = usePulseSession();
+  const canManageRouting = auth ? canAccessModule(auth.identity.role, 'admin') : false;
   const [preferences, setPreferences] = useState<UserNotificationPreferenceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingCategory, setSavingCategory] = useState<UserNotificationCategoryKey | null>(null);
@@ -94,6 +97,11 @@ export function NotificationPreferencesWorkspace() {
             </Stack>
           </Card>
         )}
+        {canManageRouting ? (
+          <Anchor component={Link} href="/settings/notifications/routing" size="sm">
+            Manage notification routing rules (admin)
+          </Anchor>
+        ) : null}
       </Stack>
     </Container>
   );

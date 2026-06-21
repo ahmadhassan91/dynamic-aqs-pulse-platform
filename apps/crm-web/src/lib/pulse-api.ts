@@ -325,10 +325,13 @@ import type {
   UpsertDigitalAssetCollectionItemRequest,
 } from '@pulse/contracts/digital-assets';
 import type {
+  CreateNotificationRoutingRuleRequest,
   ListNotificationPreferencesResponse,
+  ListNotificationRoutingRulesResponse,
   ListUserNotificationsResponse,
   MarkNotificationsReadRequest,
   MarkNotificationsReadResponse,
+  NotificationRoutingRuleSummary,
   UnreadNotificationCountResponse,
   UpdateNotificationPreferenceRequest,
   UserNotificationSummary,
@@ -3416,6 +3419,28 @@ export async function updateNotificationPreferenceRecord(apiBaseUrl: string, acc
     method: 'PUT',
     accessToken,
     body: input,
+  });
+}
+
+export async function fetchNotificationRoutingRules(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListNotificationRoutingRulesResponse>(apiBaseUrl, '/api/v1/notifications/routing-rules', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createNotificationRoutingRuleRecord(apiBaseUrl: string, accessToken: string, input: CreateNotificationRoutingRuleRequest) {
+  return requestJson<NotificationRoutingRuleSummary>(apiBaseUrl, '/api/v1/notifications/routing-rules', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function deleteNotificationRoutingRuleRecord(apiBaseUrl: string, accessToken: string, ruleId: string) {
+  return requestJson<{ ok: boolean }>(apiBaseUrl, `/api/v1/notifications/routing-rules/${encodeURIComponent(ruleId)}`, {
+    method: 'DELETE',
+    accessToken,
   });
 }
 

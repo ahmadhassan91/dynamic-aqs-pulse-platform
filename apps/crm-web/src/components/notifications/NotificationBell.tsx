@@ -181,17 +181,14 @@ export function NotificationBell() {
           </ScrollArea.Autosize>
         )}
         <Menu.Divider />
-        <Button
-          variant="subtle"
-          size="compact-xs"
-          fullWidth
-          onClick={() => {
-            setOpened(false);
-            router.push('/settings/notifications');
-          }}
-        >
-          Notification settings
-        </Button>
+        <Group justify="space-between" px="xs" py={4} wrap="nowrap">
+          <Button variant="subtle" size="compact-xs" onClick={() => { setOpened(false); router.push('/notifications'); }}>
+            View all
+          </Button>
+          <Button variant="subtle" size="compact-xs" onClick={() => { setOpened(false); router.push('/settings/notifications'); }}>
+            Settings
+          </Button>
+        </Group>
       </Menu.Dropdown>
     </Menu>
   );

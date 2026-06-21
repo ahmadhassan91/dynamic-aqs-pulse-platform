@@ -3368,12 +3368,13 @@ async function readErrorDetail(response: Response) {
 export async function fetchNotifications(
   apiBaseUrl: string,
   accessToken: string,
-  query: { status?: 'all' | 'unread' | 'archived'; category?: string; limit?: number } = {},
+  query: { status?: 'all' | 'unread' | 'archived'; category?: string; limit?: number; offset?: number } = {},
 ) {
   const params = new URLSearchParams();
   if (query.status) params.set('status', query.status);
   if (query.category) params.set('category', query.category);
   if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.offset !== undefined) params.set('offset', String(query.offset));
   const qs = params.toString();
   return requestJson<ListUserNotificationsResponse>(apiBaseUrl, `/api/v1/notifications${qs ? `?${qs}` : ''}`, {
     method: 'GET',

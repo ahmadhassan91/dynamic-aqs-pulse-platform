@@ -325,10 +325,12 @@ import type {
   UpsertDigitalAssetCollectionItemRequest,
 } from '@pulse/contracts/digital-assets';
 import type {
+  ListNotificationPreferencesResponse,
   ListUserNotificationsResponse,
   MarkNotificationsReadRequest,
   MarkNotificationsReadResponse,
   UnreadNotificationCountResponse,
+  UpdateNotificationPreferenceRequest,
   UserNotificationSummary,
 } from '@pulse/contracts/notifications';
 
@@ -3398,6 +3400,21 @@ export async function archiveNotificationRecord(apiBaseUrl: string, accessToken:
   return requestJson<UserNotificationSummary>(apiBaseUrl, `/api/v1/notifications/${encodeURIComponent(notificationId)}/archive`, {
     method: 'POST',
     accessToken,
+  });
+}
+
+export async function fetchNotificationPreferences(apiBaseUrl: string, accessToken: string) {
+  return requestJson<ListNotificationPreferencesResponse>(apiBaseUrl, '/api/v1/notifications/preferences', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function updateNotificationPreferenceRecord(apiBaseUrl: string, accessToken: string, input: UpdateNotificationPreferenceRequest) {
+  return requestJson<ListNotificationPreferencesResponse>(apiBaseUrl, '/api/v1/notifications/preferences', {
+    method: 'PUT',
+    accessToken,
+    body: input,
   });
 }
 

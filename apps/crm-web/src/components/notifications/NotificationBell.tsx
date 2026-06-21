@@ -180,6 +180,18 @@ export function NotificationBell() {
             </Stack>
           </ScrollArea.Autosize>
         )}
+        <Menu.Divider />
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          fullWidth
+          onClick={() => {
+            setOpened(false);
+            router.push('/settings/notifications');
+          }}
+        >
+          Notification settings
+        </Button>
       </Menu.Dropdown>
     </Menu>
   );

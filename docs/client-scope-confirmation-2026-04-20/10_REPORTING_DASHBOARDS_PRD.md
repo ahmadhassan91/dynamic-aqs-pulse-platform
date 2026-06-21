@@ -515,3 +515,44 @@ FR-RPT-017 (revenue figures), FR-RPT-028, FR-RPT-029, FR-RPT-032, FR-RPT-033 (de
 
 **Cross-referenced to other module PRDs (no Reporting FR — see §7.11):**
 Contest / campaign ROI reporting → Promotions PCC-006 + Training FR-TRN-055 + Dealer FR-DPO-037; Dealer rebate-qualifying spend (shipping excluded, quarter filter) → Dealer Portal FR-DPO-012 / FR-DPO-062 / FR-DPO-064
+
+---
+
+## §Meeting-Grounded Needs Re-Prioritization & Implementation Plan (added 2026-06-22)
+
+A fresh mining of the actual transcripts (CG–Dynamics Oct call, Discovery Session 1 / 16 Feb, Session 4, Session 12) reframes priority: **the genuine, recurring client pain is a configurable reporting *engine* — not the prototype's wall of role dashboards.** CG explicitly called the demoed dashboards *"just defaults … an idea I'm presenting,"* and Adrienne *"it's just visual for right now"* — they are mockup artifacts to validate, not voiced requirements.
+
+### What the client actually needs (verbatim-grounded)
+
+**MUST-HAVE — buildable now (CRM-native):**
+- **Self-service report builder** — CG: *"we can't run reports … they charge us for every report … the biggest pain point for our CRM."* (built)
+- **Saved + scheduled auto-email reports** — Michelle: *"auto-email a report to a group at month-end."* (schedules built; email send parked on Graph)
+- **Exception / red-flag reports** — no-contact-in-90-days, training overdue, audit overdue, accounts-on-hold (mostly built/buildable)
+- **Structured training reporting** — CG (VP Training): *"I can't run a report for how many trainings we did last month — it's just notes."* (built)
+- **Business-configurable thresholds** (e.g. "active account" window) — CG: *"we should be able to change that parameter."* (FR-RPT-003 — real gap)
+
+**MUST-HAVE — data-blocked (the trust bottleneck, cannot be faked):**
+- **Acumatica-reconciled numbers** — CG: *"the report I run every month is not aligned with what Acumatica says."* This is *why* their reports aren't trusted today; unfixable without Acumatica.
+- **Unlimited / YoY sales history** — Don: *"sales history per account, unlimited, not one year."* Needs legacy migration.
+
+**SHOULD-HAVE:** per-account sales-trend chart (legacy-blocked), role-defaulted dashboards + credit-hold flag (Acumatica), dealer self-service spend (Acumatica), member-list bulk import (CRM-native), consignment snapshot.
+
+**TREAT SKEPTICALLY (mockup, not voiced pain):** the polished role-dashboard suite + website-form analytics. **DROP/DEFER:** attributing specific sales to individual trainings/contests — CG + Don both call it *"impossible."*
+
+### Implementation plan (engine-first)
+Legend: ✅ built · 🟢 build now (CRM-native) · 🟡 shell now → fill on data · ⛔ data-gated. (Note: FR-RPT-022 stage-aging + FR-RPT-027 SLA-at-risk list were built 2026-06-21/22; the §6 status table is being reconciled.)
+
+**Phase 0 — Foundations (~1 wk) 🟢:** chart library (bar/line/area — FR-RPT-006/067; no chart lib in prod yet); Excel/PDF export (FR-RPT-008/071; CSV done); KPI drill-down + summary/chart tabs (FR-RPT-005/009).
+
+**Phase 1 — Finish the engine (the real must-have) 🟢:**
+- Configurable-threshold store + admin UI (FR-RPT-003) — gates "active/lost account" semantics platform-wide.
+- Exception-report pack: no-contact-90d (FR-RPT-039), training-overdue (041), ROSE-overdue (042/056), finance-pending (030/034), ready-for-first-order (031).
+- Round out the builder (field palette / filters / sort / preview / templates — FR-RPT-060–068) + saved/scheduled wiring (069–073; email send parked on Graph).
+- Structured-training depth: hours per account (048), by RD/region/state (049), penetration % (053).
+
+**Phase 2 — Light CRM-native dashboards 🟢** (role-defaulted landing, NOT the full prototype wall): Sales/BD (built), TM territory (035 non-$/039/040/041/042), RD rollup (043/044/047), Consignment snapshot (054 non-$/055/056/057/058), Executive exceptions (built) — each with `$` tiles rendered as 🟡 "awaiting Acumatica sync" placeholders.
+
+**Phase 3 — Data-gated (no code waiting beyond wiring) ⛔:** all revenue/$ + YoY + Top-N + reconciliation (FR-RPT-007/011/012/013/014/015/016/017/019/028/029/032/036/037/038/075/077-actual/078). Sequence: **legacy migration → Acumatica → shells fill automatically.**
+
+### The call
+Build the configurable reporting **engine** + exception reports on CRM data now; render `$` widgets as sync-placeholders; treat **legacy migration → Acumatica** as the unlock that makes the trusted-revenue reporting (the headline ask) real. **Do not rebuild the prototype dashboard grid** — it is presentation sugar on top of the engine.

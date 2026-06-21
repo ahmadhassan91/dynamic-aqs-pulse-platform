@@ -529,3 +529,30 @@ All items with **Can do now = Yes** have no external dependency.
 | UX-AD-012 | Audit activity tab missing CSV export | AdminWorkspace.tsx | Yes | Done (handleExportAuditCsv implemented) |
 
 _To be completed during the review meeting._
+
+---
+
+## §RBAC — Authorization Production-Readiness Assessment (added 2026-06-22)
+
+Independent audit (structural review of the authorization model + an adversarial enforcement sweep across all 18 API modules). **Verdict: production-ready, with caveats — no critical or high-severity findings.** RBAC is the strongest cross-cutting part of the platform.
+
+### Model (sound, default-deny, layered)
+- Three enforcement layers from a single typed source of truth (`packages/contracts/src/auth.ts`: `WORKSPACE_MODULES`, `ROLE_DEFAULT_MODULE_ACCESS`, `ROLE_DEFAULT_ACTION_ACCESS`): **module gate** + **action gate** (`packages/auth/src/guards.ts`: `assertModuleAccess` / `assertActionAccess`) + **row-level record scope** (`apps/api/src/modules/auth/visibility.ts`).
+- **Default-DENY** at every gate (allowlist `.includes`); an unknown role/module/action is rejected.
+- **217 / 225** actor-resolution callsites pass an explicit permission gate; **17 / 18** modules fully consistent.
+- Session/token: opaque random tokens stored **SHA-256-hashed**, live revocation/expiry re-validation, refresh rotation inside a transaction; dealer/external isolation resolved **server-side** from `actor.userId` (not parameter-trusting); 15-min access / 14-day refresh TTLs; every authorization decision audited.
+- The previously-found calendar Outlook-sync IDOR is **fixed** (commit 716c0e9 — record-scoped + regression).
+
+### Hardening backlog (none blocking; do before/around go-live)
+| Sev | Item | Location | Action |
+|---|---|---|---|
+| MEDIUM | EXECUTIVE role has near-total **action** access (can mutate almost everything) — contradicts its read-only oversight profile | `contracts/auth.ts:345` | Restrict EXECUTIVE `ROLE_DEFAULT_ACTION_ACCESS` to read/report actions |
+| MEDIUM | Microsoft Entra default policy is permissive (`autoProvision` + email-linking, no domain allowlist) | `auth/policy.ts:24` | Require a domain allowlist before enabling Entra SSO login |
+| MEDIUM | Voice-note review/read routes use bare `requireAuthenticatedActor` (no module guard) + a record-scope nuance on training/consignment context | `mobile-voice-notes/http.ts:48,70,81`; `service.ts:590` | Add the module guard + tighten the context record-scope |
+| LOW | Leads intake mutators resolve the lead with unscoped `findUnique` (defense-in-depth; **not exploitable today** — the matrix never grants `lead.intake_manage` to TM/RD) | `leads/service.ts:1547,1669,1757,…` | Switch to scoped `findFirst({ AND: [scope, { id }] })` |
+| LOW | Reports run endpoints omit the explicit `reports.builder` action assertion (module-gated only) | `reports/http.ts`, `service.ts:202` | Add the action assert |
+| LOW | `session.tokenVersion` hardcoded to 1, never compared — no mass-invalidation lever | `auth/service.ts:1295` | Wire version compare if bulk revocation is ever needed |
+| LOW | `x-forwarded-for` trusted unconditionally for audit IP attribution | `auth/request.ts:110` | Trust only behind a known proxy hop |
+| LOW | `hasRole` privilege graph (SUPER_ADMIN wildcard / no-op EXECUTIVE branch) is incoherent vs the matrix gates | `auth/guards.ts:54` | Remove/realign to prevent future misuse |
+
+**Bottom line:** RBAC is safe to ship; the open items are hardening, not fixes. **Highest priority: tighten EXECUTIVE action scope and lock the Entra default policy before enabling SSO.**

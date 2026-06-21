@@ -92,6 +92,7 @@ export async function listCalendarEvents(
 }
 
 export async function resolveCalendarEventForSync(
+  actor: AuthenticatedActor,
   input: SyncCalendarOutlookEventRequest,
 ): Promise<CalendarEventSummary> {
   if (input.sourceModule === 'leads') {
@@ -99,8 +100,11 @@ export async function resolveCalendarEventForSync(
       throw new Error('Only discovery_call events are supported for lead calendar sync');
     }
 
-    const lead = await prisma.lead.findUnique({
-      where: { id: input.sourceRecordId },
+    // Record-scope the lookup (IDOR prevention): a user may only sync a lead they can actually see. Without
+    // this, any authenticated actor could sync ANY lead by id into their own Outlook and read its details.
+    const leadScope = await resolveLeadRecordScope(actor);
+    const lead = await prisma.lead.findFirst({
+      where: leadScope ? { AND: [leadScope, { id: input.sourceRecordId }] } : { id: input.sourceRecordId },
       select: {
         id: true,
         companyName: true,
@@ -135,8 +139,10 @@ export async function resolveCalendarEventForSync(
     return item;
   }
 
-  const session = await prisma.trainingSession.findUnique({
-    where: { id: input.sourceRecordId },
+  // Same record-scope guard for training sessions (IDOR prevention).
+  const trainingScope = buildTrainingSessionRecordScope(actor);
+  const session = await prisma.trainingSession.findFirst({
+    where: trainingScope ? { AND: [trainingScope, { id: input.sourceRecordId }] } : { id: input.sourceRecordId },
     select: {
       id: true,
       title: true,

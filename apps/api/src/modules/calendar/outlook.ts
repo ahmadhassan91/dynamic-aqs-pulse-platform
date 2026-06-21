@@ -602,7 +602,7 @@ export async function syncCalendarEventToOutlook(
     },
   });
 
-  const event = await resolveCalendarEventForSync(input);
+  const event = await resolveCalendarEventForSync(actor, input);
 
   try {
     const activeAccessToken = await ensureActiveAccessToken(config, connection);

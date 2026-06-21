@@ -24,6 +24,7 @@ let createTrainingSession;
 let rescheduleTrainingSession;
 let cancelTrainingSession;
 let updateOutlookConnection;
+let resolveCalendarEventForSync;
 const SERIAL = { concurrency: false };
 
 let mockOutlook;
@@ -67,6 +68,7 @@ test.before(async () => {
     cancelTrainingSession,
   } = await import('../dist/modules/training/service.js'));
   ({ updateOutlookConnection } = await import('../dist/modules/calendar/outlook.js'));
+  ({ resolveCalendarEventForSync } = await import('../dist/modules/calendar/events.js'));
 
   await prisma.$connect();
 });
@@ -430,6 +432,41 @@ test('outlook sync rolls back the orphan Graph event when the binding write fail
     prisma.$transaction = originalTransaction;
     await runtime.close();
   }
+});
+
+test('IDOR guard: resolveCalendarEventForSync rejects a lead outside the actor record scope', SERIAL, async () => {
+  const { actor: admin } = await createAdminSession();
+  const segment = await prisma.businessSegmentRef.findFirst();
+  const source = await prisma.leadSourceRef.findFirst();
+  const ownerTm = await prisma.user.create({ data: { email: 'idor-owner-tm@pulse.local', displayName: 'Owner TM', roleCode: 'TERRITORY_MANAGER', userType: 'INTERNAL', isActive: true } });
+  const outsiderTm = await prisma.user.create({ data: { email: 'idor-outsider-tm@pulse.local', displayName: 'Outsider TM', roleCode: 'TERRITORY_MANAGER', userType: 'INTERNAL', isActive: true } });
+
+  const lead = await prisma.lead.create({
+    data: {
+      companyName: 'IDOR Lead',
+      contactDisplayName: 'Contact',
+      businessSegmentId: segment.id,
+      leadSourceId: source.id,
+      serviceTechCount: 3,
+      routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+      routingThresholdSnapshot: 5,
+      routingTeam: 'NATIONAL_TM',
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-08-01T15:00:00.000Z'),
+      assignedTmUserId: ownerTm.id,
+      territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+    },
+  });
+
+  const outsiderActor = { userId: outsiderTm.id, sessionId: `t-${outsiderTm.id}`, role: 'TERRITORY_MANAGER', actorType: 'internal', email: outsiderTm.email, displayName: outsiderTm.displayName };
+  const input = { sourceModule: 'leads', sourceRecordId: lead.id, eventType: 'discovery_call' };
+
+  // A TM who neither owns the lead nor manages its territory must not resolve it for Outlook sync.
+  await assert.rejects(() => resolveCalendarEventForSync(outsiderActor, input), /not found/i);
+
+  // A global-visibility actor (admin) resolves it normally.
+  const adminEvent = await resolveCalendarEventForSync(admin, input);
+  assert.equal(adminEvent.sourceRecordId, lead.id);
 });
 
 test('outlook settings list available calendars and persist target calendar plus meeting preference', SERIAL, async () => {

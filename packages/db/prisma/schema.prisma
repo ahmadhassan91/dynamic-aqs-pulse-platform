@@ -4025,3 +4025,45 @@ model OrderDraftLine {
   @@index([orderDraftId])
   @@index([baseProductId])
 }
+
+// FR-NOTIF-001 — universal per-user notification inbox that aggregates entity alerts (Lead/Consignment
+// scanners, etc.) into one feed with read/unread + deep links. Channel-agnostic; delivery is layered on top.
+enum UserNotificationCategory {
+  LEAD
+  CONSIGNMENT
+  TRAINING
+  ORDER
+  ACCOUNT
+  SYSTEM
+}
+
+enum UserNotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model UserNotification {
+  id              String                   @id @default(uuid()) @db.Uuid
+  recipientUserId String                   @db.Uuid
+  category        UserNotificationCategory
+  eventType       String
+  severity        UserNotificationSeverity @default(INFO)
+  title           String
+  body            String?
+  deepLinkType    String?
+  deepLinkId      String?
+  sourceType      String?
+  sourceId        String?
+  dedupeKey       String
+  metadata        Json?
+  readAt          DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@unique([recipientUserId, dedupeKey])
+  @@index([recipientUserId, readAt])
+  @@index([recipientUserId, archivedAt, createdAt])
+  @@index([recipientUserId, category])
+}

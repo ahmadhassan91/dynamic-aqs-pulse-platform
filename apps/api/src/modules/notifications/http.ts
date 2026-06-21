@@ -1,0 +1,107 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { URL } from 'node:url';
+import {
+  USER_NOTIFICATION_CATEGORIES,
+  type ListUserNotificationsRequest,
+  type MarkNotificationsReadRequest,
+  type UserNotificationCategoryKey,
+} from '@pulse/contracts/notifications';
+import {
+  badRequestResponse,
+  forbiddenResponse,
+  jsonResponse,
+  methodNotAllowedResponse,
+  notFoundResponse,
+  readJsonBody,
+  unauthorizedResponse,
+} from '../../utils/http.js';
+import { isAuthenticationError, isAuthorizationError, requireAuthenticatedActor } from '../auth/request.js';
+import { archiveNotification, getUnreadNotificationCount, listUserNotifications, markNotificationsRead } from './service.js';
+
+// Notifications are per-user: every route resolves the authenticated actor and operates only on that
+// actor's own notifications (no module/action gate — any signed-in user has an inbox).
+export async function handleNotificationRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
+  const pathname = url.pathname;
+  const method = req.method ?? 'GET';
+  const isNotificationRoute =
+    pathname === '/api/v1/notifications'
+    || pathname === '/api/v1/notifications/unread-count'
+    || pathname === '/api/v1/notifications/mark-read'
+    || /^\/api\/v1\/notifications\/[^/]+\/archive$/.test(pathname);
+
+  if (!isNotificationRoute) {
+    return false;
+  }
+
+  try {
+    if (pathname === '/api/v1/notifications/unread-count') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+      const actor = await requireAuthenticatedActor(req);
+      return jsonResponse(res, 200, await getUnreadNotificationCount(actor));
+    }
+
+    if (pathname === '/api/v1/notifications/mark-read') {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+      const actor = await requireAuthenticatedActor(req);
+      const body = ((await readJsonBody(req)) ?? {}) as MarkNotificationsReadRequest;
+      return jsonResponse(res, 200, await markNotificationsRead(actor, body));
+    }
+
+    const archiveMatch = pathname.match(/^\/api\/v1\/notifications\/([^/]+)\/archive$/);
+    if (archiveMatch) {
+      if (method !== 'POST') {
+        return methodNotAllowedResponse(res, method, ['POST']);
+      }
+      const notificationId = archiveMatch[1];
+      if (!notificationId) {
+        return false;
+      }
+      const actor = await requireAuthenticatedActor(req);
+      const result = await archiveNotification(actor, notificationId);
+      if (!result) {
+        return notFoundResponse(res, { entity: 'UserNotification', id: notificationId });
+      }
+      return jsonResponse(res, 200, result);
+    }
+
+    if (pathname === '/api/v1/notifications') {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse(res, method, ['GET']);
+      }
+      const actor = await requireAuthenticatedActor(req);
+      const query: ListUserNotificationsRequest = {};
+      const status = url.searchParams.get('status')?.trim();
+      if (status === 'unread' || status === 'archived' || status === 'all') {
+        query.status = status;
+      }
+      const category = url.searchParams.get('category')?.trim();
+      if (category && (USER_NOTIFICATION_CATEGORIES as readonly string[]).includes(category)) {
+        query.category = category as UserNotificationCategoryKey;
+      }
+      const limit = Number(url.searchParams.get('limit'));
+      if (Number.isInteger(limit)) {
+        query.limit = limit;
+      }
+      const offset = Number(url.searchParams.get('offset'));
+      if (Number.isInteger(offset)) {
+        query.offset = offset;
+      }
+      return jsonResponse(res, 200, await listUserNotifications(actor, query));
+    }
+
+    return false;
+  } catch (error) {
+    if (isAuthenticationError(error)) {
+      return unauthorizedResponse(res, error.message);
+    }
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return badRequestResponse(res, message);
+  }
+}

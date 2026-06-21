@@ -26,6 +26,7 @@ import { handleMobileVoiceNoteRoutes } from './modules/mobile-voice-notes/http.j
 import { handleProductManagementRoutes } from './modules/product-management/http.js';
 import { handleReferenceRoutes } from './modules/reference/http.js';
 import { ensureReferenceDataSeeded } from './modules/reference/service.js';
+import { handleNotificationRoutes } from './modules/notifications/http.js';
 import { handleReportRoutes } from './modules/reports/http.js';
 import { processDueReportSchedules } from './modules/reports/service.js';
 import { handleTerritoryRoutes } from './modules/territories/http.js';
@@ -409,6 +410,11 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Requ
 
   const reportRouteHandled = await handleReportRoutes(req, res, url);
   if (reportRouteHandled !== false) {
+    return;
+  }
+
+  const notificationRouteHandled = await handleNotificationRoutes(req, res, url);
+  if (notificationRouteHandled !== false) {
     return;
   }
 

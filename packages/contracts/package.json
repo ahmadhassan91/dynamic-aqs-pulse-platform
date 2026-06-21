@@ -21,6 +21,7 @@
     "./lead-options": "./dist/lead-options.js",
     "./leads": "./dist/leads.js",
     "./mobile-voice-notes": "./dist/mobile-voice-notes.js",
+    "./notifications": "./dist/notifications.js",
     "./orders": "./dist/orders.js",
     "./product-management": "./dist/product-management.js",
     "./reference": "./dist/reference.js",

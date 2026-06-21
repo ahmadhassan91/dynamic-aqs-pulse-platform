@@ -575,6 +575,52 @@ test('completing a training session advances cadence and creates follow-up tasks
   assert.ok(refreshedProgram?.nextDueAt);
 });
 
+test('completing a training session is race-safe: concurrent completes award exactly one certification', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'concurrent-complete');
+  const certificationType = await prisma.trainingType.findUnique({ where: { code: 'iaq_certification_curriculum' } });
+  assert.ok(certificationType);
+
+  const program = await createAccountTrainingProgram(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: certificationType.id,
+  });
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    programId: program.id,
+    trainingTypeId: certificationType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: isoDaysFromNow(20, 15),
+    durationMinutes: 90,
+  });
+
+  const completionInput = {
+    completedAt: isoDaysFromNow(20, 16),
+    checkedOutAt: isoDaysFromNow(20, 16),
+    attendeeCount: 3,
+    durationMinutes: 90,
+    checkoutNotes: 'Concurrent completion race test.',
+    certificationOutcome: 'awarded',
+    certificationTitle: 'IAQ Certification Curriculum',
+  };
+
+  // Fire two completes for the same SCHEDULED session at once (double-click / retried request).
+  const results = await Promise.allSettled([
+    completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, { ...completionInput }),
+    completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, { ...completionInput }),
+  ]);
+
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
+  assert.equal(fulfilled.length, 1, 'exactly one concurrent complete should succeed');
+  assert.equal(rejected.length, 1, 'the racing complete must be rejected, not silently duplicated');
+
+  // The TOCTOU guard prevents a duplicate certification (and a double cadence advance).
+  const certCount = await prisma.trainingCertificationRecord.count({ where: { sessionId: scheduled.id } });
+  assert.equal(certCount, 1, 'concurrent completes must award exactly one certification');
+
+  const refreshedProgram = await prisma.accountTrainingProgram.findUnique({ where: { id: program.id } });
+  assert.ok(refreshedProgram?.lastCompletedAt, 'program cadence advanced exactly once');
+});
+
 test('training check-in is idempotent and supports the checked-in session filter', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const fixture = await createTrainingAccountFixture(actor, 'checkin');

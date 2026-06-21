@@ -91,6 +91,7 @@ import type {
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAccountRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
+import { createAppLogger } from '../../utils/logger.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   tryAutoSyncCalendarEventToOutlook,
@@ -1590,6 +1591,29 @@ export async function listTrainingOperationalQueue(
   };
 }
 
+// Training aggregate reports load accounts (with deep training includes) and roll up in JS. Bound the scan
+// so a large, growing account base can't materialize unboundedly and fall over; truncation is logged so it
+// is visible rather than silent. (A full server-side rollup is the longer-term optimization.)
+const TRAINING_REPORT_ACCOUNT_CAP = 5000;
+const trainingReportLogger = createAppLogger();
+
+async function fetchCappedTrainingReportAccounts(where: Prisma.AccountWhereInput, context: string) {
+  const accounts = await prisma.account.findMany({
+    where,
+    orderBy: [{ displayName: 'asc' }],
+    include: trainingAccountArgs.include,
+    take: TRAINING_REPORT_ACCOUNT_CAP + 1,
+  });
+  if (accounts.length > TRAINING_REPORT_ACCOUNT_CAP) {
+    trainingReportLogger.warn('training report account scan truncated', {
+      context,
+      cap: TRAINING_REPORT_ACCOUNT_CAP,
+    });
+    accounts.length = TRAINING_REPORT_ACCOUNT_CAP;
+  }
+  return accounts;
+}
+
 export async function listTrainingComplianceReport(
   actor: AuthenticatedActor,
   query: ListTrainingComplianceReportRequest = {},
@@ -1598,8 +1622,8 @@ export async function listTrainingComplianceReport(
 
   const scope = resolveTrainingComplianceScope(actor, query);
   const accountScope = buildAccountRecordScope(actor);
-  const accounts = await prisma.account.findMany({
-    where: {
+  const accounts = await fetchCappedTrainingReportAccounts(
+    {
       AND: [
         ...(accountScope ? [accountScope] : []),
         {
@@ -1614,9 +1638,8 @@ export async function listTrainingComplianceReport(
         },
       ],
     },
-    orderBy: [{ displayName: 'asc' }],
-    include: trainingAccountArgs.include,
-  });
+    'compliance-report',
+  );
 
   const tmRollups = new Map<string, TrainingComplianceOwnerRollup>();
   const rdRollups = new Map<string, TrainingComplianceOwnerRollup>();
@@ -1775,8 +1798,8 @@ export async function listTrainingRecertificationQueue(
     certificationWindowDays: windowDays,
   });
 
-  const accounts = await prisma.account.findMany({
-    where: {
+  const accounts = await fetchCappedTrainingReportAccounts(
+    {
       AND: [
         ...(accountScope ? [accountScope] : []),
         {
@@ -1787,9 +1810,8 @@ export async function listTrainingRecertificationQueue(
         },
       ],
     },
-    orderBy: [{ displayName: 'asc' }],
-    include: trainingAccountArgs.include,
-  });
+    'recertification-queue',
+  );
 
   const expiringItems = accounts
     .flatMap((account) => buildExpiringTrainingCertificationQueueItems(account, windowDays));
@@ -1816,8 +1838,8 @@ export async function getTrainingCoachingWorkload(
   assertModuleAccess(actor.role, 'training');
 
   const accountScope = buildAccountRecordScope(actor);
-  const accounts = await prisma.account.findMany({
-    where: {
+  const accounts = await fetchCappedTrainingReportAccounts(
+    {
       AND: [
         ...(accountScope ? [accountScope] : []),
         {
@@ -1830,9 +1852,8 @@ export async function getTrainingCoachingWorkload(
         },
       ],
     },
-    orderBy: [{ displayName: 'asc' }],
-    include: trainingAccountArgs.include,
-  });
+    'coaching-workload',
+  );
 
   const upcomingSessions = accounts
     .flatMap((account) => buildTrainingCoachingUpcomingSessions(account))
@@ -1867,8 +1888,8 @@ export async function getTerritoryTrainingPenetration(
   assertModuleAccess(actor.role, 'training');
 
   const accountScope = buildAccountRecordScope(actor);
-  const accounts = await prisma.account.findMany({
-    where: {
+  const accounts = await fetchCappedTrainingReportAccounts(
+    {
       AND: [
         ...(accountScope ? [accountScope] : []),
         {
@@ -1877,9 +1898,8 @@ export async function getTerritoryTrainingPenetration(
         },
       ],
     },
-    orderBy: [{ displayName: 'asc' }],
-    include: trainingAccountArgs.include,
-  });
+    'territory-penetration',
+  );
 
   return buildTerritoryTrainingPenetrationResponse(accounts);
 }
@@ -2178,8 +2198,11 @@ export async function completeTrainingSession(
   );
 
   const updated = await prisma.$transaction(async (tx) => {
-    await tx.trainingSession.update({
-      where: { id: sessionId },
+    // Atomic claim guarding the complete-session TOCTOU: only the first concurrent caller flips
+    // SCHEDULED -> COMPLETED. A racing or retried call matches 0 rows and bails (below) BEFORE
+    // advancing the program cadence or awarding a duplicate certification.
+    const claimed = await tx.trainingSession.updateMany({
+      where: { id: sessionId, status: TrainingSessionStatus.SCHEDULED },
       data: {
         status: TrainingSessionStatus.COMPLETED,
         checkedInAt,
@@ -2196,6 +2219,9 @@ export async function completeTrainingSession(
         ...(input.completionSummary?.trim() ? { completionSummary: input.completionSummary.trim() } : {}),
       },
     });
+    if (claimed.count === 0) {
+      throw new Error('Only scheduled training sessions can be completed');
+    }
 
     if (session.programId) {
       const program = await tx.accountTrainingProgram.findUnique({

@@ -690,7 +690,9 @@ function baseConsignmentCalendarEvent(site: ConsignmentCalendarSite): Omit<Calen
 
   return {
     sourceModule: 'consignment',
-    sourcePath: `/consignment/sites/${site.id}`,
+    // Web drill-through route is /consignment/[siteId] (NO /sites/ segment — that path is the API's, not the
+    // web page's). Must match the canonical links in ConsignmentSiteDetail / CustomerConsignmentIndicator.
+    sourcePath: `/consignment/${site.id}`,
     eventType: 'consignment_audit',
     title: `Consignment ROSE Audit — ${site.account.displayName}`,
     accountId: site.account.id,

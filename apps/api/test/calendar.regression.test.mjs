@@ -395,7 +395,10 @@ test('calendar workspace emits durable consignment audit events only for consign
   assert.equal(adminWorkspace.items[0]?.eventType, 'consignment_audit');
   assert.equal(adminWorkspace.items[0]?.sourceModule, 'consignment');
   assert.equal(adminWorkspace.items[0]?.sourceRecordId, audit.id);
-  assert.equal(adminWorkspace.items[0]?.sourcePath, `/consignment/sites/${site.id}`);
+  // Web drill-through must hit the Next.js route /consignment/[siteId] — NOT /consignment/sites/<id> (that
+  // 404s; /sites/ is the API path only). Guards the calendar "Open linked record" deep-link regression.
+  assert.equal(adminWorkspace.items[0]?.sourcePath, `/consignment/${site.id}`);
+  assert.ok(!adminWorkspace.items[0]?.sourcePath.includes('/sites/'), 'consignment web sourcePath must not contain /sites/');
   assert.equal(adminWorkspace.items[0]?.accountId, fixture.account.id);
   assert.equal(adminWorkspace.items[0]?.accountName, fixture.account.displayName);
   assert.equal(adminWorkspace.items[0]?.contactName, 'Durable Contact');

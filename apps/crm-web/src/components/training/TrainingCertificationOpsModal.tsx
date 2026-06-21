@@ -35,6 +35,8 @@ export function TrainingCertificationOpsModal({
   const [certificationNotes, setCertificationNotes] = useState('');
   const [revocationNotes, setRevocationNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  // UX-T-001 (FR-TRN-053): require an explicit confirm before a revocation commits.
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
 
   useEffect(() => {
     if (!opened) {
@@ -47,6 +49,7 @@ export function TrainingCertificationOpsModal({
     setCertificationExpiresAt('');
     setCertificationNotes('');
     setRevocationNotes('');
+    setConfirmingRevoke(false);
   }, [certification, opened]);
 
   const handleSubmit = async () => {
@@ -141,16 +144,37 @@ export function TrainingCertificationOpsModal({
               onChange={(event) => setRevocationNotes(event.currentTarget.value)}
               placeholder="Compliance reason or supporting detail"
             />
+            {confirmingRevoke ? (
+              <Text size="sm" c="red.7" fw={600}>
+                This revokes {certification?.title ? `"${certification.title}"` : 'the certification'}. The historical record stays visible for audit, but the active certification is removed. Confirm to proceed.
+              </Text>
+            ) : null}
           </>
         )}
 
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </Button>
-          <Button onClick={() => void handleSubmit()} loading={isSaving}>
-            {mode === 'resolve_decision' ? 'Save Decision' : 'Revoke Certification'}
-          </Button>
+          {mode === 'revoke_certification' && confirmingRevoke ? (
+            <Button variant="subtle" onClick={() => setConfirmingRevoke(false)} disabled={isSaving}>
+              Back
+            </Button>
+          ) : (
+            <Button variant="default" onClick={onClose} disabled={isSaving}>
+              Cancel
+            </Button>
+          )}
+          {mode === 'resolve_decision' ? (
+            <Button onClick={() => void handleSubmit()} loading={isSaving}>
+              Save Decision
+            </Button>
+          ) : confirmingRevoke ? (
+            <Button color="red" onClick={() => void handleSubmit()} loading={isSaving}>
+              Confirm revoke
+            </Button>
+          ) : (
+            <Button color="red" onClick={() => setConfirmingRevoke(true)}>
+              Revoke Certification
+            </Button>
+          )}
         </Group>
       </Stack>
     </Modal>

@@ -1345,6 +1345,11 @@ export function TrainingWorkspace() {
                         getRowKey={(item) => item.sessionId}
                         minWidth={680}
                         withContainer={false}
+                        rowActions={(item: TrainingCoachingSessionRow) => [{
+                          id: 'open-account',
+                          label: 'Open account',
+                          onClick: () => router.push(`/customers/${item.accountId}?tab=training-history`),
+                        }]}
                         columns={[
                           {
                             key: 'account',

@@ -18,6 +18,7 @@ let syncConsignmentAlertNotifications;
 let listNotificationPreferences;
 let updateNotificationPreference;
 let createNotificationRoutingRule;
+let syncLeadCisReceivedNotifications;
 
 const SERIAL = { concurrency: false };
 
@@ -26,7 +27,7 @@ test.before(async () => {
   const configModule = await import('../dist/config.js');
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification, listNotificationPreferences, updateNotificationPreference } = await import('../dist/modules/notifications/service.js'));
-  ({ syncConsignmentAlertNotifications } = await import('../dist/modules/notifications/bridge.js'));
+  ({ syncConsignmentAlertNotifications, syncLeadCisReceivedNotifications } = await import('../dist/modules/notifications/bridge.js'));
   ({ createNotificationRoutingRule } = await import('../dist/modules/notifications/service.js'));
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
@@ -189,4 +190,37 @@ test('FR-NOTIF-005: a routing rule fans out to a role beyond the entity owner', 
   const auditorActor = { userId: auditor.id, sessionId: `t-${auditor.id}`, role: 'REGIONAL_DIRECTOR', actorType: 'internal', email: auditor.email, displayName: auditor.displayName };
   assert.equal((await listUserNotifications(auditorActor, {})).total, 1);
   assert.equal((await listUserNotifications(auditorActor, {})).items[0].category, 'consignment');
+});
+
+test('GAP-N2: a received CIS notifies the lead assignee (idempotent)', SERIAL, async () => {
+  const tm = await makeUser('cis-tm@pulse.local');
+  const segment = await prisma.businessSegmentRef.create({ data: { code: 'cis-seg', name: 'CIS Segment' } });
+  const source = await prisma.leadSourceRef.create({ data: { code: 'cis-src', name: 'CIS Source' } });
+  const lead = await prisma.lead.create({
+    data: {
+      companyName: 'CIS Co',
+      contactDisplayName: 'Jane Doe',
+      businessSegmentId: segment.id,
+      leadSourceId: source.id,
+      serviceTechCount: 3,
+      routingThresholdSnapshot: 5,
+      routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+      routingTeam: 'NATIONAL_TM',
+      cisSubmittedAt: new Date(),
+      assignedTmUserId: tm.userId,
+    },
+  });
+
+  const materialized = await syncLeadCisReceivedNotifications();
+  assert.ok(materialized >= 1);
+
+  const list = await listUserNotifications(tm, {});
+  assert.equal(list.total, 1);
+  assert.equal(list.items[0].category, 'lead');
+  assert.equal(list.items[0].eventType, 'cis_received');
+  assert.equal(list.items[0].deepLinkId, lead.id);
+
+  // Idempotent: a re-run does not duplicate.
+  await syncLeadCisReceivedNotifications();
+  assert.equal((await listUserNotifications(tm, {})).total, 1);
 });

@@ -58,6 +58,49 @@ export async function syncLeadAlertNotifications(): Promise<number> {
   return materialized;
 }
 
+// GAP-N2 / CG: "when a CIS is received → notify (call this person + leadership)." Fires once per lead
+// (dedupeKey per lead id) when cisSubmittedAt is set, to the assignee + RD + any routed recipients.
+export async function syncLeadCisReceivedNotifications(): Promise<number> {
+  const since = new Date(Date.now() - LOOKBACK_MS);
+  const leads = await prisma.lead.findMany({
+    where: { cisSubmittedAt: { not: null, gte: since } },
+    select: { id: true, companyName: true, assignedTmUserId: true, assignedRdUserId: true },
+    orderBy: { cisSubmittedAt: 'desc' },
+    take: BATCH,
+  });
+
+  let materialized = 0;
+  for (const lead of leads) {
+    const recipients = new Set<string>(await resolveRuleRecipients('lead', 'cis_received'));
+    if (lead.assignedTmUserId) {
+      recipients.add(lead.assignedTmUserId);
+    }
+    if (lead.assignedRdUserId) {
+      recipients.add(lead.assignedRdUserId);
+    }
+    if (recipients.size === 0) {
+      continue;
+    }
+    for (const recipientUserId of recipients) {
+      await upsertUserNotification({
+        recipientUserId,
+        category: 'lead',
+        eventType: 'cis_received',
+        title: `CIS received — ${lead.companyName}`,
+        body: 'A customer information sheet was received. Review and call the contact.',
+        severity: 'warning',
+        deepLinkType: 'lead',
+        deepLinkId: lead.id,
+        sourceType: 'lead_cis',
+        sourceId: lead.id,
+        dedupeKey: `lead-cis-received:${lead.id}`,
+      });
+      materialized += 1;
+    }
+  }
+  return materialized;
+}
+
 export async function syncConsignmentAlertNotifications(): Promise<number> {
   const since = new Date(Date.now() - LOOKBACK_MS);
   const alerts = await prisma.consignmentOperationalAlert.findMany({

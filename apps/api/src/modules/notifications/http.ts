@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { URL } from 'node:url';
 import {
+  NOTIFICATION_ROUTING_RECIPIENT_TYPES,
   USER_NOTIFICATION_CATEGORIES,
+  type CreateNotificationRoutingRuleRequest,
   type ListUserNotificationsRequest,
   type MarkNotificationsReadRequest,
   type UpdateNotificationPreferenceRequest,
@@ -19,8 +21,11 @@ import {
 import { isAuthenticationError, isAuthorizationError, requireAuthenticatedActor } from '../auth/request.js';
 import {
   archiveNotification,
+  createNotificationRoutingRule,
+  deleteNotificationRoutingRule,
   getUnreadNotificationCount,
   listNotificationPreferences,
+  listNotificationRoutingRules,
   listUserNotifications,
   markNotificationsRead,
   updateNotificationPreference,
@@ -35,7 +40,9 @@ export async function handleNotificationRoutes(req: IncomingMessage, res: Server
     pathname === '/api/v1/notifications'
     || pathname === '/api/v1/notifications/unread-count'
     || pathname === '/api/v1/notifications/preferences'
+    || pathname === '/api/v1/notifications/routing-rules'
     || pathname === '/api/v1/notifications/mark-read'
+    || /^\/api\/v1\/notifications\/routing-rules\/[^/]+$/.test(pathname)
     || /^\/api\/v1\/notifications\/[^/]+\/archive$/.test(pathname);
 
   if (!isNotificationRoute) {
@@ -64,6 +71,42 @@ export async function handleNotificationRoutes(req: IncomingMessage, res: Server
         return jsonResponse(res, 200, await updateNotificationPreference(actor, { category: body.category, inAppEnabled: Boolean(body.inAppEnabled) }));
       }
       return methodNotAllowedResponse(res, method, ['GET', 'PUT']);
+    }
+
+    if (pathname === '/api/v1/notifications/routing-rules') {
+      // Admin-configurable routing (FR-NOTIF-005) — gated on the admin module.
+      await requireAuthenticatedActor(req, { module: 'admin' });
+      if (method === 'GET') {
+        return jsonResponse(res, 200, await listNotificationRoutingRules());
+      }
+      if (method === 'POST') {
+        const body = ((await readJsonBody(req)) ?? {}) as CreateNotificationRoutingRuleRequest;
+        if (!body.category || !(USER_NOTIFICATION_CATEGORIES as readonly string[]).includes(body.category)) {
+          return badRequestResponse(res, 'A valid notification category is required.');
+        }
+        if (!body.recipientType || !(NOTIFICATION_ROUTING_RECIPIENT_TYPES as readonly string[]).includes(body.recipientType)) {
+          return badRequestResponse(res, 'recipientType must be "role" or "user".');
+        }
+        return jsonResponse(res, 201, await createNotificationRoutingRule(body));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'POST']);
+    }
+
+    const routingRuleMatch = pathname.match(/^\/api\/v1\/notifications\/routing-rules\/([^/]+)$/);
+    if (routingRuleMatch) {
+      if (method !== 'DELETE') {
+        return methodNotAllowedResponse(res, method, ['DELETE']);
+      }
+      await requireAuthenticatedActor(req, { module: 'admin' });
+      const ruleId = routingRuleMatch[1];
+      if (!ruleId) {
+        return false;
+      }
+      const deleted = await deleteNotificationRoutingRule(ruleId);
+      if (!deleted) {
+        return notFoundResponse(res, { entity: 'NotificationRoutingRule', id: ruleId });
+      }
+      return jsonResponse(res, 200, { ok: true });
     }
 
     if (pathname === '/api/v1/notifications/mark-read') {

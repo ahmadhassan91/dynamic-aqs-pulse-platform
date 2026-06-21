@@ -17,6 +17,7 @@ let upsertUserNotification;
 let syncConsignmentAlertNotifications;
 let listNotificationPreferences;
 let updateNotificationPreference;
+let createNotificationRoutingRule;
 
 const SERIAL = { concurrency: false };
 
@@ -26,6 +27,7 @@ test.before(async () => {
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification, listNotificationPreferences, updateNotificationPreference } = await import('../dist/modules/notifications/service.js'));
   ({ syncConsignmentAlertNotifications } = await import('../dist/modules/notifications/bridge.js'));
+  ({ createNotificationRoutingRule } = await import('../dist/modules/notifications/service.js'));
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
 });
@@ -163,4 +165,28 @@ test('FR-NOTIF-006: per-category preference mutes materialization (opt-out)', SE
   await updateNotificationPreference(actor, { category: 'lead', inAppEnabled: true });
   await upsertUserNotification({ recipientUserId: actor.userId, category: 'lead', eventType: 'x', title: 'lead now', dedupeKey: 'pref-lead-2' });
   assert.equal((await listUserNotifications(actor, {})).total, 2);
+});
+
+test('FR-NOTIF-005: a routing rule fans out to a role beyond the entity owner', SERIAL, async () => {
+  const owner = await makeUser('rule-tm@pulse.local'); // the site owner TM
+  const auditor = await prisma.user.create({
+    data: { email: 'rule-auditor@pulse.local', displayName: 'Auditor RD', roleCode: 'REGIONAL_DIRECTOR', userType: 'INTERNAL', isActive: true },
+  });
+
+  // Admin routes ALL consignment events to the REGIONAL_DIRECTOR role.
+  await createNotificationRoutingRule({ category: 'consignment', recipientType: 'role', recipientRoleCode: 'REGIONAL_DIRECTOR' });
+
+  const account = await prisma.account.create({ data: { displayName: 'Rule Acct', isActive: true } });
+  const site = await prisma.consignmentSite.create({ data: { accountId: account.id, name: 'Rule Site', ownerTmUserId: owner.userId } });
+  await prisma.consignmentOperationalAlert.create({
+    data: { siteId: site.id, alertType: 'AUDIT_DUE_TODAY', dedupeKey: 'rule-csg-1', triggeredAt: new Date() },
+  });
+
+  await syncConsignmentAlertNotifications();
+
+  // The owner TM got it (default), and the RD got it via the routing rule despite not owning the site.
+  assert.equal((await listUserNotifications(owner, {})).total, 1);
+  const auditorActor = { userId: auditor.id, sessionId: `t-${auditor.id}`, role: 'REGIONAL_DIRECTOR', actorType: 'internal', email: auditor.email, displayName: auditor.displayName };
+  assert.equal((await listUserNotifications(auditorActor, {})).total, 1);
+  assert.equal((await listUserNotifications(auditorActor, {})).items[0].category, 'consignment');
 });

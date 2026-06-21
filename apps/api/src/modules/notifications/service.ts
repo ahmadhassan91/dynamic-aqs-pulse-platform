@@ -1,11 +1,15 @@
-import { Prisma, UserNotificationCategory, UserNotificationSeverity, prisma } from '@pulse/db';
+import { NotificationRoutingRecipientType, Prisma, UserNotificationCategory, UserNotificationSeverity, prisma } from '@pulse/db';
 import { USER_NOTIFICATION_CATEGORIES } from '@pulse/contracts/notifications';
 import type {
+  CreateNotificationRoutingRuleRequest,
   ListNotificationPreferencesResponse,
+  ListNotificationRoutingRulesResponse,
   ListUserNotificationsRequest,
   ListUserNotificationsResponse,
   MarkNotificationsReadRequest,
   MarkNotificationsReadResponse,
+  NotificationRoutingRecipientTypeKey,
+  NotificationRoutingRuleSummary,
   UnreadNotificationCountResponse,
   UpdateNotificationPreferenceRequest,
   UserNotificationCategoryKey,
@@ -221,4 +225,86 @@ export async function updateNotificationPreference(
     update: { inAppEnabled: input.inAppEnabled },
   });
   return listNotificationPreferences(actor);
+}
+
+// ---- FR-NOTIF-005: admin-configurable routing rules ----
+
+const RECIPIENT_TYPE_TO_DB: Record<NotificationRoutingRecipientTypeKey, NotificationRoutingRecipientType> = {
+  role: NotificationRoutingRecipientType.ROLE,
+  user: NotificationRoutingRecipientType.USER,
+};
+
+const RECIPIENT_TYPE_TO_KEY: Record<NotificationRoutingRecipientType, NotificationRoutingRecipientTypeKey> = {
+  ROLE: 'role',
+  USER: 'user',
+};
+
+type RoutingRuleRecord = Awaited<ReturnType<typeof prisma.notificationRoutingRule.findFirstOrThrow>>;
+
+function toRoutingRuleSummary(rule: RoutingRuleRecord): NotificationRoutingRuleSummary {
+  return {
+    id: rule.id,
+    category: CATEGORY_TO_KEY[rule.category],
+    ...(rule.eventType ? { eventType: rule.eventType } : {}),
+    recipientType: RECIPIENT_TYPE_TO_KEY[rule.recipientType],
+    ...(rule.recipientRoleCode ? { recipientRoleCode: rule.recipientRoleCode } : {}),
+    ...(rule.recipientUserId ? { recipientUserId: rule.recipientUserId } : {}),
+    isActive: rule.isActive,
+    ...(rule.note ? { note: rule.note } : {}),
+    createdAt: rule.createdAt.toISOString(),
+  };
+}
+
+// Resolve the extra recipients an admin has routed a (category, eventType) to — role rules expand to all
+// active users with that role; user rules are the user. Used by the alert bridge on top of entity defaults.
+export async function resolveRuleRecipients(category: UserNotificationCategoryKey, eventType: string): Promise<string[]> {
+  const rules = await prisma.notificationRoutingRule.findMany({
+    where: { category: CATEGORY_TO_DB[category], isActive: true, OR: [{ eventType: null }, { eventType }] },
+  });
+  const userIds = new Set<string>();
+  const roleCodes = new Set<string>();
+  for (const rule of rules) {
+    if (rule.recipientType === NotificationRoutingRecipientType.USER && rule.recipientUserId) {
+      userIds.add(rule.recipientUserId);
+    } else if (rule.recipientType === NotificationRoutingRecipientType.ROLE && rule.recipientRoleCode) {
+      roleCodes.add(rule.recipientRoleCode);
+    }
+  }
+  if (roleCodes.size > 0) {
+    const users = await prisma.user.findMany({ where: { roleCode: { in: [...roleCodes] }, isActive: true }, select: { id: true } });
+    for (const user of users) {
+      userIds.add(user.id);
+    }
+  }
+  return [...userIds];
+}
+
+export async function listNotificationRoutingRules(): Promise<ListNotificationRoutingRulesResponse> {
+  const rules = await prisma.notificationRoutingRule.findMany({ orderBy: { createdAt: 'desc' } });
+  return { rules: rules.map(toRoutingRuleSummary) };
+}
+
+export async function createNotificationRoutingRule(input: CreateNotificationRoutingRuleRequest): Promise<NotificationRoutingRuleSummary> {
+  if (input.recipientType === 'role' && !input.recipientRoleCode?.trim()) {
+    throw new Error('A recipientRoleCode is required for a role rule.');
+  }
+  if (input.recipientType === 'user' && !input.recipientUserId?.trim()) {
+    throw new Error('A recipientUserId is required for a user rule.');
+  }
+  const created = await prisma.notificationRoutingRule.create({
+    data: {
+      category: CATEGORY_TO_DB[input.category],
+      recipientType: RECIPIENT_TYPE_TO_DB[input.recipientType],
+      ...(input.eventType?.trim() ? { eventType: input.eventType.trim() } : {}),
+      ...(input.recipientType === 'role' && input.recipientRoleCode ? { recipientRoleCode: input.recipientRoleCode.trim() } : {}),
+      ...(input.recipientType === 'user' && input.recipientUserId ? { recipientUserId: input.recipientUserId.trim() } : {}),
+      ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+    },
+  });
+  return toRoutingRuleSummary(created);
+}
+
+export async function deleteNotificationRoutingRule(ruleId: string): Promise<boolean> {
+  const result = await prisma.notificationRoutingRule.deleteMany({ where: { id: ruleId } });
+  return result.count > 0;
 }

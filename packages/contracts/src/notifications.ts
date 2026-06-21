@@ -71,3 +71,33 @@ export interface UpdateNotificationPreferenceRequest {
   category: UserNotificationCategoryKey;
   inAppEnabled: boolean;
 }
+
+// FR-NOTIF-005 — admin-configurable routing rules (who else gets a category/event).
+export const NOTIFICATION_ROUTING_RECIPIENT_TYPES = ['role', 'user'] as const;
+export type NotificationRoutingRecipientTypeKey = (typeof NOTIFICATION_ROUTING_RECIPIENT_TYPES)[number];
+
+export interface NotificationRoutingRuleSummary {
+  id: string;
+  category: UserNotificationCategoryKey;
+  /** null/undefined = applies to every event in the category. */
+  eventType?: string;
+  recipientType: NotificationRoutingRecipientTypeKey;
+  recipientRoleCode?: string;
+  recipientUserId?: string;
+  isActive: boolean;
+  note?: string;
+  createdAt: string;
+}
+
+export interface ListNotificationRoutingRulesResponse {
+  rules: NotificationRoutingRuleSummary[];
+}
+
+export interface CreateNotificationRoutingRuleRequest {
+  category: UserNotificationCategoryKey;
+  eventType?: string;
+  recipientType: NotificationRoutingRecipientTypeKey;
+  recipientRoleCode?: string;
+  recipientUserId?: string;
+  note?: string;
+}

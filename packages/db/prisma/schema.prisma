@@ -4080,3 +4080,25 @@ model UserNotificationPreference {
   @@unique([recipientUserId, category])
   @@index([recipientUserId])
 }
+
+enum NotificationRoutingRecipientType {
+  ROLE
+  USER
+}
+
+// FR-NOTIF-005 — admin-configurable routing: who else (beyond default entity owners) gets a given
+// category/event, by role or specific user. The bridge fans out to these in addition to defaults.
+model NotificationRoutingRule {
+  id                String                           @id @default(uuid()) @db.Uuid
+  category          UserNotificationCategory
+  eventType         String?
+  recipientType     NotificationRoutingRecipientType
+  recipientRoleCode String?
+  recipientUserId   String?                          @db.Uuid
+  isActive          Boolean                          @default(true)
+  note              String?
+  createdAt         DateTime                         @default(now())
+  updatedAt         DateTime                         @updatedAt
+
+  @@index([category, isActive])
+}

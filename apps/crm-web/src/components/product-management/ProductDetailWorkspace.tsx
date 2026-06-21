@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
-import { IconAlertTriangle, IconArrowLeft, IconLink, IconPackage, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconCopy, IconLink, IconPackage, IconRefresh, IconShieldCheck, IconUnlink } from '@tabler/icons-react';
 import {
   type DigitalAssetSummary,
   type ProductAssetRoleKey,
@@ -16,6 +16,7 @@ import {
 } from '@pulse/contracts/product-management';
 import {
   assignDigitalAssetToProduct,
+  createDigitalAssetShareLinkRecord,
   createProductCatalogInclusion,
   fetchDealerCatalogViews,
   fetchDigitalAssetLibrary,
@@ -32,6 +33,16 @@ import {
 import { EmptyStateMessage, WorkbenchAdvancedSection, WorkbenchAttentionPanel, WorkbenchHeader, WorkbenchMetricStrip, WorkbenchMoreMenu, WorkbenchTable } from '@/components/ui/Workbench';
 import { canPerformAction } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+
+async function copyToClipboard(value: string) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    }
+  } catch {
+    // best-effort copy; the customer-safe share link was still created server-side
+  }
+}
 
 type PresentationFormState = {
   displayName: string;
@@ -126,6 +137,9 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [assetShareMessage, setAssetShareMessage] = useState<string | null>(null);
+  const [sharingAssignmentId, setSharingAssignmentId] = useState<string | null>(null);
+  const [brandMismatchAssignment, setBrandMismatchAssignment] = useState<ProductDetail['assetAssignments'][number] | null>(null);
   const [activeBoardSection, setActiveBoardSection] = useState<ProductDetailBoardSection>('content');
   const [hasAutoSelectedBoardSection, setHasAutoSelectedBoardSection] = useState(false);
   const canManageProducts = auth ? canPerformAction(auth.identity.role, 'product.manage') : false;
@@ -229,6 +243,44 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
     } finally {
       setIsAssigningAsset(false);
     }
+  };
+
+  const presentationBrandLabel = (presentationId: string) =>
+    product?.presentations.find((presentation) => presentation.id === presentationId)?.brandLabel ?? undefined;
+
+  // GAP-PM-043: a file whose brand scope differs from the presentation's brand is a mis-send risk.
+  const assignmentBrandMismatch = (assignment: ProductDetail['assetAssignments'][number]) => {
+    const brand = presentationBrandLabel(assignment.presentationId);
+    return Boolean(assignment.brandScope && brand && assignment.brandScope !== brand);
+  };
+
+  const performAssetShareCopy = async (assignment: ProductDetail['assetAssignments'][number]) => {
+    if (!auth) return;
+    setSharingAssignmentId(assignment.id);
+    setAssetError(null);
+    setAssetShareMessage(null);
+    try {
+      const link = await createDigitalAssetShareLinkRecord(apiBaseUrl, auth.tokens.accessToken, assignment.assetId, {
+        recipientType: 'dealer',
+        contextType: 'product_presentation',
+        contextId: assignment.presentationId,
+      });
+      await copyToClipboard(link.shareUrl);
+      setAssetShareMessage(`Customer-safe link for "${assignment.title}" copied to your clipboard.`);
+    } catch (shareError) {
+      setAssetError(shareError instanceof Error ? shareError.message : String(shareError));
+    } finally {
+      setSharingAssignmentId(null);
+    }
+  };
+
+  // GAP-PM-034: copy a customer-safe share link; GAP-PM-043 gates a brand-mismatched send behind a confirm.
+  const handleCopyAssetShareLink = (assignment: ProductDetail['assetAssignments'][number]) => {
+    if (assignmentBrandMismatch(assignment)) {
+      setBrandMismatchAssignment(assignment);
+      return;
+    }
+    void performAssetShareCopy(assignment);
   };
 
   const handleUnlinkAsset = async (assignmentId: string) => {
@@ -697,6 +749,12 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
           </Alert>
         ) : null}
 
+        {assetShareMessage ? (
+          <Alert color="green" icon={<IconShieldCheck size={18} />} mb="sm">
+            {assetShareMessage}
+          </Alert>
+        ) : null}
+
         <WorkbenchTable<ProductDetail['assetAssignments'][number]>
           ariaLabel="Product files"
           rows={product.assetAssignments}
@@ -740,14 +798,23 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
               ),
             },
           ]}
-          {...(canLinkProductAssets ? { rowActions: (assignment: ProductDetail['assetAssignments'][number]) => [{
-            id: 'unlink-file',
-            label: 'Unlink file',
-            color: 'danger' as const,
-            icon: <IconUnlink size={14} />,
-            disabled: unlinkingAssignmentId === assignment.id,
-            onClick: () => void handleUnlinkAsset(assignment.id),
-          }] } : {})}
+          rowActions={(assignment: ProductDetail['assetAssignments'][number]) => [
+            ...(assignment.reviewStatus === 'approved' ? [{
+              id: 'copy-share-link',
+              label: sharingAssignmentId === assignment.id ? 'Copying…' : 'Copy customer link',
+              icon: <IconCopy size={14} />,
+              disabled: sharingAssignmentId === assignment.id,
+              onClick: () => handleCopyAssetShareLink(assignment),
+            }] : []),
+            ...(canLinkProductAssets ? [{
+              id: 'unlink-file',
+              label: 'Unlink file',
+              color: 'danger' as const,
+              icon: <IconUnlink size={14} />,
+              disabled: unlinkingAssignmentId === assignment.id,
+              onClick: () => void handleUnlinkAsset(assignment.id),
+            }] : []),
+          ]}
           emptyState={(
             <EmptyStateMessage
               kind="no-data"
@@ -763,6 +830,35 @@ export function ProductDetailWorkspace({ productId }: { productId: string }) {
         />
       </Paper>
       ) : null}
+
+      <Modal
+        opened={Boolean(brandMismatchAssignment)}
+        onClose={() => setBrandMismatchAssignment(null)}
+        title="Brand scope doesn't match"
+        centered
+      >
+        <Stack gap="sm">
+          <Alert color="yellow" icon={<IconAlertTriangle size={18} />}>
+            This file&apos;s brand scope (<b>{brandMismatchAssignment?.brandScope}</b>) doesn&apos;t match the product&apos;s brand
+            (<b>{brandMismatchAssignment ? presentationBrandLabel(brandMismatchAssignment.presentationId) ?? 'unset' : ''}</b>).
+            Sharing it could send the wrong branding or pricing to a dealer.
+          </Alert>
+          <Text size="sm">Are you sure you want to copy a customer link for this file?</Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" onClick={() => setBrandMismatchAssignment(null)}>Cancel</Button>
+            <Button
+              color="yellow"
+              onClick={() => {
+                const assignment = brandMismatchAssignment;
+                setBrandMismatchAssignment(null);
+                if (assignment) void performAssetShareCopy(assignment);
+              }}
+            >
+              Copy link anyway
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {canLinkProductAssets ? (
         <Modal

@@ -128,6 +128,14 @@ export function CustomerDetail({ accountId }: { accountId: string }) {
                   {account.lifecycleStatus === 'at_risk' ? 'At Risk' : account.lifecycleStatus.charAt(0).toUpperCase() + account.lifecycleStatus.slice(1)}
                 </Badge>
                 {!account.isActive ? <Badge color="gray" variant="outline">Record Inactive</Badge> : null}
+                {/* UX-CSG-002 (FR-CSG-050): surface consignment participation at account-open, not buried in a sub-tab. */}
+                {canViewConsignment && account.consignment?.participatesInConsignment ? (
+                  <Badge color="violet" variant="light">
+                    {account.consignment.activeSiteCount > 0
+                      ? `Consignment: ${account.consignment.activeSiteCount} active`
+                      : 'Consignment: linked'}
+                  </Badge>
+                ) : null}
               </>
             ) : null}
           </>

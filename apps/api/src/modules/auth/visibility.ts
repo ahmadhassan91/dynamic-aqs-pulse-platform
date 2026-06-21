@@ -1,5 +1,5 @@
 import type { AuthRole } from '@pulse/contracts';
-import { LeadStage, TerritoryAssignmentMethod, prisma, type Prisma } from '@pulse/db';
+import { LeadStage, TerritoryAssignmentMethod, prisma, Prisma } from '@pulse/db';
 import type { AuthenticatedActor } from './types.js';
 
 const GLOBAL_RECORD_SCOPE_ROLES = new Set<AuthRole>([
@@ -88,6 +88,47 @@ export function buildLeadRecordScope(
   return {
     id: '__no-record-scope__',
   };
+}
+
+// SQL mirror of buildLeadRecordScope, for raw aggregation queries (e.g. the dashboard stage-aging
+// rollup) that cannot use a Prisma where object. MUST stay in lockstep with buildLeadRecordScope above —
+// parity is enforced by apps/api/test/leads.record-scope-sql.regression.test.mjs. Expects these table
+// aliases in the surrounding query: l = "Lead", t = "Territory" (LEFT JOIN ON t.id = l."territoryId"),
+// r = "Region" (LEFT JOIN ON r.id = t."regionId").
+export function buildLeadRecordScopeSql(
+  actor: AuthenticatedActor,
+  options?: {
+    preHandoffTmVisibility?: boolean;
+  },
+): Prisma.Sql {
+  if (hasGlobalRecordVisibility(actor.role)) {
+    return Prisma.sql`TRUE`;
+  }
+
+  if (actor.role === 'TERRITORY_MANAGER') {
+    const ownership = Prisma.sql`(l."assignedTmUserId" = ${actor.userId}::uuid OR t."managerUserId" = ${actor.userId}::uuid)`;
+    if (options?.preHandoffTmVisibility) {
+      return ownership;
+    }
+    return Prisma.sql`(l."stage" = 'CUSTOMER_ACTIVE' OR l."territoryAssignmentMethod" = 'MANUAL_OVERRIDE') AND ${ownership}`;
+  }
+
+  if (actor.role === 'REGIONAL_DIRECTOR') {
+    return Prisma.sql`(l."assignedRdUserId" = ${actor.userId}::uuid OR r."directorUserId" = ${actor.userId}::uuid)`;
+  }
+
+  return Prisma.sql`FALSE`;
+}
+
+export async function resolveLeadRecordScopeSql(actor: AuthenticatedActor): Promise<Prisma.Sql> {
+  const preHandoffTmVisibility = actor.role === 'TERRITORY_MANAGER'
+    ? (await prisma.territoryPolicy.findUnique({
+      where: { id: 'default' },
+      select: { preHandoffTmVisibility: true },
+    }))?.preHandoffTmVisibility ?? false
+    : false;
+
+  return buildLeadRecordScopeSql(actor, { preHandoffTmVisibility });
 }
 
 export function buildAccountRecordScope(actor: AuthenticatedActor): Prisma.AccountWhereInput | undefined {

@@ -98,7 +98,7 @@ import { findLeadRegionOption } from '@pulse/contracts';
 import { createHash } from 'node:crypto';
 import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
-import { resolveLeadRecordScope } from '../auth/visibility.js';
+import { resolveLeadRecordScope, resolveLeadRecordScopeSql } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
 import {
@@ -5136,55 +5136,54 @@ function daysSinceStageAnchor(now: Date, anchorAt: Date): number {
   return Math.max(0, Math.floor((now.getTime() - anchorAt.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
-// FR-RPT-022: per-stage aging for the lead dashboard. Reuses the SAME stage-entry anchor and stale
-// threshold (policy.stagnantStageDays) as the workflow queue (via daysSinceStageAnchor), so "days in
-// stage" is consistent across the app. No stageEnteredAt column is needed — the anchor derives entry
-// time from existing milestone timestamps. `where` should already carry the caller's record scope.
-// Scale note: this materializes in-scope ACTIVE leads (minimal select) and rolls up in JS — fine at
-// realistic pipeline sizes; if active volume grows large, push the avg/max/stale rollup into SQL.
+// FR-RPT-022: per-stage aging for the lead dashboard. Aggregated server-side in a single GROUP BY so the
+// cost is constant in returned rows regardless of how large the active pipeline grows (CUSTOMER_ACTIVE
+// leads stay lifecycleStatus=ACTIVE and accumulate without bound). The per-stage entry anchor and the
+// stale threshold (policy.stagnantStageDays) mirror the workflow queue's getWorkflowStageAnchorAt /
+// daysSinceStageAnchor, so "days in stage" is consistent across surfaces — the SQL CASE below MUST stay
+// in step with getWorkflowStageAnchorAt (ACTIVE branch). The record-scope predicate mirrors
+// resolveLeadRecordScope via resolveLeadRecordScopeSql (parity-tested). No stageEnteredAt column needed.
 export async function computeLeadStageAging(
-  where: Prisma.LeadWhereInput,
-  now: Date = new Date(),
+  actor: AuthenticatedActor,
 ): Promise<Map<LeadStage, LeadStageAgingStats>> {
   const policy = await getRoutingPolicy(prisma);
-  const leads = await prisma.lead.findMany({
-    where,
-    select: {
-      stage: true,
-      lifecycleStatus: true,
-      lifecycleChangedAt: true,
-      updatedAt: true,
-      createdAt: true,
-      discoveryScheduledAt: true,
-      discoveryCompletedAt: true,
-      cisSentAt: true,
-      cisSignedAt: true,
-      cisSubmittedAt: true,
-      onboardingCompletedAt: true,
-      firstOrderAt: true,
-    },
-  });
+  const scopeSql = await resolveLeadRecordScopeSql(actor);
 
-  const accumulator = new Map<LeadStage, { count: number; sum: number; max: number; stale: number }>();
-  for (const lead of leads) {
-    const anchorAt = getWorkflowStageAnchorAt(lead);
-    const daysInStage = daysSinceStageAnchor(now, anchorAt);
-    const entry = accumulator.get(lead.stage) ?? { count: 0, sum: 0, max: 0, stale: 0 };
-    entry.count += 1;
-    entry.sum += daysInStage;
-    entry.max = Math.max(entry.max, daysInStage);
-    if (daysInStage > policy.stagnantStageDays) {
-      entry.stale += 1;
-    }
-    accumulator.set(lead.stage, entry);
-  }
+  // Mirrors getWorkflowStageAnchorAt for ACTIVE leads (the only rows queried).
+  const anchorSql = Prisma.sql`CASE l."stage"
+        WHEN 'DISCOVERY_SCHEDULED' THEN COALESCE(l."discoveryScheduledAt", l."updatedAt")
+        WHEN 'DISCOVERY_COMPLETED' THEN COALESCE(l."discoveryCompletedAt", l."updatedAt")
+        WHEN 'CIS_SENT' THEN COALESCE(l."cisSentAt", l."updatedAt")
+        WHEN 'CIS_SIGNED' THEN COALESCE(l."cisSignedAt", l."cisSubmittedAt", l."updatedAt")
+        WHEN 'ONBOARDING_COMPLETED' THEN COALESCE(l."onboardingCompletedAt", l."updatedAt")
+        WHEN 'CUSTOMER_ACTIVE' THEN COALESCE(l."firstOrderAt", l."updatedAt")
+        ELSE l."createdAt"
+      END`;
+
+  // GREATEST(0, FLOOR(...)) matches daysSinceStageAnchor's clamp-at-0. DateTime columns are timestamp(3)
+  // holding UTC, so compare against the current UTC wall-clock.
+  const rows = await prisma.$queryRaw<Array<{ stage: LeadStage; avg_days: number; max_days: number; stale_count: number }>>(Prisma.sql`
+    SELECT sub.stage AS stage,
+      AVG(sub.days)::float8 AS avg_days,
+      MAX(sub.days)::int AS max_days,
+      COUNT(*) FILTER (WHERE sub.days > ${policy.stagnantStageDays})::int AS stale_count
+    FROM (
+      SELECT l."stage" AS stage,
+        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'UTC') - (${anchorSql}))) / 86400))::int AS days
+      FROM "Lead" l
+      LEFT JOIN "Territory" t ON t."id" = l."territoryId"
+      LEFT JOIN "Region" r ON r."id" = t."regionId"
+      WHERE l."lifecycleStatus" = 'ACTIVE' AND (${scopeSql})
+    ) sub
+    GROUP BY sub.stage
+  `);
 
   const result = new Map<LeadStage, LeadStageAgingStats>();
-  for (const [stage, entry] of accumulator) {
-    result.set(stage, {
-      avgDaysInStage: entry.count > 0 ? Math.round(entry.sum / entry.count) : 0,
-      maxDaysInStage: entry.max,
-      staleCount: entry.stale,
+  for (const row of rows) {
+    result.set(row.stage, {
+      avgDaysInStage: Math.round(row.avg_days),
+      maxDaysInStage: row.max_days,
+      staleCount: row.stale_count,
     });
   }
   return result;

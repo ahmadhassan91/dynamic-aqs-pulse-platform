@@ -292,8 +292,8 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
       orderBy: { initialContactDueAt: 'asc' },
       take: LEAD_DASHBOARD_TOP_N,
     }),
-    // FR-RPT-022: per-stage aging (days-in-stage avg/max + stale count) over the same active scope.
-    computeLeadStageAging(scoped(active), now),
+    // FR-RPT-022: per-stage aging (days-in-stage avg/max + stale count), scoped + aggregated server-side.
+    computeLeadStageAging(actor),
   ]);
 
   const stageCounts = new Map<string, number>(stageGroups.map((group) => [group.stage as string, group._count._all]));

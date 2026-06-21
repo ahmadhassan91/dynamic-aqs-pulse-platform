@@ -324,6 +324,13 @@ import type {
   UpdateDigitalAssetRequest,
   UpsertDigitalAssetCollectionItemRequest,
 } from '@pulse/contracts/digital-assets';
+import type {
+  ListUserNotificationsResponse,
+  MarkNotificationsReadRequest,
+  MarkNotificationsReadResponse,
+  UnreadNotificationCountResponse,
+  UserNotificationSummary,
+} from '@pulse/contracts/notifications';
 
 export type WidenImportPreviewRequest = {
   limit?: number;
@@ -3354,6 +3361,44 @@ async function readErrorDetail(response: Response) {
   } catch {
     return responseText;
   }
+}
+
+export async function fetchNotifications(
+  apiBaseUrl: string,
+  accessToken: string,
+  query: { status?: 'all' | 'unread' | 'archived'; category?: string; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (query.status) params.set('status', query.status);
+  if (query.category) params.set('category', query.category);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  return requestJson<ListUserNotificationsResponse>(apiBaseUrl, `/api/v1/notifications${qs ? `?${qs}` : ''}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function fetchUnreadNotificationCount(apiBaseUrl: string, accessToken: string) {
+  return requestJson<UnreadNotificationCountResponse>(apiBaseUrl, '/api/v1/notifications/unread-count', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function markNotificationsReadRecord(apiBaseUrl: string, accessToken: string, input: MarkNotificationsReadRequest) {
+  return requestJson<MarkNotificationsReadResponse>(apiBaseUrl, '/api/v1/notifications/mark-read', {
+    method: 'POST',
+    accessToken,
+    body: input,
+  });
+}
+
+export async function archiveNotificationRecord(apiBaseUrl: string, accessToken: string, notificationId: string) {
+  return requestJson<UserNotificationSummary>(apiBaseUrl, `/api/v1/notifications/${encodeURIComponent(notificationId)}/archive`, {
+    method: 'POST',
+    accessToken,
+  });
 }
 
 function normalizeApiBaseUrl(value: string) {

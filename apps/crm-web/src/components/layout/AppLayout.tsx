@@ -6,6 +6,7 @@ import { ActionIcon, AppShell, Badge, Box, Burger, Button, Group, Menu, Text, Th
 import { useDisclosure } from '@mantine/hooks';
 import { IconChevronDown, IconLogout, IconMoon, IconSun, IconUser } from '@tabler/icons-react';
 import { Navigation } from './Navigation';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { Logo } from '@/components/ui/Logo';
 import { usePulseSession } from '@/lib/pulse-session';
 
@@ -38,6 +39,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </Group>
 
           <Group gap="sm">
+            <NotificationBell />
             <ActionIcon
               variant="default"
               size="lg"

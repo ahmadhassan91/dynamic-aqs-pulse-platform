@@ -4067,3 +4067,16 @@ model UserNotification {
   @@index([recipientUserId, archivedAt, createdAt])
   @@index([recipientUserId, category])
 }
+
+// FR-NOTIF-006 — per-user, per-category in-app preference. Absence of a row means enabled (opt-out model).
+model UserNotificationPreference {
+  id              String                   @id @default(uuid()) @db.Uuid
+  recipientUserId String                   @db.Uuid
+  category        UserNotificationCategory
+  inAppEnabled    Boolean                  @default(true)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@unique([recipientUserId, category])
+  @@index([recipientUserId])
+}

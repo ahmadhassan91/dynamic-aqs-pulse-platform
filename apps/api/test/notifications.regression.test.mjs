@@ -15,6 +15,8 @@ let markNotificationsRead;
 let archiveNotification;
 let upsertUserNotification;
 let syncConsignmentAlertNotifications;
+let listNotificationPreferences;
+let updateNotificationPreference;
 
 const SERIAL = { concurrency: false };
 
@@ -22,7 +24,7 @@ test.before(async () => {
   ({ prisma } = await import('@pulse/db'));
   const configModule = await import('../dist/config.js');
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
-  ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification } = await import('../dist/modules/notifications/service.js'));
+  ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification, listNotificationPreferences, updateNotificationPreference } = await import('../dist/modules/notifications/service.js'));
   ({ syncConsignmentAlertNotifications } = await import('../dist/modules/notifications/bridge.js'));
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
@@ -136,4 +138,29 @@ test('bridge: consignment alerts materialize notifications for the site owner TM
   // Re-running the bridge does not duplicate (idempotent on recipient+dedupeKey).
   await syncConsignmentAlertNotifications();
   assert.equal((await listUserNotifications(tm, {})).total, 1);
+});
+
+test('FR-NOTIF-006: per-category preference mutes materialization (opt-out)', SERIAL, async () => {
+  const actor = await adminActor();
+
+  // Default: all six categories enabled (no rows yet).
+  const defaults = await listNotificationPreferences(actor);
+  assert.equal(defaults.preferences.length, 6);
+  assert.equal(defaults.preferences.every((p) => p.inAppEnabled), true);
+
+  // Disable the lead category.
+  const updated = await updateNotificationPreference(actor, { category: 'lead', inAppEnabled: false });
+  assert.equal(updated.preferences.find((p) => p.category === 'lead').inAppEnabled, false);
+
+  // A lead notification is now skipped; a consignment one still materializes.
+  await upsertUserNotification({ recipientUserId: actor.userId, category: 'lead', eventType: 'x', title: 'muted lead', dedupeKey: 'pref-lead' });
+  await upsertUserNotification({ recipientUserId: actor.userId, category: 'consignment', eventType: 'y', title: 'kept', dedupeKey: 'pref-csg' });
+  const list = await listUserNotifications(actor, {});
+  assert.equal(list.total, 1);
+  assert.equal(list.items[0].title, 'kept');
+
+  // Re-enable lead -> future lead notifications flow again.
+  await updateNotificationPreference(actor, { category: 'lead', inAppEnabled: true });
+  await upsertUserNotification({ recipientUserId: actor.userId, category: 'lead', eventType: 'x', title: 'lead now', dedupeKey: 'pref-lead-2' });
+  assert.equal((await listUserNotifications(actor, {})).total, 2);
 });

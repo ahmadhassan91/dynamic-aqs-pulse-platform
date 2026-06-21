@@ -1,10 +1,13 @@
 import { Prisma, UserNotificationCategory, UserNotificationSeverity, prisma } from '@pulse/db';
+import { USER_NOTIFICATION_CATEGORIES } from '@pulse/contracts/notifications';
 import type {
+  ListNotificationPreferencesResponse,
   ListUserNotificationsRequest,
   ListUserNotificationsResponse,
   MarkNotificationsReadRequest,
   MarkNotificationsReadResponse,
   UnreadNotificationCountResponse,
+  UpdateNotificationPreferenceRequest,
   UserNotificationCategoryKey,
   UserNotificationSeverityKey,
   UserNotificationSummary,
@@ -157,6 +160,10 @@ export interface CreateUserNotificationInput {
 }
 
 export async function upsertUserNotification(input: CreateUserNotificationInput): Promise<void> {
+  // FR-NOTIF-006: respect the recipient's per-category preference (absence of a row = enabled).
+  if (!(await isCategoryEnabledForUser(input.recipientUserId, input.category))) {
+    return;
+  }
   const severity = SEVERITY_TO_DB[input.severity ?? 'info'];
   await prisma.userNotification.upsert({
     where: { recipientUserId_dedupeKey: { recipientUserId: input.recipientUserId, dedupeKey: input.dedupeKey } },
@@ -181,4 +188,37 @@ export async function upsertUserNotification(input: CreateUserNotificationInput)
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     },
   });
+}
+
+// FR-NOTIF-006 — per-user, per-category in-app preference. Absence of a row = enabled (opt-out model).
+export async function isCategoryEnabledForUser(
+  recipientUserId: string,
+  category: UserNotificationCategoryKey,
+): Promise<boolean> {
+  const preference = await prisma.userNotificationPreference.findUnique({
+    where: { recipientUserId_category: { recipientUserId, category: CATEGORY_TO_DB[category] } },
+  });
+  return preference ? preference.inAppEnabled : true;
+}
+
+export async function listNotificationPreferences(actor: AuthenticatedActor): Promise<ListNotificationPreferencesResponse> {
+  const rows = await prisma.userNotificationPreference.findMany({ where: { recipientUserId: actor.userId } });
+  const byCategory = new Map(rows.map((row) => [row.category, row.inAppEnabled] as const));
+  const preferences = USER_NOTIFICATION_CATEGORIES.map((category) => ({
+    category,
+    inAppEnabled: byCategory.get(CATEGORY_TO_DB[category]) ?? true,
+  }));
+  return { preferences };
+}
+
+export async function updateNotificationPreference(
+  actor: AuthenticatedActor,
+  input: UpdateNotificationPreferenceRequest,
+): Promise<ListNotificationPreferencesResponse> {
+  await prisma.userNotificationPreference.upsert({
+    where: { recipientUserId_category: { recipientUserId: actor.userId, category: CATEGORY_TO_DB[input.category] } },
+    create: { recipientUserId: actor.userId, category: CATEGORY_TO_DB[input.category], inAppEnabled: input.inAppEnabled },
+    update: { inAppEnabled: input.inAppEnabled },
+  });
+  return listNotificationPreferences(actor);
 }

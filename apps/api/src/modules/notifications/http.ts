@@ -4,6 +4,7 @@ import {
   USER_NOTIFICATION_CATEGORIES,
   type ListUserNotificationsRequest,
   type MarkNotificationsReadRequest,
+  type UpdateNotificationPreferenceRequest,
   type UserNotificationCategoryKey,
 } from '@pulse/contracts/notifications';
 import {
@@ -16,7 +17,14 @@ import {
   unauthorizedResponse,
 } from '../../utils/http.js';
 import { isAuthenticationError, isAuthorizationError, requireAuthenticatedActor } from '../auth/request.js';
-import { archiveNotification, getUnreadNotificationCount, listUserNotifications, markNotificationsRead } from './service.js';
+import {
+  archiveNotification,
+  getUnreadNotificationCount,
+  listNotificationPreferences,
+  listUserNotifications,
+  markNotificationsRead,
+  updateNotificationPreference,
+} from './service.js';
 
 // Notifications are per-user: every route resolves the authenticated actor and operates only on that
 // actor's own notifications (no module/action gate — any signed-in user has an inbox).
@@ -26,6 +34,7 @@ export async function handleNotificationRoutes(req: IncomingMessage, res: Server
   const isNotificationRoute =
     pathname === '/api/v1/notifications'
     || pathname === '/api/v1/notifications/unread-count'
+    || pathname === '/api/v1/notifications/preferences'
     || pathname === '/api/v1/notifications/mark-read'
     || /^\/api\/v1\/notifications\/[^/]+\/archive$/.test(pathname);
 
@@ -40,6 +49,21 @@ export async function handleNotificationRoutes(req: IncomingMessage, res: Server
       }
       const actor = await requireAuthenticatedActor(req);
       return jsonResponse(res, 200, await getUnreadNotificationCount(actor));
+    }
+
+    if (pathname === '/api/v1/notifications/preferences') {
+      const actor = await requireAuthenticatedActor(req);
+      if (method === 'GET') {
+        return jsonResponse(res, 200, await listNotificationPreferences(actor));
+      }
+      if (method === 'PUT') {
+        const body = ((await readJsonBody(req)) ?? {}) as UpdateNotificationPreferenceRequest;
+        if (!body.category || !(USER_NOTIFICATION_CATEGORIES as readonly string[]).includes(body.category)) {
+          return badRequestResponse(res, 'A valid notification category is required.');
+        }
+        return jsonResponse(res, 200, await updateNotificationPreference(actor, { category: body.category, inAppEnabled: Boolean(body.inAppEnabled) }));
+      }
+      return methodNotAllowedResponse(res, method, ['GET', 'PUT']);
     }
 
     if (pathname === '/api/v1/notifications/mark-read') {

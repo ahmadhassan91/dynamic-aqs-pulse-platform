@@ -56,3 +56,18 @@ export interface MarkNotificationsReadResponse {
   updated: number;
   unreadCount: number;
 }
+
+// FR-NOTIF-006 — per-user, per-category in-app preference (absence = enabled).
+export interface UserNotificationPreferenceSummary {
+  category: UserNotificationCategoryKey;
+  inAppEnabled: boolean;
+}
+
+export interface ListNotificationPreferencesResponse {
+  preferences: UserNotificationPreferenceSummary[];
+}
+
+export interface UpdateNotificationPreferenceRequest {
+  category: UserNotificationCategoryKey;
+  inAppEnabled: boolean;
+}

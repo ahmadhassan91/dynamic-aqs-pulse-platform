@@ -71,12 +71,14 @@ async function leadIdsViaPrisma(actor) {
 
 async function leadIdsViaSql(actor) {
   const scope = await resolveLeadRecordScopeSql(actor);
+  // Wrap the scope in parens exactly as the production consumer (computeLeadStageAging) embeds it
+  // ("... AND (${scope})"), so this guardrail exercises the same operator precedence.
   const rows = await prisma.$queryRaw(Prisma.sql`
     SELECT l."id" AS id
     FROM "Lead" l
     LEFT JOIN "Territory" t ON t."id" = l."territoryId"
     LEFT JOIN "Region" r ON r."id" = t."regionId"
-    WHERE ${scope}
+    WHERE (${scope})
   `);
   return rows.map((row) => row.id).sort();
 }

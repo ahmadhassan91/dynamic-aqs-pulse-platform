@@ -63,12 +63,15 @@ import {
   fetchLeadSources,
   fetchOwnershipGroups,
   fetchLeadRoutingPolicy,
+  fetchTerritories,
   logLeadInitialContact,
+  reassignLeadTerritory,
   scheduleLeadDiscovery,
   skipLeadDiscovery,
   updateLead,
   updateLeadLifecycle,
 } from '@/lib/pulse-api';
+import type { TerritorySummary } from '@pulse/contracts/territories';
 import { logLeadActivityNote } from '@/lib/pulse-api-ext-leads-cis';
 import { usePulseSession } from '@/lib/pulse-session';
 import { APP_LEAD_RATINGS, APP_LEAD_REGION_OPTIONS } from '@/lib/lead-form-options';
@@ -211,6 +214,15 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
 
   const canManageLead = auth ? canPerformAction(auth.identity.role, 'lead.intake_manage') : false;
   const canViewFinanceQueue = auth ? canPerformAction(auth.identity.role, 'lead.finance_queue_view') : false;
+  // UX-L-005: reassign the lead's territory (TM/RD inherit the territory defaults) straight from the
+  // record. Server gates on territory.reassign, so match that on the UI action.
+  const canReassignTerritory = auth ? canPerformAction(auth.identity.role, 'territory.reassign') : false;
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignTerritories, setReassignTerritories] = useState<TerritorySummary[]>([]);
+  const [reassignTerritoryId, setReassignTerritoryId] = useState<string>('');
+  const [reassignReasonCode, setReassignReasonCode] = useState<string>('manual_override');
+  const [reassignReasonNote, setReassignReasonNote] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
 
   useEffect(() => {
     if (!auth) {
@@ -829,12 +841,56 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
     value: group.code,
     label: group.name,
   }));
+  async function openReassignModal() {
+    if (!auth) return;
+    setReassignTerritoryId(currentLead.territoryId ?? '');
+    setReassignReasonCode('manual_override');
+    setReassignReasonNote('');
+    setActionError(null);
+    setReassignOpen(true);
+    if (reassignTerritories.length === 0) {
+      try {
+        const response = await fetchTerritories(apiBaseUrl, auth.tokens.accessToken);
+        setReassignTerritories(response.items);
+      } catch (loadError) {
+        setActionError(loadError instanceof Error ? loadError.message : String(loadError));
+      }
+    }
+  }
+
+  async function handleReassignTerritory() {
+    if (!auth || !reassignTerritoryId) return;
+    setIsReassigning(true);
+    setActionError(null);
+    try {
+      await reassignLeadTerritory(apiBaseUrl, auth.tokens.accessToken, currentLead.id, {
+        territoryId: reassignTerritoryId,
+        reasonCode: reassignReasonCode,
+        ...(reassignReasonNote.trim() ? { reasonNote: reassignReasonNote.trim() } : {}),
+      });
+      const updated = await fetchLeadDetail(apiBaseUrl, auth.tokens.accessToken, currentLead.id);
+      setLead(updated);
+      setReassignOpen(false);
+    } catch (reassignError) {
+      setActionError(reassignError instanceof Error ? reassignError.message : String(reassignError));
+    } finally {
+      setIsReassigning(false);
+    }
+  }
+
   const leadMoreMenuItems: WorkbenchMenuItem[] = [
     ...(canManageLead ? [{
       id: 'edit-record',
       label: 'Edit lead details',
       icon: <IconEdit size={16} />,
       onClick: () => setEditOpened(true),
+    }] : []),
+    ...(canReassignTerritory ? [{
+      id: 'reassign-territory',
+      label: 'Reassign territory',
+      description: 'Route this lead to a different territory (TM/RD inherit defaults).',
+      icon: <IconArrowRight size={16} />,
+      onClick: () => { void openReassignModal(); },
     }] : []),
     ...(canManageLead && lead.lifecycleStatus === 'active' ? [
       {
@@ -1016,6 +1072,64 @@ export function LeadRecordWorkspace({ leadId }: LeadRecordWorkspaceProps) {
           ) : null}
         </Stack>
       </Paper>
+
+      <Modal
+        opened={reassignOpen}
+        onClose={() => setReassignOpen(false)}
+        title="Reassign lead territory"
+        centered
+        size="lg"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Route this lead to the correct territory. The territory&apos;s default TM/RD are applied and the change is written to assignment history.
+          </Text>
+          <Paper withBorder radius="md" p="md">
+            <Stack gap={2}>
+              <Text fw={700}>{currentLead.companyName}</Text>
+              <Text size="sm" c="dimmed">
+                Currently: {currentLead.territoryName ?? 'No territory'}{currentLead.assignedTmName ? ` · TM ${currentLead.assignedTmName}` : ''}
+              </Text>
+            </Stack>
+          </Paper>
+          <Select
+            label="Territory"
+            placeholder="Select a territory"
+            data={reassignTerritories.filter((territory) => territory.isActive).map((territory) => ({ value: territory.id, label: `${territory.name} (${territory.code})` }))}
+            value={reassignTerritoryId || null}
+            onChange={(value) => setReassignTerritoryId(value ?? '')}
+            searchable
+          />
+          <Select
+            label="Reason"
+            data={[
+              { value: 'manual_override', label: 'Manual override' },
+              { value: 'coverage_exception', label: 'Coverage exception' },
+              { value: 'shipping_alignment', label: 'Shipping alignment' },
+              { value: 'lead_request', label: 'Lead request' },
+              { value: 'data_cleanup', label: 'Data cleanup' },
+              { value: 'other', label: 'Other' },
+            ]}
+            value={reassignReasonCode}
+            onChange={(value) => setReassignReasonCode(value ?? 'manual_override')}
+          />
+          <Textarea
+            label="Note"
+            placeholder="Optional detail for the assignment history."
+            value={reassignReasonNote}
+            onChange={(event) => setReassignReasonNote(event.currentTarget.value)}
+            minRows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setReassignOpen(false)} disabled={isReassigning}>
+              Cancel
+            </Button>
+            <Button onClick={() => { void handleReassignTerritory(); }} loading={isReassigning} disabled={!reassignTerritoryId}>
+              Reassign
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={editOpened}

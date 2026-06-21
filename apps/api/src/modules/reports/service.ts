@@ -270,6 +270,7 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     stageGroups,
     sourceGroups,
     stateGroups,
+    slaAtRiskLeads,
   ] = await Promise.all([
     prisma.lead.count({ where: scoped(active) }),
     prisma.lead.count({ where: scoped({ ...active, stage: 'NEW' }) }),
@@ -282,6 +283,13 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     prisma.lead.groupBy({ by: ['stage'], where: scoped(active), _count: { _all: true } }),
     prisma.lead.groupBy({ by: ['leadSourceId'], where: scoped(active), _count: { _all: true } }),
     prisma.lead.groupBy({ by: ['state'], where: scoped(active), _count: { _all: true } }),
+    // FR-RPT-027: the actionable handoff-risk detail behind slaAtRiskCount — who is overdue, by how long.
+    prisma.lead.findMany({
+      where: scoped({ ...active, initialContactedAt: null, initialContactDueAt: { lt: now } }),
+      select: { id: true, companyName: true, stage: true, initialContactDueAt: true, assignedTmUser: { select: { displayName: true } } },
+      orderBy: { initialContactDueAt: 'asc' },
+      take: LEAD_DASHBOARD_TOP_N,
+    }),
   ]);
 
   const stageCounts = new Map<string, number>(stageGroups.map((group) => [group.stage as string, group._count._all]));
@@ -306,6 +314,19 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     .sort((a, b) => b.count - a.count)
     .slice(0, LEAD_DASHBOARD_TOP_N);
 
+  const slaAtRisk = slaAtRiskLeads.flatMap((lead) =>
+    lead.initialContactDueAt
+      ? [{
+          leadId: lead.id,
+          companyName: lead.companyName,
+          stage: lead.stage.toLowerCase(),
+          ownerName: lead.assignedTmUser?.displayName ?? null,
+          initialContactDueAt: lead.initialContactDueAt.toISOString(),
+          daysOverdue: Math.max(0, Math.floor((now.getTime() - lead.initialContactDueAt.getTime()) / 86_400_000)),
+        }]
+      : [],
+  );
+
   const unspecifiedSegment = Math.max(0, totalActiveLeads - homeowner - contractor);
   const conversionRatePct = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
 
@@ -323,6 +344,7 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     byStage,
     bySource,
     byState,
+    slaAtRisk,
     generatedAt: now.toISOString(),
   };
 }

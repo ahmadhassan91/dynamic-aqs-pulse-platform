@@ -168,6 +168,17 @@ export interface LeadDashboardCountBucket {
   count: number;
 }
 
+// A lead past its initial-contact SLA and not yet contacted — the actionable
+// handoff-risk detail behind the slaAtRiskCount metric (FR-RPT-027).
+export interface LeadSlaRiskItem {
+  leadId: string;
+  companyName: string;
+  stage: string; // lowercased LeadStage key
+  ownerName: string | null; // assigned TM display name; null if unassigned
+  initialContactDueAt: string; // ISO
+  daysOverdue: number; // whole days past due (>= 0)
+}
+
 export interface LeadDashboardResponse {
   metrics: {
     totalActiveLeads: number; // lifecycleStatus ACTIVE, in scope
@@ -186,6 +197,7 @@ export interface LeadDashboardResponse {
   byStage: LeadDashboardStageBucket[]; // all stages, active leads
   bySource: LeadDashboardCountBucket[]; // top sources by active-lead count
   byState: LeadDashboardCountBucket[]; // top states by active-lead count
+  slaAtRisk: LeadSlaRiskItem[]; // active uncontacted leads past initial-contact due — most overdue first (top N)
   generatedAt: string; // ISO
 }
 

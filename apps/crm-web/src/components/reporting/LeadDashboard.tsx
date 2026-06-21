@@ -1,6 +1,7 @@
 'use client';
 
-import { Alert, Card, Group, Loader, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
+import Link from 'next/link';
+import { Alert, Anchor, Card, Group, Loader, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
   IconActivity,
   IconAlertTriangle,
@@ -44,7 +45,7 @@ export function LeadDashboard() {
     );
   }
 
-  const { metrics, segmentation, byStage, bySource, byState } = dashboard;
+  const { metrics, segmentation, byStage, bySource, byState, slaAtRisk } = dashboard;
   const maxStageCount = Math.max(1, ...byStage.map((bucket) => bucket.count));
 
   return (
@@ -84,6 +85,38 @@ export function LeadDashboard() {
           },
         ]}
       />
+
+      {slaAtRisk.length > 0 ? (
+        <Card withBorder radius="lg" padding="lg">
+          <Group justify="space-between" mb="md">
+            <Text fw={700}>SLA at risk — needs contact now</Text>
+            <Text size="sm" c="dimmed">
+              {slaAtRisk.length} lead{slaAtRisk.length === 1 ? '' : 's'} past initial-contact due
+            </Text>
+          </Group>
+          <WorkbenchTable
+            withContainer={false}
+            pageSize={0}
+            ariaLabel="Leads past initial-contact SLA"
+            rows={slaAtRisk}
+            getRowKey={(row) => row.leadId}
+            columns={[
+              {
+                key: 'company',
+                header: 'Company',
+                render: (row) => (
+                  <Anchor component={Link} href={`/leads/${row.leadId}`} size="sm">
+                    {row.companyName}
+                  </Anchor>
+                ),
+              },
+              { key: 'stage', header: 'Stage', render: (row) => row.stage.replace(/_/g, ' ') },
+              { key: 'owner', header: 'Owner', render: (row) => row.ownerName ?? 'Unassigned' },
+              { key: 'overdue', header: 'Days overdue', align: 'right', render: (row) => row.daysOverdue },
+            ]}
+          />
+        </Card>
+      ) : null}
 
       <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
         <Card withBorder radius="lg" padding="lg">

@@ -152,6 +152,41 @@ test('lead dashboard aggregates pipeline KPIs for a global-visibility actor', SE
   assert.equal(typeof dashboard.generatedAt, 'string');
 });
 
+test('FR-RPT-027: SLA-at-risk list surfaces overdue uncontacted leads, most overdue first', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const segment = await prisma.businessSegmentRef.findFirst();
+  const source = await prisma.leadSourceRef.findFirst();
+  const tmUser = await prisma.user.create({
+    data: { email: 'sla.tm@pulse.local', displayName: 'SLA TM', roleCode: 'TERRITORY_MANAGER', userType: 'INTERNAL', isActive: true },
+  });
+  const base = {
+    contactDisplayName: 'SLA Contact',
+    businessSegmentId: segment.id,
+    leadSourceId: source.id,
+    serviceTechCount: 4,
+    routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+    routingThresholdSnapshot: 5,
+    routingTeam: 'STRATEGIC_GROWTH',
+    stage: 'NEW',
+  };
+  const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000);
+  const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000);
+  await prisma.lead.create({ data: { ...base, companyName: 'Most Overdue', assignedTmUserId: tmUser.id, initialContactDueAt: tenDaysAgo } });
+  await prisma.lead.create({ data: { ...base, companyName: 'Less Overdue', initialContactDueAt: twoDaysAgo } });
+  // Already contacted -> not at risk; not yet due -> not at risk.
+  await prisma.lead.create({ data: { ...base, companyName: 'Already Contacted', initialContactDueAt: tenDaysAgo, initialContactedAt: new Date() } });
+  await prisma.lead.create({ data: { ...base, companyName: 'Not Due Yet', initialContactDueAt: new Date(Date.now() + 5 * 86_400_000) } });
+
+  const dashboard = await getLeadDashboard(admin);
+  assert.equal(dashboard.metrics.slaAtRiskCount, 2);
+  assert.equal(dashboard.slaAtRisk.length, 2);
+  assert.equal(dashboard.slaAtRisk[0].companyName, 'Most Overdue'); // most overdue sorts first
+  assert.equal(dashboard.slaAtRisk[0].ownerName, 'SLA TM');
+  assert.ok(dashboard.slaAtRisk[0].daysOverdue >= 9);
+  assert.equal(dashboard.slaAtRisk[1].companyName, 'Less Overdue');
+  assert.equal(dashboard.slaAtRisk[1].ownerName, null); // unassigned
+});
+
 test('lead dashboard scopes counts to the actor record scope (TM sees only their book)', SERIAL, async () => {
   const { tmUser } = await seedLeads();
   const tmDashboard = await getLeadDashboard(actorFor(tmUser));

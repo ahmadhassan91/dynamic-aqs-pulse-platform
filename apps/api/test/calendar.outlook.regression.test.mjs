@@ -354,6 +354,84 @@ test('outlook sync creates event binding and refreshes the token when expired', 
   }
 });
 
+test('outlook sync rolls back the orphan Graph event when the binding write fails, so a retry does not duplicate', SERIAL, async () => {
+  const { actor, auth } = await createAdminSession();
+  const lead = await createLead(actor, {
+    companyName: 'Outlook Orphan Dealer',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      stage: 'DISCOVERY_SCHEDULED',
+      discoveryScheduledAt: new Date('2026-08-01T15:00:00.000Z'),
+      discoverySummary: 'Orphan rollback regression discovery.',
+    },
+  });
+
+  const runtime = await createPulseServer(config);
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+
+  const originalTransaction = prisma.$transaction.bind(prisma);
+  try {
+    const { port } = await connectOutlookForRuntime(runtime, auth);
+
+    const syncOnce = () => fetch(`http://127.0.0.1:${port}/api/v1/calendar/outlook/events/sync`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.tokens.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ sourceModule: 'leads', sourceRecordId: lead.id, eventType: 'discovery_call' }),
+    });
+
+    // One-shot failure of the binding-persist transaction. Gating on "a Graph event was already created" makes
+    // this robust to any earlier transaction in the sync path: only the post-create binding write fails, then
+    // the original $transaction is restored so the outer catch can still record lastSyncError.
+    prisma.$transaction = (...args) => {
+      if (mockOutlook.eventCreates.length > 0) {
+        prisma.$transaction = originalTransaction;
+        return Promise.reject(new Error('Simulated binding-persist failure'));
+      }
+      return originalTransaction(...args);
+    };
+
+    const firstSync = await syncOnce();
+    assert.notEqual(firstSync.status, 200, 'sync must fail when the binding write fails');
+
+    // The Graph event was created, then rolled back (deleted) — no orphan, no binding.
+    assert.equal(mockOutlook.eventCreates.length, 1, 'one Graph event created on the first attempt');
+    assert.equal(mockOutlook.eventDeletes.length, 1, 'the orphan Graph event must be deleted on binding failure');
+    assert.equal(mockOutlook.eventDeletes[0].path, '/me/events/evt-1');
+    assert.equal(
+      await prisma.calendarEventBinding.count({
+        where: { sourceModule: 'leads', sourceRecordId: lead.id, eventType: 'discovery_call' },
+      }),
+      0,
+      'no binding should persist when the transaction failed',
+    );
+
+    // Retry: a fresh event is created (NOT a duplicate of the deleted orphan) and bound exactly once.
+    const secondSync = await syncOnce();
+    assert.equal(secondSync.status, 200);
+    const secondPayload = await secondSync.json();
+    assert.equal(secondPayload.externalEventId, 'evt-2');
+    assert.equal(mockOutlook.eventCreates.length, 2);
+    assert.equal(mockOutlook.eventDeletes.length, 1, 'no extra deletes on the successful retry');
+
+    const bindings = await prisma.calendarEventBinding.findMany({
+      where: { sourceModule: 'leads', sourceRecordId: lead.id, eventType: 'discovery_call' },
+    });
+    assert.equal(bindings.length, 1, 'exactly one binding after retry — no duplicate');
+    assert.equal(bindings[0].externalEventId, 'evt-2', 'binding points to the live event, not the deleted orphan');
+  } finally {
+    prisma.$transaction = originalTransaction;
+    await runtime.close();
+  }
+});
+
 test('outlook settings list available calendars and persist target calendar plus meeting preference', SERIAL, async () => {
   const { actor, auth } = await createAdminSession();
   const runtime = await createPulseServer(config);

@@ -620,6 +620,7 @@ export async function syncCalendarEventToOutlook(
       await deleteOutlookEvent(config, activeAccessToken, binding.externalEventId);
     }
 
+    const createdNewEvent = !(binding && !shouldRecreate);
     const response = binding && !shouldRecreate
       ? await patchOutlookEvent(config, activeAccessToken, binding.externalEventId, payload)
       : await createOutlookEvent(config, activeAccessToken, connection, payload);
@@ -686,6 +687,20 @@ export async function syncCalendarEventToOutlook(
           },
         }),
       });
+    }).catch(async (persistError) => {
+      // The Graph event was created/patched but persisting its local binding failed. For a freshly CREATED
+      // event there is no binding row, so the next sync would call createOutlookEvent again and leave a
+      // DUPLICATE in the user's Outlook. Best-effort: delete the orphan we just created so a retry starts clean.
+      // (The payload's transactionId dedup is only a partial, time-bounded backstop.) Never delete an event we
+      // merely patched — that one was already bound.
+      if (createdNewEvent) {
+        try {
+          await deleteOutlookEvent(config, activeAccessToken, response.id);
+        } catch {
+          // Swallow — surface the original persist error (the outer catch records it as lastSyncError).
+        }
+      }
+      throw persistError;
     });
 
     return {

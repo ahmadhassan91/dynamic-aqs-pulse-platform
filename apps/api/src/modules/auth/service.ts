@@ -1128,8 +1128,10 @@ async function resolveMicrosoftEntraRole(
 }
 
 function isEmailAllowedByMicrosoftEntraPolicy(email: string, allowedDomains: string[]) {
+  // Fail-closed (hardened 2026-06-22): an empty allowlist denies all NEW Entra identities rather than
+  // admitting every domain. A domain allowlist must be configured before SSO onboarding is permitted.
   if (allowedDomains.length === 0) {
-    return true;
+    return false;
   }
 
   const [, domain = ''] = email.toLowerCase().split('@');

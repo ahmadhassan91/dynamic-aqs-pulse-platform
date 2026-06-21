@@ -78,6 +78,13 @@ test('entra start + complete links an existing internal Pulse user by email', SE
     },
   });
 
+  const policyActor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(policyActor, config, {
+    allowEmailLinking: true,
+    autoProvisionFromGroups: false,
+    allowedDomains: ['pulse.local'],
+  });
+
   mockEntra.setScenario({
     claims: {
       oid: 'entra-bootstrap-admin',
@@ -134,6 +141,13 @@ test('entra complete auto-provisions an internal user when mapped group membersh
   config = loadAppConfig(process.env);
   await ensureBootstrapAdminSeeded(config);
 
+  const policyActor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(policyActor, config, {
+    allowEmailLinking: false,
+    autoProvisionFromGroups: true,
+    allowedDomains: ['dynamicaqs.com'],
+  });
+
   mockEntra.setScenario({
     claims: {
       oid: 'entra-training-user',
@@ -188,6 +202,7 @@ test('entra complete respects admin policy when email linking is disabled', SERI
   await updateMicrosoftEntraAdminSettings(actor, config, {
     allowEmailLinking: false,
     autoProvisionFromGroups: false,
+    allowedDomains: ['pulse.local'],
   });
 
   mockEntra.setScenario({
@@ -318,6 +333,13 @@ test('entra complete rejects sign-in when no approved Pulse role is resolved', S
   config = loadAppConfig(process.env);
   await ensureBootstrapAdminSeeded(config);
 
+  const policyActor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(policyActor, config, {
+    allowEmailLinking: false,
+    autoProvisionFromGroups: false,
+    allowedDomains: ['dynamicaqs.com'],
+  });
+
   mockEntra.setScenario({
     claims: {
       oid: 'entra-unmapped-user',
@@ -348,6 +370,13 @@ test('entra complete rejects sign-in when no approved Pulse role is resolved', S
 });
 
 test('entra authorization state cannot be reused after a successful login', SERIAL, async () => {
+  const policyActor = await createBootstrapActor();
+  await updateMicrosoftEntraAdminSettings(policyActor, config, {
+    allowEmailLinking: true,
+    autoProvisionFromGroups: false,
+    allowedDomains: ['pulse.local'],
+  });
+
   mockEntra.setScenario({
     claims: {
       oid: 'entra-bootstrap-reuse',

@@ -21,9 +21,12 @@ type StoredMicrosoftEntraPolicy = {
   groupRoleMappings: MicrosoftEntraGroupRoleMapping[];
 };
 
+// Fail-closed defaults (hardened 2026-06-22): out of the box, Entra SSO neither links nor auto-provisions
+// users, and with no domain allowlist no new identity is admitted (see isEmailAllowedByMicrosoftEntraPolicy).
+// An admin must consciously enable linking/provisioning AND approve domains before SSO onboarding works.
 const DEFAULT_MICROSOFT_ENTRA_POLICY: StoredMicrosoftEntraPolicy = {
-  allowEmailLinking: true,
-  autoProvisionFromGroups: true,
+  allowEmailLinking: false,
+  autoProvisionFromGroups: false,
   allowedDomains: [],
   groupRoleMappings: [],
 };

@@ -342,7 +342,20 @@ export const ROLE_DEFAULT_MODULE_ACCESS: Record<AuthRole, readonly WorkspaceModu
 };
 
 export const ROLE_DEFAULT_ACTION_ACCESS: Record<AuthRole, readonly WorkspaceActionKey[]> = {
-  EXECUTIVE: WORKSPACE_ACTIONS.filter((action) => action !== 'consignment.sync' && action !== 'digital_asset.sync'),
+  // EXECUTIVE is an oversight / read role: full cross-module VISIBILITY, no mutation. (Hardened 2026-06-22 —
+  // previously granted nearly every action.) For write access an exec uses an operational role or SUPER_ADMIN.
+  EXECUTIVE: [
+    'reference.view',
+    'admin.user_view', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'admin.integration_view',
+    'lead.view', 'lead.finance_queue_view',
+    'customer.view', 'customer.financials_view',
+    'order.view', 'dealer.order_view',
+    'contact.view', 'location.view',
+    'product.view',
+    'digital_asset.view', 'digital_asset.download', 'digital_asset.usage_view',
+    'consignment.view',
+    'reports.builder', 'reports.executive',
+  ],
   SUPER_ADMIN: WORKSPACE_ACTIONS.filter((action) => action !== 'consignment.sync'),
   SALES_BD_REP: ['reference.view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'order.view', 'order.create', 'order.submit', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'product.view', 'digital_asset.view', 'digital_asset.download', 'digital_asset.share', 'reports.builder'],
   SALES_BD_LEADERSHIP: ['reference.view', 'admin.role_view', 'admin.audit_view', 'admin.system_health_view', 'lead.view', 'customer.view', 'customer.create', 'customer.edit', 'customer.activity_log', 'order.view', 'contact.view', 'contact.create', 'location.view', 'location.create', 'lead.intake_manage', 'lead.finance_queue_view', 'product.view', 'digital_asset.view', 'digital_asset.download', 'digital_asset.share', 'digital_asset.usage_view', 'reports.builder'],

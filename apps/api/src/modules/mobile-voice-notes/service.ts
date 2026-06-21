@@ -596,10 +596,34 @@ async function canActorAccessVoiceNote(actor: AuthenticatedActor, row: VoiceNote
       return Boolean(await getLeadDetail(actor, row.leadId));
     }
     if (row.trainingSessionId) {
-      return row.createdByUserId === actor.userId || canPerformAction(actor.role, 'training.schedule');
+      if (row.createdByUserId === actor.userId) {
+        return true;
+      }
+      if (!canPerformAction(actor.role, 'training.schedule')) {
+        return false;
+      }
+      // Record-scope (not just action-gate): the training session must be in the actor's book, mirroring
+      // the account/lead branches above. Prevents a TM/RD reading a note for a session outside their scope.
+      const scope = buildTrainingSessionRecordScope(actor);
+      const visible = await prisma.trainingSession.findFirst({
+        where: scope ? { AND: [scope, { id: row.trainingSessionId }] } : { id: row.trainingSessionId },
+        select: { id: true },
+      });
+      return Boolean(visible);
     }
     if (row.consignmentSiteId) {
-      return row.createdByUserId === actor.userId || canPerformAction(actor.role, 'consignment.view');
+      if (row.createdByUserId === actor.userId) {
+        return true;
+      }
+      if (!canPerformAction(actor.role, 'consignment.view')) {
+        return false;
+      }
+      // Record-scope the consignment site to the actor's owned/region book.
+      const visible = await prisma.consignmentSite.findFirst({
+        where: { AND: [buildConsignmentSiteScopeWhere(actor), { id: row.consignmentSiteId }] },
+        select: { id: true },
+      });
+      return Boolean(visible);
     }
     return row.createdByUserId === actor.userId || canReviewGeneralVoiceNotes(actor);
   } catch {

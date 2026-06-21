@@ -93,8 +93,10 @@ test('admin integrations surface Microsoft Entra status and default auth setting
     const settingsPayload = await settingsResponse.json();
     assert.equal(settingsPayload.provider, 'microsoft_entra');
     assert.equal(settingsPayload.isConfigured, true);
-    assert.equal(settingsPayload.policy.allowEmailLinking, true);
-    assert.equal(settingsPayload.policy.autoProvisionFromGroups, true);
+    // Hardened 2026-06-22: Entra SSO defaults are fail-closed (no linking/provisioning, no approved domains)
+    // until an admin explicitly configures the policy.
+    assert.equal(settingsPayload.policy.allowEmailLinking, false);
+    assert.equal(settingsPayload.policy.autoProvisionFromGroups, false);
     assert.deepEqual(settingsPayload.policy.allowedDomains, []);
     assert.deepEqual(settingsPayload.policy.groupRoleMappings, []);
   } finally {

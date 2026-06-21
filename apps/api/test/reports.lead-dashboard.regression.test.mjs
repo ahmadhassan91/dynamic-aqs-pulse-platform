@@ -187,6 +187,45 @@ test('FR-RPT-027: SLA-at-risk list surfaces overdue uncontacted leads, most over
   assert.equal(dashboard.slaAtRisk[1].ownerName, null); // unassigned
 });
 
+test('FR-RPT-022: per-stage aging reports days-in-stage avg/max + stale count', SERIAL, async () => {
+  const admin = await createAdminActor();
+  const segment = await prisma.businessSegmentRef.findFirst();
+  const source = await prisma.leadSourceRef.findFirst();
+  const base = {
+    contactDisplayName: 'Aging Contact',
+    businessSegmentId: segment.id,
+    leadSourceId: source.id,
+    serviceTechCount: 4,
+    routingBasisSnapshot: 'SERVICE_TECH_COUNT',
+    routingThresholdSnapshot: 5,
+    routingTeam: 'STRATEGIC_GROWTH',
+  };
+  const daysAgo = (n) => new Date(Date.now() - n * 86_400_000 - 3_600_000); // +1h buffer keeps floor() stable
+  // NEW anchors on createdAt; CIS_SENT anchors on cisSentAt.
+  await prisma.lead.create({ data: { ...base, companyName: 'New Old', stage: 'NEW', createdAt: daysAgo(100) } });
+  await prisma.lead.create({ data: { ...base, companyName: 'New Recent', stage: 'NEW', createdAt: daysAgo(10) } });
+  await prisma.lead.create({ data: { ...base, companyName: 'CIS Sent', stage: 'CIS_SENT', createdAt: daysAgo(40), cisSentAt: daysAgo(2) } });
+
+  const dashboard = await getLeadDashboard(admin);
+
+  const newBucket = dashboard.byStage.find((b) => b.stage === 'new');
+  assert.equal(newBucket.count, 2);
+  assert.ok(newBucket.maxDaysInStage >= 99 && newBucket.maxDaysInStage <= 101, `new max=${newBucket.maxDaysInStage}`);
+  assert.ok(newBucket.avgDaysInStage >= 50, `new avg=${newBucket.avgDaysInStage}`); // (100 + 10) / 2 = 55
+  assert.ok(newBucket.staleCount >= 1); // the 100-day lead exceeds any reasonable stagnant threshold
+
+  const cisBucket = dashboard.byStage.find((b) => b.stage === 'cis_sent');
+  assert.equal(cisBucket.count, 1);
+  assert.ok(cisBucket.maxDaysInStage >= 1 && cisBucket.maxDaysInStage <= 3, `cis max=${cisBucket.maxDaysInStage}`);
+
+  // Empty stages report zeroes, never undefined.
+  const signedBucket = dashboard.byStage.find((b) => b.stage === 'cis_signed');
+  assert.equal(signedBucket.count, 0);
+  assert.equal(signedBucket.avgDaysInStage, 0);
+  assert.equal(signedBucket.maxDaysInStage, 0);
+  assert.equal(signedBucket.staleCount, 0);
+});
+
 test('lead dashboard scopes counts to the actor record scope (TM sees only their book)', SERIAL, async () => {
   const { tmUser } = await seedLeads();
   const tmDashboard = await getLeadDashboard(actorFor(tmUser));

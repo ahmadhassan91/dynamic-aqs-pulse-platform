@@ -160,6 +160,9 @@ export interface LeadDashboardStageBucket {
   stage: string;
   label: string;
   count: number;
+  avgDaysInStage: number; // FR-RPT-022: avg days leads currently in this stage have sat (0 when empty)
+  maxDaysInStage: number; // oldest current lead's days-in-stage (0 when empty)
+  staleCount: number; // leads in this stage past the stagnant-stage threshold
 }
 
 export interface LeadDashboardCountBucket {

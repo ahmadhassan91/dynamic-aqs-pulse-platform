@@ -141,6 +141,12 @@ export function LeadDashboard() {
                   radius="xl"
                   aria-label={`${bucket.label}: ${bucket.count} leads`}
                 />
+                {bucket.count > 0 ? (
+                  <Text size="xs" c={bucket.staleCount > 0 ? 'orange.7' : 'dimmed'} mt={4}>
+                    avg {bucket.avgDaysInStage}d in stage · max {bucket.maxDaysInStage}d
+                    {bucket.staleCount > 0 ? ` · ${bucket.staleCount} stale` : ''}
+                  </Text>
+                ) : null}
               </div>
             ))}
           </Stack>

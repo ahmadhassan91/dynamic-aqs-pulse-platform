@@ -5081,7 +5081,30 @@ function summarizeWorkflowQueue(items: LeadWorkflowQueueItem[], staleThresholdDa
   };
 }
 
-function getWorkflowStageAnchorAt(lead: LeadWithWorkflowRefs) {
+// The minimal timestamp surface the stage anchor reads — lets non-lead callers (e.g. the reports
+// dashboard aging rollup) pass a narrow select instead of a full LeadWithWorkflowRefs payload.
+export interface LeadStageAnchorFields {
+  lifecycleStatus: LeadLifecycleStatus;
+  lifecycleChangedAt: Date | null;
+  updatedAt: Date;
+  createdAt: Date;
+  stage: LeadStage;
+  discoveryScheduledAt: Date | null;
+  discoveryCompletedAt: Date | null;
+  cisSentAt: Date | null;
+  cisSignedAt: Date | null;
+  cisSubmittedAt: Date | null;
+  onboardingCompletedAt: Date | null;
+  firstOrderAt: Date | null;
+}
+
+export interface LeadStageAgingStats {
+  avgDaysInStage: number;
+  maxDaysInStage: number;
+  staleCount: number;
+}
+
+function getWorkflowStageAnchorAt(lead: LeadStageAnchorFields) {
   if (lead.lifecycleStatus !== LeadLifecycleStatus.ACTIVE) {
     return lead.lifecycleChangedAt ?? lead.updatedAt;
   }
@@ -5103,6 +5126,58 @@ function getWorkflowStageAnchorAt(lead: LeadWithWorkflowRefs) {
     default:
       return lead.createdAt;
   }
+}
+
+// FR-RPT-022: per-stage aging for the lead dashboard. Reuses the SAME stage-entry anchor and stale
+// threshold (policy.stagnantStageDays) as the workflow queue, so "days in stage" is consistent across
+// the app. No stageEnteredAt column is needed — the anchor derives entry time from existing milestone
+// timestamps. `where` should already carry the caller's record scope.
+export async function computeLeadStageAging(
+  where: Prisma.LeadWhereInput,
+  now: Date = new Date(),
+): Promise<Map<LeadStage, LeadStageAgingStats>> {
+  const policy = await getRoutingPolicy(prisma);
+  const leads = await prisma.lead.findMany({
+    where,
+    select: {
+      stage: true,
+      lifecycleStatus: true,
+      lifecycleChangedAt: true,
+      updatedAt: true,
+      createdAt: true,
+      discoveryScheduledAt: true,
+      discoveryCompletedAt: true,
+      cisSentAt: true,
+      cisSignedAt: true,
+      cisSubmittedAt: true,
+      onboardingCompletedAt: true,
+      firstOrderAt: true,
+    },
+  });
+
+  const accumulator = new Map<LeadStage, { count: number; sum: number; max: number; stale: number }>();
+  for (const lead of leads) {
+    const anchorAt = getWorkflowStageAnchorAt(lead);
+    const daysInStage = Math.max(0, Math.floor((now.getTime() - anchorAt.getTime()) / (24 * 60 * 60 * 1000)));
+    const entry = accumulator.get(lead.stage) ?? { count: 0, sum: 0, max: 0, stale: 0 };
+    entry.count += 1;
+    entry.sum += daysInStage;
+    entry.max = Math.max(entry.max, daysInStage);
+    if (daysInStage > policy.stagnantStageDays) {
+      entry.stale += 1;
+    }
+    accumulator.set(lead.stage, entry);
+  }
+
+  const result = new Map<LeadStage, LeadStageAgingStats>();
+  for (const [stage, entry] of accumulator) {
+    result.set(stage, {
+      avgDaysInStage: entry.count > 0 ? Math.round(entry.sum / entry.count) : 0,
+      maxDaysInStage: entry.max,
+      staleCount: entry.stale,
+    });
+  }
+  return result;
 }
 
 function getInitialContactSlaState(

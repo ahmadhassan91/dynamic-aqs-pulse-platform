@@ -30,6 +30,7 @@ import {
   buildTrainingSessionRecordScope,
   resolveLeadRecordScope,
 } from '../auth/visibility.js';
+import { computeLeadStageAging } from '../leads/service.js';
 
 type ReportDefinitionRecord = Prisma.ReportDefinitionGetPayload<{
   include: { ownerUser: { select: { id: true; displayName: true } }; _count: { select: { schedules: true } } };
@@ -271,6 +272,7 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
     sourceGroups,
     stateGroups,
     slaAtRiskLeads,
+    stageAging,
   ] = await Promise.all([
     prisma.lead.count({ where: scoped(active) }),
     prisma.lead.count({ where: scoped({ ...active, stage: 'NEW' }) }),
@@ -290,14 +292,22 @@ export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadD
       orderBy: { initialContactDueAt: 'asc' },
       take: LEAD_DASHBOARD_TOP_N,
     }),
+    // FR-RPT-022: per-stage aging (days-in-stage avg/max + stale count) over the same active scope.
+    computeLeadStageAging(scoped(active), now),
   ]);
 
   const stageCounts = new Map<string, number>(stageGroups.map((group) => [group.stage as string, group._count._all]));
-  const byStage = LEAD_DASHBOARD_STAGES.map((stage) => ({
-    stage: stage.key,
-    label: stage.label,
-    count: stageCounts.get(stage.value) ?? 0,
-  }));
+  const byStage = LEAD_DASHBOARD_STAGES.map((stage) => {
+    const aging = stageAging.get(stage.value);
+    return {
+      stage: stage.key,
+      label: stage.label,
+      count: stageCounts.get(stage.value) ?? 0,
+      avgDaysInStage: aging?.avgDaysInStage ?? 0,
+      maxDaysInStage: aging?.maxDaysInStage ?? 0,
+      staleCount: aging?.staleCount ?? 0,
+    };
+  });
 
   const sourceIds = sourceGroups.map((group) => group.leadSourceId);
   const sourceRefs = sourceIds.length

@@ -185,7 +185,7 @@ Mapped against CG's verbatim asks (§5–§6 quotes).
 ## 12. Gap-fix plan
 
 **Sprint A — buildable now (zero external dependency):**
-- **GAP-N1 — Routing-rules admin UI** (web). Backend is done (`e8a6ab5`); add a `/settings/notifications/routing` admin page (list/create/delete rules) so non-engineers can use the control CG demanded. *(M)*
+- **GAP-N1 — Routing-rules admin UI** (web). ✅ **DONE** (`2fb3d31`) — `/settings/notifications/routing` admin page (list / create / delete rules), linked from the preferences page for admins. CG's "determine who gets it" is now usable end-to-end without the raw API.
 - **GAP-N2 — New in-app triggers from existing Pulse data:** CIS-received → "new account, call this person" (lead lifecycle stage transition); billing/contact-changed (account update hook); visit-inactivity (no training/visit in 6 months). Each = a small scanner/emit + `upsertUserNotification`. *(M each)*
 - **GAP-N3 — Digest batching (in-app first)** (FR-NOTIF-008): reuse the `ReportSchedule` scan-worker pattern to roll low-urgency categories into a daily in-app digest now; the email send attaches later when Graph lands. *(M)*
 - **GAP-N4 — Generalized quiet hours** (FR-NOTIF-007): lift the lead-only quiet-hours policy to all categories (suppress outbound when channels exist; in-app always recorded). *(M, lower value until channels)*

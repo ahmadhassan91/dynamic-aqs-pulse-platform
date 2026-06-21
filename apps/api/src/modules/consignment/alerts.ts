@@ -23,6 +23,7 @@ import {
 } from '@pulse/db';
 import type { QueueJob } from '../../queue/contracts.js';
 import type { AppLogger } from '../../utils/logger.js';
+import { syncConsignmentAlertNotifications } from '../notifications/bridge.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -331,5 +332,12 @@ export async function processConsignmentOperationalAlertScanJob(
   _job: QueueJob<unknown>,
   deps: ScanDependencies = {},
 ): Promise<ConsignmentOperationalAlertScanResult> {
-  return scanConsignmentOperationalAlerts(deps);
+  const result = await scanConsignmentOperationalAlerts(deps);
+  // FR-NOTIF bridge — surface consignment alerts to each site's owner TM/RD in-app. Best-effort.
+  try {
+    await syncConsignmentAlertNotifications();
+  } catch {
+    // Materializing in-app notifications must never fail the alert scan.
+  }
+  return result;
 }

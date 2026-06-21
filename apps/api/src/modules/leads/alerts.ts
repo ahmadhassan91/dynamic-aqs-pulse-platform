@@ -10,6 +10,7 @@ import {
   Prisma,
   prisma,
 } from '@pulse/db';
+import { syncLeadAlertNotifications } from '../notifications/bridge.js';
 import type { QueueJob, QueueManager } from '../../queue/contracts.js';
 import { LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE } from '../../queue/definitions.js';
 import type { AppLogger } from '../../utils/logger.js';
@@ -334,6 +335,13 @@ export async function processLeadOperationalAlertScanJob(
     if (leadProcessed) {
       processedLeadIds.add(lead.id);
     }
+  }
+
+  // FR-NOTIF bridge — surface the alerts just produced in each recipient's in-app inbox. Best-effort.
+  try {
+    await syncLeadAlertNotifications();
+  } catch {
+    // Materializing in-app notifications must never fail the alert scan.
   }
 
   return {

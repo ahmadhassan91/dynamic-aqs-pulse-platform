@@ -14,6 +14,7 @@ let getUnreadNotificationCount;
 let markNotificationsRead;
 let archiveNotification;
 let upsertUserNotification;
+let syncConsignmentAlertNotifications;
 
 const SERIAL = { concurrency: false };
 
@@ -22,6 +23,7 @@ test.before(async () => {
   const configModule = await import('../dist/config.js');
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification } = await import('../dist/modules/notifications/service.js'));
+  ({ syncConsignmentAlertNotifications } = await import('../dist/modules/notifications/bridge.js'));
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
 });
@@ -106,4 +108,32 @@ test('per-user notification inbox: list, count, mark-read, archive, scoping, ide
 
   // Cross-user mark-read is impossible: actor cannot affect other's notifications.
   assert.equal((await getUnreadNotificationCount(other)).unreadCount, 1);
+});
+
+test('bridge: consignment alerts materialize notifications for the site owner TM + RD (idempotent)', SERIAL, async () => {
+  const tm = await makeUser('bridge-tm@pulse.local');
+  const rd = await makeUser('bridge-rd@pulse.local');
+  const account = await prisma.account.create({ data: { displayName: 'Bridge Acct', isActive: true } });
+  const site = await prisma.consignmentSite.create({
+    data: { accountId: account.id, name: 'Bridge Site', ownerTmUserId: tm.userId, ownerRdUserId: rd.userId },
+  });
+  await prisma.consignmentOperationalAlert.create({
+    data: { siteId: site.id, alertType: 'AUDIT_OVERDUE_SEVEN_DAYS', dedupeKey: 'csg-bridge-1', triggeredAt: new Date() },
+  });
+
+  const materialized = await syncConsignmentAlertNotifications();
+  assert.equal(materialized, 2); // one for the owner TM, one for the owner RD
+
+  const tmList = await listUserNotifications(tm, {});
+  assert.equal(tmList.total, 1);
+  assert.equal(tmList.items[0].category, 'consignment');
+  assert.equal(tmList.items[0].deepLinkType, 'consignment');
+  assert.equal(tmList.items[0].deepLinkId, site.id);
+  assert.equal(tmList.items[0].severity, 'critical'); // OVERDUE -> critical
+
+  assert.equal((await listUserNotifications(rd, {})).total, 1);
+
+  // Re-running the bridge does not duplicate (idempotent on recipient+dedupeKey).
+  await syncConsignmentAlertNotifications();
+  assert.equal((await listUserNotifications(tm, {})).total, 1);
 });

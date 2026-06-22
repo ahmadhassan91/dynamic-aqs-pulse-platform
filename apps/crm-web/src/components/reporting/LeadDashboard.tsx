@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Anchor, Card, Group, Loader, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Anchor, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
   IconActivity,
   IconAlertTriangle,
@@ -10,11 +10,12 @@ import {
 } from '@tabler/icons-react';
 import { useLeadDashboard } from '@/lib/use-lead-dashboard';
 import { EmptyStateMessage, WorkbenchMetricStrip, WorkbenchTable } from '@/components/ui/Workbench';
+import { ReportChart } from './ReportChart';
 
 /**
  * Lead dashboard for the Reporting Home — a role-scoped pipeline snapshot over
- * CRM-native lead data (no Acumatica/revenue). KPI cards + a stage funnel +
- * source/state breakdowns, all dependency-free (no chart library).
+ * CRM-native lead data (no Acumatica/revenue). KPI cards + a stage funnel chart
+ * (bar/line/area toggle) + per-stage aging + source/state breakdowns.
  */
 export function LeadDashboard() {
   const { dashboard, isLoading, errorMessage } = useLeadDashboard();
@@ -46,7 +47,6 @@ export function LeadDashboard() {
   }
 
   const { metrics, segmentation, byStage, bySource, byState, slaAtRisk } = dashboard;
-  const maxStageCount = Math.max(1, ...byStage.map((bucket) => bucket.count));
 
   return (
     <Stack gap="lg">
@@ -123,33 +123,28 @@ export function LeadDashboard() {
           <Text fw={700} mb="md">
             Pipeline by stage
           </Text>
-          <Stack gap="sm">
-            {byStage.length === 0 ? (
-              <EmptyStateMessage title="No stage data" kind="no-data" />
-            ) : null}
-            {byStage.map((bucket) => (
-              <div key={bucket.stage}>
-                <Group justify="space-between" mb={4}>
-                  <Text size="sm">{bucket.label}</Text>
-                  <Text size="sm" fw={600}>
-                    {bucket.count}
-                  </Text>
-                </Group>
-                <Progress
-                  value={(bucket.count / maxStageCount) * 100}
-                  size="sm"
-                  radius="xl"
-                  aria-label={`${bucket.label}: ${bucket.count} leads`}
-                />
-                {bucket.count > 0 ? (
-                  <Text size="xs" c={bucket.staleCount > 0 ? 'orange.7' : 'dimmed'} mt={4}>
-                    avg {bucket.avgDaysInStage}d in stage · max {bucket.maxDaysInStage}d
-                    {bucket.staleCount > 0 ? ` · ${bucket.staleCount} stale` : ''}
-                  </Text>
-                ) : null}
-              </div>
-            ))}
-          </Stack>
+          {byStage.length === 0 ? (
+            <EmptyStateMessage title="No stage data" kind="no-data" />
+          ) : (
+            <Stack gap="sm">
+              <ReportChart
+                data={byStage}
+                dataKey="label"
+                series={[{ name: 'count', label: 'Leads', color: 'blue.6' }]}
+                height={220}
+              />
+              <Stack gap={4}>
+                {byStage.filter((bucket) => bucket.count > 0).map((bucket) => (
+                  <Group key={bucket.stage} justify="space-between" wrap="nowrap">
+                    <Text size="xs" c="dimmed">{bucket.label}</Text>
+                    <Text size="xs" c={bucket.staleCount > 0 ? 'orange.7' : 'dimmed'}>
+                      avg {bucket.avgDaysInStage}d · max {bucket.maxDaysInStage}d{bucket.staleCount > 0 ? ` · ${bucket.staleCount} stale` : ''}
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            </Stack>
+          )}
         </Card>
 
         <Card withBorder radius="lg" padding="lg">

@@ -1,15 +1,16 @@
 'use client';
 
-import { Alert, Anchor, Group, Loader, Stack } from '@mantine/core';
+import { Alert, Anchor, Card, Group, Loader, Stack, Text } from '@mantine/core';
 import Link from 'next/link';
 import { IconAlertTriangle, IconBuildingWarehouse, IconSchool, IconUsers } from '@tabler/icons-react';
 import { useExecutiveDashboard } from '@/lib/use-executive-dashboard';
 import { EmptyStateMessage, WorkbenchAttentionLane, WorkbenchMetricStrip } from '@/components/ui/Workbench';
+import { ReportChart } from './ReportChart';
 
 /**
  * Executive overview for the Reporting Home (reports.executive gate). Org-wide
  * CRM-native KPIs + a cross-module exception summary. Revenue/financial KPIs are
- * parked on Acumatica and intentionally excluded (noted inline). No chart library.
+ * parked on Acumatica and intentionally excluded (noted inline).
  */
 export function ExecutiveDashboard() {
   const { dashboard, isLoading, errorMessage } = useExecutiveDashboard();
@@ -35,6 +36,12 @@ export function ExecutiveDashboard() {
   }
 
   const { metrics, exceptions, windowDays } = dashboard;
+  const exceptionBreakdown = [
+    { label: 'Overdue audits', count: exceptions.overdueAudits },
+    { label: 'Overdue training', count: exceptions.overdueTraining },
+    { label: 'Stale leads', count: exceptions.staleLeads },
+    { label: 'Open consignment', count: exceptions.openConsignmentWorkItems },
+  ];
 
   return (
     <Stack gap="lg">
@@ -52,6 +59,18 @@ export function ExecutiveDashboard() {
           },
         ]}
       />
+
+      {metrics.openExceptions > 0 ? (
+        <Card withBorder radius="lg" padding="lg">
+          <Text fw={700} mb="md">Exception breakdown</Text>
+          <ReportChart
+            data={exceptionBreakdown}
+            dataKey="label"
+            series={[{ name: 'count', label: 'Open items', color: 'orange.6' }]}
+            height={200}
+          />
+        </Card>
+      ) : null}
 
       <WorkbenchAttentionLane
         title="Cross-module exceptions"

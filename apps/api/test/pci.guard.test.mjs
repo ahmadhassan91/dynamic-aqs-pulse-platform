@@ -12,11 +12,29 @@ test('containsLikelyPaymentCardNumber detects Luhn-valid card numbers in free te
   assert.equal(containsLikelyPaymentCardNumber('5555555555554444'), true); // Mastercard test PAN
 });
 
+test('containsLikelyPaymentCardNumber catches card-shaped separators and invisible obfuscation', () => {
+  assert.equal(containsLikelyPaymentCardNumber('4111.1111.1111.1111'), true); // dots
+  assert.equal(containsLikelyPaymentCardNumber('4111\t1111\t1111\t1111'), true); // tabs
+  assert.equal(containsLikelyPaymentCardNumber('4111\u00a01111\u00a01111\u00a01111'), true); // no-break space
+  assert.equal(containsLikelyPaymentCardNumber('4111\u00ad1111\u00ad1111\u00ad1111'), true); // soft hyphen (invisible)
+  assert.equal(containsLikelyPaymentCardNumber('4111\u200b1111\u200b1111\u200b1111'), true); // zero-width space
+});
+
+test('containsLikelyPaymentCardNumber does not treat list / date / phone punctuation as a card separator', () => {
+  // Commas/parentheses/slashes are list, date, time and phone punctuation — matching across them would wrongly
+  // flag ordinary content, so they intentionally break the digit run.
+  assert.equal(containsLikelyPaymentCardNumber('reference codes 1111, 2222, 3333, 4242'), false); // comma list
+  assert.equal(containsLikelyPaymentCardNumber('call (415) 555-1234 ext 5678'), false); // parenthesised phone
+  assert.equal(containsLikelyPaymentCardNumber('invoice 4242/1111/2222/3333 dated 01/02'), false); // slash-separated
+});
+
 test('containsLikelyPaymentCardNumber does not flag ordinary text or non-card numbers', () => {
   assert.equal(containsLikelyPaymentCardNumber(undefined), false);
   assert.equal(containsLikelyPaymentCardNumber(''), false);
   assert.equal(containsLikelyPaymentCardNumber('Call me at 555-100-2200'), false); // too few digits
   assert.equal(containsLikelyPaymentCardNumber('4242424242424241'), false); // 16 digits, fails Luhn
+  assert.equal(containsLikelyPaymentCardNumber('ref 0000000000000000'), false); // Luhn-valid 16 zeros, MII 0 -> not a card
+  assert.equal(containsLikelyPaymentCardNumber('batch imported 1784000000000005'), false); // timestamp-like, MII 1
   assert.equal(containsLikelyPaymentCardNumber('Customer prefers email contact only'), false);
 });
 

@@ -27,6 +27,7 @@ import type {
 } from '@pulse/contracts/mobile-voice-notes';
 import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { storeBase64Document } from '../documents/storage.js';
 import { getAccountDetail, markAccountEngaged } from '../accounts/service.js';
@@ -113,6 +114,7 @@ export async function createMobileVoiceNote(
 ): Promise<MobileVoiceNoteSummary> {
   const contextType = inferContextType(input);
   const transcriptText = normalizeTranscript(input.transcriptText);
+  assertNoRawPaymentCardData(transcriptText, 'Voice note transcript');
   if (!transcriptText && !input.audio?.contentBase64) {
     throw new Error('Voice note requires either a transcript or an audio file.');
   }
@@ -287,6 +289,8 @@ export async function reviewMobileVoiceNote(
   const decision = normalizeReviewDecision(input.decision);
   const reviewNotes = normalizeReviewText(input.reviewNotes, 1000);
   const rejectedReason = normalizeReviewText(input.rejectedReason, 600);
+  assertNoRawPaymentCardData(reviewNotes, 'Voice note review notes');
+  assertNoRawPaymentCardData(rejectedReason, 'Voice note rejection reason');
   if (decision === 'reject' && !reviewNotes && !rejectedReason) {
     throw new Error('Rejecting a voice note requires a review note or rejection reason.');
   }

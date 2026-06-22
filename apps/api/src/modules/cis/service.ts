@@ -832,6 +832,8 @@ export async function reviewAndSignOffCis(
 
   const salesReviewNotes = optionalTrimmed(input.salesReviewNotes);
   const financeCoverNotes = optionalTrimmed(input.financeCoverNotes);
+  assertNoRawPaymentCardData(salesReviewNotes, 'CIS review notes');
+  assertNoRawPaymentCardData(financeCoverNotes, 'CIS review notes');
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     // Scope the lookup to the actor's lead visibility so TM/RD can't sign off packages outside
@@ -950,6 +952,7 @@ export async function submitCisToFinance(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const submissionNotes = optionalTrimmed(input.submissionNotes);
+  assertNoRawPaymentCardData(submissionNotes, 'CIS submission notes');
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     // Scope to the actor's lead visibility; out-of-scope reads as not-found.
@@ -1117,6 +1120,8 @@ export async function recordFinanceDecision(
     const paymentTerms = input.paymentTerms ? toCisPaymentTermsEnum(input.paymentTerms) : undefined;
     const decisionNotes = optionalTrimmed(input.decisionNotes);
     const requestedInfoNotes = optionalTrimmed(input.requestedInfoNotes);
+    assertNoRawPaymentCardData(decisionNotes, 'Finance decision notes');
+    assertNoRawPaymentCardData(requestedInfoNotes, 'Requested info notes');
 
     const updated = await tx.cisPackage.update({
       where: { id: existing.id },
@@ -2100,6 +2105,7 @@ export async function savePublicCisDraft(token: string, input: SavePublicCisDraf
     }
 
     const mergedForm = mergeFormData(existing.formData, input.formData, false);
+    assertNoRawPaymentCardDataInRecord(mergedForm, 'The CIS form');
     const now = new Date();
 
     const updated = await tx.cisPackage.update({

@@ -68,6 +68,7 @@ import type {
 } from '@pulse/contracts/consignment';
 import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { storeBase64Document } from '../documents/storage.js';
 import { markAccountEngaged } from '../accounts/service.js';
@@ -598,6 +599,7 @@ export async function listConsignmentDocuments(actor: AuthenticatedActor, siteId
 
 export async function upsertConsignmentDocument(actor: AuthenticatedActor, siteId: string, input: UpsertConsignmentDocumentRequest): Promise<ConsignmentFormSummary> {
   assertConsignmentDocumentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment document notes');
   await getSiteForMutation(actor, siteId);
   const formType = toFormType(input.formType);
   const formStatus = input.status ? toFormStatus(input.status) : ConsignmentFormStatus.DRAFT;
@@ -618,6 +620,7 @@ export async function upsertConsignmentDocument(actor: AuthenticatedActor, siteI
 
 export async function updateConsignmentDocument(actor: AuthenticatedActor, documentId: string, input: UpdateConsignmentDocumentRequest): Promise<ConsignmentFormSummary> {
   assertConsignmentDocumentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment document notes');
   const before = await prisma.consignmentForm.findUnique({ where: { id: documentId } });
   if (!before) throw new Error('Consignment document not found');
   await getSiteForMutation(actor, before.siteId);
@@ -735,6 +738,7 @@ export async function createConsignmentAdjustment(actor: AuthenticatedActor, sit
 
 export async function applyConsignmentAdjustment(actor: AuthenticatedActor, adjustmentId: string, input: ApplyConsignmentAdjustmentRequest): Promise<ConsignmentSiteDetail> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment adjustment notes');
   const adjustment = await prisma.consignmentAdjustment.findUnique({ where: { id: adjustmentId }, include: { site: { include: SITE_INCLUDE } } });
   if (!adjustment) throw new Error('Consignment adjustment not found');
   await getSiteForMutation(actor, adjustment.siteId);
@@ -857,6 +861,7 @@ export async function startConsignmentExit(actor: AuthenticatedActor, siteId: st
 
 export async function closeConsignmentExit(actor: AuthenticatedActor, exitId: string, input: CloseConsignmentExitRequest): Promise<ConsignmentSiteDetail> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment exit notes');
   const exit = await prisma.consignmentExit.findUnique({ where: { id: exitId }, include: { site: { include: SITE_INCLUDE } } });
   if (!exit) throw new Error('Consignment exit not found');
   await getSiteForMutation(actor, exit.siteId);
@@ -916,6 +921,7 @@ export async function closeConsignmentExit(actor: AuthenticatedActor, exitId: st
 
 export async function markConsignmentPoReceived(actor: AuthenticatedActor, discrepancyId: string, input: MarkConsignmentPoReceivedRequest): Promise<ConsignmentSiteDetail> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'PO received notes');
   const discrepancy = await prisma.consignmentDiscrepancyCase.findUnique({ where: { id: discrepancyId } });
   if (!discrepancy) throw new Error('Consignment discrepancy not found');
   await getSiteForMutation(actor, discrepancy.siteId);
@@ -1032,6 +1038,7 @@ export async function listConsignmentAudits(actor: AuthenticatedActor, siteId: s
 
 export async function createConsignmentAudit(actor: AuthenticatedActor, siteId: string, input: CreateConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
   assertConsignmentAuditManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment audit notes');
   await getSiteForMutation(actor, siteId);
   const scheduledFor = parseRequiredDate(input.scheduledFor, 'scheduledFor');
   const audit = await prisma.$transaction(async (tx) => {
@@ -1050,6 +1057,7 @@ export async function createConsignmentAudit(actor: AuthenticatedActor, siteId: 
 
 export async function updateConsignmentAudit(actor: AuthenticatedActor, auditId: string, input: UpdateConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
   assertConsignmentAuditManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment audit notes');
   const audit = await prisma.consignmentAudit.findUnique({ where: { id: auditId }, select: { id: true, siteId: true } });
   if (!audit) throw new Error('Consignment audit not found');
   if (input.completedAt !== undefined || input.lines !== undefined || input.status === 'completed') {
@@ -1165,6 +1173,7 @@ export function calculatePoFollowUpDueDate(from: Date) {
 
 export async function confirmConsignmentTrueUp(actor: AuthenticatedActor, auditId: string, input: ConfirmConsignmentTrueUpRequest): Promise<ConfirmConsignmentTrueUpResponse> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment true-up notes');
   const audit = await prisma.consignmentAudit.findFirst({
     where: { AND: [{ id: auditId }, { site: siteScopeWhere(actor) }] },
     include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } },

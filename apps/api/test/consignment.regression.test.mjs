@@ -1395,3 +1395,44 @@ test('Acumatica boundary remains parked and does not fabricate ERP references', 
   const externalReferences = await prisma.externalReference.count({ where: { entityId: site.id } });
   assert.equal(externalReferences, 0);
 });
+
+test('NFR-CIS-03: consignment notes reject a pasted payment card number', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('pci');
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'PCI guard consignment site',
+  });
+
+  // A PAN pasted into a consignment document note is refused, not persisted.
+  await assert.rejects(
+    () =>
+      service.upsertConsignmentDocument(actor, site.id, {
+        formType: 'agreement',
+        status: 'signed',
+        title: 'Program Agreement',
+        notes: 'Card on file 4111 1111 1111 1111',
+      }),
+    /payment card data/i,
+  );
+
+  // A PAN in an audit note is refused too.
+  await assert.rejects(
+    () =>
+      service.createConsignmentAudit(actor, site.id, {
+        scheduledFor: '2026-06-30T00:00:00.000Z',
+        notes: 'Customer card 4111 1111 1111 1111',
+      }),
+    /payment card data/i,
+  );
+
+  // A normal note still persists.
+  const doc = await service.upsertConsignmentDocument(actor, site.id, {
+    formType: 'agreement',
+    status: 'signed',
+    title: 'Program Agreement',
+    notes: 'Signed during the Q2 site visit; copy filed.',
+  });
+  assert.equal(doc.status, 'signed');
+});

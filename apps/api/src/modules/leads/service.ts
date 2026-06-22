@@ -101,6 +101,7 @@ import type { AuthenticatedActor } from '../auth/types.js';
 import { resolveLeadRecordScope, resolveLeadRecordScopeSql } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import {
   deriveGroupClassification,
   resolveAffinityGroupAxis,
@@ -1619,6 +1620,7 @@ export async function logLeadActivityNote(
   if (!noteText) {
     throw new Error('Note text is required');
   }
+  assertNoRawPaymentCardData(noteText, 'Note text');
 
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   if (!lead) {
@@ -4574,6 +4576,7 @@ function normalizeLeadInput(
   const leadOwnerName = optionalTrimmed(asString(input.leadOwnerName));
   const assignedTmName = optionalTrimmed(asString(input.assignedTmName));
   const notes = optionalTrimmed(asString(input.notes));
+  assertNoRawPaymentCardData(notes, 'Lead notes');
   const installTechCount =
     input.installTechCount !== undefined
       ? normalizePositiveInteger(input.installTechCount, 'installTechCount', true)

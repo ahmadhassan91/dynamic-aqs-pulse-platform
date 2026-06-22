@@ -58,6 +58,7 @@ import type { AppConfig } from '../../config.js';
 import type { QueueJob } from '../../queue/contracts.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import { JSON_SIZE_LIMITS, toBoundedJsonValue } from '../../utils/json.js';
+import { assertNoRawPaymentCardData, assertNoRawPaymentCardDataInRecord } from '../../utils/pci.js';
 import { encryptSecret } from '../../utils/secrets.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { resolveLeadRecordScope } from '../auth/visibility.js';
@@ -221,6 +222,7 @@ export async function issueCisLink(
 
   const recipientEmail = optionalTrimmed(input.recipientEmail);
   const note = optionalTrimmed(input.note);
+  assertNoRawPaymentCardData(note, 'CIS note');
   const token = createPublicToken();
   const tokenHash = hashPublicToken(token);
   const now = new Date();
@@ -704,6 +706,7 @@ export async function applyCisParsedDraft(
   assertActionAccess(actor.role, 'lead.intake_manage');
 
   const note = optionalTrimmed(input.note);
+  assertNoRawPaymentCardData(note, 'CIS note');
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
@@ -1201,6 +1204,7 @@ export async function requestCisPaymentCapture(
 
   await assertCisPaymentCaptureTrackingEnabled();
   const note = optionalTrimmed(input.note);
+  assertNoRawPaymentCardData(note, 'CIS note');
 
   const cisPackage = await prisma.$transaction(async (tx) => {
     const existing = await tx.cisPackage.findFirst({
@@ -2156,6 +2160,7 @@ export async function submitPublicCis(token: string, input: SubmitPublicCisReque
 
     const mergedForm = mergeFormData(existing.formData, input.formData, true);
     validateSubmissionForm(mergedForm);
+    assertNoRawPaymentCardDataInRecord(mergedForm, 'The CIS form');
     const now = new Date();
 
     const updated = await tx.cisPackage.update({

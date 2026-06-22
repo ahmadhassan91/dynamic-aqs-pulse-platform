@@ -133,3 +133,13 @@ test('logLeadActivityNote rejects an unknown lead', SERIAL, async () => {
     /lead not found/i,
   );
 });
+
+test('logLeadActivityNote rejects a note containing a payment card number (NFR-CIS-03)', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const lead = await seedLead(actor);
+
+  await assert.rejects(
+    () => logLeadActivityNote(actor, lead.id, { note: 'Customer read card 4111 1111 1111 1111 over the phone.' }),
+    /payment card data/i,
+  );
+});

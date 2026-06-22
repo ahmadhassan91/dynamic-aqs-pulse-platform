@@ -436,6 +436,24 @@ test('FR-L-007: lead intake rejects a malformed email or phone and accepts valid
   assert.equal(validDetail.phone, '(555) 100-4400');
 });
 
+test('FR-L-031 / NFR-CIS-03: lead intake rejects notes containing a payment card number', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  await assert.rejects(
+    () =>
+      createLead(actor, {
+        companyName: 'PCI Notes HVAC',
+        contactDisplayName: 'Pci Notes',
+        state: 'TX',
+        serviceTechCount: 3,
+        affinityGroupSelection: 'none',
+        ownershipGroupSelection: 'none',
+        notes: 'Card on file 4111 1111 1111 1111',
+      }),
+    /payment card data/i,
+  );
+});
+
 test('lead detail updates persist editable hero fields and re-sync territory on state change', SERIAL, async () => {
   const { actor } = await createAdminSession();
 

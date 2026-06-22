@@ -603,6 +603,24 @@ test('FR-CIS-005: a CIS link cannot be issued before discovery is completed (ser
   assert.ok(issued.cisPackage?.id, 'expected a CIS package once discovery is complete');
 });
 
+test('NFR-CIS-03 / BR-CIS-03: the public CIS form rejects a pasted payment card number', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const fixture = await createLeadWithCis(adminActor, 'PCI Guard HVAC');
+
+  // A PAN pasted into any free-text field must be refused, not persisted.
+  await assert.rejects(
+    () =>
+      submitPublicCis(fixture.token, {
+        formData: buildValidSubmissionForm({ legalCompanyName: 'Jordan HVAC LLC 4111 1111 1111 1111' }),
+      }),
+    /payment card data/i,
+  );
+
+  // A clean form still submits.
+  const submitted = await submitPublicCis(fixture.token, { formData: buildValidSubmissionForm() });
+  assert.equal(submitted.status, 'submitted');
+});
+
 test('only finance roles can record finance decisions on queued CIS packages', SERIAL, async () => {
   const { actor: adminActor } = await createBootstrapAdminContext();
   const { actor: salesActor } = await createRoleActor(

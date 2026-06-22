@@ -220,6 +220,17 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 
 ### 6.6 Payment Boundary And Interim Card-On-File
 
+> **⚠️ Scope signal — 2026-04-20 (Session 13–20 April): client is eliminating / deferring the credit-card capture (card-on-file) flow.**
+> On the digital-CIS demo Ahmad described integrating a payment gateway *"to capture … or authorize their credit cards for the later use,"* and the client pushed back:
+> - **Steve Mores:** *"We're going to be eliminating that, Currie, okay?"*
+> - **C G:** *"it has the ability to do it but we have to make sure that we follow protocol … that's fine, move on."*
+> - **Dan Harshbarger:** *"we may have changed our mind here."*
+> (`Meetings/session-13th-20thApril-2026.md` L532–554.)
+>
+> **Interpretation.** Payment **terms** (Net 30/60/COD/Custom) and credit **decisioning** (credit line, approve/decline — FR-CIS-018/019) **stay**. The card-on-file **capture/authorization** concept is **not wanted now**: do **not** build FR-CIS-010 / FR-CIS-028 (the "card on file required" copy), and treat FR-CIS-029 / eBizCharge / Moneris / the vault-reference capture path as **eliminated-or-deferred** rather than merely "parked pending provider." The built `requestCisPaymentCapture` / `moneris.ts` flow is now **dormant scope**.
+>
+> **Status: needs PM confirmation.** The signal is directional ("may have changed our mind … move on"), and it was **not** carried into scope — the later 2026-06-18 ASM-CIS-03 note still treats card-on-file as a default-with-exceptions rule. Resolve **OQ-CIS-02** / **OQ-CIS-06** and retract **ASM-CIS-03** once confirmed. **The PCI hard-block (NFR-CIS-03, commit `c6e24c2`) is reinforced either way** — with capture eliminated, no card data should ever reach Pulse.
+
 | ID | Requirement | Acceptance Criteria | Priority | SRC | Build Status |
 |---|---|---|---|---|---|
 | FR-CIS-026 | Store business-review data (preferred payment method, authorization state) inside the CRM | Payment method preference, authorization intent state, and vault reference IDs are stored on the CIS package; raw card/bank data is never written to any Pulse table | P0 | SRC-CIS-001, SRC-CIS-004 | Built |
@@ -283,7 +294,7 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 |---|---|---|---|
 | ASM-CIS-01 | The CIS is sent only after discovery is complete, with no general pre-discovery send path. | This determines the gate on link issuance and where CIS sits in the lead lifecycle. | SRC-CIS-001 |
 | ASM-CIS-02 | Sales/BD sign-off is a required step before any package reaches finance. — ⚠️ CORRECTED 2026-06-18: vendor-designed gate, not client-confirmed; a BD-review gate was objected to (see Scope corrections) | This protects finance from incomplete packages and defines the `cis_signed` interlock. | SRC-CIS-002 |
-| ASM-CIS-03 | A card on file is required for all accounts as the current business rule, even while hosted capture is parked. — ⚠️ CORRECTED 2026-06-18: default with PE/consignment exceptions; universality unresolved (OQ-CIS-06). | This drives the interim card-on-file UX and the eventual capture integration. | SRC-CIS-001, SRC-CIS-002 |
+| ASM-CIS-03 | A card on file is required for all accounts as the current business rule, even while hosted capture is parked. — ⚠️ CORRECTED 2026-06-18: default with PE/consignment exceptions; universality unresolved (OQ-CIS-06). — ⚠️ 2026-04-20 SIGNAL TO RETRACT: client indicated card-on-file capture is eliminated/deferred (Steve Mores), which would void this rule entirely; confirm (see §6.6). | This drives the interim card-on-file UX and the eventual capture integration. | SRC-CIS-001, SRC-CIS-002 |
 | ASM-CIS-04 | The scanned-CIS fallback is a human-reviewed lane, and prospects are never asked to interact with parser internals. | This determines whether the fallback is a safe review surface or an accidental raw-data path. | SRC-CIS-001 |
 | ASM-CIS-05 | Raw card and bank data stays outside Pulse, and only tokenized references plus authorization state are stored. | This defines the PCI boundary and what the eventual provider integration is allowed to write. | SRC-CIS-001, SRC-CIS-004 |
 | ASM-CIS-06 | Credit approval does not create the Acumatica customer; first order remains the activation boundary. | This affects CRM/ERP handoff timing and avoids premature customer records. | SRC-CIS-003 |
@@ -298,11 +309,11 @@ Critically, CIS approval does not create the Acumatica customer — the prospect
 | ID | Question | Options To Confirm | Why Decision Is Needed | SRC |
 |---|---|---|---|---|
 | OQ-CIS-01 | What is the final e-signature approach for the CIS authorization block? | Captured acknowledgement metadata only / dedicated vendor (DocuSign etc.) / hybrid | This affects legal sufficiency, the prospect experience, and integration scope. | SRC-CIS-002 |
-| OQ-CIS-02 | What is the final card-on-file capture model, and when does it run? | Hosted capture during CIS / separate post-approval step / provider-of-record per region | This sets the interim UX, the PCI boundary, and the eventual capture integration. | SRC-CIS-001 |
+| OQ-CIS-02 | What is the final card-on-file capture model, and when does it run? | Hosted capture during CIS / separate post-approval step / provider-of-record per region | This sets the interim UX, the PCI boundary, and the eventual capture integration. **→ 2026-04-20 signal: card-on-file capture eliminated/deferred — confirm to close (see §6.6).** | SRC-CIS-001 |
 | OQ-CIS-03 | When should the prospect learn their approved credit line and terms? | Immediately by Pulse / Sales/BD relays personally first / configurable by role | This affects notification design and the BD relationship workflow. Michelle requested immediate notification. | SRC-CIS-002 |
 | OQ-CIS-04 | What is the finance decision SLA, and should breaches escalate automatically? | Informal target only / tracked timer / auto-escalation to finance leadership | This determines queue timers, alerting, and escalation automation scope. | SRC-CIS-002 |
 | OQ-CIS-05 | How much should finance be able to act directly from the queue? | Decide inline in the queue / open lead then act / quick-actions with full detail on open | This changes the finance workspace and how fast decisions can be recorded. Inline quick-actions built as UX-CIS-008. | SRC-CIS-007 |
-| OQ-CIS-06 | Does the card-on-file requirement have exceptions? | Applies to all / ACH-only or institutional exceptions / region-specific | This affects validation, the interim message, and downstream credit handling. | SRC-CIS-001 |
+| OQ-CIS-06 | Does the card-on-file requirement have exceptions? | Applies to all / ACH-only or institutional exceptions / region-specific | This affects validation, the interim message, and downstream credit handling. **→ likely MOOT per the 2026-04-20 signal (capture eliminated/deferred) — see §6.6.** | SRC-CIS-001 |
 | OQ-CIS-07 | Is a Canada CIS variant in this scope, or a later phase? | Same form with conditional fields / separate flow / later phase | This affects address, tax-ID, processor, and signature-framework handling. | SRC-CIS-001 (Dan: Canada supported in Acumatica) |
 
 ---

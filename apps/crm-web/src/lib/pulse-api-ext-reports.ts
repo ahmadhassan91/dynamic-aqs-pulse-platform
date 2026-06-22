@@ -20,6 +20,7 @@ import type {
   UpdateReportDefinitionRequest,
   UpdateReportScheduleRequest,
   ReportingThresholdSettingsResponse,
+  StaleAccountsReportResponse,
   UpdateReportingThresholdSettingsRequest,
 } from '@pulse/contracts';
 
@@ -157,4 +158,8 @@ export async function updateReportingThresholdSettingsApi(
     method: 'PUT',
     body: input,
   });
+}
+
+export async function fetchStaleAccountsReportApi(apiBaseUrl: string, accessToken: string) {
+  return fetchJson<StaleAccountsReportResponse>(apiBaseUrl, '/api/v1/reports/stale-accounts', { accessToken });
 }

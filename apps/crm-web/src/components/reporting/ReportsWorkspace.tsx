@@ -70,6 +70,7 @@ import { LeadDashboard } from '@/components/reporting/LeadDashboard';
 import { TrainingDashboard } from '@/components/reporting/TrainingDashboard';
 import { ExecutiveDashboard } from '@/components/reporting/ExecutiveDashboard';
 import { ReportingThresholdSettingsCard } from '@/components/reporting/ReportingThresholdSettingsCard';
+import { StaleAccountsCard } from '@/components/reporting/StaleAccountsCard';
 import { canAccessModule, canPerformAction } from '@/lib/access';
 import { downloadReportCsv } from '@/lib/report-csv';
 
@@ -86,6 +87,7 @@ export function ReportsWorkspace() {
   // lead.view / the training module), so we never render a tab that 403s.
   const showExecutive = Boolean(role && canPerformAction(role, 'reports.executive'));
   const canManageReportingThresholds = Boolean(role && canPerformAction(role, 'admin.integration_manage'));
+  const canViewStaleAccounts = Boolean(role && canPerformAction(role, 'customer.view'));
   const showLeads = Boolean(role && canPerformAction(role, 'lead.view'));
   const showTraining = Boolean(role && canAccessModule(role, 'training'));
   const defaultDashboardTab = showExecutive ? 'executive' : showLeads ? 'leads' : showTraining ? 'training' : 'reports';
@@ -317,6 +319,8 @@ export function ReportsWorkspace() {
       </Alert>
 
       {canManageReportingThresholds ? <ReportingThresholdSettingsCard /> : null}
+
+      {canViewStaleAccounts ? <StaleAccountsCard /> : null}
 
       {errorMessage ? (
         <Alert color="red" variant="light" title="Something needs attention">

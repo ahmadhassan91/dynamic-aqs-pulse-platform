@@ -257,3 +257,20 @@ export interface ExecutiveDashboardResponse {
   };
   generatedAt: string; // ISO
 }
+
+// --- Configurable reporting thresholds (FR-RPT-003) ------------------------
+// Business-tunable parameters behind dashboard/report KPIs. Stored Pulse-side; read by reporting,
+// editable by admins. (The active-account window's consumer — "ordered in last N days" — is Acumatica-gated,
+// so the value is configurable now and applied once order data is available.)
+
+export interface ReportingThresholdSettings {
+  activeAccountWindowDays: number; // an account counts as "active" if it ordered within this many days
+}
+
+export interface ReportingThresholdSettingsResponse {
+  settings: ReportingThresholdSettings;
+}
+
+export interface UpdateReportingThresholdSettingsRequest {
+  activeAccountWindowDays?: number;
+}

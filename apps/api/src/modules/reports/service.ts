@@ -1,4 +1,4 @@
-import { Prisma, prisma } from '@pulse/db';
+import { AuditAction, FeatureFlagState, Prisma, prisma } from '@pulse/db';
 import type {
   CreateReportDefinitionRequest,
   CreateReportScheduleRequest,
@@ -14,9 +14,12 @@ import type {
   ReportRunResult,
   ReportScheduleCadenceKey,
   ReportScheduleSummary,
+  ReportingThresholdSettings,
+  ReportingThresholdSettingsResponse,
   ReportVisibilityKey,
   TrainingDashboardResponse,
   UpdateReportDefinitionRequest,
+  UpdateReportingThresholdSettingsRequest,
   UpdateReportScheduleRequest,
 } from '@pulse/contracts/reports';
 import { REPORT_KEYS, REPORT_SCHEDULE_CADENCES, REPORT_VISIBILITIES } from '@pulse/contracts/reports';
@@ -31,6 +34,7 @@ import {
   resolveLeadRecordScope,
 } from '../auth/visibility.js';
 import { computeLeadStageAging } from '../leads/service.js';
+import { buildAuditEntryData } from '../../utils/audit.js';
 
 type ReportDefinitionRecord = Prisma.ReportDefinitionGetPayload<{
   include: { ownerUser: { select: { id: true; displayName: true } }; _count: { select: { schedules: true } } };
@@ -235,6 +239,84 @@ const LEAD_DASHBOARD_TOP_N = 8;
 // Scope mirrors the rest of the leads module via resolveLeadRecordScope so a TM/RD
 // dashboard never counts leads outside their book. (The legacy report executors
 // above are NOT scoped — that pre-existing gap is tracked separately.)
+// --- Configurable reporting thresholds (FR-RPT-003) ------------------------
+// Stored in a FeatureFlag (no dedicated table) — mirrors the Microsoft Entra policy storage pattern.
+const REPORTING_THRESHOLDS_FLAG_KEY = 'reporting.thresholds';
+const REPORTING_THRESHOLDS_FLAG_NAME = 'Reporting thresholds';
+const DEFAULT_ACTIVE_ACCOUNT_WINDOW_DAYS = 365;
+const MAX_ACTIVE_ACCOUNT_WINDOW_DAYS = 3650;
+
+function normalizeActiveAccountWindowDays(value: number): number {
+  if (!Number.isFinite(value) || value < 1) {
+    throw new Error('activeAccountWindowDays must be a positive number of days');
+  }
+  return Math.min(Math.floor(value), MAX_ACTIVE_ACCOUNT_WINDOW_DAYS);
+}
+
+export async function loadReportingThresholdSettings(): Promise<ReportingThresholdSettings> {
+  const flag = await prisma.featureFlag.findUnique({ where: { key: REPORTING_THRESHOLDS_FLAG_KEY } });
+  const metadata = (flag?.metadata ?? null) as { activeAccountWindowDays?: unknown } | null;
+  const stored = metadata?.activeAccountWindowDays;
+  return {
+    activeAccountWindowDays:
+      typeof stored === 'number' && Number.isFinite(stored) && stored >= 1
+        ? Math.min(Math.floor(stored), MAX_ACTIVE_ACCOUNT_WINDOW_DAYS)
+        : DEFAULT_ACTIVE_ACCOUNT_WINDOW_DAYS,
+  };
+}
+
+export async function getReportingThresholdSettings(
+  actor: AuthenticatedActor,
+): Promise<ReportingThresholdSettingsResponse> {
+  assertModuleAccess(actor.role, 'reports');
+  return { settings: await loadReportingThresholdSettings() };
+}
+
+export async function updateReportingThresholdSettings(
+  actor: AuthenticatedActor,
+  input: UpdateReportingThresholdSettingsRequest,
+): Promise<ReportingThresholdSettingsResponse> {
+  // System-config change — gated on the admin manage action, not just the reports module.
+  assertActionAccess(actor.role, 'admin.integration_manage');
+
+  const current = await loadReportingThresholdSettings();
+  const next: ReportingThresholdSettings = {
+    activeAccountWindowDays:
+      input.activeAccountWindowDays !== undefined
+        ? normalizeActiveAccountWindowDays(input.activeAccountWindowDays)
+        : current.activeAccountWindowDays,
+  };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.featureFlag.upsert({
+      where: { key: REPORTING_THRESHOLDS_FLAG_KEY },
+      create: {
+        key: REPORTING_THRESHOLDS_FLAG_KEY,
+        name: REPORTING_THRESHOLDS_FLAG_NAME,
+        state: FeatureFlagState.ON,
+        metadata: { activeAccountWindowDays: next.activeAccountWindowDays },
+      },
+      update: {
+        state: FeatureFlagState.ON,
+        metadata: { activeAccountWindowDays: next.activeAccountWindowDays },
+      },
+    });
+
+    await tx.auditEntry.create({
+      data: buildAuditEntryData({
+        actorUserId: actor.userId,
+        action: AuditAction.UPDATE,
+        entityType: 'reporting_threshold_settings',
+        entityId: REPORTING_THRESHOLDS_FLAG_KEY,
+        beforeData: { activeAccountWindowDays: current.activeAccountWindowDays },
+        afterData: { activeAccountWindowDays: next.activeAccountWindowDays },
+      }),
+    });
+  });
+
+  return { settings: next };
+}
+
 export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadDashboardResponse> {
   // Reporting-surface gate + lead-data gate: this endpoint returns lead-record
   // KPIs, so it requires the same authorization as the leads module. A role with

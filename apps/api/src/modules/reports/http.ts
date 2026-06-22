@@ -5,6 +5,7 @@ import type {
   CreateReportScheduleRequest,
   ReportConfig,
   UpdateReportDefinitionRequest,
+  UpdateReportingThresholdSettingsRequest,
   UpdateReportScheduleRequest,
 } from '@pulse/contracts/reports';
 import {
@@ -27,6 +28,7 @@ import {
   deleteReportSchedule,
   getExecutiveDashboard,
   getLeadDashboard,
+  getReportingThresholdSettings,
   getTrainingDashboard,
   listReportDefinitions,
   listReportDeliveries,
@@ -34,6 +36,7 @@ import {
   runAdHocReport,
   runReportDefinition,
   updateReportDefinition,
+  updateReportingThresholdSettings,
   updateReportSchedule,
 } from './service.js';
 
@@ -178,7 +181,41 @@ export async function handleReportRoutes(req: IncomingMessage, res: ServerRespon
     });
   }
 
+  if (pathname === '/api/v1/reports/threshold-settings') {
+    if (method === 'GET') {
+      return withReportsAuth(req, res, async (actor) => {
+        return jsonResponse(res, 200, await getReportingThresholdSettings(actor));
+      });
+    }
+    if (method === 'PUT') {
+      return withReportingAdminAuth(req, res, async (actor) => {
+        const body = (await readJsonBody(req)) as UpdateReportingThresholdSettingsRequest;
+        return jsonResponse(res, 200, await updateReportingThresholdSettings(actor, body));
+      });
+    }
+    return methodNotAllowedResponse(res, method, ['GET', 'PUT']);
+  }
+
   return false;
+}
+
+async function withReportingAdminAuth(
+  req: IncomingMessage,
+  res: ServerResponse,
+  handler: (actor: Awaited<ReturnType<typeof requireAuthenticatedActor>>) => Promise<void>,
+) {
+  try {
+    const actor = await requireAuthenticatedActor(req, { module: 'admin', action: 'admin.integration_manage' });
+    return await handler(actor);
+  } catch (error) {
+    if (isAuthenticationError(error)) {
+      return unauthorizedResponse(res, error.message);
+    }
+    if (isAuthorizationError(error)) {
+      return forbiddenResponse(res, error instanceof Error ? error.message : 'Access denied');
+    }
+    return badRequestResponse(res, error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function withReportsAuth(

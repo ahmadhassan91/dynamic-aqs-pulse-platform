@@ -621,6 +621,32 @@ test('completing a training session is race-safe: concurrent completes award exa
   assert.ok(refreshedProgram?.lastCompletedAt, 'program cadence advanced exactly once');
 });
 
+test('FR-RPT-039 foundation: completing a training session marks the account as engaged', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const fixture = await createTrainingAccountFixture(actor, 'engagement');
+  const onboardingType = await prisma.trainingType.findUnique({ where: { code: 'onboarding' } });
+  assert.ok(onboardingType);
+
+  const before = await prisma.account.findUnique({ where: { id: fixture.account.id }, select: { lastEngagementAt: true } });
+  assert.ok(!before?.lastEngagementAt, 'fixture account should start with no engagement');
+
+  const scheduled = await createTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), fixture.account.id, {
+    trainingTypeId: onboardingType.id,
+    trainerUserId: fixture.tm.id,
+    scheduledAt: isoDaysFromNow(7, 10),
+    durationMinutes: 60,
+  });
+  const completedAt = isoDaysFromNow(7, 12);
+  await completeTrainingSession(actorWithRole(actor, 'TRAINING_OPS'), scheduled.id, {
+    completedAt,
+    checkoutNotes: 'Engagement tracking test — session wrapped.',
+  });
+
+  const after = await prisma.account.findUnique({ where: { id: fixture.account.id }, select: { lastEngagementAt: true } });
+  assert.ok(after?.lastEngagementAt, 'expected lastEngagementAt set after completion');
+  assert.equal(after.lastEngagementAt.toISOString(), new Date(completedAt).toISOString());
+});
+
 test('training check-in is idempotent and supports the checked-in session filter', SERIAL, async () => {
   const { actor } = await createAdminSession();
   const fixture = await createTrainingAccountFixture(actor, 'checkin');

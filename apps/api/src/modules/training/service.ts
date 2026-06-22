@@ -92,6 +92,7 @@ import type { AppConfig } from '../../config.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAccountRecordScope, buildTrainingSessionRecordScope } from '../auth/visibility.js';
 import { createAppLogger } from '../../utils/logger.js';
+import { markAccountEngaged } from '../accounts/service.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import {
   tryAutoSyncCalendarEventToOutlook,
@@ -2222,6 +2223,9 @@ export async function completeTrainingSession(
     if (claimed.count === 0) {
       throw new Error('Only scheduled training sessions can be completed');
     }
+
+    // Engagement tracking: a completed training/visit is a tracked field engagement for the account.
+    await markAccountEngaged(tx, session.accountId, completedAt);
 
     if (session.programId) {
       const program = await tx.accountTrainingProgram.findUnique({

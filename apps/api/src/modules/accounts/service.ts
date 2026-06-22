@@ -91,6 +91,17 @@ const ACCOUNT_SUMMARY_INCLUDE = {
   },
 } satisfies Prisma.AccountInclude;
 
+// Engagement tracking (FR-RPT-039 / FR-RPT-015 foundation): advance an account's lastEngagementAt when a
+// structurally-tracked field engagement occurs (training/visit completion, field voice note, consignment
+// audit). Guarded to only move forward (never backdate) and no-ops on a missing account. NOTE: email/phone
+// touches are not yet structurally logged, so this captures tracked field engagement only.
+export async function markAccountEngaged(tx: Prisma.TransactionClient, accountId: string, at: Date): Promise<void> {
+  await tx.account.updateMany({
+    where: { id: accountId, OR: [{ lastEngagementAt: null }, { lastEngagementAt: { lt: at } }] },
+    data: { lastEngagementAt: at },
+  });
+}
+
 export async function listAccounts(actor: AuthenticatedActor, query: ListAccountsRequest = {}): Promise<ListAccountsResponse> {
   assertModuleAccess(actor.role, 'customers');
   assertActionAccess(actor.role, 'customer.view');

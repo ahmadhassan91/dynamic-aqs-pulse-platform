@@ -29,7 +29,7 @@ import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { storeBase64Document } from '../documents/storage.js';
-import { getAccountDetail } from '../accounts/service.js';
+import { getAccountDetail, markAccountEngaged } from '../accounts/service.js';
 import { getLeadDetail } from '../leads/service.js';
 import { buildTrainingSessionRecordScope } from '../auth/visibility.js';
 import { buildConsignmentSiteScopeWhere } from '../consignment/service.js';
@@ -180,6 +180,11 @@ export async function createMobileVoiceNote(
         },
       }),
     });
+
+    // Engagement tracking: a field voice note logged against an account is a tracked engagement.
+    if (input.accountId) {
+      await markAccountEngaged(tx, input.accountId, new Date());
+    }
 
     return created;
   });

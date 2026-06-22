@@ -70,6 +70,7 @@ import type { AppConfig } from '../../config.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { storeBase64Document } from '../documents/storage.js';
+import { markAccountEngaged } from '../accounts/service.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -1291,7 +1292,7 @@ export async function confirmConsignmentTrueUp(actor: AuthenticatedActor, auditI
 }
 
 async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId: string, input: CompleteConsignmentAuditRequest): Promise<ConsignmentAuditSummary> {
-  await getSiteForMutation(actor, siteId);
+  const site = await getSiteForMutation(actor, siteId);
   const completedAt = parseOptionalDate(input.completedAt) ?? new Date();
   const lines = input.lines ?? [];
   const hasVariance = lines.some((line: NonNullable<UpdateConsignmentAuditRequest['lines']>[number]) => computeVariance(line.expectedQuantity, line.actualQuantity) !== 0);
@@ -1315,6 +1316,8 @@ async function completeAudit(actor: AuthenticatedActor, siteId: string, auditId:
     }
     const row = await tx.consignmentAudit.findUniqueOrThrow({ where: { id: auditId }, include: { lines: { orderBy: [{ createdAt: 'asc' }] }, evidence: { orderBy: [{ uploadedAt: 'desc' }] } } });
     await tx.consignmentSite.update({ where: { id: siteId }, data: { lastAuditCompletedAt: completedAt, nextAuditDueAt: addDays(completedAt, ROSE_CADENCE_DAYS) } });
+    // Engagement tracking: a completed ROSE audit is a tracked on-site engagement for the account.
+    await markAccountEngaged(tx, site.accountId, completedAt);
     if (hasVariance) {
       const existingDiscrepancy = await tx.consignmentDiscrepancyCase.findFirst({ where: { auditId } });
       if (!existingDiscrepancy) {

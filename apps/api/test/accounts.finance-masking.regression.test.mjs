@@ -176,6 +176,9 @@ async function seedFinancialVisibilityFixture(adminActor, territoryManagerActor,
       assignedTmUserId: territoryManagerActor.userId,
       assignedRdUserId: regionalDirectorActor.userId,
       territoryAssignmentMethod: 'MANUAL_OVERRIDE',
+      // FR-CIS-005: discovery must be complete before a CIS can be issued.
+      stage: 'DISCOVERY_COMPLETED',
+      discoveryCompletedAt: new Date(),
     },
   });
 

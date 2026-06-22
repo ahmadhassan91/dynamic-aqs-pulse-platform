@@ -192,6 +192,9 @@ async function createLeadWithCis(adminActor, companyName) {
     },
   });
 
+  // FR-CIS-005: a CIS can only be issued once discovery is complete (now server-enforced) — advance the fixture.
+  await prisma.lead.update({ where: { id: lead.id }, data: { stage: 'DISCOVERY_COMPLETED', discoveryCompletedAt: new Date() } });
+
   const issued = await issueCisLink(adminActor, lead.id, {}, config);
   const token = extractPublicToken(issued.publicUrl);
 
@@ -304,6 +307,8 @@ test('cis and finance regression suite', SERIAL, async () => {
     serviceTechCount: 3,
     state: 'TX',
   });
+
+  await prisma.lead.update({ where: { id: resendLead.id }, data: { stage: 'DISCOVERY_COMPLETED', discoveryCompletedAt: new Date() } });
 
   const firstLink = await issueCisLink(adminActor, resendLead.id, { recipientEmail: 'finance@resend.example.com' }, config);
   const secondLink = await issueCisLink(adminActor, resendLead.id, { note: 'Resend after customer follow-up.' }, config);
@@ -576,6 +581,26 @@ test('cis and finance regression suite', SERIAL, async () => {
 
   const awaitingQueue = await listFinanceQueue(financeActor, { decisionStatus: 'awaiting_submission' });
   assert.equal(awaitingQueue.total, 0);
+});
+
+test('FR-CIS-005: a CIS link cannot be issued before discovery is completed (server-enforced)', SERIAL, async () => {
+  const { actor: adminActor } = await createBootstrapAdminContext();
+  const lead = await createLead(adminActor, {
+    companyName: 'Pre-Discovery HVAC',
+    contactDisplayName: 'Pre-Discovery Contact',
+    email: 'pre.discovery@example.com',
+    phone: '555-303-4040',
+    serviceTechCount: 3,
+    state: 'TX',
+  });
+
+  // NEW-stage lead (no discovery) -> issuing a CIS is rejected server-side, not just hidden in the UI.
+  await assert.rejects(() => issueCisLink(adminActor, lead.id, {}, config), /discovery is completed/i);
+
+  // Once discovery is complete, issuance succeeds.
+  await prisma.lead.update({ where: { id: lead.id }, data: { stage: 'DISCOVERY_COMPLETED', discoveryCompletedAt: new Date() } });
+  const issued = await issueCisLink(adminActor, lead.id, {}, config);
+  assert.ok(issued.cisPackage?.id, 'expected a CIS package once discovery is complete');
 });
 
 test('only finance roles can record finance decisions on queued CIS packages', SERIAL, async () => {

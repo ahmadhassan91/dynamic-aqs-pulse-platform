@@ -199,6 +199,17 @@ type MutableCisFormSnapshot = {
   lastSavedAt?: Date;
 };
 
+// FR-CIS-005 / BR-CIS-01: a CIS link may only be issued once discovery is complete. Mirrors the client
+// SENDABLE_LEAD_STAGES (LeadCisPanel) so the gate is enforced SERVER-side too — a scripted/API call can't
+// issue a CIS on a pre-discovery lead. (Fast-track skip also lands the lead in DISCOVERY_COMPLETED.)
+const CIS_SENDABLE_LEAD_STAGES = new Set<LeadStage>([
+  LeadStage.DISCOVERY_COMPLETED,
+  LeadStage.CIS_SENT,
+  LeadStage.CIS_SIGNED,
+  LeadStage.ONBOARDING_COMPLETED,
+  LeadStage.CUSTOMER_ACTIVE,
+]);
+
 export async function issueCisLink(
   actor: AuthenticatedActor,
   leadId: string,
@@ -228,6 +239,9 @@ export async function issueCisLink(
     });
     if (!lead) {
       throw new Error(`Lead not found: ${leadId}`);
+    }
+    if (!CIS_SENDABLE_LEAD_STAGES.has(lead.stage)) {
+      throw new Error('CIS cannot be issued until discovery is completed for this lead');
     }
 
     const existing = await tx.cisPackage.findFirst({

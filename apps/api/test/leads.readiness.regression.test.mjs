@@ -189,6 +189,9 @@ async function createFinanceReviewedLead(actor, decision = 'approved') {
     ownershipGroupSelection: 'none',
   });
 
+  // FR-CIS-005: CIS issuance now requires discovery complete — advance the fixture.
+  await prisma.lead.update({ where: { id: lead.id }, data: { stage: 'DISCOVERY_COMPLETED', discoveryCompletedAt: new Date() } });
+
   const issued = await issueCisLink(actor, lead.id, {
     recipientEmail: email,
     note: 'Regression issue',

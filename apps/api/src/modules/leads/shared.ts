@@ -263,6 +263,37 @@ export function asString(value: unknown) {
   return typeof value === 'string' ? value : undefined;
 }
 
+// FR-L-007: validate contact email/phone at lead intake so a CIS link or alert email never goes to a
+// malformed address. Deliberately permissive — we reject obvious garbage, not exotic-but-valid values.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function normalizeOptionalEmail(value: string | undefined, fieldName = 'email') {
+  const trimmed = optionalTrimmed(value);
+  if (trimmed === undefined) {
+    return undefined;
+  }
+
+  if (trimmed.length > 254 || !EMAIL_PATTERN.test(trimmed)) {
+    throw new Error(`${fieldName} must be a valid email address`);
+  }
+
+  return trimmed;
+}
+
+export function normalizeOptionalPhone(value: string | undefined, fieldName = 'phone') {
+  const trimmed = optionalTrimmed(value);
+  if (trimmed === undefined) {
+    return undefined;
+  }
+
+  const digitCount = (trimmed.match(/\d/g) ?? []).length;
+  if (digitCount < 7 || digitCount > 15 || /[^\d\s+().-]/.test(trimmed)) {
+    throw new Error(`${fieldName} must be a valid phone number`);
+  }
+
+  return trimmed;
+}
+
 export function normalizeEmailAddress(value: string) {
   const normalized = requiredTrimmed(value, 'email').toLowerCase();
   if (!normalized.includes('@')) {

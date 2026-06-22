@@ -116,6 +116,8 @@ import { mapLeadImportFile, previewLeadImportFile } from './file-ingest.js';
 import {
   asString,
   normalizeEmailAddress,
+  normalizeOptionalEmail,
+  normalizeOptionalPhone,
   optionalTrimmed,
   requiredTrimmed,
   toWebsiteLeadSiteFormConfig,
@@ -4549,8 +4551,8 @@ function normalizeLeadInput(
     companyName,
   });
   const serviceTechCount = normalizePositiveInteger(input.serviceTechCount, 'serviceTechCount');
-  const email = optionalTrimmed(asString(input.email));
-  const phone = optionalTrimmed(asString(input.phone));
+  const email = normalizeOptionalEmail(asString(input.email));
+  const phone = normalizeOptionalPhone(asString(input.phone));
   const state = normalizeState(asString(input.state));
   const countryCode = normalizeCountryCode(asString(input.countryCode), state);
   const sourceDetail = optionalTrimmed(asString(input.sourceDetail));

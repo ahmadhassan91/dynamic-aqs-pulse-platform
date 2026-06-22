@@ -398,6 +398,44 @@ test('lead potential value persists through summary and detail responses', SERIA
   assert.equal(detail.potentialValueCents, 1250000);
 });
 
+test('FR-L-007: lead intake rejects a malformed email or phone and accepts valid contact details', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+
+  const baseInput = {
+    companyName: 'Contact Validation HVAC',
+    contactDisplayName: 'Val Idation',
+    state: 'TX',
+    serviceTechCount: 4,
+    affinityGroupSelection: 'none',
+    ownershipGroupSelection: 'none',
+  };
+
+  // A malformed email would otherwise become the CIS / alert delivery address.
+  await assert.rejects(
+    () => createLead(actor, { ...baseInput, email: 'not-an-email', phone: '555-100-3300' }),
+    /email must be a valid email address/i,
+  );
+
+  // A phone without enough digits is rejected too.
+  await assert.rejects(
+    () => createLead(actor, { ...baseInput, email: 'val@example.com', phone: '12-34' }),
+    /phone must be a valid phone number/i,
+  );
+
+  // Valid contact details persist (common formatting like parentheses/spaces is accepted).
+  const validLead = await createLead(actor, {
+    ...baseInput,
+    companyName: 'Contact Validation HVAC Valid',
+    email: 'val.idation@example.com',
+    phone: '(555) 100-4400',
+  });
+  assert.ok(validLead.id, 'expected the valid lead to be created');
+
+  const validDetail = await getLeadDetail(actor, validLead.id);
+  assert.equal(validDetail.email, 'val.idation@example.com');
+  assert.equal(validDetail.phone, '(555) 100-4400');
+});
+
 test('lead detail updates persist editable hero fields and re-sync territory on state change', SERIAL, async () => {
   const { actor } = await createAdminSession();
 

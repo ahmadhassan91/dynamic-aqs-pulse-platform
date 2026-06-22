@@ -77,7 +77,7 @@ Subsequent slices shipped the Training dashboard (commit e5f623b), the Executive
 | FR-RPT-051 | Not-built | **Built** | Site-visits vs trainings split (siteVisits metric + training counts) |
 | FR-RPT-011 | Not-built | **Partial** | Exec KPIs open-leads / active-sites / trainings built; YTD revenue + active accounts parked on Acumatica |
 | FR-RPT-005 | Not-built | **Partial** | KPI cards drill down by navigating to the module list; in-place filtered drawer is the richer later version |
-| FR-RPT-008 | Not-built | **Partial** | CSV export on saved-report runs (dependency-free); Excel/PDF + dashboard export deferred (need a library) |
+| FR-RPT-008 | Not-built | **Built** | CSV + Excel (.xls SpreadsheetML) + PDF (jsPDF) download on report runs — commit 9ba66fa; dashboard-tile export still pending |
 | FR-RPT-048 | Partial | **Partial** | total training hours built; per-account hours breakdown still pending |
 | FR-RPT-049 | Not-built | **Partial** | training hours by trainer built; RD/region/state breakdown pending |
 | FR-RPT-052 | Not-built | **Partial** | training-type breakdown built; per-TM (type×TM) cross pending |
@@ -209,7 +209,7 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-005 | Dashboard KPI cards — drill-down on click | Clicking a KPI card (e.g. "Training Overdue: 14") opens the filtered list view behind that number. | P1 | Partial (KPI cards drill down by navigating to the module list; in-place filtered drawer pending) | SRC-RPT-001 (C G: "There are times when we need to run a special report") |
 | FR-RPT-006 | Dashboard charts: bar, line, area — switchable | Each chart widget offers bar / line / area toggle. Ahmad confirmed: "We have different chart options by area, line, and bar." (SRC-RPT-001) | P1 | **Built** (shared ReportChart bar/line/area toggle via @mantine/charts on Lead/Training/Executive — `f48fa32`) | SRC-RPT-001 |
 | FR-RPT-007 | Revenue by month chart (last 6 months + YTD) | Standard chart shows monthly revenue bars with a YTD cumulative overlay. Scope to territory for TM view, regional rollup for RD, full company for Executive. | P0 | Not-built | SRC-RPT-001 |
-| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | Partial (CSV export on saved-report runs; Excel/PDF + dashboard export deferred — need a library) | SRC-RPT-001, SRC-RPT-005 |
+| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | **Built** (CSV + Excel + PDF one-click download on saved/ad-hoc report runs — `9ba66fa`; dashboard-view export still pending) | SRC-RPT-001, SRC-RPT-005 |
 | FR-RPT-009 | Summary view + chart view toggle per report | Each pre-built report has a Summary tab (key metrics) and a Chart tab (visual). | P1 | Not-built | SRC-RPT-001 |
 | FR-RPT-010 | "Reporting Home" as module; listed in role access | `reports` module key already present in WORKSPACE_MODULES. Route, page shell, and navigation entry to be wired. | P0 | Built (reports module key + `/reports` route/page + nav entry all wired) | SRC-RPT-006 |
 
@@ -317,7 +317,7 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 |----|------------|---------------------|----------|-------------|-----|
 | FR-RPT-069 | Schedule a saved report for recurring email delivery | User selects a saved template, sets frequency (daily, weekly, monthly), day/time, and recipient list. Ahmad demo'd "daily operational check, weekly review pack, monthly leadership pack … Monday 9AM they will get the report." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-070 | Multi-recipient delivery list | Each scheduled report has a recipient list. Admin can add/remove recipients. | P0 | Not-built | SRC-RPT-001 |
-| FR-RPT-071 | Delivery format: CSV, PDF, Excel per schedule | User selects format at schedule-creation time. Ahmad: "CSV or PDF or in Excel PDF." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
+| FR-RPT-071 | Delivery format: CSV, PDF, Excel per schedule | User selects format at schedule-creation time. Ahmad: "CSV or PDF or in Excel PDF." (SRC-RPT-001) | P0 | **Partial** (all three export formats now generated on report runs — `9ba66fa`; per-schedule format selection + actual delivery still tied to the parked scheduled-delivery channel) | SRC-RPT-001 |
 | FR-RPT-072 | Auto-email: prior-month sales by TM / state / territory | C G: "The sales report I run monthly for the guys … this would do it by itself." Michelle: "That's why I love auto-email reports … I used them 30 years ago." (SRC-RPT-001) | P0 | Not-built (delivery requires Microsoft Graph) | SRC-RPT-001 |
 | FR-RPT-073 | Scheduled report: training hours and overdue follow-up — monthly | Michelle: "An account that hasn't had training … any accounts on hold at the end of every month." (SRC-RPT-001) | P0 | Not-built | SRC-RPT-001 |
 | FR-RPT-074 | Scheduled report delivery dispatcher (Microsoft Graph sendMail) | Email delivery uses Microsoft Graph. Persisted schedule records queue on `PENDING` until Graph credentials certified — same pattern as consignment/lead alert delivery. | P0 | Parked (Microsoft Graph credentials dependency) | SRC-RPT-001 |
@@ -565,4 +565,4 @@ CRM-native reporting build-out shipped on branch `codex/entra-calendar-governanc
 - **Engagement-tracking foundation** — `Account.lastEngagementAt` now maintained on training/visit completion, field voice notes, and ROSE audits — `a78df8e`.
 - **Neglected / no-contact accounts** (FR-RPT-039; engagement half of FR-RPT-015) — record-scoped report + web card on the threshold + engagement signal — `e98f96d` `0cfc65f`.
 
-Still open (CRM-native): Excel/PDF export (FR-RPT-008/071 — needs a library). Still **Acumatica/legacy-gated**: all revenue/$ (FR-RPT-007/011/012/013/014/016/017/019/028/029/032/036/037/038/075/077-actual/078 + the order-based half of 015).
+Excel + PDF export shipped 2026-06-22 (FR-RPT-008/071 — `.xls` SpreadsheetML + jsPDF on report runs, commit `9ba66fa`), completing the CRM-native reporting build-out. Still open (CRM-native): dashboard-**tile** export (the report-runs table exports; the role dashboards don't yet). Still **Acumatica/legacy-gated**: all revenue/$ (FR-RPT-007/011/012/013/014/016/017/019/028/029/032/036/037/038/075/077-actual/078 + the order-based half of 015).

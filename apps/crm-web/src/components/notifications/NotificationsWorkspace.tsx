@@ -4,9 +4,26 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ActionIcon, Badge, Box, Button, Card, Container, Group, Loader, SegmentedControl, Select, Stack, Text, Title, Tooltip } from '@mantine/core';
 import { IconArchive, IconCheck, IconExternalLink } from '@tabler/icons-react';
-import { USER_NOTIFICATION_CATEGORIES, type UserNotificationCategoryKey, type UserNotificationSummary } from '@pulse/contracts/notifications';
+import type { UserNotificationCategoryKey, UserNotificationSummary } from '@pulse/contracts/notifications';
 import { archiveNotificationRecord, fetchNotifications, markNotificationsReadRecord } from '@/lib/pulse-api';
 import { usePulseSession } from '@/lib/pulse-session';
+
+// Category dropdown options. Derived from the contract's `UserNotificationCategoryKey` type rather than importing
+// the USER_NOTIFICATION_CATEGORIES value — that value import resolves `undefined` inside this route's Turbopack
+// chunk (a bundler quirk; the same import works in other components). The Record is keyed by the contract type,
+// so adding or removing a category in the contract is a compile error here — this stays in lockstep, no drift.
+const CATEGORY_LABELS: Record<UserNotificationCategoryKey, string> = {
+  lead: 'Lead',
+  consignment: 'Consignment',
+  training: 'Training',
+  order: 'Order',
+  account: 'Account',
+  system: 'System',
+};
+const CATEGORY_OPTIONS = (Object.keys(CATEGORY_LABELS) as UserNotificationCategoryKey[]).map((value) => ({
+  value,
+  label: CATEGORY_LABELS[value],
+}));
 
 const PAGE = 25;
 type StatusFilter = 'all' | 'unread' | 'archived';
@@ -153,7 +170,7 @@ export function NotificationsWorkspace() {
             clearable
             value={category}
             onChange={setCategory}
-            data={USER_NOTIFICATION_CATEGORIES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))}
+            data={CATEGORY_OPTIONS}
             w={200}
           />
         </Group>

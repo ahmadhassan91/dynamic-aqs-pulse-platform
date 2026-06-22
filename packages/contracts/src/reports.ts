@@ -274,3 +274,22 @@ export interface ReportingThresholdSettingsResponse {
 export interface UpdateReportingThresholdSettingsRequest {
   activeAccountWindowDays?: number;
 }
+
+// --- Stale / lost accounts (FR-RPT-039 no-contact, FR-RPT-015 lost accounts) ---
+// Accounts with no tracked engagement within the active-account window. Driven by Account.lastEngagementAt
+// (maintained on training/visit completion, field voice notes, ROSE audits). CRM-native; revenue-based
+// "lost" remains an Acumatica overlay.
+
+export interface StaleAccountItem {
+  accountId: string;
+  name: string;
+  ownerName: string | null; // assigned TM display name; null if unassigned
+  lastEngagementAt: string | null; // ISO; null = never engaged
+  daysSinceEngagement: number | null; // null when never engaged
+}
+
+export interface StaleAccountsReportResponse {
+  windowDays: number; // active-account window used to determine staleness
+  total: number;
+  items: StaleAccountItem[]; // most stale first (never-engaged first), capped
+}

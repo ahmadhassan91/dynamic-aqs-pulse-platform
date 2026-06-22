@@ -16,6 +16,7 @@ import type {
   ReportScheduleSummary,
   ReportingThresholdSettings,
   ReportingThresholdSettingsResponse,
+  StaleAccountsReportResponse,
   ReportVisibilityKey,
   TrainingDashboardResponse,
   UpdateReportDefinitionRequest,
@@ -315,6 +316,53 @@ export async function updateReportingThresholdSettings(
   });
 
   return { settings: next };
+}
+
+// FR-RPT-039 / FR-RPT-015: accounts with no tracked engagement within the active-account window.
+const STALE_ACCOUNTS_TOP_N = 100;
+
+export async function getStaleAccountsReport(actor: AuthenticatedActor): Promise<StaleAccountsReportResponse> {
+  assertModuleAccess(actor.role, 'reports');
+  assertActionAccess(actor.role, 'customer.view');
+
+  const { activeAccountWindowDays } = await loadReportingThresholdSettings();
+  const now = new Date();
+  const thresholdDate = new Date(now.getTime() - activeAccountWindowDays * 24 * 60 * 60 * 1000);
+  const scope = buildAccountRecordScope(actor);
+  const where: Prisma.AccountWhereInput = {
+    AND: [
+      ...(scope ? [scope] : []),
+      { isActive: true },
+      { OR: [{ lastEngagementAt: null }, { lastEngagementAt: { lt: thresholdDate } }] },
+    ],
+  };
+
+  const [total, accounts] = await Promise.all([
+    prisma.account.count({ where }),
+    prisma.account.findMany({
+      where,
+      select: {
+        id: true,
+        displayName: true,
+        lastEngagementAt: true,
+        assignedTmUser: { select: { displayName: true } },
+      },
+      orderBy: [{ lastEngagementAt: { sort: 'asc', nulls: 'first' } }],
+      take: STALE_ACCOUNTS_TOP_N,
+    }),
+  ]);
+
+  const items = accounts.map((account) => ({
+    accountId: account.id,
+    name: account.displayName,
+    ownerName: account.assignedTmUser?.displayName ?? null,
+    lastEngagementAt: account.lastEngagementAt ? account.lastEngagementAt.toISOString() : null,
+    daysSinceEngagement: account.lastEngagementAt
+      ? Math.max(0, Math.floor((now.getTime() - account.lastEngagementAt.getTime()) / (24 * 60 * 60 * 1000)))
+      : null,
+  }));
+
+  return { windowDays: activeAccountWindowDays, total, items };
 }
 
 export async function getLeadDashboard(actor: AuthenticatedActor): Promise<LeadDashboardResponse> {

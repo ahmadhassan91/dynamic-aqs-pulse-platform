@@ -29,6 +29,7 @@ import {
   getExecutiveDashboard,
   getLeadDashboard,
   getReportingThresholdSettings,
+  getStaleAccountsReport,
   getTrainingDashboard,
   listReportDefinitions,
   listReportDeliveries,
@@ -178,6 +179,15 @@ export async function handleReportRoutes(req: IncomingMessage, res: ServerRespon
     return withReportsAuth(req, res, async (actor) => {
       const response = await getExecutiveDashboard(actor);
       return jsonResponse(res, 200, response);
+    });
+  }
+
+  if (pathname === '/api/v1/reports/stale-accounts') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse(res, method, ['GET']);
+    }
+    return withReportsAuth(req, res, async (actor) => {
+      return jsonResponse(res, 200, await getStaleAccountsReport(actor));
     });
   }
 

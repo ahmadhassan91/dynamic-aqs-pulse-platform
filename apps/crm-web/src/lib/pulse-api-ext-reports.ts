@@ -19,6 +19,8 @@ import type {
   ReportScheduleSummary,
   UpdateReportDefinitionRequest,
   UpdateReportScheduleRequest,
+  ReportingThresholdSettingsResponse,
+  UpdateReportingThresholdSettingsRequest,
 } from '@pulse/contracts';
 
 async function fetchJson<T>(
@@ -139,4 +141,20 @@ export async function fetchTrainingDashboardApi(apiBaseUrl: string, accessToken:
 
 export async function fetchExecutiveDashboardApi(apiBaseUrl: string, accessToken: string) {
   return fetchJson<ExecutiveDashboardResponse>(apiBaseUrl, '/api/v1/reports/dashboard/executive', { accessToken });
+}
+
+export async function fetchReportingThresholdSettingsApi(apiBaseUrl: string, accessToken: string) {
+  return fetchJson<ReportingThresholdSettingsResponse>(apiBaseUrl, '/api/v1/reports/threshold-settings', { accessToken });
+}
+
+export async function updateReportingThresholdSettingsApi(
+  apiBaseUrl: string,
+  accessToken: string,
+  input: UpdateReportingThresholdSettingsRequest,
+) {
+  return fetchJson<ReportingThresholdSettingsResponse>(apiBaseUrl, '/api/v1/reports/threshold-settings', {
+    accessToken,
+    method: 'PUT',
+    body: input,
+  });
 }

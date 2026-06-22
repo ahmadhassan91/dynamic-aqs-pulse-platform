@@ -4,6 +4,7 @@ import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/co
 import { IconAlertTriangle, IconClockHour4, IconSchool, IconUsers } from '@tabler/icons-react';
 import { useTrainingDashboard } from '@/lib/use-training-dashboard';
 import { EmptyStateMessage, WorkbenchMetricStrip, WorkbenchTable } from '@/components/ui/Workbench';
+import { ReportChart } from './ReportChart';
 
 /**
  * Training dashboard for the Reporting Home — a role-scoped view over CRM-native
@@ -81,6 +82,14 @@ export function TrainingDashboard() {
           <Text fw={700} mb="md">
             Hours by trainer
           </Text>
+          {byTrainer.length > 0 ? (
+            <ReportChart
+              data={byTrainer}
+              dataKey="key"
+              series={[{ name: 'hours', label: 'Hours', color: 'teal.6' }]}
+              height={200}
+            />
+          ) : null}
           <WorkbenchTable
             withContainer={false}
             pageSize={0}
@@ -100,6 +109,14 @@ export function TrainingDashboard() {
           <Text fw={700} mb="md">
             By training type
           </Text>
+          {byType.length > 0 ? (
+            <ReportChart
+              data={byType}
+              dataKey="key"
+              series={[{ name: 'sessions', label: 'Sessions', color: 'blue.6' }]}
+              height={200}
+            />
+          ) : null}
           <WorkbenchTable
             withContainer={false}
             pageSize={0}

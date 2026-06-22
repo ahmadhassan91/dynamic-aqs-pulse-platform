@@ -72,7 +72,7 @@ import { ExecutiveDashboard } from '@/components/reporting/ExecutiveDashboard';
 import { ReportingThresholdSettingsCard } from '@/components/reporting/ReportingThresholdSettingsCard';
 import { StaleAccountsCard } from '@/components/reporting/StaleAccountsCard';
 import { canAccessModule, canPerformAction } from '@/lib/access';
-import { downloadReportCsv } from '@/lib/report-csv';
+import { downloadReportCsv, downloadReportExcel, downloadReportPdf } from '@/lib/report-export';
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
   value: String(hour),
@@ -410,14 +410,32 @@ export function ReportsWorkspace() {
                 {runResult.rowCount} row{runResult.rowCount === 1 ? '' : 's'} · generated {new Date(runResult.generatedAt).toLocaleString()}
               </Text>
               {runResult.rowCount > 0 ? (
-                <Button
-                  size="compact-sm"
-                  variant="light"
-                  leftSection={<IconDownload size={14} />}
-                  onClick={() => downloadReportCsv(runResult, runTitle)}
-                >
-                  CSV
-                </Button>
+                <Button.Group>
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    leftSection={<IconDownload size={14} />}
+                    onClick={() => downloadReportCsv(runResult, runTitle)}
+                  >
+                    CSV
+                  </Button>
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    onClick={() => downloadReportExcel(runResult, runTitle)}
+                  >
+                    Excel
+                  </Button>
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    onClick={() => {
+                      void downloadReportPdf(runResult, runTitle);
+                    }}
+                  >
+                    PDF
+                  </Button>
+                </Button.Group>
               ) : null}
             </Group>
           </Group>

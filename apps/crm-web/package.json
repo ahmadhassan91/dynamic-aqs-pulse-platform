@@ -27,6 +27,8 @@
     "@pulse/auth": "workspace:^",
     "@pulse/contracts": "workspace:^",
     "@tabler/icons-react": "^3.35.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "maplibre-gl": "^5.23.0",
     "next": "^16.2.3",
     "react": "^19.2.5",

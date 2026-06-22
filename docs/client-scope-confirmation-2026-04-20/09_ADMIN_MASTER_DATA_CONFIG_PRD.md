@@ -546,9 +546,9 @@ Independent audit (structural review of the authorization model + an adversarial
 ### Hardening backlog (none blocking; do before/around go-live)
 | Sev | Item | Location | Action |
 |---|---|---|---|
-| MEDIUM | EXECUTIVE role has near-total **action** access (can mutate almost everything) — contradicts its read-only oversight profile | `contracts/auth.ts:345` | Restrict EXECUTIVE `ROLE_DEFAULT_ACTION_ACCESS` to read/report actions |
-| MEDIUM | Microsoft Entra default policy is permissive (`autoProvision` + email-linking, no domain allowlist) | `auth/policy.ts:24` | Require a domain allowlist before enabling Entra SSO login |
-| MEDIUM | Voice-note review/read routes use bare `requireAuthenticatedActor` (no module guard) + a record-scope nuance on training/consignment context | `mobile-voice-notes/http.ts:48,70,81`; `service.ts:590` | Add the module guard + tighten the context record-scope |
+| ✅ DONE (24136e5) | EXECUTIVE action access narrowed to an explicit read/oversight allowlist — full visibility, no mutation | `contracts/auth.ts` | Resolved; locked by rbac + threshold regression |
+| ✅ DONE (24136e5) | Entra SSO now fail-closed: defaults off + an empty domain allowlist DENIES new identities (was allow-all) | `auth/policy.ts`, `auth/service.ts` | Resolved; entra regression updated to configure policy |
+| ✅ DONE (24136e5) | Voice-note training/consignment contexts now record-scoped (findFirst within the actor's book), not just action-gated | `mobile-voice-notes/service.ts` | Resolved (route-level module guard remains a low/defer item) |
 | LOW | Leads intake mutators resolve the lead with unscoped `findUnique` (defense-in-depth; **not exploitable today** — the matrix never grants `lead.intake_manage` to TM/RD) | `leads/service.ts:1547,1669,1757,…` | Switch to scoped `findFirst({ AND: [scope, { id }] })` |
 | LOW | Reports run endpoints omit the explicit `reports.builder` action assertion (module-gated only) | `reports/http.ts`, `service.ts:202` | Add the action assert |
 | LOW | `session.tokenVersion` hardcoded to 1, never compared — no mass-invalidation lever | `auth/service.ts:1295` | Wire version compare if bulk revocation is ever needed |

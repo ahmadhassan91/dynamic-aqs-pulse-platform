@@ -10,7 +10,7 @@ import {
   Prisma,
   prisma,
 } from '@pulse/db';
-import { syncLeadAlertNotifications, syncLeadCisReceivedNotifications } from '../notifications/bridge.js';
+import { syncAccountInactivityNotifications, syncLeadAlertNotifications, syncLeadCisReceivedNotifications } from '../notifications/bridge.js';
 import type { QueueJob, QueueManager } from '../../queue/contracts.js';
 import { LEAD_OPERATIONAL_ALERT_DELIVERY_QUEUE } from '../../queue/definitions.js';
 import type { AppLogger } from '../../utils/logger.js';
@@ -341,6 +341,7 @@ export async function processLeadOperationalAlertScanJob(
   try {
     await syncLeadAlertNotifications();
     await syncLeadCisReceivedNotifications();
+    await syncAccountInactivityNotifications();
   } catch {
     // Materializing in-app notifications must never fail the alert scan.
   }

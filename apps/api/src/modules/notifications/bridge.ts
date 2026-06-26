@@ -142,7 +142,70 @@ export async function syncConsignmentAlertNotifications(): Promise<number> {
   return materialized;
 }
 
-export async function syncOperationalAlertNotifications(): Promise<{ lead: number; consignment: number }> {
-  const [lead, consignment] = await Promise.all([syncLeadAlertNotifications(), syncConsignmentAlertNotifications()]);
-  return { lead, consignment };
+// CRM-native visit-inactivity trigger (FR-RPT-039 engagement staleness → in-app inbox). Flags active accounts
+// with no logged engagement in the threshold window and notifies the owning TM + RD (plus any 'account'
+// routing-rule recipients). Idempotent per staleness episode: the dedupe key embeds the current
+// lastEngagementAt, so a continuously-stale account is notified once, while a re-engaged-then-stale account
+// produces a fresh notification.
+const ACCOUNT_INACTIVITY_THRESHOLD_DAYS = 90;
+
+export async function syncAccountInactivityNotifications(): Promise<number> {
+  const thresholdDate = new Date(Date.now() - ACCOUNT_INACTIVITY_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
+  const accounts = await prisma.account.findMany({
+    where: {
+      isActive: true,
+      assignedTmUserId: { not: null },
+      OR: [{ lastEngagementAt: null }, { lastEngagementAt: { lt: thresholdDate } }],
+    },
+    select: {
+      id: true,
+      displayName: true,
+      lastEngagementAt: true,
+      assignedTmUserId: true,
+      assignedRdUserId: true,
+    },
+    orderBy: [{ lastEngagementAt: { sort: 'asc', nulls: 'first' } }],
+    take: BATCH,
+  });
+
+  let materialized = 0;
+  for (const account of accounts) {
+    const recipients = new Set<string>(await resolveRuleRecipients('account', 'visit_inactivity'));
+    if (account.assignedTmUserId) {
+      recipients.add(account.assignedTmUserId);
+    }
+    if (account.assignedRdUserId) {
+      recipients.add(account.assignedRdUserId);
+    }
+    if (recipients.size === 0) {
+      continue;
+    }
+    const episode = account.lastEngagementAt ? account.lastEngagementAt.toISOString() : 'never';
+    for (const recipientUserId of recipients) {
+      await upsertUserNotification({
+        recipientUserId,
+        category: 'account',
+        eventType: 'visit_inactivity',
+        title: `No recent contact — ${account.displayName}`,
+        body: `No logged engagement in over ${ACCOUNT_INACTIVITY_THRESHOLD_DAYS} days. Reach out to keep this account active.`,
+        severity: 'warning',
+        deepLinkType: 'account',
+        deepLinkId: account.id,
+        sourceType: 'account_inactivity',
+        sourceId: account.id,
+        dedupeKey: `account-inactivity:${account.id}:${episode}:${recipientUserId}`,
+      });
+      materialized += 1;
+    }
+  }
+  return materialized;
+}
+
+export async function syncOperationalAlertNotifications(): Promise<{ lead: number; consignment: number; account: number }> {
+  const [lead, consignment, account] = await Promise.all([
+    syncLeadAlertNotifications(),
+    syncConsignmentAlertNotifications(),
+    syncAccountInactivityNotifications(),
+  ]);
+  return { lead, consignment, account };
 }

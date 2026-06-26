@@ -15,6 +15,7 @@ let markNotificationsRead;
 let archiveNotification;
 let upsertUserNotification;
 let syncConsignmentAlertNotifications;
+let syncAccountInactivityNotifications;
 let listNotificationPreferences;
 let updateNotificationPreference;
 let createNotificationRoutingRule;
@@ -27,7 +28,7 @@ test.before(async () => {
   const configModule = await import('../dist/config.js');
   ({ ensureBootstrapAdminSeeded, loginWithPassword } = await import('../dist/modules/auth/service.js'));
   ({ listUserNotifications, getUnreadNotificationCount, markNotificationsRead, archiveNotification, upsertUserNotification, listNotificationPreferences, updateNotificationPreference } = await import('../dist/modules/notifications/service.js'));
-  ({ syncConsignmentAlertNotifications, syncLeadCisReceivedNotifications } = await import('../dist/modules/notifications/bridge.js'));
+  ({ syncConsignmentAlertNotifications, syncLeadCisReceivedNotifications, syncAccountInactivityNotifications } = await import('../dist/modules/notifications/bridge.js'));
   ({ createNotificationRoutingRule } = await import('../dist/modules/notifications/service.js'));
   config = configModule.loadAppConfig(process.env);
   await prisma.$connect();
@@ -140,6 +141,48 @@ test('bridge: consignment alerts materialize notifications for the site owner TM
 
   // Re-running the bridge does not duplicate (idempotent on recipient+dedupeKey).
   await syncConsignmentAlertNotifications();
+  assert.equal((await listUserNotifications(tm, {})).total, 1);
+});
+
+test('bridge: account inactivity materializes a visit-inactivity notification for the owning TM + RD (idempotent)', SERIAL, async () => {
+  const tm = await makeUser('acct-inactivity-tm@pulse.local');
+  const rd = await makeUser('acct-inactivity-rd@pulse.local');
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  // Stale: no engagement in 120 days, with an owning TM + RD.
+  const stale = await prisma.account.create({
+    data: {
+      displayName: 'Neglected Co',
+      isActive: true,
+      lastEngagementAt: new Date(Date.now() - 120 * dayMs),
+      assignedTmUserId: tm.userId,
+      assignedRdUserId: rd.userId,
+    },
+  });
+  // Recently engaged (within the window) -> not flagged. Same owner, so it would surface on the TM if mis-scanned.
+  await prisma.account.create({
+    data: { displayName: 'Active Co', isActive: true, lastEngagementAt: new Date(Date.now() - 10 * dayMs), assignedTmUserId: tm.userId },
+  });
+  // Inactive account -> excluded even though long-stale.
+  await prisma.account.create({
+    data: { displayName: 'Closed Co', isActive: false, lastEngagementAt: new Date(Date.now() - 400 * dayMs), assignedTmUserId: tm.userId },
+  });
+
+  const materialized = await syncAccountInactivityNotifications();
+  assert.ok(materialized >= 2, 'the stale active account notifies its owning TM + RD');
+
+  const tmList = await listUserNotifications(tm, {});
+  assert.equal(tmList.total, 1, 'only the stale active account flags the TM (recent + inactive excluded)');
+  assert.equal(tmList.items[0].category, 'account');
+  assert.equal(tmList.items[0].eventType, 'visit_inactivity');
+  assert.equal(tmList.items[0].deepLinkType, 'account');
+  assert.equal(tmList.items[0].deepLinkId, stale.id);
+  assert.equal(tmList.items[0].severity, 'warning');
+
+  assert.equal((await listUserNotifications(rd, {})).total, 1);
+
+  // Idempotent while the staleness episode (lastEngagementAt) is unchanged.
+  await syncAccountInactivityNotifications();
   assert.equal((await listUserNotifications(tm, {})).total, 1);
 });
 

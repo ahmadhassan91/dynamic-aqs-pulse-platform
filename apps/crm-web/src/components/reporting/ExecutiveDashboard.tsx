@@ -1,11 +1,12 @@
 'use client';
 
-import { Alert, Anchor, Card, Group, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Anchor, Button, Card, Group, Loader, Menu, Stack, Text } from '@mantine/core';
 import Link from 'next/link';
-import { IconAlertTriangle, IconBuildingWarehouse, IconSchool, IconUsers } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBuildingWarehouse, IconDownload, IconSchool, IconUsers } from '@tabler/icons-react';
 import { useExecutiveDashboard } from '@/lib/use-executive-dashboard';
 import { EmptyStateMessage, WorkbenchAttentionLane, WorkbenchMetricStrip } from '@/components/ui/Workbench';
 import { ReportChart } from './ReportChart';
+import { downloadTableCsv, downloadTableExcel, downloadTablePdf, type ExportColumn } from '@/lib/report-export';
 
 /**
  * Executive overview for the Reporting Home (reports.executive gate). Org-wide
@@ -42,6 +43,11 @@ export function ExecutiveDashboard() {
     { label: 'Stale leads', count: exceptions.staleLeads },
     { label: 'Open consignment', count: exceptions.openConsignmentWorkItems },
   ];
+  const exceptionExportColumns: ExportColumn[] = [
+    { key: 'exception', label: 'Exception' },
+    { key: 'count', label: 'Open items' },
+  ];
+  const exceptionExportRows = exceptionBreakdown.map((row) => ({ exception: row.label, count: row.count }));
 
   return (
     <Stack gap="lg">
@@ -62,7 +68,27 @@ export function ExecutiveDashboard() {
 
       {metrics.openExceptions > 0 ? (
         <Card withBorder radius="lg" padding="lg">
-          <Text fw={700} mb="md">Exception breakdown</Text>
+          <Group justify="space-between" mb="md">
+            <Text fw={700}>Exception breakdown</Text>
+            <Menu shadow="md" width={150} position="bottom-end">
+              <Menu.Target>
+                <Button size="compact-xs" variant="light" leftSection={<IconDownload size={14} />}>
+                  Export
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => downloadTableCsv(exceptionExportColumns, exceptionExportRows, 'Executive exceptions')}>CSV</Menu.Item>
+                <Menu.Item onClick={() => downloadTableExcel(exceptionExportColumns, exceptionExportRows, 'Executive exceptions')}>Excel</Menu.Item>
+                <Menu.Item
+                  onClick={() => {
+                    void downloadTablePdf(exceptionExportColumns, exceptionExportRows, 'Executive exceptions');
+                  }}
+                >
+                  PDF
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
           <ReportChart
             data={exceptionBreakdown}
             dataKey="label"

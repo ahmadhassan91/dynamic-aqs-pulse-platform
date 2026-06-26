@@ -77,7 +77,7 @@ Subsequent slices shipped the Training dashboard (commit e5f623b), the Executive
 | FR-RPT-051 | Not-built | **Built** | Site-visits vs trainings split (siteVisits metric + training counts) |
 | FR-RPT-011 | Not-built | **Partial** | Exec KPIs open-leads / active-sites / trainings built; YTD revenue + active accounts parked on Acumatica |
 | FR-RPT-005 | Not-built | **Partial** | KPI cards drill down by navigating to the module list; in-place filtered drawer is the richer later version |
-| FR-RPT-008 | Not-built | **Built** | CSV + Excel (.xls SpreadsheetML) + PDF (jsPDF) download on report runs — commit 9ba66fa; dashboard-tile export still pending |
+| FR-RPT-008 | Not-built | **Built** | CSV + Excel (.xls SpreadsheetML) + PDF (jsPDF) download on report runs — commit 9ba66fa; dashboard-tile export started via a reusable table core (Lead SLA-at-risk + Training overdue tables — 2e68274/6f79a4d); remaining tiles trivial to add |
 | FR-RPT-048 | Partial | **Partial** | total training hours built; per-account hours breakdown still pending |
 | FR-RPT-049 | Not-built | **Partial** | training hours by trainer built; RD/region/state breakdown pending |
 | FR-RPT-052 | Not-built | **Partial** | training-type breakdown built; per-TM (type×TM) cross pending |
@@ -209,7 +209,7 @@ Pulse owns the reporting UI, saved templates, schedules, and all workflow/CRM da
 | FR-RPT-005 | Dashboard KPI cards — drill-down on click | Clicking a KPI card (e.g. "Training Overdue: 14") opens the filtered list view behind that number. | P1 | Partial (KPI cards drill down by navigating to the module list; in-place filtered drawer pending) | SRC-RPT-001 (C G: "There are times when we need to run a special report") |
 | FR-RPT-006 | Dashboard charts: bar, line, area — switchable | Each chart widget offers bar / line / area toggle. Ahmad confirmed: "We have different chart options by area, line, and bar." (SRC-RPT-001) | P1 | **Built** (shared ReportChart bar/line/area toggle via @mantine/charts on Lead/Training/Executive — `f48fa32`) | SRC-RPT-001 |
 | FR-RPT-007 | Revenue by month chart (last 6 months + YTD) | Standard chart shows monthly revenue bars with a YTD cumulative overlay. Scope to territory for TM view, regional rollup for RD, full company for Executive. | P0 | Not-built | SRC-RPT-001 |
-| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | **Built** (CSV + Excel + PDF one-click download on saved/ad-hoc report runs — `9ba66fa`; dashboard-view export still pending) | SRC-RPT-001, SRC-RPT-005 |
+| FR-RPT-008 | Multi-format export: CSV, Excel, PDF | Any report or dashboard view can be exported in all three formats. Ahmad: "We have option to export CSV, Excel, PDF." (SRC-RPT-001) | P0 | **Built** (CSV + Excel + PDF one-click download on saved/ad-hoc report runs — `9ba66fa`; dashboard-tile export started via a reusable `downloadTable*` core — Lead SLA-at-risk + Training overdue tables (`2e68274`/`6f79a4d`); remaining tiles trivial) | SRC-RPT-001, SRC-RPT-005 |
 | FR-RPT-009 | Summary view + chart view toggle per report | Each pre-built report has a Summary tab (key metrics) and a Chart tab (visual). | P1 | Not-built | SRC-RPT-001 |
 | FR-RPT-010 | "Reporting Home" as module; listed in role access | `reports` module key already present in WORKSPACE_MODULES. Route, page shell, and navigation entry to be wired. | P0 | Built (reports module key + `/reports` route/page + nav entry all wired) | SRC-RPT-006 |
 

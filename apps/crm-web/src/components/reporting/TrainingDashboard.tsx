@@ -1,10 +1,11 @@
 'use client';
 
-import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
-import { IconAlertTriangle, IconClockHour4, IconSchool, IconUsers } from '@tabler/icons-react';
+import { Alert, Button, Card, Group, Loader, Menu, SimpleGrid, Stack, Text } from '@mantine/core';
+import { IconAlertTriangle, IconClockHour4, IconDownload, IconSchool, IconUsers } from '@tabler/icons-react';
 import { useTrainingDashboard } from '@/lib/use-training-dashboard';
 import { EmptyStateMessage, WorkbenchMetricStrip, WorkbenchTable } from '@/components/ui/Workbench';
 import { ReportChart } from './ReportChart';
+import { downloadTableCsv, downloadTableExcel, downloadTablePdf, type ExportColumn } from '@/lib/report-export';
 
 /**
  * Training dashboard for the Reporting Home — a role-scoped view over CRM-native
@@ -41,6 +42,17 @@ export function TrainingDashboard() {
   }
 
   const { metrics, byType, byTrainer, overdueAccounts, windowDays } = dashboard;
+
+  const overdueExportColumns: ExportColumn[] = [
+    { key: 'account', label: 'Account' },
+    { key: 'daysOverdue', label: 'Days overdue' },
+    { key: 'nextDueAt', label: 'Was due' },
+  ];
+  const overdueExportRows = overdueAccounts.map((row) => ({
+    account: row.account,
+    daysOverdue: row.daysOverdue,
+    nextDueAt: row.nextDueAt ? new Date(row.nextDueAt).toLocaleDateString() : '—',
+  }));
 
   return (
     <Stack gap="lg">
@@ -134,9 +146,29 @@ export function TrainingDashboard() {
       </SimpleGrid>
 
       <Card withBorder radius="lg" padding="lg">
-        <Text fw={700} mb="md">
-          Overdue training programs
-        </Text>
+        <Group justify="space-between" mb="md">
+          <Text fw={700}>Overdue training programs</Text>
+          {overdueAccounts.length > 0 ? (
+            <Menu shadow="md" width={150} position="bottom-end">
+              <Menu.Target>
+                <Button size="compact-xs" variant="light" leftSection={<IconDownload size={14} />}>
+                  Export
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => downloadTableCsv(overdueExportColumns, overdueExportRows, 'Overdue training programs')}>CSV</Menu.Item>
+                <Menu.Item onClick={() => downloadTableExcel(overdueExportColumns, overdueExportRows, 'Overdue training programs')}>Excel</Menu.Item>
+                <Menu.Item
+                  onClick={() => {
+                    void downloadTablePdf(overdueExportColumns, overdueExportRows, 'Overdue training programs');
+                  }}
+                >
+                  PDF
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          ) : null}
+        </Group>
         <WorkbenchTable
           withContainer={false}
           pageSize={0}

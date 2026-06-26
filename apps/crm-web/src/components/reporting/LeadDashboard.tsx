@@ -1,16 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Anchor, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Anchor, Button, Card, Group, Loader, Menu, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
   IconActivity,
   IconAlertTriangle,
+  IconDownload,
   IconUserCheck,
   IconUsers,
 } from '@tabler/icons-react';
 import { useLeadDashboard } from '@/lib/use-lead-dashboard';
 import { EmptyStateMessage, WorkbenchMetricStrip, WorkbenchTable } from '@/components/ui/Workbench';
 import { ReportChart } from './ReportChart';
+import { downloadTableCsv, downloadTableExcel, downloadTablePdf, type ExportColumn } from '@/lib/report-export';
 
 /**
  * Lead dashboard for the Reporting Home — a role-scoped pipeline snapshot over
@@ -47,6 +49,19 @@ export function LeadDashboard() {
   }
 
   const { metrics, segmentation, byStage, bySource, byState, slaAtRisk } = dashboard;
+
+  const slaExportColumns: ExportColumn[] = [
+    { key: 'companyName', label: 'Company' },
+    { key: 'stage', label: 'Stage' },
+    { key: 'ownerName', label: 'Owner' },
+    { key: 'daysOverdue', label: 'Days overdue' },
+  ];
+  const slaExportRows = slaAtRisk.map((row) => ({
+    companyName: row.companyName,
+    stage: row.stage.replace(/_/g, ' '),
+    ownerName: row.ownerName ?? 'Unassigned',
+    daysOverdue: row.daysOverdue,
+  }));
 
   return (
     <Stack gap="lg">
@@ -90,9 +105,29 @@ export function LeadDashboard() {
         <Card withBorder radius="lg" padding="lg">
           <Group justify="space-between" mb="md">
             <Text fw={700}>SLA at risk — needs contact now</Text>
-            <Text size="sm" c="dimmed">
-              {slaAtRisk.length} lead{slaAtRisk.length === 1 ? '' : 's'} past initial-contact due
-            </Text>
+            <Group gap="sm">
+              <Text size="sm" c="dimmed">
+                {slaAtRisk.length} lead{slaAtRisk.length === 1 ? '' : 's'} past initial-contact due
+              </Text>
+              <Menu shadow="md" width={150} position="bottom-end">
+                <Menu.Target>
+                  <Button size="compact-xs" variant="light" leftSection={<IconDownload size={14} />}>
+                    Export
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={() => downloadTableCsv(slaExportColumns, slaExportRows, 'Lead SLA at risk')}>CSV</Menu.Item>
+                  <Menu.Item onClick={() => downloadTableExcel(slaExportColumns, slaExportRows, 'Lead SLA at risk')}>Excel</Menu.Item>
+                  <Menu.Item
+                    onClick={() => {
+                      void downloadTablePdf(slaExportColumns, slaExportRows, 'Lead SLA at risk');
+                    }}
+                  >
+                    PDF
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
           </Group>
           <WorkbenchTable
             withContainer={false}

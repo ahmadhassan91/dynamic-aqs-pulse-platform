@@ -3,16 +3,39 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActionIcon, Alert, Badge, Button, Card, Container, Group, Loader, Select, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
-import {
-  NOTIFICATION_ROUTING_RECIPIENT_TYPES,
-  USER_NOTIFICATION_CATEGORIES,
-  type NotificationRoutingRecipientTypeKey,
-  type NotificationRoutingRuleSummary,
-  type UserNotificationCategoryKey,
+import type {
+  NotificationRoutingRecipientTypeKey,
+  NotificationRoutingRuleSummary,
+  UserNotificationCategoryKey,
 } from '@pulse/contracts/notifications';
 import { createNotificationRoutingRuleRecord, deleteNotificationRoutingRuleRecord, fetchNotificationRoutingRules } from '@/lib/pulse-api';
 import { canAccessModule } from '@/lib/access';
 import { usePulseSession } from '@/lib/pulse-session';
+
+// Dropdown options derived from the contract TYPES (not the imported const values): those value imports resolve
+// `undefined` inside this route's Turbopack chunk (the same bundler quirk fixed in NotificationsWorkspace), which
+// crashed this page on the deployed build. The Records are keyed by the contract types, so adding/removing a value
+// in the contract is a compile error here — no drift.
+const CATEGORY_LABELS: Record<UserNotificationCategoryKey, string> = {
+  lead: 'Lead',
+  consignment: 'Consignment',
+  training: 'Training',
+  order: 'Order',
+  account: 'Account',
+  system: 'System',
+};
+const CATEGORY_OPTIONS = (Object.keys(CATEGORY_LABELS) as UserNotificationCategoryKey[]).map((value) => ({
+  value,
+  label: CATEGORY_LABELS[value],
+}));
+const RECIPIENT_TYPE_LABELS: Record<NotificationRoutingRecipientTypeKey, string> = {
+  role: 'Role',
+  user: 'User',
+};
+const RECIPIENT_TYPE_OPTIONS = (Object.keys(RECIPIENT_TYPE_LABELS) as NotificationRoutingRecipientTypeKey[]).map((value) => ({
+  value,
+  label: RECIPIENT_TYPE_LABELS[value],
+}));
 
 // FR-NOTIF-005 (GAP-N1) — admin UI for the routing rules ("determine who gets it"). The API is admin-gated
 // server-side; this page additionally hides the controls from non-admins.
@@ -126,14 +149,14 @@ export function NotificationRoutingRulesWorkspace() {
                 label="Category"
                 value={category}
                 onChange={(value) => setCategory((value as UserNotificationCategoryKey | null) ?? 'lead')}
-                data={USER_NOTIFICATION_CATEGORIES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))}
+                data={CATEGORY_OPTIONS}
               />
               <TextInput label="Event type (optional)" placeholder="All events in category" value={eventType} onChange={(event) => setEventType(event.currentTarget.value)} />
               <Select
                 label="Recipient type"
                 value={recipientType}
                 onChange={(value) => setRecipientType((value as NotificationRoutingRecipientTypeKey | null) ?? 'role')}
-                data={NOTIFICATION_ROUTING_RECIPIENT_TYPES.map((value) => ({ value, label: value === 'role' ? 'Role' : 'User' }))}
+                data={RECIPIENT_TYPE_OPTIONS}
               />
             </Group>
             <Group grow align="flex-end">

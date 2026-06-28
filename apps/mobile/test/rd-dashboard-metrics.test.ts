@@ -20,6 +20,7 @@ const lead: LeadDashboardResponse = {
   byStage: [],
   bySource: [],
   byState: [],
+  slaAtRisk: [],
   generatedAt: now.toISOString(),
 };
 

@@ -95,6 +95,11 @@ try {
     ownershipGroupSelection: 'none',
   });
 
+  await prisma.lead.update({
+    where: { id: cisLead.id },
+    data: { stage: 'DISCOVERY_COMPLETED', discoveryCompletedAt: new Date() },
+  });
+
   const issuedCis = await issueCisLink(adminActor, cisLead.id, {
     recipientEmail: 'jordan.e2e@example.com',
     note: 'E2E seeded CIS package',

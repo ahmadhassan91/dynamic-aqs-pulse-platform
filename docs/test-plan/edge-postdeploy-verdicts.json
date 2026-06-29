@@ -1,0 +1,44 @@
+[
+ {
+  "id": "ACCO-EDGE-014",
+  "fixed": true,
+  "label": "account.legalName PAN",
+  "evidence": "400 | account legal name appears to contain payment card data, which c"
+ },
+ {
+  "id": "ACCO-EDGE-016",
+  "fixed": true,
+  "label": "contact.title PAN",
+  "evidence": "400 | contact title appears to contain payment card data, which cannot"
+ },
+ {
+  "id": "NOTI-EDGE-019",
+  "fixed": true,
+  "label": "routing-rule.note PAN",
+  "evidence": "400 | routing rule note appears to contain payment card data, which ca"
+ },
+ {
+  "id": "DEAL-EDGE-011",
+  "fixed": true,
+  "label": "cart.lineNote PAN",
+  "evidence": "400 | cart line note appears to contain payment card data, which canno"
+ },
+ {
+  "id": "TERR-EDGE-052",
+  "fixed": true,
+  "label": "reassign missing territoryId",
+  "evidence": "400 | territoryid is required"
+ },
+ {
+  "id": "CONS-EDGE-003",
+  "fixed": true,
+  "label": "consignment create notes PAN",
+  "evidence": "400 | consignment site notes appears to contain payment card data, whi"
+ },
+ {
+  "id": "CONS-EDGE-034",
+  "fixed": true,
+  "label": "consignment update notes PAN",
+  "evidence": "400 | consignment site notes appears to contain payment card data, whi"
+ }
+]

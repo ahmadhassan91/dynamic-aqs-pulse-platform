@@ -682,8 +682,8 @@
   "module": "Consignment",
   "id": "CON-TC-031",
   "status": "FAIL",
-  "reason": "DEFECT \u2014 consignment-site note ACCEPTED + stored a raw card number (HTTP 201); PCI guard not enforced on consignment notes in the deployed build (fix 327b6e9 not deployed). Leads/CIS reject the same input; consignment does not.",
-  "evidence": "201"
+  "reason": "Live build persists a raw PAN in the SITE-level notes field: POST /consignment/sites notes=\"4111 1111 1111 1111\" -> 201, confirmed stored on GET. Root cause: PCI guard 327b6e9 covers the 8 document/adjustment/exit/PO/audit/true-up notes mutations but MISSED createConsignmentSite/updateConsignmentSite - a patch coverage gap, NOT a deploy lag (the deployed guard correctly rejects document/audit notes with 400). Fix committed 72044f2 + regression extended (consignment 23/23 pass); live will reject once this build deploys.",
+  "evidence": "POST /consignment/sites notes=PAN -> 201 + GET shows stored; POST .../documents notes=PAN -> 400 (guard deployed). Fixed in 72044f2."
  },
  {
   "module": "Training",

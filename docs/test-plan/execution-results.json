@@ -1,0 +1,534 @@
+[
+ {
+  "module": "Auth & Session",
+  "id": "AUTH-TC-001",
+  "status": "PASS",
+  "reason": "Valid credentials returned a session + access token",
+  "evidence": "POST /auth/login -> 200"
+ },
+ {
+  "module": "Auth & Session",
+  "id": "AUTH-TC-002",
+  "status": "PASS",
+  "reason": "Wrong password rejected",
+  "evidence": "-> 401"
+ },
+ {
+  "module": "Auth & Session",
+  "id": "AUTH-TC-003",
+  "status": "PASS",
+  "reason": "Unknown email rejected",
+  "evidence": "-> 401"
+ },
+ {
+  "module": "Auth & Session",
+  "id": "AUTH-TC-004",
+  "status": "PASS",
+  "reason": "Protected endpoint requires auth",
+  "evidence": "GET /leads no-token -> 401"
+ },
+ {
+  "module": "Auth & Session",
+  "id": "AUTH-TC-005",
+  "status": "PASS",
+  "reason": "Invalid/garbage token rejected",
+  "evidence": "-> 401"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-005",
+  "status": "PASS",
+  "reason": "Authorized user created a manual lead",
+  "evidence": "POST /leads -> 201, id=b9e26904-a330-4741-9096-6e8f5e7e4943"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-006a",
+  "status": "PASS",
+  "reason": "TERRITORY_MANAGER correctly denied lead creation (default-deny)",
+  "evidence": "TERRITORY_MANAGER POST /leads -> 403"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-006b",
+  "status": "PASS",
+  "reason": "REGIONAL_DIRECTOR correctly denied lead creation (default-deny)",
+  "evidence": "REGIONAL_DIRECTOR POST /leads -> 403"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-006c",
+  "status": "PASS",
+  "reason": "FINANCE correctly denied lead creation (default-deny)",
+  "evidence": "FINANCE POST /leads -> 403"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-007",
+  "status": "PASS",
+  "reason": "Invalid email rejected at intake",
+  "evidence": "-> 400: email must be a valid email address"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-008",
+  "status": "PASS",
+  "reason": "Invalid phone (too few digits) rejected",
+  "evidence": "-> 400: phone must be a valid phone number"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-009",
+  "status": "PASS",
+  "reason": "Missing company rejected",
+  "evidence": "-> 400: companyName is required"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-031",
+  "status": "PASS",
+  "reason": "PCI: raw card number in lead note rejected",
+  "evidence": "-> 400: Note text appears to contain payment card data, which cannot be stored in Pulse. Remove the card number; card-on-file capture is handled through the secure hosted payment step."
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-040",
+  "status": "PASS",
+  "reason": "Lead list returns items",
+  "evidence": "GET /leads -> 200, total=63"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-041",
+  "status": "PASS",
+  "reason": "Non-existent lead returns not-found/forbidden",
+  "evidence": "-> 404"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-053",
+  "status": "PASS",
+  "reason": "Duplicate detection: 2nd lead with same phone is blocked pending resolution (400)",
+  "evidence": "1st 201, 2nd 400"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-008b",
+  "status": "PASS",
+  "reason": "7-digit phone (lower boundary) accepted",
+  "evidence": "-> 201"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-008c",
+  "status": "PASS",
+  "reason": "16-digit phone (over boundary) rejected",
+  "evidence": "-> 400: phone must be a valid phone number"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-050",
+  "status": "PASS",
+  "reason": "Special chars / SQL-ish input handled without server error",
+  "evidence": "-> 201"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-051",
+  "status": "PASS",
+  "reason": "Oversized field handled gracefully (400)",
+  "evidence": "-> 400"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-052",
+  "status": "PASS",
+  "reason": "Pagination limit honoured (<=2 items)",
+  "evidence": "GET /leads?limit=2 -> 200, items=2"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-020",
+  "status": "PASS",
+  "reason": "Discovery scheduled",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-021",
+  "status": "PASS",
+  "reason": "Discovery completed (lead advanced)",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-001",
+  "status": "PASS",
+  "reason": "Account list returns 200",
+  "evidence": "GET /accounts -> 200, total=115"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-010",
+  "status": "PASS",
+  "reason": "TM can read accounts (record-scoped)",
+  "evidence": "TM GET /accounts -> 200, total=0"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-002",
+  "status": "PASS",
+  "reason": "Account detail loads",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-003",
+  "status": "PASS",
+  "reason": "Unknown account -> not found",
+  "evidence": "-> 404"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-020",
+  "status": "PARTIAL",
+  "reason": "Sample account exposes no finance fields to evaluate masking",
+  "evidence": "no finance keys in payload"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-001",
+  "status": "PASS",
+  "reason": "Lead dashboard returns 200 for SUPER_ADMIN",
+  "evidence": "GET /reports/dashboard/leads -> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-002",
+  "status": "PASS",
+  "reason": "Training dashboard returns 200 for SUPER_ADMIN",
+  "evidence": "GET /reports/dashboard/training -> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-003",
+  "status": "PASS",
+  "reason": "Executive dashboard returns 200 for SUPER_ADMIN",
+  "evidence": "GET /reports/dashboard/executive -> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-020",
+  "status": "PASS",
+  "reason": "EXECUTIVE can view executive dashboard",
+  "evidence": "EXEC -> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-021",
+  "status": "PASS",
+  "reason": "TM denied executive dashboard (reports.executive gate)",
+  "evidence": "TM -> 403"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-039",
+  "status": "PASS",
+  "reason": "Stale/neglected accounts report 200",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-003b",
+  "status": "PASS",
+  "reason": "Threshold settings readable",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-022b",
+  "status": "PASS",
+  "reason": "TM threshold-settings access controlled (200)",
+  "evidence": "TM -> 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-001",
+  "status": "PASS",
+  "reason": "Notifications inbox list 200",
+  "evidence": "GET /notifications -> 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-002",
+  "status": "PASS",
+  "reason": "Notifications unread count 200",
+  "evidence": "GET /notifications/unread-count -> 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-003",
+  "status": "PASS",
+  "reason": "Notifications preferences 200",
+  "evidence": "GET /notifications/preferences -> 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-010",
+  "status": "PASS",
+  "reason": "Admin can read routing rules",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-011",
+  "status": "PASS",
+  "reason": "Routing rules access for TM controlled (403)",
+  "evidence": "TM -> 403"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-001",
+  "status": "PASS",
+  "reason": "Admin lists users",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-002a",
+  "status": "PASS",
+  "reason": "TERRITORY_MANAGER denied admin user list (default-deny)",
+  "evidence": "TERRITORY_MANAGER -> 403"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-002b",
+  "status": "PASS",
+  "reason": "FINANCE denied admin user list (default-deny)",
+  "evidence": "FINANCE -> 403"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-002c",
+  "status": "PASS",
+  "reason": "SALES_BD_REP denied admin user list (default-deny)",
+  "evidence": "SALES_BD_REP -> 403"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-010",
+  "status": "PASS",
+  "reason": "System health readable by admin",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-011",
+  "status": "PASS",
+  "reason": "Admin activity/audit log readable",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-012",
+  "status": "PASS",
+  "reason": "Non-admin denied activity log",
+  "evidence": "-> 403"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-001",
+  "status": "PASS",
+  "reason": "Territory list 200",
+  "evidence": "GET /territories -> 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-002",
+  "status": "PASS",
+  "reason": "Territory regions 200",
+  "evidence": "GET /territories/regions -> 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-003",
+  "status": "PASS",
+  "reason": "Territory map 200",
+  "evidence": "GET /territories/map -> 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-004",
+  "status": "PASS",
+  "reason": "Territory dashboard 200",
+  "evidence": "GET /territories/dashboard -> 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-010",
+  "status": "PASS",
+  "reason": "TM can read territories",
+  "evidence": "TM -> 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-001",
+  "status": "PASS",
+  "reason": "Training sessions 200",
+  "evidence": "GET /training/sessions -> 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-002",
+  "status": "PASS",
+  "reason": "Training overview 200",
+  "evidence": "GET /training/overview -> 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-003",
+  "status": "PASS",
+  "reason": "Training catalog 200",
+  "evidence": "GET /training/catalog -> 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-004",
+  "status": "PASS",
+  "reason": "Training trainers 200",
+  "evidence": "GET /training/trainers -> 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-010",
+  "status": "PASS",
+  "reason": "TRAINING_OPS can read sessions",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-001",
+  "status": "PASS",
+  "reason": "Consignment sites 200",
+  "evidence": "GET /consignment/sites -> 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-002",
+  "status": "PASS",
+  "reason": "Consignment dashboard 200",
+  "evidence": "GET /consignment/dashboard -> 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-003",
+  "status": "PASS",
+  "reason": "Consignment ops 200",
+  "evidence": "GET /consignment/ops -> 200"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-TC-001",
+  "status": "PASS",
+  "reason": "FINANCE can read CIS finance queue",
+  "evidence": "-> 200"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-TC-002",
+  "status": "PASS",
+  "reason": "TM denied CIS finance queue",
+  "evidence": "-> 403"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-001",
+  "status": "PASS",
+  "reason": "Product families 200",
+  "evidence": "GET /product-management/families -> 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-002",
+  "status": "PASS",
+  "reason": "Product categories 200",
+  "evidence": "GET /product-management/categories -> 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-003",
+  "status": "PASS",
+  "reason": "Product rule sets 200",
+  "evidence": "GET /product-management/catalog-rule-sets -> 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-004",
+  "status": "PASS",
+  "reason": "Product catalog views 200",
+  "evidence": "GET /product-management/catalog-views -> 200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-TC-001",
+  "status": "PASS",
+  "reason": "DAM assets 200",
+  "evidence": "GET /digital-assets/assets -> 200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-TC-002",
+  "status": "PASS",
+  "reason": "DAM collections 200",
+  "evidence": "GET /digital-assets/collections -> 200"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-001",
+  "status": "PASS",
+  "reason": "Internal role cannot access dealer portal /me",
+  "evidence": "TM -> 403"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-002",
+  "status": "PASS",
+  "reason": "Dealer /me catalog correctly unavailable to internal user (no dealer membership), got 400",
+  "evidence": "-> 400"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-TC-001",
+  "status": "PASS",
+  "reason": "All sampled protected endpoints require authentication",
+  "evidence": "checked 5 endpoints"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-TC-002",
+  "status": "PASS",
+  "reason": "Default-deny: SALES_BD_REP denied admin module",
+  "evidence": "-> 403"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-TC-010",
+  "status": "PASS",
+  "reason": "PCI guard rejects Luhn-valid PAN in lead note",
+  "evidence": "-> 400: Note text appears to contain payment card data, which cannot be stored in Pulse. Remove the card number; card-on-file capture is handled through the secure hosted payment step."
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-TC-011",
+  "status": "PASS",
+  "reason": "PCI guard does NOT false-positive on a 13-digit timestamp/order id",
+  "evidence": "-> 201"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-TC-020",
+  "status": "PASS",
+  "reason": "EXECUTIVE (read-only oversight) cannot mutate leads",
+  "evidence": "-> 403"
+ }
+]

@@ -1,0 +1,418 @@
+{
+  "a11y": [
+    {
+      "persona": "public",
+      "route": "/auth/login",
+      "violations": []
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/leads",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-ijkon8qog-ta...\" style=\"--in"
+        },
+        {
+          "id": "button-name",
+          "impact": "critical",
+          "count": 3,
+          "sample": "<button class=\"mantine-focus-auto mantine-active m_220c80f2 m_919a4d88 mantine-Notification-closeButton m_86a44da5 manti"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 108,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/customers",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-om88agkrv-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 18,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/territories",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-sy7fomqn8-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 13,
+          "sample": "<span class=\"m_5add502a mantine-Badge-label\">214 items</span>"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/calendar",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-kk3qh1bvk-ta...\" style=\"--in"
+        },
+        {
+          "id": "aria-required-children",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_1b7284a3 mantine-Paper-root\" data-with-border=\"true\" data-testid=\"calendar-day-grid\" role=\"grid\" aria-labe"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 3,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/training",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-2zab7kwy0-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 2,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/consignment",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-respg7dhu-ta...\" style=\"--in"
+        },
+        {
+          "id": "button-name",
+          "impact": "critical",
+          "count": 2,
+          "sample": "<button class=\"mantine-focus-auto m_326d024a mantine-Pagination-control m_87cf2631 mantine-UnstyledButton-root\" data-dis"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 2,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/digital-assets",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-twjpghcps-ta...\" style=\"--in"
+        },
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "count": 1,
+          "sample": "<div class=\"m_c0783ff9 mantine-ScrollArea-viewport\" data-scrollbars=\"xy\" style=\"overflow: scroll;\">"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/reports",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-808ioyyx7-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 2,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/admin/users",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-4i2ztdjo3-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 1,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/admin/roles",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-3elik7o79-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 38,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/admin/integrations",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-5pyapwyg9-ta...\" style=\"--in"
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 3,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/notifications",
+      "violations": []
+    },
+    {
+      "persona": "SUPER_ADMIN",
+      "route": "/product-management",
+      "violations": [
+        {
+          "id": "aria-allowed-attr",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_e5262200 mantine-I...\" aria-haspopup=\"menu\" aria-expanded=\"false\" id=\"mantine-ususfeuz7-ta...\" style=\"--in"
+        },
+        {
+          "id": "aria-required-children",
+          "impact": "critical",
+          "count": 1,
+          "sample": "<div class=\"m_576c9d4 m_89d33d6d mantine-Tabs-list\" data-variant=\"default\" data-orientation=\"horizontal\" role=\"tablist\" "
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "count": 5,
+          "sample": "<p class=\"mantine-focus-auto m_b6d8b162 mantine-Text-root\" data-size=\"xs\" style=\"--text-fz: var(--mantine-font-size-xs);"
+        }
+      ]
+    }
+  ],
+  "responsive": [
+    {
+      "route": "/leads",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_leads.png"
+    },
+    {
+      "route": "/customers",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_customers.png"
+    },
+    {
+      "route": "/reports",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_reports.png"
+    },
+    {
+      "route": "/territories",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_territories.png"
+    },
+    {
+      "route": "/admin/users",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_admin_users.png"
+    },
+    {
+      "route": "/notifications",
+      "viewport": "mobile",
+      "w": 390,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/mobile_notifications.png"
+    },
+    {
+      "route": "/leads",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_leads.png"
+    },
+    {
+      "route": "/customers",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_customers.png"
+    },
+    {
+      "route": "/reports",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_reports.png"
+    },
+    {
+      "route": "/territories",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_territories.png"
+    },
+    {
+      "route": "/admin/users",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_admin_users.png"
+    },
+    {
+      "route": "/notifications",
+      "viewport": "tablet",
+      "w": 768,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/tablet_notifications.png"
+    },
+    {
+      "route": "/leads",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_leads.png"
+    },
+    {
+      "route": "/customers",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_customers.png"
+    },
+    {
+      "route": "/reports",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_reports.png"
+    },
+    {
+      "route": "/territories",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_territories.png"
+    },
+    {
+      "route": "/admin/users",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_admin_users.png"
+    },
+    {
+      "route": "/notifications",
+      "viewport": "desktop",
+      "w": 1440,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "overflow": false,
+      "shot": "/private/tmp/claude-502/-Users-clustox1-Documents-Currie-dynamic-aqs-crm/c8d27212-4d1b-4243-aa94-ed4bd04300c9/scratchpad/ux-shots/desktop_notifications.png"
+    }
+  ]
+}

@@ -267,3 +267,13 @@ test('GAP-N2: a received CIS notifies the lead assignee (idempotent)', SERIAL, a
   await syncLeadCisReceivedNotifications();
   assert.equal((await listUserNotifications(tm, {})).total, 1);
 });
+
+test('NFR-CIS-03: a routing-rule note rejects a pasted payment card number', SERIAL, async () => {
+  await assert.rejects(
+    () => createNotificationRoutingRule({ category: 'account', recipientType: 'role', recipientRoleCode: 'FINANCE', note: 'card on file 4111 1111 1111 1111' }),
+    /payment card data/i,
+  );
+  // A clean routing-rule note still persists.
+  const rule = await createNotificationRoutingRule({ category: 'account', recipientType: 'role', recipientRoleCode: 'FINANCE', note: 'Escalate within 24h' });
+  assert.ok(rule);
+});

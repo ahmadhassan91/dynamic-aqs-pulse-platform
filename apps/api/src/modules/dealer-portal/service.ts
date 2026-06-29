@@ -60,6 +60,7 @@ import type {
 } from '@pulse/contracts';
 import { loadAppConfig } from '@pulse/config';
 import { createAccountContact } from '../accounts/service.js';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildPublicAssetUrl } from '../digital-assets/storage.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
@@ -1643,6 +1644,7 @@ export async function addCurrentDealerPortalCartItem(
   const context = await loadVisibleDealerCatalogPresentation(actor, body.presentationId);
   assertDealerPortalCanManageOrders(context.portalUser.accessRole);
 
+  assertNoRawPaymentCardData(body.lineNote, 'Cart line note');
   const quantity = clampDealerPortalQuantity(body.quantity);
   const lineNote = optionalDealerPortalText(body.lineNote);
   const baseProductId = context.presentation.baseProductId;
@@ -1716,6 +1718,7 @@ export async function updateCurrentDealerPortalCartItem(
     data.quantity = clampDealerPortalQuantity(body.quantity);
   }
   if (body.lineNote !== undefined) {
+    assertNoRawPaymentCardData(body.lineNote, 'Cart line note');
     data.lineNote = normalizeDealerPortalNullableText(body.lineNote);
   }
 

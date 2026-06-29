@@ -1,4 +1,5 @@
 import { NotificationRoutingRecipientType, Prisma, UserNotificationCategory, UserNotificationSeverity, prisma } from '@pulse/db';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import { USER_NOTIFICATION_CATEGORIES } from '@pulse/contracts/notifications';
 import type {
   CreateNotificationRoutingRuleRequest,
@@ -291,6 +292,7 @@ export async function createNotificationRoutingRule(input: CreateNotificationRou
   if (input.recipientType === 'user' && !input.recipientUserId?.trim()) {
     throw new Error('A recipientUserId is required for a user rule.');
   }
+  assertNoRawPaymentCardData(input.note, 'Routing rule note');
   const created = await prisma.notificationRoutingRule.create({
     data: {
       category: CATEGORY_TO_DB[input.category],

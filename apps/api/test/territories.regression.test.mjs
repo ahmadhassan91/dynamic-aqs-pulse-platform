@@ -2402,3 +2402,13 @@ test('RD territory writes are confined to their own region', SERIAL, async () =>
     /inaccessible region/i,
   );
 });
+
+test('account territory reassignment requires an explicit target territoryId (no silent mis-assignment)', SERIAL, async () => {
+  const { actor } = await createAdminSession();
+  const account = await createAccount(actor, { displayName: 'Reassign Guard Co' });
+  // Missing territoryId must be rejected, not silently resolved to an arbitrary in-scope territory.
+  await assert.rejects(
+    () => reassignAccountTerritory(actor, account.id, { reasonCode: 'qa_edge' }),
+    /territoryId is required/i,
+  );
+});

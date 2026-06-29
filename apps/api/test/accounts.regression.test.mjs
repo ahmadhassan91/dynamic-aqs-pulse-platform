@@ -957,3 +957,21 @@ test('updateAccount assigns, clears, and validates brand / private label', SERIA
     /brand label not found/i,
   );
 });
+
+test('NFR-CIS-03: account + contact free-text fields reject a pasted payment card number', SERIAL, async () => {
+  const actor = await createAdminActor();
+  // A PAN pasted into account legalName is refused, not persisted.
+  await assert.rejects(
+    () => createAccount(actor, { displayName: 'PCI Guard Co', legalName: 'Card 4111 1111 1111 1111 on file' }),
+    /payment card data/i,
+  );
+  // A clean account is created, then a PAN in a contact title is refused.
+  const account = await createAccount(actor, { displayName: 'PCI Guard Co', legalName: 'PCI Guard Co LLC' });
+  await assert.rejects(
+    () => createAccountContact(actor, account.id, { firstName: 'Pat', lastName: 'Test', title: 'AP 4111 1111 1111 1111' }),
+    /payment card data/i,
+  );
+  // A normal contact title still persists.
+  const contact = await createAccountContact(actor, account.id, { firstName: 'Pat', lastName: 'Clean', title: 'Accounts Payable' });
+  assert.equal(contact.title, 'Accounts Payable');
+});

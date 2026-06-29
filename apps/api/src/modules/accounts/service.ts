@@ -29,6 +29,7 @@ import type { CisPaymentVaultProviderKey } from '@pulse/contracts/cis';
 import type { AuthenticatedActor } from '../auth/types.js';
 import { buildAccountRecordScope } from '../auth/visibility.js';
 import { buildAuditEntryData } from '../../utils/audit.js';
+import { assertNoRawPaymentCardData } from '../../utils/pci.js';
 import {
   deriveGroupClassification,
   resolveAffinityGroupAxis,
@@ -156,6 +157,10 @@ export async function createAccount(actor: AuthenticatedActor, input: CreateAcco
     throw new Error('Direct customer creation is reserved for bootstrap or migration workflows. Convert from lead on first order instead.');
   }
 
+  assertNoRawPaymentCardData(input.displayName, 'Account display name');
+  assertNoRawPaymentCardData(input.legalName, 'Account legal name');
+  assertNoRawPaymentCardData(input.accountType, 'Account type');
+
   const displayName = input.displayName?.trim();
   if (!displayName) {
     throw new Error('displayName is required');
@@ -237,6 +242,7 @@ export async function updateAccount(
   const data: Prisma.AccountUpdateInput = {};
 
   if (input.displayName !== undefined) {
+    assertNoRawPaymentCardData(input.displayName, 'Account display name');
     const displayName = input.displayName.trim();
     if (!displayName) {
       throw new Error('displayName cannot be empty');
@@ -245,10 +251,12 @@ export async function updateAccount(
   }
 
   if (input.legalName !== undefined) {
+    assertNoRawPaymentCardData(input.legalName, 'Account legal name');
     data.legalName = normalizeNullableText(input.legalName);
   }
 
   if (input.accountType !== undefined) {
+    assertNoRawPaymentCardData(input.accountType, 'Account type');
     data.accountType = normalizeNullableText(input.accountType);
   }
 
@@ -1137,6 +1145,9 @@ export async function createAccountContact(
     throw new Error('firstName and lastName are required');
   }
 
+  assertNoRawPaymentCardData(input.title, 'Contact title');
+  assertNoRawPaymentCardData(input.roleCode, 'Contact role');
+
   await assertAccountMutationInScope(actor, accountId);
 
   const account = await prisma.account.findUnique({
@@ -1282,6 +1293,7 @@ export async function updateAccountContact(
     data.lastName = lastName;
   }
   if (input.title !== undefined) {
+    assertNoRawPaymentCardData(input.title, 'Contact title');
     data.title = normalizeNullableText(input.title);
   }
   if (input.email !== undefined) {

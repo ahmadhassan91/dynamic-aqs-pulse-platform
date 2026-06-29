@@ -2134,6 +2134,9 @@ async function requireVisibleTargetTerritory(
   actor: AuthenticatedActor,
   territoryId: string,
 ): Promise<TerritoryWithRefs> {
+  if (!territoryId || !territoryId.trim()) {
+    throw new Error('territoryId is required');
+  }
   const territoryScope = await buildTerritoryReadScope(actor);
   const territory = await prisma.territory.findFirst({
     where: {

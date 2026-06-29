@@ -852,5 +852,376 @@
   "status": "PASS",
   "reason": "DAM Widen import preview endpoint reachable (405)",
   "evidence": "405"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-READ-01",
+  "status": "PASS",
+  "reason": "GET /territories/regions -> 200 (loads/lists for authorised user)",
+  "evidence": "/territories/regions 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-READ-02",
+  "status": "PASS",
+  "reason": "GET /territories/map -> 200 (loads/lists for authorised user)",
+  "evidence": "/territories/map 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-READ-03",
+  "status": "PASS",
+  "reason": "GET /territories/dashboard -> 200 (loads/lists for authorised user)",
+  "evidence": "/territories/dashboard 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-04",
+  "status": "PASS",
+  "reason": "GET /training/overview -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/overview 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-05",
+  "status": "PASS",
+  "reason": "GET /training/recertification -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/recertification 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-06",
+  "status": "PASS",
+  "reason": "GET /training/coaching -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/coaching 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-07",
+  "status": "PASS",
+  "reason": "GET /training/territory-penetration -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/territory-penetration 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-08",
+  "status": "PASS",
+  "reason": "GET /training/accounts -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/accounts 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-09",
+  "status": "PASS",
+  "reason": "GET /training/ops -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/ops 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-10",
+  "status": "PASS",
+  "reason": "GET /training/reporting -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/reporting 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-READ-11",
+  "status": "PASS",
+  "reason": "GET /consignment/dashboard -> 200 (loads/lists for authorised user)",
+  "evidence": "/consignment/dashboard 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-READ-12",
+  "status": "PASS",
+  "reason": "GET /consignment/ops -> 200 (loads/lists for authorised user)",
+  "evidence": "/consignment/ops 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-READ-13",
+  "status": "PASS",
+  "reason": "GET /reports/definitions -> 200 (loads/lists for authorised user)",
+  "evidence": "/reports/definitions 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-READ-14",
+  "status": "PASS",
+  "reason": "GET /reports/stale-accounts -> 200 (loads/lists for authorised user)",
+  "evidence": "/reports/stale-accounts 200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-READ-15",
+  "status": "PASS",
+  "reason": "GET /reports/threshold-settings -> 200 (loads/lists for authorised user)",
+  "evidence": "/reports/threshold-settings 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-READ-16",
+  "status": "PASS",
+  "reason": "GET /notifications/unread-count -> 200 (loads/lists for authorised user)",
+  "evidence": "/notifications/unread-count 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-17",
+  "status": "PASS",
+  "reason": "GET /product-management/families -> 200 (loads/lists for authorised user)",
+  "evidence": "/product-management/families 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-18",
+  "status": "PASS",
+  "reason": "GET /product-management/categories -> 200 (loads/lists for authorised user)",
+  "evidence": "/product-management/categories 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-19",
+  "status": "PASS",
+  "reason": "GET /product-management/catalog-rule-sets -> 200 (loads/lists for authorised user)",
+  "evidence": "/product-management/catalog-rule-sets 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-20",
+  "status": "PASS",
+  "reason": "GET /product-management/catalog-views -> 200 (loads/lists for authorised user)",
+  "evidence": "/product-management/catalog-views 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-21",
+  "status": "PASS",
+  "reason": "GET /product-management/catalog-rule-options -> 200 (loads/lists for authorised user)",
+  "evidence": "/product-management/catalog-rule-options 200"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-READ-22",
+  "status": "PARTIAL",
+  "reason": "GET /product-management/catalog-inclusions -> 405 (needs params or method)",
+  "evidence": "/product-management/catalog-inclusions 405"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-READ-23",
+  "status": "PASS",
+  "reason": "GET /digital-assets/assets -> 200 (loads/lists for authorised user)",
+  "evidence": "/digital-assets/assets 200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-READ-24",
+  "status": "PASS",
+  "reason": "GET /digital-assets/collections -> 200 (loads/lists for authorised user)",
+  "evidence": "/digital-assets/collections 200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-READ-25",
+  "status": "PASS",
+  "reason": "GET /digital-assets/widen-import-runs -> 200 (loads/lists for authorised user)",
+  "evidence": "/digital-assets/widen-import-runs 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-26",
+  "status": "PASS",
+  "reason": "GET /admin/overview -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/overview 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-27",
+  "status": "PASS",
+  "reason": "GET /admin/system-health -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/system-health 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-28",
+  "status": "PASS",
+  "reason": "GET /admin/activity -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/activity 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-29",
+  "status": "PASS",
+  "reason": "GET /admin/users -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/users 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-30",
+  "status": "PASS",
+  "reason": "GET /admin/integrations -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/integrations 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-31",
+  "status": "PASS",
+  "reason": "GET /admin/integrations/auth -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/integrations/auth 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-32",
+  "status": "PASS",
+  "reason": "GET /admin/integrations/calendar -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/integrations/calendar 200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-READ-33",
+  "status": "PASS",
+  "reason": "GET /admin/integrations/payments -> 200 (loads/lists for authorised user)",
+  "evidence": "/admin/integrations/payments 200"
+ },
+ {
+  "module": "Calendar",
+  "id": "CAL-READ-34",
+  "status": "PARTIAL",
+  "reason": "GET /calendar/workspace -> 400 (needs params or method)",
+  "evidence": "/calendar/workspace 400"
+ },
+ {
+  "module": "Calendar",
+  "id": "CAL-READ-35",
+  "status": "PASS",
+  "reason": "GET /calendar/outlook/connection -> 200 (loads/lists for authorised user)",
+  "evidence": "/calendar/outlook/connection 200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-READ-36",
+  "status": "PASS",
+  "reason": "GET /leads -> 200 (loads/lists for authorised user)",
+  "evidence": "/leads 200"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-READ-37",
+  "status": "PASS",
+  "reason": "GET /accounts -> 200 (loads/lists for authorised user)",
+  "evidence": "/accounts 200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-READ-38",
+  "status": "PASS",
+  "reason": "GET /territories -> 200 (loads/lists for authorised user)",
+  "evidence": "/territories 200"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-READ-39",
+  "status": "PASS",
+  "reason": "GET /training/sessions -> 200 (loads/lists for authorised user)",
+  "evidence": "/training/sessions 200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-READ-40",
+  "status": "PASS",
+  "reason": "GET /consignment/sites -> 200 (loads/lists for authorised user)",
+  "evidence": "/consignment/sites 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-READ-41",
+  "status": "PASS",
+  "reason": "GET /notifications -> 200 (loads/lists for authorised user)",
+  "evidence": "/notifications 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-READ-42",
+  "status": "PASS",
+  "reason": "GET /notifications/preferences -> 200 (loads/lists for authorised user)",
+  "evidence": "/notifications/preferences 200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-READ-43",
+  "status": "PASS",
+  "reason": "GET /notifications/routing-rules -> 200 (loads/lists for authorised user)",
+  "evidence": "/notifications/routing-rules 200"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-READ-01",
+  "status": "PASS",
+  "reason": "FINANCE reads CIS finance queue",
+  "evidence": ""
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-RBAC-admin_user_MANAGE_",
+  "status": "PASS",
+  "reason": "Default-deny on \"admin user MANAGE (create)\": all 6 unauthorised roles got 403",
+  "evidence": "denied=6/6"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-RBAC-admin_overview",
+  "status": "PASS",
+  "reason": "Default-deny on \"admin overview\": all 3 unauthorised roles got 403",
+  "evidence": "denied=3/3"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-RBAC-admin_activity/aud",
+  "status": "PASS",
+  "reason": "Default-deny on \"admin activity/audit\": all 3 unauthorised roles got 403",
+  "evidence": "denied=3/3"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-RBAC-executive_dashboar",
+  "status": "PASS",
+  "reason": "Default-deny on \"executive dashboard\": all 4 unauthorised roles got 403",
+  "evidence": "denied=4/4"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-RBAC-CIS_finance_queue",
+  "status": "PASS",
+  "reason": "Default-deny on \"CIS finance queue\": all 3 unauthorised roles got 403",
+  "evidence": "denied=3/3"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-RBAC-create_product_fam",
+  "status": "PASS",
+  "reason": "Default-deny on \"create product family\": all 4 unauthorised roles got 403",
+  "evidence": "denied=4/4"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-RBAC-create_routing_rul",
+  "status": "PASS",
+  "reason": "Default-deny on \"create routing rule\": all 3 unauthorised roles got 403",
+  "evidence": "denied=3/3"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-RBAC-create_lead_(intak",
+  "status": "PASS",
+  "reason": "Default-deny on \"create lead (intake)\": all 5 unauthorised roles got 403",
+  "evidence": "denied=5/5"
+ },
+ {
+  "module": "Cross-Cutting Security, RBAC, Audit & PCI",
+  "id": "SEC-RBAC-exec-readonly",
+  "status": "PASS",
+  "reason": "EXECUTIVE = read-only oversight by design: admin/audit/health VIEW granted, all admin + intake WRITES denied (403)",
+  "evidence": ""
  }
 ]

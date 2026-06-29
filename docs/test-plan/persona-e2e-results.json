@@ -1,0 +1,716 @@
+[
+ {
+  "persona": "SUPER_ADMIN",
+  "loginApi": true,
+  "loginWeb": true,
+  "webSummary": "Web login PASS (logged in via /auth/login, landed on /leads). All 12 page views rendered PASS with no crashes: /admin/users, /admin/roles, /admin/integrations, /leads, /customers, /reports, /territories, /consignment, /training, /product-management, /digital-assets, /notifications. The engine reported ZERO RBAC-BLOCK FAIL flags \u2014 expected for SUPER_ADMIN, which is granted every module including the admin-only pages (users/roles/integrations). No web leaks to verify since no RBAC-BLOCK was raised. Minor observation: /notifications rendered a near-empty shell (76 chars) but did not crash and passed the keyword check. Verdict: full-access persona renders all pages correctly; no false-positive or real leak conditions present.",
+  "workflow": [
+   {
+    "step": "API login (POST /auth/login)",
+    "status": "PASS",
+    "evidence": "HTTP 200; tokens.accessToken obtained"
+   },
+   {
+    "step": "GET /admin/overview",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=totalUsers,activeUsers,pendingUsers,activeSessions,recentActivity"
+   },
+   {
+    "step": "GET /admin/system-health",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=checkedAt,application,users,sessions,database,queue"
+   },
+   {
+    "step": "GET /admin/activity (audit log)",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=entries"
+   },
+   {
+    "step": "GET /admin/users (list)",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=users,total,page,limit"
+   },
+   {
+    "step": "GET /admin/access/roles",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=roles"
+   },
+   {
+    "step": "GET /admin/integrations",
+    "status": "PASS",
+    "evidence": "HTTP 200; keys=integrations"
+   },
+   {
+    "step": "POST /admin/users (create SALES_BD_REP)",
+    "status": "PASS",
+    "evidence": "HTTP 201; email QA-E2E-6u8yoafz@example.test; userId 279cd60f-8fd4-48c7-8d47-9e6bf823cece; body keys user,temporaryPassword"
+   },
+   {
+    "step": "POST /admin/users/{id}/reset-password",
+    "status": "PASS",
+    "evidence": "HTTP 200 on created user id; keys userId,email,temporaryPassword,resetAt"
+   },
+   {
+    "step": "POST /product-management/families (master data)",
+    "status": "PASS",
+    "evidence": "HTTP 201; code QAEUKXW, name 'QA-E2E Family'; familyId b8dde8c8-135b-4426-936c-fb63a648362a; keys id,code,name,isActive,sortOrder"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "SUPER_ADMIN has full access \u2014 admin module reads (overview/system-health/activity/users/roles/integrations) all permitted",
+    "status": "PASS",
+    "evidence": "All 6 admin GETs returned HTTP 200; no 401/403 denials"
+   },
+   {
+    "check": "SUPER_ADMIN may manage users (admin.user_manage): create + reset-password",
+    "status": "PASS",
+    "evidence": "POST /admin/users 201 and reset-password 200 \u2014 write privileges granted as expected"
+   },
+   {
+    "check": "SUPER_ADMIN may manage master data (product.manage): create product family",
+    "status": "PASS",
+    "evidence": "POST /product-management/families 201 \u2014 granted"
+   },
+   {
+    "check": "No forbidden actions for this persona; no denials expected",
+    "status": "PASS",
+    "evidence": "Every attempted privileged action succeeded; no spurious 403s; web engine raised no RBAC-BLOCK flags"
+   }
+  ],
+  "defects": [],
+  "counts": {
+   "pass": 14,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "TERRITORY_MANAGER",
+  "loginApi": true,
+  "loginWeb": true,
+  "webSummary": "Web login PASS (qa.tm@pulse.test). 10/11 page checks PASS: /leads, /customers, /territories, /consignment, /training, /reports, /calendar, /notifications all rendered; RBAC-BLOCK /admin/users correctly showed no sensitive content. The single engine FAIL was RBAC-BLOCK /admin/roles (engine flagged a possible leak because the page rendered the word \"Role\"). VERDICT on that engine flag: FALSE POSITIVE. API verification of the equivalent data endpoint GET /api/v1/admin/access/roles as this persona returned 403 FORBIDDEN (\"Role TERRITORY_MANAGER cannot access module admin\"). No role data is reachable; the SPA only rendered a generic shell/heading. Not a data leak. Minor defense-in-depth note: the web shell still mounts the admin/roles route heading for an unauthorized user instead of redirecting/blocking, but no protected data is exposed. No crashes observed.",
+  "workflow": [
+   {
+    "step": "GET /territories",
+    "status": "PASS",
+    "evidence": "HTTP 200, items.len=1 (territory-scoped: QA Florida North), correct scoping"
+   },
+   {
+    "step": "GET /territories/regions",
+    "status": "PASS",
+    "evidence": "HTTP 200, items.len=1 (QA Southeast region with directorUserId)"
+   },
+   {
+    "step": "GET /territories/assignable-users",
+    "status": "PASS",
+    "evidence": "HTTP 200, returned territoryManagers list including self (qa.tm@pulse.test, role TERRITORY_MANAGER)"
+   },
+   {
+    "step": "GET /territories/policy",
+    "status": "PASS",
+    "evidence": "HTTP 200, returned policy flags (preHandoffTmVisibility, assignNationalTmLeadsByDefault, strategicGrowthRetainsOwnership) + notes/updatedAt"
+   },
+   {
+    "step": "GET /leads (territory-scoped)",
+    "status": "PASS",
+    "evidence": "HTTP 200, {items:[],total:0} \u2014 empty but valid territory-scoped list, no error"
+   },
+   {
+    "step": "GET /accounts",
+    "status": "PASS",
+    "evidence": "HTTP 200, {items:[],total:0}"
+   },
+   {
+    "step": "GET /consignment/sites",
+    "status": "PASS",
+    "evidence": "HTTP 200, items.len=1 (QA-TM-Owned S1, status active, account UAT Nexstar Comfort)"
+   },
+   {
+    "step": "GET /training/sessions",
+    "status": "PASS",
+    "evidence": "HTTP 200, {items:[],total:0,overdueCount:0,openFollowUpTaskCount:0}"
+   },
+   {
+    "step": "GET /notifications",
+    "status": "PASS",
+    "evidence": "HTTP 200, items.len=1 (lead/cis_received warning notification delivered to this user)"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "POST /leads (lead intake \u2014 TM cannot create leads)",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN: \"Role TERRITORY_MANAGER cannot perform action lead.intake_manage\" (sent QA-E2E- prefixed fixture with unique random phone/email)"
+   },
+   {
+    "check": "GET /admin/users",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN: \"Role TERRITORY_MANAGER cannot access module admin\""
+   },
+   {
+    "check": "GET /reports/dashboard/executive",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN: \"Role TERRITORY_MANAGER cannot perform action reports.executive\""
+   },
+   {
+    "check": "GET /cis/finance-queue",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN: \"Role TERRITORY_MANAGER cannot access module cis\""
+   },
+   {
+    "check": "Web /admin/roles leak verify via GET /api/v1/admin/access/roles",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN: \"Role TERRITORY_MANAGER cannot access module admin\" \u2014 confirms engine web FAIL is a false positive, no role data exposed"
+   }
+  ],
+  "defects": [
+   {
+    "severity": "LOW",
+    "title": "Web shell mounts /admin/roles route heading for unauthorized TERRITORY_MANAGER (cosmetic; no data leak)",
+    "evidence": "Playwright engine flagged RBAC-BLOCK /admin/roles FAIL because the SPA rendered text containing \"Role\". API verification: GET /api/v1/admin/access/roles returns 403 FORBIDDEN for this persona, so no role data is exposed. The UI should redirect/block the admin route rather than render its shell, but this is defense-in-depth/UX only \u2014 confirmed NOT a real data leak."
+   },
+   {
+    "severity": "LOW",
+    "title": "Territory policy notes field stores/returns unsanitized injection payload (pre-existing test artifact)",
+    "evidence": "GET /api/v1/territories/policy returns notes:\"1' OR '1'='1; <img src=x onerror=alert(1)>\" verbatim. territories/service.ts stores notes via optionalText() with no HTML sanitization (lines ~1024-1036). Injected by a prior test; API echoes raw free-text. React client escapes on render so low practical risk, but the API persists unsanitized markup. Not specific to this persona's assignment; noted as evidence."
+   }
+  ],
+  "counts": {
+   "pass": 23,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "REGIONAL_DIRECTOR",
+  "loginApi": true,
+  "loginWeb": true,
+  "webSummary": "Login PASS (qa.rd@pulse.test via /auth/login, landed on /leads). Web E2E engine reported 8/8 PASS: /territories, /leads, /customers, /reports, /consignment, /training all rendered with expected content; LOGIN PASS. The single RBAC-BLOCK check (/admin/users) PASSED \u2014 engine reported \"No sensitive content rendered\" (correctly blocked). No crashes, no PARTIAL/FAIL pages. The engine reported ZERO RBAC-BLOCK FAIL flags, so there were no web leaks requiring API cross-verification. Independently confirmed at the API layer that REGIONAL_DIRECTOR is denied the admin module (GET/POST /admin/users -> 403 \"cannot access module admin\"), so the web block is backed by a real server-side authorization boundary, not just a UI shell.",
+  "workflow": [
+   {
+    "step": "GET /territories",
+    "status": "PASS",
+    "evidence": "200; {items:[6]} territories returned"
+   },
+   {
+    "step": "GET /territories/regions",
+    "status": "PASS",
+    "evidence": "200; {items:[1]} region returned"
+   },
+   {
+    "step": "GET /territories/dashboard",
+    "status": "PASS",
+    "evidence": "200; regional oversight payload: stats, coverage, lifecycle, pipeline, trainingPenetration, alerts(2), workloads(6), regionRollups(1), ownerMetrics(3)"
+   },
+   {
+    "step": "GET /leads",
+    "status": "PASS",
+    "evidence": "200; {items:0,total} list rendered (empty dataset, valid)"
+   },
+   {
+    "step": "GET /accounts",
+    "status": "PASS",
+    "evidence": "200; {items:0,total} list rendered (empty dataset, valid)"
+   },
+   {
+    "step": "GET /reports/definitions",
+    "status": "PASS",
+    "evidence": "200; {items:[1],total} report definition returned"
+   },
+   {
+    "step": "GET /consignment/sites",
+    "status": "PASS",
+    "evidence": "200; {items:[1],total} consignment site returned"
+   },
+   {
+    "step": "GET /training/overview",
+    "status": "PASS",
+    "evidence": "200; aggregate metrics payload (totalAccountsTracked, activePrograms, overduePrograms, completedSessions, scheduledSessions, openFollowUpTasks, deliveredTrainingHours, categoryCount)"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "POST /leads (lead intake) must be DENIED",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN; detail: 'Role REGIONAL_DIRECTOR cannot perform action lead.intake_manage'. Auth enforced before body parse (requireAuthenticatedActor precedes readJsonBody in leads/http.ts)"
+   },
+   {
+    "check": "GET /admin/users must be DENIED",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN; detail: 'Role REGIONAL_DIRECTOR cannot access module admin'"
+   },
+   {
+    "check": "POST /admin/users must be DENIED",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN; detail: 'Role REGIONAL_DIRECTOR cannot access module admin'"
+   }
+  ],
+  "defects": [],
+  "counts": {
+   "pass": 19,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "SALES_BD_REP",
+  "loginApi": true,
+  "loginWeb": true,
+  "webSummary": "Web login PASS (logged in as SALES_BD_REP, landed on /leads). Pages rendered: /leads PASS, /customers PASS, /digital-assets PASS, /reports PASS, /calendar PASS, /admin/users PASS (blocked), /admin/integrations PASS (blocked); /product-management PARTIAL (rendered only 394 chars, no Product/Pulse markers \u2014 consistent with the role lacking product_management module access, so it's a near-empty shell, not a crash). No crash. Engine flagged ONE RBAC-BLOCK FAIL: /admin/roles \"RBAC LEAK: page rendered with [Role]\". VERIFIED FALSE POSITIVE against the API: the page's backing endpoint GET /api/v1/admin/access/roles returns 403 FORBIDDEN for this persona, and literal GET /api/v1/admin/roles returns 404 (no such route). The web shell merely renders the static nav word \"Role\"; no role data is reachable. NOT a real leak. Engine's other two RBAC-BLOCK checks (/admin/users, /admin/integrations) correctly showed no sensitive content.",
+  "workflow": [
+   {
+    "step": "1) POST /leads (create QA-E2E lead)",
+    "status": "PASS",
+    "evidence": "HTTP 201, leadId 24fe81b6-d0f3-442f-aed3-80192a074847, stage=NEW returned"
+   },
+   {
+    "step": "2) POST /leads/{id}/notes (discovery prep)",
+    "status": "PASS",
+    "evidence": "HTTP 201"
+   },
+   {
+    "step": "3) POST /leads/{id}/log-initial-contact",
+    "status": "PASS",
+    "evidence": "HTTP 200 (route requires lead.intake_manage; sets initialContactedAt, stage stays NEW)"
+   },
+   {
+    "step": "4) POST /leads/{id}/discovery/schedule",
+    "status": "PASS",
+    "evidence": "HTTP 200 (lead was NEW, transitioned to DISCOVERY_SCHEDULED)"
+   },
+   {
+    "step": "5) POST /leads/{id}/discovery/complete {summary}",
+    "status": "PASS",
+    "evidence": "HTTP 200"
+   },
+   {
+    "step": "6) GET /leads/{id}/readiness",
+    "status": "PASS",
+    "evidence": "HTTP 200"
+   },
+   {
+    "step": "7) GET customers/product-families/digital-assets (rep view)",
+    "status": "PARTIAL",
+    "evidence": "GET /accounts (the real customers endpoint; spec's /customers is 404 alias) = 200; GET /digital-assets/assets = 200; BUT GET /product-management/families = 403 FORBIDDEN 'Role SALES_BD_REP cannot access module product_management' \u2014 expected per RBAC matrix (role not granted product_management module), so the spec's 'rep can view' assumption is wrong, not a server bug"
+   },
+   {
+    "step": "PCI guard: POST /leads/{id}/notes {card 4111 1111 1111 1111}",
+    "status": "PASS",
+    "evidence": "HTTP 400 BAD_REQUEST 'Note text appears to contain payment card data...' \u2014 fake card correctly rejected"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "GET /admin/users denied",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN"
+   },
+   {
+    "check": "GET /cis/finance-queue denied",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN"
+   },
+   {
+    "check": "GET /reports/dashboard/executive denied",
+    "status": "PASS",
+    "evidence": "HTTP 403 FORBIDDEN"
+   },
+   {
+    "check": "Web-leak verify: /admin/roles (page backing API /admin/access/roles)",
+    "status": "PASS",
+    "evidence": "API GET /admin/access/roles = 403; literal /admin/roles = 404. Engine's web 'RBAC LEAK' is a shell false positive, API enforces correctly"
+   },
+   {
+    "check": "GET /product-management/families (module guard)",
+    "status": "PASS",
+    "evidence": "HTTP 403 \u2014 role correctly blocked from product_management module (fails closed)"
+   }
+  ],
+  "defects": [
+   {
+    "severity": "LOW",
+    "title": "Web shell renders /admin/roles page chrome for a non-admin role (cosmetic, no data leak)",
+    "evidence": "Playwright engine flagged /admin/roles as 'RBAC LEAK: page rendered with [Role]' for SALES_BD_REP. Verified NOT a real leak: backing API GET /api/v1/admin/access/roles returns 403 and literal /api/v1/admin/roles returns 404. The web app still mounts the page shell/nav label 'Role' for an unauthorized role instead of redirecting/hiding it. No sensitive data is exposed, but the route should be hidden from nav for roles without admin module access."
+   },
+   {
+    "severity": "LOW",
+    "title": "RBAC config inconsistency: SALES_BD_REP holds product.view action but lacks product_management module grant",
+    "evidence": "In packages/contracts/src/auth.ts, SALES_BD_REP module list (line 334) omits product_management, yet the action list (line 360) includes 'product.view'. GET /product-management/families requires {module:product_management, action:product.view}; the module guard denies first with 403 'cannot access module product_management', so product.view is effectively unreachable for this role. Behavior fails closed (safe), but the dangling action grant is dead/contradictory config and contradicts the QA spec's 'rep can view families' expectation."
+   }
+  ],
+  "counts": {
+   "pass": 15,
+   "fail": 0,
+   "partial": 2
+  }
+ },
+ {
+  "persona": "SALES_BD_LEADERSHIP",
+  "loginWeb": true,
+  "loginApi": true,
+  "webSummary": "Web login succeeded (qa.saleslead@pulse.test via /auth/login). Pages: /leads PASS (19959 chars, saw \"Lead\"), /customers PASS (saw \"Account\",\"Pulse\"), /reports PASS (saw \"Report\"), /territories PARTIAL (460-char near-empty shell, no markers \u2014 consistent with API 403 module deny for territories). No crash / error boundary on any rendered page. The engine's RBAC-BLOCK /admin/users FAIL is a WEB-SHELL FALSE POSITIVE, not a leak: the engine matched the bare word \"User\" in the page chrome, but the API equivalent GET /api/v1/admin/users returns 403 FORBIDDEN (\"cannot perform action admin.user_view\"), so no actual user data is exposed. Verdict on engine RBAC-block flags: the single flagged leak does not reproduce at the API layer \u2014 RBAC is enforced server-side.",
+  "workflow": [
+   {
+    "step": "GET /leads",
+    "status": "PASS",
+    "evidence": "200, 50 items (items[].companyName etc.)"
+   },
+   {
+    "step": "GET /accounts",
+    "status": "PASS",
+    "evidence": "200, 25 items"
+   },
+   {
+    "step": "GET /reports/definitions",
+    "status": "PASS",
+    "evidence": "200, 1 definition (lead_funnel)"
+   },
+   {
+    "step": "GET /territories",
+    "status": "FAIL",
+    "evidence": "403 FORBIDDEN: 'Role SALES_BD_LEADERSHIP cannot access module territories' \u2014 denied despite being a listed leadership-oversight workflow step; web /territories renders an empty 460-char shell matching this deny"
+   },
+   {
+    "step": "GET /reports/dashboard/executive",
+    "status": "FAIL",
+    "evidence": "403 FORBIDDEN: 'cannot perform action reports.executive' \u2014 leadership does NOT have the executive dashboard (actual recorded; task noted leadership MAY have it, it does not)"
+   },
+   {
+    "step": "GET /digital-assets/assets",
+    "status": "PASS",
+    "evidence": "200, 19 assets"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "GET /admin/users must be denied",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN: 'cannot perform action admin.user_view'"
+   },
+   {
+    "check": "POST /admin/users must be denied",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN: 'cannot perform action admin.user_manage'"
+   },
+   {
+    "check": "POST /leads (if leadership is not an intake role)",
+    "status": "PASS",
+    "evidence": "NOT denied \u2014 leadership IS an intake role. POST /leads passed RBAC and reached field validation: 400 'companyName is required', then with valid body 400 'serviceTechCount must be an integer' (never 403). Authorization for lead.intake_manage is granted; differs from a pure read-only-leadership assumption \u2014 recorded as actual (allowed, by design for a sales BD leadership role)"
+   },
+   {
+    "check": "Web /admin/users RBAC-block engine FAIL \u2014 verify at API",
+    "status": "PASS",
+    "evidence": "API GET /admin/users returns 403; engine matched only nav-chrome word 'User'. Confirmed web-shell false positive, not a real leak"
+   }
+  ],
+  "defects": [
+   {
+    "severity": "LOW",
+    "title": "Web engine false-positive RBAC flag on /admin/users",
+    "evidence": "persona_web_e2e.mjs reports RBAC-BLOCK /admin/users FAIL because the rendered body contains the word 'User' (app chrome/nav), but the page shows no user records and the API GET /api/v1/admin/users returns 403. No data leak; the engine's substring marker is too loose. Server-side RBAC is correctly enforced."
+   },
+   {
+    "severity": "LOW",
+    "title": "Leadership-oversight workflow includes endpoints leadership cannot access",
+    "evidence": "GET /territories -> 403 (module territories denied) and GET /reports/dashboard/executive -> 403 (reports.executive denied) for SALES_BD_LEADERSHIP. These are denials by RBAC design, not crashes; flagged only as a product/role-scope note: a sales/BD leadership oversight persona arguably should have read access to territories and an executive/leadership dashboard. Needs PM confirmation whether this is intended scope."
+   }
+  ],
+  "counts": {
+   "pass": 8,
+   "fail": 2,
+   "partial": 1
+  }
+ },
+ {
+  "persona": "FINANCE",
+  "loginWeb": true,
+  "loginApi": true,
+  "webSummary": "Web E2E login as FINANCE succeeded (qa.finance@pulse.test). Engine result 5 PASS / 1 FAIL. Pages rendered PASS: /customers (Account/Pulse), /reports (Report), /leads (Lead). RBAC-block PASS: /admin/users (no sensitive content). No crash. The single engine FAIL \u2014 RBAC-BLOCK /admin/roles flagged as a leak because the page shell rendered the label \"Role\" \u2014 is a WEB-SHELL FALSE POSITIVE, not a real leak: the equivalent API endpoint GET /api/v1/admin/access/roles (the data source for that page, gated by admin.role_view) returns 403 \"Role FINANCE cannot access module admin\". The SPA renders a route/label shell but the underlying data is API-blocked. Verdict on the engine's RBAC-block flag: the /admin/roles FAIL does NOT represent a real data leak.",
+  "workflow": [
+   {
+    "step": "GET /cis/finance-queue (finance queue loads)",
+    "status": "PASS",
+    "evidence": "HTTP 200, body {items:[],total:0} \u2014 queue loads correctly, currently empty"
+   },
+   {
+    "step": "GET first case detail (if queue returns ids)",
+    "status": "BLOCKED",
+    "evidence": "Finance queue returned 0 items (total:0), so no case id available to fetch. Correctly skipped \u2014 not a defect, just empty seed data"
+   },
+   {
+    "step": "GET /accounts (financials view)",
+    "status": "PASS",
+    "evidence": "HTTP 200, returned 25 account items with financial/lifecycle fields (lifecycleStatus, isActive, contactCount)"
+   },
+   {
+    "step": "GET /reports/definitions",
+    "status": "PASS",
+    "evidence": "HTTP 200, returned 1 report definition (reportKey lead_funnel)"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "POST /leads (intake) must be DENIED",
+    "status": "PASS",
+    "evidence": "HTTP 403 {error:FORBIDDEN, detail:'Role FINANCE cannot perform action lead.intake_manage'}"
+   },
+   {
+    "check": "GET /admin/users must be DENIED",
+    "status": "PASS",
+    "evidence": "HTTP 403 {error:FORBIDDEN, detail:'Role FINANCE cannot access module admin'}"
+   },
+   {
+    "check": "POST /admin/users must be DENIED",
+    "status": "PASS",
+    "evidence": "HTTP 403 {error:FORBIDDEN, detail:'Role FINANCE cannot access module admin'}"
+   },
+   {
+    "check": "GET /reports/dashboard/executive (unless finance is granted \u2014 record actual)",
+    "status": "PASS",
+    "evidence": "Actual: HTTP 403 {error:FORBIDDEN, detail:'Role FINANCE cannot perform action reports.executive'}. FINANCE is NOT granted the executive dashboard \u2014 correctly denied"
+   },
+   {
+    "check": "Web-leak verify: GET /admin/access/roles (data source for /admin/roles web page)",
+    "status": "PASS",
+    "evidence": "HTTP 403 {error:FORBIDDEN, detail:'Role FINANCE cannot access module admin'}. Confirms the web engine /admin/roles FAIL is a false positive, not a real leak"
+   }
+  ],
+  "defects": [
+   {
+    "severity": "LOW",
+    "title": "Stored-XSS-shaped value persisted and returned raw in /accounts displayName",
+    "evidence": "GET /api/v1/accounts (as FINANCE) returns an account with displayName '<script>alert(1)</script>QA XSS' served raw in the JSON. This is QA-created fixture data (labeled 'QA XSS'), but it shows account displayName accepts and persists unescaped HTML/script markup. Not a FINANCE-specific RBAC defect; flagged as a low-severity input-sanitization observation. Front-end must escape on render to avoid stored XSS."
+   },
+   {
+    "severity": "LOW",
+    "title": "Web SPA renders /admin/roles route shell (label 'Role') for FINANCE despite API block",
+    "evidence": "Playwright engine flagged RBAC-BLOCK /admin/roles as FAIL because the page shell rendered the word 'Role'. Verified NOT a data leak: GET /api/v1/admin/access/roles returns 403 for FINANCE. The route shell/nav label rendering without data is cosmetic, but ideally the client should hard-redirect/hide admin routes for non-admin roles rather than render a shell."
+   }
+  ],
+  "counts": {
+   "pass": 12,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "EXECUTIVE",
+  "webSummary": "Login PASS (logged in as qa.exec@pulse.test via /auth/login). All 4 spec pages rendered PASS: /reports (saw \"Report\"), /leads (saw \"Lead\"), /customers (saw \"Account\",\"Pulse\"), and /admin/users (saw \"User\" \u2014 admin VIEW is intentional for EXECUTIVE). No crash/pageerror. Engine forbid list is empty for EXECUTIVE by design, so it reported zero RBAC-BLOCK FAIL flags \u2014 no web leak to verify. Verdict: web shell correctly exposes read-only admin oversight without flagging any false RBAC block.",
+  "loginApi": true,
+  "loginWeb": true,
+  "workflow": [
+   {
+    "step": "GET /reports/dashboard/executive",
+    "status": "PASS",
+    "evidence": "200; body has metrics{openLeads:73,activeConsignmentSites:2,trainingsCompleted:2,openExceptions:17}, windowDays:90, exceptions block"
+   },
+   {
+    "step": "GET /reports/definitions",
+    "status": "PASS",
+    "evidence": "200; {items:[{reportKey:lead_funnel,...}]}"
+   },
+   {
+    "step": "GET /leads",
+    "status": "PASS",
+    "evidence": "200; {items:[{companyName:'QA L19 339925',...}]}"
+   },
+   {
+    "step": "GET /accounts",
+    "status": "PASS",
+    "evidence": "200; {items:[...]} returned account list"
+   },
+   {
+    "step": "GET /admin/users",
+    "status": "PASS",
+    "evidence": "200; {users:[...]} \u2014 read-only admin oversight by design"
+   },
+   {
+    "step": "GET /admin/activity",
+    "status": "PASS",
+    "evidence": "200; {entries:[{action:LOGIN,entityType:SESSION,...}]}"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "POST /admin/users DENIED",
+    "status": "PASS",
+    "evidence": "403 {\"error\":\"FORBIDDEN\",\"detail\":\"Role EXECUTIVE cannot perform action admin.user_manage\"} (sent valid body: QA-E2E-prefixed email/name, role SALES_BD_REP)"
+   },
+   {
+    "check": "POST /leads DENIED",
+    "status": "PASS",
+    "evidence": "403 {\"error\":\"FORBIDDEN\",\"detail\":\"Role EXECUTIVE cannot perform action lead.intake_manage\"} (sent valid body: QA-E2E company, unique random phone/email)"
+   },
+   {
+    "check": "POST /product-management/families DENIED",
+    "status": "PASS",
+    "evidence": "403 {\"error\":\"FORBIDDEN\",\"detail\":\"Role EXECUTIVE cannot perform action product.manage\"} (sent valid body: code+name both present, so 403 is genuine RBAC not 400 validation)"
+   }
+  ],
+  "defects": [],
+  "counts": {
+   "pass": 15,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "TRAINING_OPS",
+  "loginApi": true,
+  "loginWeb": true,
+  "webSummary": "Web E2E login PASS as TRAINING_OPS. Pages rendered: /training PASS (saw \"Training\",\"Pulse\"), /reports PASS (saw \"Report\"). RBAC-block /admin/users PASS (no sensitive content). No crash. Engine flagged ONE RBAC-block FAIL: /admin/roles \"rendered with [Role]\". Verified against the API: the /admin/roles web page is backed by GET /api/v1/admin/access/roles, which returns 403 for this persona (direct /admin/roles path = 404). Therefore the web flag is a WEB-SHELL FALSE POSITIVE, not a real data leak \u2014 the API correctly denies admin role access. Verdict on engine RBAC-block flags: /admin/users correct; /admin/roles is a false-positive web-shell render (no data exposed), logged as a LOW cosmetic defect.",
+  "workflow": [
+   {
+    "step": "GET /training/overview",
+    "status": "PASS",
+    "evidence": "HTTP 200, 14-key payload"
+   },
+   {
+    "step": "GET /training/sessions",
+    "status": "PASS",
+    "evidence": "HTTP 200, items+total+overdueCount+executionExceptions; 25 sessions"
+   },
+   {
+    "step": "GET /training/recertification",
+    "status": "PASS",
+    "evidence": "HTTP 200"
+   },
+   {
+    "step": "GET /training/coaching",
+    "status": "PASS",
+    "evidence": "HTTP 200"
+   },
+   {
+    "step": "Pick existing account id",
+    "status": "PASS",
+    "evidence": "GET /accounts is 403 for TRAINING_OPS (out-of-scope by design); sourced accountId from training/sessions items: e262f0b1-42f6-4c5a-999c-5c2b1d8bcb2a"
+   },
+   {
+    "step": "GET /training/trainers for trainerUserId",
+    "status": "PASS",
+    "evidence": "HTTP 200; used assignable trainer b934af1d-0582-4cea-8ec2-b7f2ae3ebf57 (REGIONAL_DIRECTOR, eligible trainer role)"
+   },
+   {
+    "step": "POST /training/accounts/<id>/sessions (schedule QA-E2E Session)",
+    "status": "PASS",
+    "evidence": "HTTP 201, new session id c388aeb3-dcaa-44f2-919c-917c733cec7f (trainerUserId, scheduledAt +7d, durationMinutes:60, activityKind:training, title:QA-E2E Session)"
+   },
+   {
+    "step": "POST /training/sessions/<id>/reschedule (later ISO)",
+    "status": "PASS",
+    "evidence": "HTTP 200, rescheduled to +10d"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "GET /admin/users must be 403",
+    "status": "PASS",
+    "evidence": "HTTP 403 (also web shell shows no sensitive content)"
+   },
+   {
+    "check": "GET /cis/finance-queue must be 403",
+    "status": "PASS",
+    "evidence": "HTTP 403 (action lead.finance_queue_view not granted)"
+   },
+   {
+    "check": "POST /leads must be 403",
+    "status": "PASS",
+    "evidence": "HTTP 403; denied before mutation, no QA-E2E lead created"
+   },
+   {
+    "check": "GET /accounts (global) scope",
+    "status": "PASS",
+    "evidence": "HTTP 403 \u2014 TRAINING_OPS has no global accounts access; correctly scoped to training module only"
+   },
+   {
+    "check": "GET /admin/access/roles (backs web /admin/roles)",
+    "status": "PASS",
+    "evidence": "HTTP 403 \u2014 confirms web /admin/roles render is a shell false-positive, no role data exposed"
+   }
+  ],
+  "defects": [
+   {
+    "severity": "LOW",
+    "title": "Web /admin/roles renders shell chrome (\"Role\") for TRAINING_OPS instead of an access-denied state",
+    "evidence": "Playwright engine: RBAC-BLOCK /admin/roles FAIL, page rendered with [\"Role\"]. API verification: GET /api/v1/admin/access/roles returns 403 for this persona, so NO role data leaks \u2014 this is a cosmetic web-shell false positive (the unauthorized route should show a 403/empty page rather than the admin shell heading). Other admin route /admin/users correctly shows no sensitive content."
+   }
+  ],
+  "counts": {
+   "pass": 13,
+   "fail": 0,
+   "partial": 0
+  }
+ },
+ {
+  "persona": "DEALER (DEALER_PORTAL_USER \u2014 owner+independent@pulse-uat.local)",
+  "webSummary": "Login PASS via /dealer/login (engine's default selector `/your@email\\.com|email/` does not match the dealer login page placeholder `dealer@company.com`, so the shared engine timed out at login \u2014 a harness false-failure, not a product defect; re-ran with the correct dealer selectors). Logged in, landed on /dealer/dashboard. All 4 dealer pages rendered PASS: /dealer (dashboard), /dealer/catalog, /dealer/orders, /dealer/cart. No crash / no error boundary / no JS runtime error. RBAC web shell: /leads, /admin/users, /customers all correctly blocked with \"Role-specific workspace access \u2014 This screen is not part of the current role scope. DEALER_PORTAL_USER ... Requested route: <x>\" and only offer the Dealer Dashboard; zero internal CRM data leaked at the web layer. The engine reported NO RBAC-BLOCK FAIL flags, so no web-leak API cross-check was required; nonetheless the same three routes were independently confirmed denied at the API (403). Verdict: dealer is fully isolated to the dealer portal; no web leaks.",
+  "loginApi": true,
+  "loginWeb": true,
+  "workflow": [
+   {
+    "step": "GET /dealer-portal/me/dashboard",
+    "status": "PASS",
+    "evidence": "200; keys portalAccount,currentUser,companyUsers,contacts,locations"
+   },
+   {
+    "step": "GET /dealer-portal/me/catalog",
+    "status": "PASS",
+    "evidence": "200; 2 products; presentationId 78c01b32-9221-424e-b04d-23f72faa7215 (UAT Replacement Filter Kit)"
+   },
+   {
+    "step": "GET /dealer-portal/me/cart",
+    "status": "PASS",
+    "evidence": "200; lines/lineCount/totalUnits/updatedAt"
+   },
+   {
+    "step": "GET /dealer-portal/me/orders",
+    "status": "PASS",
+    "evidence": "200; items/total (total=6)"
+   },
+   {
+    "step": "POST /dealer-portal/me/cart/items {presentationId, quantity:2}",
+    "status": "PASS",
+    "evidence": "201; cart line created for UAT Replacement Filter Kit, quantity 2"
+   },
+   {
+    "step": "POST /dealer-portal/me/orders/submit {poNumber:QA-E2E-PO-G8ZKX1}",
+    "status": "PASS",
+    "evidence": "201; order 8a5d7cf9-7e91-4373-93f6-7f8ecefc306a status=submitted, customerPoNumber=QA-E2E-PO-G8ZKX1; confirmed present in /me/orders; DRAFT cart consumed (post-submit cart lineCount=0, expected)"
+   },
+   {
+    "step": "PCI guard: POST /me/cart/items lineNote=\"card 4111 1111 1111 1111\"",
+    "status": "PASS",
+    "evidence": "400 BAD_REQUEST, detail: 'Cart line note appears to contain payment card data, which cannot be stored in Pulse...'; fake card correctly REJECTED (not accepted); cart re-checked: line was NOT persisted (lineCount=0)"
+   }
+  ],
+  "rbac": [
+   {
+    "check": "GET /leads must be denied",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN \u2014 'Role DEALER_PORTAL_USER cannot access module leads'"
+   },
+   {
+    "check": "GET /admin/users must be denied",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN \u2014 'Role DEALER_PORTAL_USER cannot access module admin'"
+   },
+   {
+    "check": "GET /accounts must be denied",
+    "status": "PASS",
+    "evidence": "403 FORBIDDEN \u2014 'Role DEALER_PORTAL_USER cannot access module customers'"
+   },
+   {
+    "check": "Web shell isolation (/leads,/admin/users,/customers)",
+    "status": "PASS",
+    "evidence": "All three render the role-scope block page (DEALER_PORTAL_USER), no internal CRM content; only Dealer Dashboard offered"
+   }
+  ],
+  "defects": [],
+  "counts": {
+   "pass": 15,
+   "fail": 0,
+   "partial": 0
+  }
+ }
+]

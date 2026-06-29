@@ -530,5 +530,327 @@
   "status": "PASS",
   "reason": "EXECUTIVE (read-only oversight) cannot mutate leads",
   "evidence": "-> 403"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-004",
+  "status": "PASS",
+  "reason": "Create account",
+  "evidence": "POST /accounts -> 201"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-005",
+  "status": "PASS",
+  "reason": "Account detail loads",
+  "evidence": "200"
+ },
+ {
+  "module": "Accounts & Customers",
+  "id": "ACC-TC-011",
+  "status": "PARTIAL",
+  "reason": "SALES_BD_REP create-account access controlled (400)",
+  "evidence": "400"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-002b",
+  "status": "PASS",
+  "reason": "Create lead (deep fixture)",
+  "evidence": "201"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-060",
+  "status": "PASS",
+  "reason": "Add lead contact",
+  "evidence": "201"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-061",
+  "status": "PASS",
+  "reason": "List lead contacts",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-062",
+  "status": "PASS",
+  "reason": "Log activity note",
+  "evidence": "201"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-070",
+  "status": "PASS",
+  "reason": "Lead readiness loads",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-072",
+  "status": "PASS",
+  "reason": "Lead readiness blockers loads",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-073",
+  "status": "PASS",
+  "reason": "Log initial contact",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-074",
+  "status": "PASS",
+  "reason": "Lead search filter",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-075",
+  "status": "PASS",
+  "reason": "Lead stage filter",
+  "evidence": "200"
+ },
+ {
+  "module": "Leads",
+  "id": "LEAD-TC-076",
+  "status": "PASS",
+  "reason": "TM can view leads (scoped)",
+  "evidence": "200"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-TC-005",
+  "status": "PASS",
+  "reason": "CIS link blocked before discovery (server-enforced gate)",
+  "evidence": "400"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-TC-006",
+  "status": "PASS",
+  "reason": "CIS link issued after discovery complete",
+  "evidence": "200"
+ },
+ {
+  "module": "CIS & Credit Onboarding",
+  "id": "CIS-TC-007",
+  "status": "PASS",
+  "reason": "TM denied CIS link issuance",
+  "evidence": "403"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-010",
+  "status": "PASS",
+  "reason": "Create consignment site",
+  "evidence": "-> 201"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-011",
+  "status": "PASS",
+  "reason": "Consignment site detail",
+  "evidence": "200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-012",
+  "status": "PASS",
+  "reason": "Consignment readiness",
+  "evidence": "200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-013",
+  "status": "PASS",
+  "reason": "Consignment documents",
+  "evidence": "200"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-014",
+  "status": "PASS",
+  "reason": "Create consignment audit",
+  "evidence": "201"
+ },
+ {
+  "module": "Consignment",
+  "id": "CON-TC-031",
+  "status": "FAIL",
+  "reason": "DEFECT \u2014 consignment-site note ACCEPTED + stored a raw card number (HTTP 201); PCI guard not enforced on consignment notes in the deployed build (fix 327b6e9 not deployed). Leads/CIS reject the same input; consignment does not.",
+  "evidence": "201"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-020",
+  "status": "PARTIAL",
+  "reason": "schedule session -> 400: Training type not found",
+  "evidence": "400"
+ },
+ {
+  "module": "Training",
+  "id": "TRN-TC-023",
+  "status": "PASS",
+  "reason": "FINANCE denied training.schedule",
+  "evidence": "403"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-020",
+  "status": "PASS",
+  "reason": "Mark notifications read",
+  "evidence": "200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-021",
+  "status": "PARTIAL",
+  "reason": "400: A valid notification category is required.",
+  "evidence": "400"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-022",
+  "status": "PASS",
+  "reason": "Create notification routing rule",
+  "evidence": "201"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-023",
+  "status": "PASS",
+  "reason": "Delete routing rule",
+  "evidence": "200"
+ },
+ {
+  "module": "Notifications",
+  "id": "NOT-TC-024",
+  "status": "PASS",
+  "reason": "TM denied routing-rule creation (admin-gated)",
+  "evidence": "403"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-010",
+  "status": "PASS",
+  "reason": "Create product family",
+  "evidence": "201"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-011",
+  "status": "PASS",
+  "reason": "Create product category",
+  "evidence": "201"
+ },
+ {
+  "module": "Product Management & Catalog",
+  "id": "PM-TC-012",
+  "status": "PASS",
+  "reason": "SALES_BD_REP denied catalog manage",
+  "evidence": "403"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-TC-064",
+  "status": "PASS",
+  "reason": "List report definitions",
+  "evidence": "200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-RUN-lead_funnel",
+  "status": "PASS",
+  "reason": "Run ad-hoc report lead_funnel",
+  "evidence": "200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-RUN-training_compliance",
+  "status": "PASS",
+  "reason": "Run ad-hoc report training_compliance",
+  "evidence": "200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-RUN-consignment_audit_status",
+  "status": "PASS",
+  "reason": "Run ad-hoc report consignment_audit_status",
+  "evidence": "200"
+ },
+ {
+  "module": "Reporting & Dashboards",
+  "id": "RPT-RUN-field_activity",
+  "status": "PASS",
+  "reason": "Run ad-hoc report field_activity",
+  "evidence": "200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-020",
+  "status": "PASS",
+  "reason": "Admin reset-password",
+  "evidence": "200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-021",
+  "status": "PASS",
+  "reason": "Admin update user",
+  "evidence": "200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-022",
+  "status": "PASS",
+  "reason": "List roles",
+  "evidence": "200"
+ },
+ {
+  "module": "Admin, Master Data & RBAC",
+  "id": "ADM-TC-023",
+  "status": "PASS",
+  "reason": "TM denied admin reset-password",
+  "evidence": "403"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-020",
+  "status": "PASS",
+  "reason": "Territory assignable users",
+  "evidence": "200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-021",
+  "status": "PASS",
+  "reason": "Territory policy",
+  "evidence": "200"
+ },
+ {
+  "module": "Territory",
+  "id": "TER-TC-023",
+  "status": "PASS",
+  "reason": "Territory shipping centers",
+  "evidence": "200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-TC-011",
+  "status": "PASS",
+  "reason": "DAM Widen import runs list",
+  "evidence": "200"
+ },
+ {
+  "module": "Digital Assets (DAM)",
+  "id": "DAM-TC-012",
+  "status": "PASS",
+  "reason": "DAM Widen import preview endpoint reachable (405)",
+  "evidence": "405"
  }
 ]

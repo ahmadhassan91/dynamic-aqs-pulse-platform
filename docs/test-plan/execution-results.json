@@ -1223,5 +1223,131 @@
   "status": "PASS",
   "reason": "EXECUTIVE = read-only oversight by design: admin/audit/health VIEW granted, all admin + intake WRITES denied (403)",
   "evidence": ""
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-010",
+  "status": "PASS",
+  "reason": "Dealer (DEALER_PORTAL_USER) can authenticate",
+  "evidence": ""
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-011",
+  "status": "PASS",
+  "reason": "Dealer dashboard loads",
+  "evidence": "/dealer-portal/me/dashboard 200"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-012",
+  "status": "PASS",
+  "reason": "Dealer catalog loads",
+  "evidence": "/dealer-portal/me/catalog 200"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-013",
+  "status": "PASS",
+  "reason": "Dealer cart loads",
+  "evidence": "/dealer-portal/me/cart 200"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-014",
+  "status": "PASS",
+  "reason": "Dealer orders loads",
+  "evidence": "/dealer-portal/me/orders 200"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-015",
+  "status": "PASS",
+  "reason": "Dealer adds product to cart",
+  "evidence": "POST cart/items 201"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-016",
+  "status": "PASS",
+  "reason": "Cart reflects added items (1)",
+  "evidence": "cart items=1"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-017",
+  "status": "PASS",
+  "reason": "Dealer submits order",
+  "evidence": "submit 201"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-018",
+  "status": "PASS",
+  "reason": "Dealer correctly blocked from internal /leads",
+  "evidence": "/leads 403"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-019",
+  "status": "PASS",
+  "reason": "Dealer correctly blocked from internal /admin/users",
+  "evidence": "/admin/users 403"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-020",
+  "status": "PASS",
+  "reason": "Dealer correctly blocked from internal /accounts",
+  "evidence": "/accounts 403"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-021",
+  "status": "PASS",
+  "reason": "TERRITORY_MANAGER has no dealer /me context (403)",
+  "evidence": "403"
+ },
+ {
+  "module": "Dealer Portal & Ordering",
+  "id": "DLR-TC-022",
+  "status": "PASS",
+  "reason": "SALES_BD_REP has no dealer /me context (403)",
+  "evidence": "403"
+ },
+ {
+  "module": "Mobile Field App",
+  "id": "MOB-TC-040",
+  "status": "PASS",
+  "reason": "Create mobile voice note (contextType=general)",
+  "evidence": "-> 201 id=1811d0d1-9360-4d88-8887-6f3664290879"
+ },
+ {
+  "module": "Mobile Field App",
+  "id": "MOB-TC-041",
+  "status": "PASS",
+  "reason": "PCI: card number in voice transcript rejected",
+  "evidence": "-> 400"
+ },
+ {
+  "module": "Mobile Field App",
+  "id": "MOB-TC-042",
+  "status": "PASS",
+  "reason": "Voice-note review queue loads",
+  "evidence": "200"
+ },
+ {
+  "module": "Mobile Field App",
+  "id": "MOB-TC-043",
+  "status": "PASS",
+  "reason": "Voice-note list loads",
+  "evidence": "200"
+ },
+ {
+  "module": "Mobile Field App",
+  "id": "MOB-TC-044",
+  "status": "PASS",
+  "reason": "Reviewer approves a voice note",
+  "evidence": "200"
  }
 ]

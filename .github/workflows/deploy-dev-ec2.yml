@@ -53,6 +53,8 @@ jobs:
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'apps/mobile' \
+            --exclude 'docs/test-plan' \
+            --exclude '.playwright-cli' \
             --exclude '.next' \
             --exclude '.turbo' \
             --exclude '.terraform' \

@@ -514,6 +514,7 @@ export async function getConsignmentDashboard(actor: AuthenticatedActor): Promis
 
 export async function createConsignmentSite(actor: AuthenticatedActor, input: CreateConsignmentSiteRequest): Promise<ConsignmentSiteDetail> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment site notes');
   if (!input.accountId) throw new Error('accountId is required');
   const account = await prisma.account.findUnique({
     where: { id: input.accountId },
@@ -555,6 +556,7 @@ export async function createConsignmentSite(actor: AuthenticatedActor, input: Cr
 
 export async function updateConsignmentSite(actor: AuthenticatedActor, siteId: string, input: UpdateConsignmentSiteRequest): Promise<ConsignmentSiteDetail> {
   assertConsignmentManage(actor);
+  assertNoRawPaymentCardData(input.notes, 'Consignment site notes');
   const before = await getSiteForMutation(actor, siteId);
   const nextStatus = input.status ? toSiteStatus(input.status) : undefined;
   if (input.locationId) {

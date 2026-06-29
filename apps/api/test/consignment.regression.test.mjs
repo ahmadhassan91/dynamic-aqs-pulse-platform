@@ -1436,3 +1436,36 @@ test('NFR-CIS-03: consignment notes reject a pasted payment card number', SERIAL
   });
   assert.equal(doc.status, 'signed');
 });
+
+test('NFR-CIS-03: consignment SITE notes reject a pasted payment card number (create + update)', SERIAL, async () => {
+  const actor = await createAdminActor();
+  const fixture = await createConsignmentAccountFixture('pci-site');
+
+  // A PAN in the site-level notes on create is refused, not persisted.
+  await assert.rejects(
+    () =>
+      service.createConsignmentSite(actor, {
+        accountId: fixture.account.id,
+        locationId: fixture.location.id,
+        name: 'PCI guard site notes',
+        notes: 'Customer card 4111 1111 1111 1111',
+      }),
+    /payment card data/i,
+  );
+
+  // A clean site is created, then a PAN in the update notes is refused too.
+  const site = await service.createConsignmentSite(actor, {
+    accountId: fixture.account.id,
+    locationId: fixture.location.id,
+    name: 'PCI guard site notes',
+    notes: 'Standard onboarding note.',
+  });
+  await assert.rejects(
+    () => service.updateConsignmentSite(actor, site.id, { notes: 'Card on file 4111 1111 1111 1111' }),
+    /payment card data/i,
+  );
+
+  // A normal site note still persists on update.
+  const updated = await service.updateConsignmentSite(actor, site.id, { notes: 'Reviewed during the Q2 site visit.' });
+  assert.equal(updated.notes, 'Reviewed during the Q2 site visit.');
+});

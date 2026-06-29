@@ -1,0 +1,149 @@
+[
+  {
+    "module": "Auth & Session",
+    "check": "Login (web UI) as SUPER_ADMIN",
+    "status": "PASS",
+    "reason": "Logged in, redirected to app",
+    "evidence": "/leads"
+  },
+  {
+    "module": "Leads",
+    "check": "Leads: list renders rows",
+    "status": "PASS",
+    "reason": "104 lead rows/links present",
+    "evidence": "/leads"
+  },
+  {
+    "module": "Leads",
+    "check": "Web page renders: /leads",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Lead\",\"QA-HVAC\"]",
+    "evidence": "/leads -> /leads (20210 chars)"
+  },
+  {
+    "module": "Accounts & Customers",
+    "check": "Web page renders: /customers",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Account\",\"Pulse\"]",
+    "evidence": "/customers -> /customers (1953 chars)"
+  },
+  {
+    "module": "Reporting & Dashboards",
+    "check": "Reports: dashboard Export control present (CSV/Excel/PDF)",
+    "status": "PASS",
+    "reason": "Export button rendered on dashboard",
+    "evidence": "/reports"
+  },
+  {
+    "module": "Reporting & Dashboards",
+    "check": "Web page renders: /reports",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Reports\",\"Export\"]",
+    "evidence": "/reports -> /reports (1351 chars)"
+  },
+  {
+    "module": "Notifications",
+    "check": "Web page renders: /notifications",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Notifications\"]",
+    "evidence": "/notifications -> /notifications (76 chars)"
+  },
+  {
+    "module": "Notifications — Routing (settings)",
+    "check": "Web page renders: /settings/notifications/routing",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Recipient\"]",
+    "evidence": "/settings/notifications/routing -> /settings/notifications/routing (366 chars)"
+  },
+  {
+    "module": "Notifications — Preferences (settings)",
+    "check": "Web page renders: /settings/notifications",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Notification preferences\"]",
+    "evidence": "/settings/notifications -> /settings/notifications (524 chars)"
+  },
+  {
+    "module": "Consignment",
+    "check": "Web page renders: /consignment",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Consignment\",\"Pulse\"]",
+    "evidence": "/consignment -> /consignment (2081 chars)"
+  },
+  {
+    "module": "Training",
+    "check": "Web page renders: /training",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Training\",\"Pulse\"]",
+    "evidence": "/training -> /training (874 chars)"
+  },
+  {
+    "module": "Territory",
+    "check": "Web page renders: /territories",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Territor\",\"Pulse\"]",
+    "evidence": "/territories -> /territories (2294 chars)"
+  },
+  {
+    "module": "Territory — Map",
+    "check": "Web page renders: /territory_map",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Pulse\"]",
+    "evidence": "/territory_map -> /territory_map (2561 chars)"
+  },
+  {
+    "module": "Calendar",
+    "check": "Web page renders: /calendar",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Calendar\",\"Pulse\"]",
+    "evidence": "/calendar -> /calendar (958 chars)"
+  },
+  {
+    "module": "Product Management & Catalog",
+    "check": "Web page renders: /product-management",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Product\",\"Pulse\"]",
+    "evidence": "/product-management -> /product-management (1556 chars)"
+  },
+  {
+    "module": "Digital Assets (DAM)",
+    "check": "Web page renders: /digital-assets",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Digital Assets\",\"Library\"]",
+    "evidence": "/digital-assets -> /digital-assets (1402 chars)"
+  },
+  {
+    "module": "Digital Assets — Migration",
+    "check": "Web page renders: /digital-assets?tab=migration",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Migration Review\",\"Widen\"]",
+    "evidence": "/digital-assets?tab=migration -> /digital-assets?tab=migration (831 chars)"
+  },
+  {
+    "module": "Admin — Users",
+    "check": "Web page renders: /admin/users",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"User\",\"Pulse\"]",
+    "evidence": "/admin/users -> /admin/users (1664 chars)"
+  },
+  {
+    "module": "Admin — Roles",
+    "check": "Web page renders: /admin/roles",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Role\",\"Pulse\"]",
+    "evidence": "/admin/roles -> /admin/roles (4881 chars)"
+  },
+  {
+    "module": "Admin — Integrations",
+    "check": "Web page renders: /admin/integrations",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Integration\",\"Pulse\"]",
+    "evidence": "/admin/integrations -> /admin/integrations (3519 chars)"
+  },
+  {
+    "module": "Dealer Portal & Ordering",
+    "check": "Web page renders: /dealer/login",
+    "status": "PASS",
+    "reason": "Rendered correctly; saw [\"Dealer\",\"Sign\"]",
+    "evidence": "/dealer/login -> /dealer/login (251 chars)"
+  }
+]

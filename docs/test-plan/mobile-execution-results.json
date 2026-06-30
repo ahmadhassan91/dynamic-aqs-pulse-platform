@@ -1,0 +1,82 @@
+{
+ "executed": [
+  {
+   "module": "AUTH",
+   "screen": "Login (TERRITORY_MANAGER)",
+   "result": "PASS",
+   "evidence": "Email/Password login -> landed on Today; user \"QA TerritoryManager \u00b7 TERRITORY MANAGER\"",
+   "screenshot": "exec-00-today.png"
+  },
+  {
+   "module": "Today Home & Field Orientation",
+   "screen": "Today home",
+   "result": "PASS",
+   "evidence": "Single ranked Start-here card \"Complete ROSE audit\" (FR-MOB-002), day agenda \"Tue 30 Jun\", live user context",
+   "screenshot": "exec-00-today.png"
+  },
+  {
+   "module": "Route-Builder",
+   "screen": "Route Plan / Route-builder",
+   "result": "PASS",
+   "evidence": "STOPS/DONE tiles, Add stops / Optimize order / Load suggested / Save controls, empty-state; traffic-opt correctly parked",
+   "screenshot": "exec-01-route.png"
+  },
+  {
+   "module": "Route Plan & Visit Execution",
+   "screen": "Field Map",
+   "result": "PASS",
+   "evidence": "MapLibre US map renders, status-filter legend (Active/Member/Consignment/...), \"approximate positions\" guidance",
+   "screenshot": "exec-02-map.png"
+  },
+  {
+   "module": "Calendar",
+   "screen": "Calendar",
+   "result": "PASS",
+   "evidence": "June 2026 month grid (today=30), \"Outlook not connected\" (email channel correctly parked)",
+   "screenshot": "exec-03-calendar.png"
+  },
+  {
+   "module": "ROSE Consignment Audit",
+   "screen": "Consignment / ROSE",
+   "result": "PASS",
+   "evidence": "DUE SITES=1 / WORK=1; real audit \"UAT Nexstar Comfort \u00b7 QA-TM-Owned S1 \u00b7 Next ROSE 27 Sep 2026 \u00b7 TM QA TerritoryManager \u00b7 QA-WH-S1\"",
+   "screenshot": "exec-04-consign.png"
+  },
+  {
+   "module": "Navigation Contract",
+   "screen": "More (field assistant)",
+   "result": "PASS",
+   "evidence": "High-contrast toggle (light/dark), Voice notes / Review card OCR / Sync status entry points",
+   "screenshot": "exec-05-more.png"
+  },
+  {
+   "module": "Navigation Contract",
+   "screen": "Tab navigation (6 tabs)",
+   "result": "PASS",
+   "evidence": "Today/Route/Map/Calendar/More/Consign all switch and render correctly",
+   "screenshot": "exec-06-today-back.png"
+  },
+  {
+   "module": "Notifications",
+   "screen": "Notifications",
+   "result": "PASS",
+   "evidence": "Ranked field-signals list: top action \"Complete ROSE audit\" + \"Review consignment work\" (1 item)",
+   "screenshot": "exec-07-notifications.png"
+  },
+  {
+   "module": "Field Capture \u2014 Voice Note",
+   "screen": "Voice Notes capture",
+   "result": "PASS",
+   "evidence": "Record UI: mic button, 0:00 timer, Record/Clear, CRM-context; background upload/push reminders correctly parked",
+   "screenshot": "exec-10-voice-notes.png"
+  }
+ ],
+ "defects": [
+  {
+   "id": "MOB-CRASH-001",
+   "severity": "HIGH",
+   "status": "FIXED (209b926)",
+   "detail": "iOS app red-boxed on EVERY launch (Debug AND Release): \"Cannot read property useState of null\" at app/_layout.tsx:12 (useFonts in RootLayout). Root cause: apps/mobile had no metro.config.js, so in the pnpm monorepo Metro double-instantiated React (null hooks dispatcher). Fixed by adding the monorepo Metro config (realpath React redirect). After the fix the app launches and every screen above renders."
+  }
+ ]
+}
